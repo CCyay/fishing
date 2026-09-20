@@ -1,0 +1,269 @@
+<template>
+  <view class="page">
+    <text class="page-title">选择存档</text>
+    <text class="page-desc">存档记录金钱、战绩、拥有的卡牌与当前牌组</text>
+
+    <view class="slots">
+      <view
+        v-for="slot in slots"
+        :key="slot.index"
+        class="slot"
+        :class="{ 'slot-current': slot.index == activeIndex }">
+        <view class="slot-head">
+          <text class="slot-name">{{ slot.data.exists ? slot.data.label : '空存档' }}</text>
+          <text v-if="slot.index == activeIndex" class="slot-badge">使用中</text>
+        </view>
+
+        <view v-if="slot.data.exists" class="slot-info">
+          <text class="slot-text">兑换券 {{ ticketsOfSlot(slot) }}</text>
+          <text class="slot-text"
+            >战绩 {{ slot.data.win }}/{{ slot.data.lose }}/{{ slot.data.push }}</text
+          >
+          <text class="slot-text">通关 {{ slot.data.cleared }}</text>
+          <text class="slot-text">已贴 {{ stuckOf(slot) }} · 存货 {{ ownedOf(slot) }} 张</text>
+        </view>
+        <text v-else class="slot-empty">槽位 {{ slot.index }} 尚未创建</text>
+
+        <view class="slot-actions">
+          <view
+            v-if="slot.data.exists"
+            class="slot-btn slot-btn-primary"
+            @click="useSlot(slot.index)">
+            <text class="slot-btn-text slot-btn-text-dark">使用</text>
+          </view>
+          <view v-else class="slot-btn slot-btn-primary" @click="createSlot(slot.index)">
+            <text class="slot-btn-text slot-btn-text-dark">新建</text>
+          </view>
+          <view
+            v-if="slot.data.exists"
+            class="slot-btn slot-btn-danger"
+            @click="removeSlot(slot.index)">
+            <text class="slot-btn-text">删除</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view id="bj-saves-back" class="back-btn" @click="goBack">
+      <text class="back-text">返回</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import { countStuck } from '@/pages/examples/blackjack/cards.uts'
+  import {
+    SaveData,
+    SLOT_COUNT,
+    loadSave,
+    newSave,
+    writeSave,
+    clearSave,
+    currentSlot,
+    setCurrentSlot,
+    sumOf
+  } from '@/pages/examples/blackjack/save.uts'
+
+  type Slot = {
+    index : number
+    data : SaveData
+  }
+
+  const slots = ref<Slot[]>([] as Slot[])
+  const activeIndex = ref<number>(1)
+
+  // 手里各种稀有度的券加起来
+  function ticketsOfSlot(slot : Slot) : number {
+    return sumOf(slot.data.tickets)
+  }
+
+  // 已经贴到牌组上的贴纸张数
+  function stuckOf(slot : Slot) : number {
+    return countStuck(slot.data.stuck)
+  }
+
+  // 手里还没贴出去的贴纸张数
+  function ownedOf(slot : Slot) : number {
+    return sumOf(slot.data.stickersOwned)
+  }
+
+  function refresh() {
+    activeIndex.value = currentSlot()
+    const list : Slot[] = []
+    for (let i = 1; i <= SLOT_COUNT; i++) {
+      const slot : Slot = {
+        index: i,
+        data: loadSave(i)
+      }
+      list.push(slot)
+    }
+    slots.value = list
+  }
+
+  function useSlot(index : number) {
+    setCurrentSlot(index)
+    refresh()
+    uni.showToast({
+      icon: 'none',
+      title: '已切换到存档 ' + index
+    })
+  }
+
+  function createSlot(index : number) {
+    const data = newSave('存档 ' + index)
+    writeSave(index, data)
+    setCurrentSlot(index)
+    refresh()
+    uni.showToast({
+      icon: 'none',
+      title: '已创建存档 ' + index
+    })
+  }
+
+  function removeSlot(index : number) {
+    uni.showModal({
+      title: '删除存档',
+      content: '存档 ' + index + ' 的金钱、卡牌与战绩都会清空，确定删除？',
+      success: (res) => {
+        if (res.confirm) {
+          clearSave(index)
+          refresh()
+        }
+      }
+    })
+  }
+
+  function goBack() {
+    uni.navigateBack()
+  }
+
+  onShow(() => {
+    refresh()
+  })
+
+  refresh()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 14px;
+    background-color: #0b5d3b;
+  }
+
+  .page-title {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: bold;
+  }
+
+  .page-desc {
+    color: #9fd9bd;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .slots {
+    flex: 1;
+    margin-top: 10px;
+  }
+
+  .slot {
+    background-color: #084730;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-top: 10px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #084730;
+  }
+
+  .slot-current {
+    border-color: #e8b23a;
+  }
+
+  .slot-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .slot-name {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .slot-badge {
+    color: #e8b23a;
+    font-size: 12px;
+  }
+
+  .slot-info {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .slot-text {
+    color: #cfeade;
+    font-size: 12px;
+    margin-right: 12px;
+  }
+
+  .slot-empty {
+    color: #8fc7ab;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .slot-actions {
+    flex-direction: row;
+    margin-top: 8px;
+  }
+
+  .slot-btn {
+    height: 32px;
+    border-radius: 16px;
+    padding: 0 18px;
+    margin-right: 10px;
+    align-items: center;
+    justify-content: center;
+    background-color: #0e6b45;
+  }
+
+  .slot-btn-primary {
+    background-color: #e8b23a;
+  }
+
+  .slot-btn-danger {
+    background-color: #8c2f2a;
+  }
+
+  .slot-btn-text {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .slot-btn-text-dark {
+    color: #3b2a00;
+  }
+
+  .back-btn {
+    height: 44px;
+    border-radius: 22px;
+    align-items: center;
+    justify-content: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .back-text {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+  }
+</style>

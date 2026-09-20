@@ -1,0 +1,230 @@
+<template>
+  <view class="page">
+    <view class="hero">
+      <text class="hero-title">42</text>
+      <text class="hero-subtitle">出牌对战 · 先到 42 点者胜</text>
+    </view>
+
+    <!-- 当前存档摘要 -->
+    <view class="save-card">
+      <view class="save-row">
+        <text class="save-label">当前存档</text>
+        <text id="bj-home-slot" class="save-name">{{ slotLabel }}</text>
+      </view>
+      <view class="save-row">
+        <text class="save-label">兑换券（普/稀/史/传）</text>
+        <text id="bj-home-tickets" class="save-value">{{ ticketText }}</text>
+      </view>
+      <view class="save-row">
+        <text class="save-label">战绩（胜/负/和）</text>
+        <text id="bj-home-record" class="save-value"
+          >{{ save.win }}/{{ save.lose }}/{{ save.push }}</text
+        >
+      </view>
+      <view class="save-row">
+        <text class="save-label">通关 / 牌组贴纸</text>
+        <text id="bj-home-deck" class="save-value"
+          >{{ save.cleared }}/{{ LEVEL_COUNT }} · {{ stuckCount }} 张</text
+        >
+      </view>
+    </view>
+
+    <!-- 功能按钮 -->
+    <view class="menu">
+      <view id="bj-enter-game" class="menu-btn menu-btn-primary" @click="enterGame">
+        <text class="menu-btn-text menu-btn-text-dark">进入游戏</text>
+      </view>
+      <view id="bj-choose-save" class="menu-btn" @click="chooseSave">
+        <text class="menu-btn-text">选择存档</text>
+      </view>
+      <view id="bj-edit-deck" class="menu-btn" @click="editDeck">
+        <text class="menu-btn-text">编辑牌组</text>
+      </view>
+      <view id="bj-shop" class="menu-btn" @click="goShop">
+        <text class="menu-btn-text">商店</text>
+      </view>
+    </view>
+
+    <view class="footer">
+      <text id="bj-home-back" class="footer-link" @click="goExamples">返回示例列表</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import { countStuck } from '@/pages/examples/blackjack/cards.uts'
+  import {
+    SaveData,
+    currentSlot,
+    loadCurrentSave,
+    emptySave
+  } from '@/pages/examples/blackjack/save.uts'
+  import { LEVEL_COUNT } from '@/pages/examples/blackjack/levels.uts'
+
+  const save = ref<SaveData>(emptySave())
+  const slotIndex = ref<number>(1)
+
+  const slotLabel = computed<string>(() : string => {
+    if (save.value.label == '') {
+      return '存档 ' + slotIndex.value
+    }
+    return save.value.label
+  })
+
+  const stuckCount = computed<number>(() : number => {
+    return countStuck(save.value.stuck)
+  })
+
+  // 四种稀有度的券，按普通/稀有/史诗/传说的顺序排一行
+  const ticketText = computed<string>(() : string => {
+    let text = ''
+    for (let i = 0; i < save.value.tickets.length; i++) {
+      if (i > 0) {
+        text = text + '/'
+      }
+      text = text + save.value.tickets[i]
+    }
+    return text
+  })
+
+  function refresh() {
+    slotIndex.value = currentSlot()
+    save.value = loadCurrentSave()
+  }
+
+  function enterGame() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/levels'
+    })
+  }
+
+  function chooseSave() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/saves'
+    })
+  }
+
+  function editDeck() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/deck-editor'
+    })
+  }
+
+  function goShop() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/shop'
+    })
+  }
+
+  function goExamples() {
+    uni.navigateTo({
+      url: '/pages/index/index'
+    })
+  }
+
+  // 从其他页面返回时都要刷新摘要
+  onShow(() => {
+    refresh()
+  })
+
+  refresh()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 16px;
+    background-color: #0b5d3b;
+  }
+
+  .hero {
+    align-items: center;
+    margin-top: 14px;
+  }
+
+  .hero-title {
+    color: #e8b23a;
+    font-size: 44px;
+    font-weight: bold;
+  }
+
+  .hero-subtitle {
+    color: #9fd9bd;
+    font-size: 13px;
+    margin-top: 2px;
+  }
+
+  /* 当前存档摘要 */
+  .save-card {
+    margin-top: 16px;
+    background-color: #084730;
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+
+  .save-row {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 4px;
+  }
+
+  .save-label {
+    color: #9fd9bd;
+    font-size: 13px;
+  }
+
+  .save-name {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  .save-value {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  /* 功能按钮 */
+  .menu {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .menu-btn {
+    height: 46px;
+    border-radius: 23px;
+    margin-top: 10px;
+    align-items: center;
+    justify-content: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .menu-btn-primary {
+    background-color: #e8b23a;
+  }
+
+  .menu-btn-text {
+    color: #e8b23a;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .menu-btn-text-dark {
+    color: #3b2a00;
+  }
+
+  .footer {
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .footer-link {
+    color: #e8b23a;
+    font-size: 12px;
+  }
+</style>

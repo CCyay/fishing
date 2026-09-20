@@ -1,0 +1,15 @@
+<template>
+	<view>{{ result }}</view>
+</template>
+
+<script setup>
+const result = ref('')
+
+const foo = (): string => {
+	result.value = 'custom foo'
+	return result.value
+}
+defineExpose({
+	foo
+})
+</script>

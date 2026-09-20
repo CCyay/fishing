@@ -1,0 +1,44 @@
+<template>
+	<view>
+		<text>should not be keep-alive</text>
+		<text class="mt-10 should-exclude-text">count: {{ count }}</text>
+		<button class="mt-10 should-exclude-btn" @click="increment">+</button>
+	</view>
+</template>
+// android 改为组合式式 API 之后，组件的生命周期函数 activated 和 deactivated 不触发
+// #ifdef APP-ANDROID
+<script lang="uts">
+	export default {
+		name: 'ShouldExclude',
+		data() {
+			return {
+				count: 0
+			}
+		},
+		methods: {
+			increment() {
+				this.count++
+			}
+		}
+	}
+</script>
+// #endif
+// #ifndef APP-ANDROID
+<script setup lang="uts">
+const	count = ref(0)
+
+const increment = () => {
+	count.value++
+}
+</script>
+// #endif
+
+<style>
+	.should-exclude-btn{
+		height: 40px;
+		line-height: 40px;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		text-align: center;
+	}
+</style>

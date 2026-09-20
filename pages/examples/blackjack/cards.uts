@@ -1,0 +1,384 @@
+// 牌与牌组。牌组固定 52 张：A-K 每种 4 张，不可变。
+// A 可以当 1 也可以当 11、2-10 按面值、J/Q/K 都是 10。
+// 点数从不在打出的当下定死：每张牌给出一组候选点数，结算时挑最有利的组合。
+// 贴了贴纸的牌变成特殊牌，牌组张数不变。
+
+import {
+  STICKER_COUNT,
+  S_NONE,
+  S_LUCKY,
+  S_BLESSED,
+  S_PILE,
+  S_EBB,
+  S_TWIN,
+  S_BROKEN,
+  S_COMPARE,
+  S_ODDS,
+  S_EVENS,
+  keyAtIndex
+} from '@/pages/examples/blackjack/stickers.uts'
+
+export const SUITS : string[] = ['♠', '♥', '♦', '♣']
+export const RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
+// A 存基础值 1，算 11 的情况在出牌时单独处理
+export const RANK_VALUES : number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10]
+
+export const DECK_SIZE : number = 52
+// 目标点数
+export const GOAL : number = 42
+// 手牌张数：每人固定保持这么多张，多的弃掉、少的立刻补
+export const HAND_SIZE : number = 3
+
+export type Card = {
+  suit : string
+  rank : string
+  value : number
+  // 贴的贴纸 key，空串表示没贴贴纸的普通牌
+  stickerKey : string
+  // 打到桌上以后有没有被横置（横置过就发动不了第二次，除非用「鼓舞」重置）
+  tapped : boolean
+  // 基础点数被「蝴蝶」改写成了几点，-1 表示没被改过。
+  // 改的只是基础点数，这张牌自己的贴纸效果照常生效
+  forced : number
+  // 盖着的暗牌：高关卡的庄家会盖几张，你看不到牌面也算不到点数，
+  // 结算时才翻开。牌一旦转到对方桌上就翻明
+  faceDown : boolean
+  // 被强制翻成负数：所有候选点数一律取反，没得选。
+  // 破碎系里「对着别人用」的那几张干的就是这个
+  negated : boolean
+  // 别的牌转嫁过来的点数，直接加在最终点数上。
+  // 不写进 forced 是因为 forced 是「改写基础点数」，会被蝴蝶再改一次冲掉；
+  // 这是纯加法，跟基础点数怎么变没关系
+  extra : number
+  // 化形塞进来的一个额外候选点数，-1 表示没有。
+  // 它是第 3 层的东西 —— 跟 A 的 11、双生的 11 减并列，是「还能算成几点」，
+  // 不是 extra 那种无条件加上去的分
+  altValue : number
+}
+
+// 贴纸矩阵按「行 = 数字，列 = 贴纸」展开成一维，长度 13 × 贴纸种类数。
+// 列用的是 STICKERS 里的下标，不是 key —— 矩阵要定长，下标最省事；
+// 存档时再换算回 key，那边才需要稳定的标识
+export function stickerIndex(rankIndex : number, stickerSlot : number) : number {
+  return rankIndex * STICKER_COUNT + stickerSlot
+}
+
+export function emptyStickers() : number[] {
+  const list : number[] = []
+  for (let i = 0; i < RANKS.length * STICKER_COUNT; i++) {
+    list.push(0)
+  }
+  return list
+}
+
+// 某个数字身上已经贴了哪些贴纸
+export function stickersOfRank(stuck : number[], rankIndex : number) : number[] {
+  const ids : number[] = []
+  for (let s = 0; s < STICKER_COUNT; s++) {
+    const at = stickerIndex(rankIndex, s)
+    if (at < stuck.length && stuck[at] > 0) {
+      ids.push(s)
+    }
+  }
+  return ids
+}
+
+export function isRedSuit(suit : string) : boolean {
+  return suit == '♥' || suit == '♦'
+}
+
+// A 是软牌，打出时可以选择算 1 还是算 11
+export const ACE_HIGH : number = 11
+
+export function isAce(card : Card) : boolean {
+  return card.rank == 'A'
+}
+
+export function isSpecial(card : Card) : boolean {
+  return card.stickerKey != S_NONE
+}
+
+function shuffle(cards : Card[]) {
+  // Fisher-Yates 洗牌
+  for (let i = cards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = cards[i]
+    cards[i] = cards[j]
+    cards[j] = tmp
+  }
+}
+
+// 固定 52 张，按贴纸矩阵给对应数字的牌依次贴上（同数字的贴纸分给不同花色）
+export function buildDeck(stuck : number[]) : Card[] {
+  const result : Card[] = []
+  for (let r = 0; r < RANKS.length; r++) {
+    const slots = stickersOfRank(stuck, r)
+    for (let k = 0; k < SUITS.length; k++) {
+      const card : Card = {
+        suit: SUITS[k],
+        rank: RANKS[r],
+        value: RANK_VALUES[r],
+        stickerKey: k < slots.length ? keyAtIndex(slots[k]) : S_NONE,
+        tapped: false,
+        forced: -1,
+        faceDown: false,
+        negated: false,
+        extra: 0,
+        altValue: -1
+      }
+      result.push(card)
+    }
+  }
+  shuffle(result)
+  return result
+}
+
+export function cloneCard(origin : Card) : Card {
+  const card : Card = {
+    suit: origin.suit,
+    rank: origin.rank,
+    value: origin.value,
+    stickerKey: origin.stickerKey,
+    tapped: origin.tapped,
+    forced: origin.forced,
+    faceDown: origin.faceDown,
+    negated: origin.negated,
+    extra: origin.extra,
+    altValue: origin.altValue
+  }
+  return card
+}
+
+// 只算摊开的牌能凑出多少点。盖着的牌你看不见，也就算不进来
+export function openTotal(board : Card[]) : number {
+  const open : Card[] = []
+  for (let i = 0; i < board.length; i++) {
+    if (!board[i].faceDown) {
+      open.push(board[i])
+    }
+  }
+  return bestTotal(open)
+}
+
+export function countFaceDown(board : Card[]) : number {
+  let total = 0
+  for (let i = 0; i < board.length; i++) {
+    if (board[i].faceDown) {
+      total = total + 1
+    }
+  }
+  return total
+}
+
+// 这张牌现在按几点算（用于展示和 AI 粗算，真正的总分看 bestTotal）
+export function shownValue(card : Card) : number {
+  if (card.forced >= 0) {
+    return card.forced
+  }
+  return card.value
+}
+
+// 比大小、看奇偶时算的点数：牌面点数加上转嫁、吞并堆上来的加成。
+// 加成要算进来 —— 一张吞到 20 点的牌，在削峰眼里就得是 20 点的牌，
+// 不然「把大的扫掉」会漏掉场上最大的那张。
+// 这不会像较劲那样绕回来：extra 是死数，不用反过来看邻居
+export function worthOf(card : Card) : number {
+  return shownValue(card) + card.extra
+}
+
+// 拿来跟别的牌比大小时用的点数，被翻负的牌要按负数比
+export function effectiveValue(card : Card) : number {
+  const v = worthOf(card)
+  return card.negated ? -v : v
+}
+
+// 看桌面才算得出来的那几张永续贴纸，给这张牌加多少点。
+// 一律拿基础点数比 —— 要是拿最终点数比，两张牌互相算对方就绕不出来了
+function contextBonus(card : Card, board : Card[], at : number) : number {
+  if (card.stickerKey == S_COMPARE) {
+    // 较劲：比左边那张大就 +2，不大就 −2。左边没牌就不算
+    if (at <= 0 || at > board.length - 1) {
+      return 0
+    }
+    return worthOf(card) > worthOf(board[at - 1]) ? 2 : -2
+  }
+  if (card.stickerKey == S_PILE || card.stickerKey == S_EBB) {
+    // 垒石 / 退潮：数左边有几张牌，一个加一个减。
+    // 越晚打出来加减得越狠，所以这两张都是「攒着等位置」的牌
+    const left = at > board.length ? board.length : at
+    return card.stickerKey == S_PILE ? left : -left * 2
+  }
+  if (card.stickerKey == S_ODDS || card.stickerKey == S_EVENS) {
+    // 奇缘 / 偶合：数桌上有几张奇数（或偶数）牌，自己不算在内。
+    // 数的是绝对的奇偶，不看自己是奇是偶 —— 所以贴在哪张牌上不影响它怎么数，
+    // 影响的是你要往牌组里堆奇数还是堆偶数
+    const wantOdd = card.stickerKey == S_ODDS
+    let hit = 0
+    for (let i = 0; i < board.length; i++) {
+      if (i == at) {
+        continue
+      }
+      const odd = worthOf(board[i]) % 2 != 0
+      if (odd == wantOdd) {
+        hit = hit + 1
+      }
+    }
+    return hit
+  }
+  return 0
+}
+
+// 这张牌打到桌上能算多少点，列出所有候选值。
+// 总点数不在打出的当下定死，每次结算都从这些候选里挑最有利的组合。
+//
+// 点数分四层，顺序不能乱：
+//   1 基础点数 —— 牌面点数（A=1、JQK=10），蝴蝶、拟态改的就是这一层
+//   2 场上加减 —— 较劲、奇缘、偶合、垒石、退潮，看桌面算出来的一个定值，
+//                 减到 0 为止，把牌压成负数是破碎的活
+//   3 替代点数 —— 这张牌本身还能算成几点：A 的 11、双生的 11 减、
+//                 幸运 ±1、福星 ±2、破碎的取负。强制翻负也翻在这一层
+//   4 额外点数 —— 转嫁、吞并堆上来的 extra，最后加，不参与上面任何派生
+//
+// 第 4 层单独放在最后是有意的：extra 是「贴在牌上的分」，不是这张牌自己的点数。
+// 所以双生的 11 减不会把它减成负的，破碎和强制翻负也翻不掉它 ——
+// 堆上去的分只有转嫁能再搬走。
+//
+// board / at 是它在谁的桌上、排第几 —— 第 2 层要看邻居才算得出来。
+export function valueOptions(card : Card, board : Card[], at : number) : number[] {
+  const base : number[] = []
+  if (card.forced >= 0) {
+    base.push(card.forced)
+  } else {
+    base.push(card.value)
+    if (card.rank == 'A') {
+      base.push(ACE_HIGH)
+    }
+  }
+
+  const bonus = contextBonus(card, board, at)
+
+  const out : number[] = []
+  for (let i = 0; i < base.length; i++) {
+    let v = base[i] + bonus
+    if (v < 0) {
+      v = 0
+    }
+
+    // 第 3 层：这张牌本身能算成的几个数
+    const alts : number[] = []
+    alts.push(v)
+    if (card.stickerKey == S_LUCKY) {
+      // 幸运：加 1 或减 1
+      alts.push(v - 1)
+      alts.push(v + 1)
+    } else if (card.stickerKey == S_BLESSED) {
+      // 福星：幸运的放大版，上下各让两点
+      alts.push(v - 2)
+      alts.push(v - 1)
+      alts.push(v + 1)
+      alts.push(v + 2)
+    } else if (card.stickerKey == S_TWIN) {
+      // 双生：视为 11 减去它
+      alts.push(11 - v)
+    }
+    // 破碎：可以按负数算，但不强制，结算时挑有利的那个
+    if (card.stickerKey == S_BROKEN) {
+      alts.push(-v)
+    }
+    // 化形塞进来的那个数，跟上面几个并列当候选 ——
+    // 它不受场上加减影响，是原样按那个数算
+    if (card.altValue >= 0) {
+      alts.push(card.altValue)
+    }
+
+    // 第 4 层：强制翻负只翻这张牌自己那几个数，翻完再加 extra。
+    // 破碎牌不吃翻负这一招 —— 它的候选正负成对，取反还是同一组
+    for (let k = 0; k < alts.length; k++) {
+      const one = card.negated ? -alts[k] : alts[k]
+      out.push(one + card.extra)
+    }
+  }
+  return out
+}
+
+// 桌上这些牌能凑出的最好成绩：每张牌各选一个候选点数，
+// 在所有组合里挑不超过 GOAL 的最大和；全都超过就返回最小的那个（少爆一点）。
+// 逐张递推「哪些和是可达的」，避免组合爆炸。
+export function bestTotal(board : Card[]) : number {
+  if (board.length == 0) {
+    return 0
+  }
+  // 单张牌的候选点数绝对值不会超过 16，按张数留够两边的空间
+  const span = 16 * board.length + 4
+  const size = span * 2 + 1
+
+  let reach : boolean[] = []
+  for (let i = 0; i < size; i++) {
+    reach.push(false)
+  }
+  // 下标 span 代表和为 0
+  reach[span] = true
+
+  for (let i = 0; i < board.length; i++) {
+    const opts = valueOptions(board[i], board, i)
+    const next : boolean[] = []
+    for (let k = 0; k < size; k++) {
+      next.push(false)
+    }
+    for (let k = 0; k < size; k++) {
+      if (!reach[k]) {
+        continue
+      }
+      for (let o = 0; o < opts.length; o++) {
+        const at = k + opts[o]
+        if (at >= 0 && at < size) {
+          next[at] = true
+        }
+      }
+    }
+    reach = next
+  }
+
+  let best = 0
+  let found = false
+  let least = 0
+  let hasLeast = false
+  for (let k = 0; k < size; k++) {
+    if (!reach[k]) {
+      continue
+    }
+    const value = k - span
+    if (!hasLeast) {
+      least = value
+      hasLeast = true
+    }
+    if (value <= GOAL && (!found || value > best)) {
+      best = value
+      found = true
+    }
+  }
+  if (found) {
+    return best
+  }
+  return least
+}
+
+// 这种贴纸已经贴在几个数字上了（一张贴纸占一个数字）
+export function countStuckOf(stuck : number[], id : number) : number {
+  let total = 0
+  for (let r = 0; r < RANKS.length; r++) {
+    const at = stickerIndex(r, id)
+    if (at < stuck.length && stuck[at] > 0) {
+      total = total + 1
+    }
+  }
+  return total
+}
+
+export function countStuck(stuck : number[]) : number {
+  let total = 0
+  for (let i = 0; i < stuck.length; i++) {
+    total = total + stuck[i]
+  }
+  return total
+}

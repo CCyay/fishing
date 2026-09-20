@@ -1,0 +1,16 @@
+<template>
+  <!-- #ifdef APP && !VUE3-VAPOR -->
+  <scroll-view style="flex: 1">
+  <!-- #endif -->
+  <!-- #ifdef APP && !VUE3-VAPOR -->
+  </scroll-view>
+  <!-- #endif -->
+</template>
+
+<script setup lang='uts'>
+  // 仅引用类型，模板中不使用，也要保证不报错
+  let testType: TestTypeComponentPublicInstance | null = null;
+  onLoad(() => {
+    console.log('testType', testType)
+  })
+</script>

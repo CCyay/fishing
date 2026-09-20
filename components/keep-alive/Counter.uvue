@@ -1,0 +1,56 @@
+<template>
+	<view>
+		<text class="counter-text">count: {{ count }}</text>
+		<button class="mt-10 counter-btn" @click="increment">+</button>
+		<text class="mt-10" id="activated-num">activated num: {{ activatedNum }}</text>
+		<text class="mt-10" id="deactivated-num">deactivated num: {{ deactivatedNum }}</text>
+	</view>
+</template>
+
+// android 改为组合式式 API 之后，组件的生命周期函数 activated 和 deactivated 不触发
+// #ifdef APP-ANDROID
+<script lang="uts">
+	export default {
+		name: 'Counter',
+		data() {
+			return {
+				count: 0,
+				activatedNum: 0,
+				deactivatedNum: 0,
+			}
+		},
+		activated() { this.activatedNum++ },
+		deactivated() { this.deactivatedNum++ },
+		methods: {
+			increment() {
+				console.log('this.count: ',this.count);
+				this.count++
+			}
+		}
+	}
+</script>
+// #endif
+// #ifndef APP-ANDROID
+<script setup lang="uts">
+const count = ref(0)
+const activatedNum = ref(0)
+const deactivatedNum = ref(0)
+
+onActivated(() => { activatedNum.value++ })
+onDeactivated(() => { deactivatedNum.value++ })
+
+const increment = () => {
+	count.value++
+}
+</script>
+// #endif
+
+<style>
+	.counter-btn {
+		height: 40px;
+		line-height: 40px;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		text-align: center;
+	}
+</style>

@@ -1,0 +1,250 @@
+// 10 个关卡。难度沿三条线递增：庄家牌组上的贴纸变多、庄家出牌越来越会算、
+// 高关卡还会盖暗牌。
+// 每关的券只发一次。通过之后还能回去重打，但不再给券 ——
+// 全程能拿到的券是固定的，所以每张券花在哪张贴纸上都是不可逆的取舍。
+// 重打的用处是刷成就和试牌组。输了不扣任何东西，可以改完牌组再来。
+
+import { MAX_STICKERS_PER_RANK, indexOfKey } from '@/pages/examples/blackjack/stickers.uts'
+import {
+  RANKS,
+  emptyStickers,
+  stickerIndex,
+  stickersOfRank
+} from '@/pages/examples/blackjack/cards.uts'
+
+export type Level = {
+  index : number
+  name : string
+  // 通关奖励：哪种稀有度的兑换券、给几张。失败什么都不给
+  rewardRarity : number
+  rewardCount : number
+  // 庄家牌组上贴的贴纸总数
+  dealerStickers : number
+  // 庄家牌组上用的贴纸种类，纯粹决定这关难打成什么样
+  dealerStickerKinds : string[]
+  // 通关后解锁到货架上的贴纸。跟庄家用不用无关 ——
+  // 有些贴纸庄家从来不用，照样能靠通关拿到
+  unlockStickers : string[]
+  // 庄家出牌策略：1 随机、2 稳健、3 精算
+  ai : number
+  // 庄家最先打出的几张牌盖着不给你看，结算才翻开。
+  // 低关卡是 0，让你先把规则摸熟；高关卡才开始藏牌
+  dealerHidden : number
+}
+
+export const LEVEL_COUNT : number = 10
+
+// 解锁有两条路：通关（unlockStickers，跟庄家用什么无关）和成就（见 stickers.uts）。
+// 靠成就拿的那几张（双生、奉献、乞讨、鼓舞、蝴蝶、置换、洞察、破碎）不放进通关解锁 ——
+// 想要就得先在牌桌上做出对应的事。两条路都能拿的话成就就白设了。
+//
+// 解锁顺序严格跟着稀有度走，越贵的越靠后：
+//   1-3 关放普通、4-5 关放稀有、6-8 关放史诗、9 关放传说。
+// 发的券也同步跟上，打完就能立刻换上当关解锁的东西 —— 不会出现
+// 「传说早早解锁了，史诗还压在后面」这种倒挂。
+// 第 10 关不解锁任何贴纸，但给第二张传说券 —— 第 9 关一次放出三张传说，
+// 一张券挑不过来，打穿最后一关才配拿到第二张。
+//
+// 全程能拿到：普通 13、稀有 6、史诗 6、传说 2，共 27 张券。
+// 加上白送的 4 张幸运，牌组上最多有 31 张贴纸牌 —— 52 张里占六成。
+// 普通券给得比别的档宽，是因为普通贴纸是地基：单张影响最小，
+// 靠的是贴满同一种（上限 4 张）把抽到的概率堆上来，一张奇缘是运气、
+// 四张奇缘才是流派。13 张正好买满三种还剩一张零头。
+// 这是刻意做高的：贴纸之间的联动（改左邻、换位、扫场）要几张同时在桌上才成得了，
+// 密度太低的话精心搭的组合一局都碰不上一次，构筑就白做了。
+// 高密度不等于高操作量 —— 永续类零交互，立即类里只有会反噬自己的才弹确认。
+const LEVELS : Level[] = [
+  {
+    index: 1,
+    name: '新手桌',
+    rewardRarity: 0,
+    rewardCount: 5,
+    dealerStickers: 2,
+    dealerStickerKinds: ['peek', 'compare', 'cutin'],
+    unlockStickers: ['peek', 'compare', 'cutin'],
+    ai: 1,
+    dealerHidden: 0
+  },
+  {
+    index: 2,
+    name: '街角赌局',
+    rewardRarity: 0,
+    rewardCount: 5,
+    dealerStickers: 4,
+    dealerStickerKinds: ['steal', 'odds', 'step'],
+    unlockStickers: ['backflow', 'steal', 'step', 'odds'],
+    ai: 1,
+    dealerHidden: 0
+  },
+  {
+    index: 3,
+    name: '小镇赌场',
+    rewardRarity: 0,
+    rewardCount: 3,
+    dealerStickers: 6,
+    dealerStickerKinds: ['give', 'step', 'odds', 'evens'],
+    unlockStickers: ['evens', 'pile'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 4,
+    name: '河畔赌船',
+    rewardRarity: 1,
+    rewardCount: 3,
+    dealerStickers: 8,
+    dealerStickerKinds: ['butterfly', 'ruthless', 'ransack', 'sift'],
+    unlockStickers: ['boost', 'ruthless', 'trade', 'ransack', 'sift', 'strip', 'martyr', 'devour'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 5,
+    name: '城市牌室',
+    rewardRarity: 1,
+    rewardCount: 3,
+    dealerStickers: 10,
+    dealerStickerKinds: ['swap', 'purge', 'cull', 'borrow'],
+    unlockStickers: ['purge', 'collapse', 'cull', 'same', 'borrow', 'echo', 'shunt', 'recall'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 6,
+    name: '高额桌',
+    rewardRarity: 2,
+    rewardCount: 2,
+    dealerStickers: 12,
+    dealerStickerKinds: ['twins', 'regret', 'weed', 'blessed'],
+    unlockStickers: ['twins', 'regret', 'weed', 'bias', 'graft', 'morph', 'blessed'],
+    ai: 3,
+    dealerHidden: 0
+  },
+  {
+    index: 7,
+    name: '贵宾厅',
+    rewardRarity: 2,
+    rewardCount: 2,
+    dealerStickers: 14,
+    dealerStickerKinds: ['crouch', 'mimic', 'standby', 'insight'],
+    unlockStickers: ['crouch', 'mimic', 'switch', 'ambush', 'standby', 'ebb'],
+    ai: 3,
+    dealerHidden: 1
+  },
+  {
+    index: 8,
+    name: '地下赌场',
+    rewardRarity: 2,
+    rewardCount: 2,
+    dealerStickers: 16,
+    dealerStickerKinds: ['beg', 'swapside', 'erode', 'behead'],
+    unlockStickers: ['swapside', 'erode', 'gnaw', 'behead', 'frisk', 'purgehand', 'revive'],
+    ai: 3,
+    dealerHidden: 1
+  },
+  {
+    index: 9,
+    name: '大师赛',
+    rewardRarity: 3,
+    rewardCount: 1,
+    dealerStickers: 18,
+    dealerStickerKinds: ['broken', 'gnaw', 'behead', 'frisk', 'purgehand'],
+    // 传说五张，其中两张（破碎、乞讨）靠成就拿。
+    // 这一关放出三张，加上第 10 关给的那张券，全程两张传说券配五张牌
+    unlockStickers: ['calamity', 'reflect', 'seize'],
+    ai: 3,
+    dealerHidden: 2
+  },
+  {
+    index: 10,
+    name: '庄家之王',
+    rewardRarity: 3,
+    rewardCount: 1,
+    dealerStickers: 20,
+    dealerStickerKinds: [
+      'twin',
+      'broken',
+      'beg',
+      'twins',
+      'mimic',
+      'switch',
+      'erode',
+      'behead',
+      'calamity',
+      'purgehand'
+    ],
+    // 最后一关不解锁任何贴纸 —— 通关之后就没地方用了。
+    // 但它给的是第二张传说券：第 9 关一次放出三张传说，一张券根本不够挑，
+    // 打穿最后一关才配拿到第二张
+    unlockStickers: [],
+    ai: 3,
+    dealerHidden: 2
+  }
+]
+
+export function allLevels() : Level[] {
+  return LEVELS
+}
+
+export function levelAt(index : number) : Level {
+  for (let i = 0; i < LEVELS.length; i++) {
+    if (LEVELS[i].index == index) {
+      return LEVELS[i]
+    }
+  }
+  return LEVELS[0]
+}
+
+// 通过的关卡可以回去重打（刷成就、试牌组），只是不再给券
+export function isPlayable(index : number, cleared : number) : boolean {
+  return index <= cleared + 1
+}
+
+export function isCleared(index : number, cleared : number) : boolean {
+  return index <= cleared
+}
+
+// 庄家牌组的贴纸矩阵：只用本关指定的贴纸种类，尽量摊到不同数字上
+export function dealerStuck(level : Level) : number[] {
+  const stuck = emptyStickers()
+  const kinds = level.dealerStickerKinds
+  if (kinds.length == 0) {
+    return stuck
+  }
+  let left = level.dealerStickers
+  let round = 0
+  while (left > 0 && round < MAX_STICKERS_PER_RANK) {
+    for (let r = 0; r < RANKS.length; r++) {
+      if (left <= 0) {
+        break
+      }
+      const slot = indexOfKey(kinds[(r + round) % kinds.length])
+      if (slot < 0) {
+        continue
+      }
+      const at = stickerIndex(r, slot)
+      if (stuck[at] == 0 && stickersOfRank(stuck, r).length < MAX_STICKERS_PER_RANK) {
+        stuck[at] = 1
+        left = left - 1
+      }
+    }
+    round = round + 1
+  }
+  return stuck
+}
+
+export function difficultyText(level : Level) : string {
+  if (level.index <= 2) {
+    return '入门'
+  }
+  if (level.index <= 4) {
+    return '普通'
+  }
+  if (level.index <= 6) {
+    return '困难'
+  }
+  if (level.index <= 8) {
+    return '残酷'
+  }
+  return '地狱'
+}

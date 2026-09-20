@@ -1,0 +1,348 @@
+<template>
+  <view class="page">
+    <!-- 手里各稀有度的兑换券 -->
+    <view id="bj-shop-tickets" class="head">
+      <view v-for="rarity in rarities" :key="rarity.id" class="head-item">
+        <text class="head-label" :style="'color: ' + rarity.color">{{ rarity.name }}券</text>
+        <text :id="'bj-ticket-' + rarity.id" class="head-value">{{ save.tickets[rarity.id] }}</text>
+      </view>
+    </view>
+
+    <!-- 贴纸按稀有度分组，用同稀有度的券兑换 -->
+    <scroll-view class="list">
+      <view v-for="rarity in rarities" :key="'g-' + rarity.id">
+        <view class="group-head">
+          <text class="group-name" :style="'color: ' + rarity.color">{{ rarity.name }}</text>
+          <text class="group-sub"
+            >每种最多 {{ rarity.own }} 张 · 手里 {{ save.tickets[rarity.id] }} 券</text
+          >
+        </view>
+        <view v-for="sticker in shelfOf(rarity.id)" :key="sticker.key" class="row">
+          <view class="row-main">
+            <view class="row-head">
+              <text class="row-name" :style="'color: ' + rarityAt(sticker.rarity).color">{{
+              sticker.name
+            }}</text>
+              <text class="row-own">{{ ownText(sticker) }}</text>
+            </view>
+            <text class="row-desc">{{ rowDesc(sticker) }}</text>
+          </view>
+          <view
+            :id="'bj-buy-sticker-' + sticker.key"
+            class="buy-btn"
+            :class="{ 'buy-btn-off': !redeemable(sticker) }"
+            @click="redeemOne(sticker.key)">
+            <text class="buy-text">{{ buyText(sticker) }}</text>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+
+    <view id="bj-shop-back" class="back-btn" @click="goBack">
+      <text class="back-text">返回</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import {
+    Sticker,
+    Rarity,
+    STICKERS,
+    RARITIES,
+    stickerAt,
+    rarityAt,
+    isStarterSticker,
+    ACHIEVEMENTS
+  } from '@/pages/examples/blackjack/stickers.uts'
+  import { allLevels } from '@/pages/examples/blackjack/levels.uts'
+  import {
+    SaveData,
+    emptySave,
+    loadCurrentSave,
+    saveCurrent,
+    redeemSticker,
+    isShopUnlocked,
+    stickerTotal,
+    stickerLimit,
+    ticketsOf
+  } from '@/pages/examples/blackjack/save.uts'
+
+  const save = ref<SaveData>(emptySave())
+  const rarities = ref<Rarity[]>(RARITIES)
+
+  // 这个稀有度下上架的贴纸。幸运是开局白送的专属贴纸，货架上没有
+  function shelfOf(rarity : number) : Sticker[] {
+    const list : Sticker[] = []
+    for (let i = 0; i < STICKERS.length; i++) {
+      const sticker = STICKERS[i]
+      if (sticker.rarity == rarity && !isStarterSticker(sticker.key)) {
+        list.push(sticker)
+      }
+    }
+    return list
+  }
+
+  function refresh() {
+    save.value = loadCurrentSave()
+  }
+
+  function unlocked(key : string) : boolean {
+    return isShopUnlocked(save.value, key)
+  }
+
+  // 已经有几张 / 最多能有几张
+  function ownText(sticker : Sticker) : string {
+    if (!unlocked(sticker.key)) {
+      return ''
+    }
+    return stickerTotal(save.value, sticker.key) + '/' + stickerLimit(sticker.key)
+  }
+
+  // 解锁了、没到上限、对应稀有度的券也还有，才换得了
+  function redeemable(sticker : Sticker) : boolean {
+    if (!unlocked(sticker.key)) {
+      return false
+    }
+    if (stickerTotal(save.value, sticker.key) >= stickerLimit(sticker.key)) {
+      return false
+    }
+    return ticketsOf(save.value, sticker.rarity) > 0
+  }
+
+  function buyText(sticker : Sticker) : string {
+    if (!unlocked(sticker.key)) {
+      return '未解锁'
+    }
+    if (stickerTotal(save.value, sticker.key) >= stickerLimit(sticker.key)) {
+      return '已满'
+    }
+    if (ticketsOf(save.value, sticker.rarity) <= 0) {
+      return '缺券'
+    }
+    return '兑换'
+  }
+
+  function rowDesc(sticker : Sticker) : string {
+    // 临时：效果全部摊开方便核对。正式版应该恢复成未解锁只给看名字
+    if (!unlocked(sticker.key)) {
+      return sticker.desc + '（未解锁 · ' + howToUnlock(sticker.key) + '）'
+    }
+    return sticker.desc
+  }
+
+  // 这张贴纸要怎么才能解锁：有的靠通关，有的靠成就
+  function howToUnlock(key : string) : string {
+    for (let i = 0; i < ACHIEVEMENTS.length; i++) {
+      if (ACHIEVEMENTS[i].sticker == key) {
+        return '成就「' + ACHIEVEMENTS[i].name + '」：' + ACHIEVEMENTS[i].desc
+      }
+    }
+    const levels = allLevels()
+    for (let i = 0; i < levels.length; i++) {
+      const kinds = levels[i].unlockStickers
+      for (let k = 0; k < kinds.length; k++) {
+        if (kinds[k] == key) {
+          return '通关第 ' + levels[i].index + ' 关'
+        }
+      }
+    }
+    return '暂时拿不到'
+  }
+
+  // 数据改完整体替换一次，保证视图刷新
+  function commit(data : SaveData, tip : string) {
+    saveCurrent(data)
+    const next : SaveData = {
+      exists: data.exists,
+      label: data.label,
+      tickets: data.tickets,
+      win: data.win,
+      lose: data.lose,
+      push: data.push,
+      cleared: data.cleared,
+      stickersOwned: data.stickersOwned,
+      shopUnlocked: data.shopUnlocked,
+      achieved: data.achieved,
+      stuck: data.stuck
+    }
+    save.value = next
+    uni.showToast({
+      icon: 'none',
+      title: tip
+    })
+  }
+
+  function redeemOne(key : string) {
+    const data = save.value
+    if (!isShopUnlocked(data, key)) {
+      uni.showToast({
+        icon: 'none',
+        title: '通关或达成成就后才会上架'
+      })
+      return
+    }
+    if (stickerTotal(data, key) >= stickerLimit(key)) {
+      uni.showToast({
+        icon: 'none',
+        title: '这种贴纸已经到上限了'
+      })
+      return
+    }
+    const sticker = stickerAt(key)
+    if (!redeemSticker(data, key)) {
+      uni.showToast({
+        icon: 'none',
+        title: '没有' + rarityAt(sticker.rarity).name + '券了'
+      })
+      return
+    }
+    commit(data, '换到贴纸【' + sticker.name + '】')
+  }
+
+  function goBack() {
+    uni.navigateBack()
+  }
+
+  onShow(() => {
+    refresh()
+  })
+
+  refresh()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 10px 12px;
+    background-color: #0b5d3b;
+  }
+
+  .head {
+    flex-direction: row;
+    justify-content: space-between;
+    background-color: #084730;
+    border-radius: 8px;
+    padding: 6px 12px;
+  }
+
+  .head-item {
+    flex: 1;
+    align-items: center;
+  }
+
+  .head-label {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .head-value {
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: bold;
+  }
+
+  .section {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-top: 10px;
+  }
+
+  /* 贴纸列表 */
+  .list {
+    flex: 1;
+    margin-top: 4px;
+  }
+
+  .row {
+    flex-direction: row;
+    align-items: center;
+    background-color: #0e6b45;
+    border-radius: 8px;
+    padding: 6px 10px;
+    margin-top: 6px;
+  }
+
+  .row-main {
+    flex: 1;
+  }
+
+  .row-head {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .row-name {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: bold;
+    margin-right: 8px;
+  }
+
+  /* 稀有度分组头，颜色由 RARITIES 里的配置决定 */
+  .group-head {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 8px;
+    margin-bottom: 2px;
+  }
+
+  .group-name {
+    font-size: 13px;
+    font-weight: bold;
+    margin-right: 8px;
+  }
+
+  .group-sub {
+    color: #9fd9bd;
+    font-size: 10px;
+  }
+
+  .row-own {
+    color: #e8b23a;
+    font-size: 11px;
+  }
+
+  .row-desc {
+    color: #cfeade;
+    font-size: 10px;
+  }
+
+  .buy-btn {
+    height: 30px;
+    border-radius: 15px;
+    padding: 0 12px;
+    margin-left: 8px;
+    align-items: center;
+    justify-content: center;
+    background-color: #e8b23a;
+  }
+
+  .buy-btn-off {
+    background-color: #6b6b6b;
+  }
+
+  .buy-text {
+    color: #3b2a00;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .back-btn {
+    height: 42px;
+    border-radius: 21px;
+    margin-top: 8px;
+    align-items: center;
+    justify-content: center;
+    background-color: #084730;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .back-text {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+  }
+</style>

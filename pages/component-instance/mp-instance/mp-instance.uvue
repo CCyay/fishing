@@ -1,0 +1,15 @@
+<template>
+  <view>
+    renderer: <text id="mp-renderer">{{mpRenderer}}</text>
+  </view>
+</template>
+
+<script setup>
+const mpRenderer = ref('')
+const ins = getCurrentInstance()?.proxy
+
+onLoad(() => {
+  mpRenderer.value = ins?.$scope?.renderer || ''
+})
+</script>
+

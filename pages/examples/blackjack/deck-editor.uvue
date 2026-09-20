@@ -1,0 +1,402 @@
+<template>
+  <view class="page">
+    <view class="head">
+      <view class="head-item">
+        <text class="head-label">兑换券</text>
+        <text id="bj-deck-tickets" class="head-value">{{ ticketCount }}</text>
+      </view>
+      <view class="head-item">
+        <text class="head-label">已贴</text>
+        <text id="bj-deck-stuck" class="head-value">{{ stuckCount }}</text>
+      </view>
+    </view>
+
+    <!-- 贴纸栏：只列自己手里还有的。固定两行高，多了往下滚 -->
+    <text class="section">手里的贴纸（点击选择）</text>
+    <scroll-view class="sticker-scroll">
+      <view class="sticker-row">
+        <text v-if="ownedStickers.length == 0" class="sticker-none">手里没有贴纸了，去商店买</text>
+        <view
+          v-for="sticker in ownedStickers"
+          :key="sticker.key"
+          :id="'bj-sticker-' + sticker.key"
+          class="sticker"
+          :class="{ 'sticker-active': sticker.key == activeId }"
+          @click="selectSticker(sticker.key)">
+          <text class="sticker-name" :style="'color: ' + rarityAt(sticker.rarity).color">{{
+            sticker.name
+          }}</text>
+          <text class="sticker-count">×{{ ownedCount(sticker.key) }}</text>
+        </view>
+      </view>
+    </scroll-view>
+
+    <view class="desc-box">
+      <text id="bj-sticker-desc" class="desc-text">{{ activeDesc }}</text>
+    </view>
+
+    <!-- 数字网格：点击贴上 / 撕下 -->
+    <text class="section">点击数字贴上，再点一次撕下来（撕下能重贴）</text>
+    <view class="grid">
+      <view
+        v-for="(rank, index) in RANKS"
+        :key="rank"
+        :id="'bj-rank-' + index"
+        class="cell"
+        @click="toggleSticker(index)">
+        <view class="cell-inner" :class="{ 'cell-on': hasActive(index) }">
+          <text class="cell-rank" :class="{ 'cell-rank-on': hasActive(index) }">{{ rank }}</text>
+          <text class="cell-marks">{{ marksOf(index) }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="actions">
+      <view id="bj-deck-shop" class="act-btn" @click="goShop">
+        <text class="act-text">去商店</text>
+      </view>
+      <view id="bj-deck-back" class="act-btn act-btn-primary" @click="goBack">
+        <text class="act-text act-text-dark">返回</text>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import {
+    Sticker,
+    STICKERS,
+    S_LUCKY,
+    stickerAt,
+    rarityAt,
+    keyAtIndex,
+    indexOfKey
+  } from '@/pages/examples/blackjack/stickers.uts'
+  import {
+    RANKS,
+    stickerIndex,
+    stickersOfRank,
+    countStuck
+  } from '@/pages/examples/blackjack/cards.uts'
+  import {
+    SaveData,
+    emptySave,
+    loadCurrentSave,
+    saveCurrent,
+    canStick,
+    applySticker,
+    peelSticker,
+    stickerTotal,
+    isStuckAt,
+    isShopUnlocked,
+    sumOf
+  } from '@/pages/examples/blackjack/save.uts'
+
+  const save = ref<SaveData>(emptySave())
+  // 开局白送的幸运一定在手上，拿它当默认选中项
+  const activeId = ref<string>(S_LUCKY)
+
+  // 只列自己有的贴纸。已经贴出去的也留在列表里 —— 不然就没法选中它撕下来了
+  const ownedStickers = computed<Sticker[]>(() : Sticker[] => {
+    const list : Sticker[] = []
+    for (let i = 0; i < STICKERS.length; i++) {
+      if (stickerTotal(save.value, STICKERS[i].key) > 0) {
+        list.push(STICKERS[i])
+      }
+    }
+    return list
+  })
+
+  // 手里还剩几张（不含已经贴出去的）
+  function ownedCount(key : string) : number {
+    const at = indexOfKey(key)
+    return at < 0 ? 0 : save.value.stickersOwned[at]
+  }
+
+  const stuckCount = computed<number>(() : number => {
+    return countStuck(save.value.stuck)
+  })
+
+  const ticketCount = computed<number>(() : number => {
+    return sumOf(save.value.tickets)
+  })
+
+  const activeDesc = computed<string>(() : string => {
+    const sticker = stickerAt(activeId.value)
+    // 跟商店一致：没解锁的贴纸只给看名字，不给看效果
+    if (!isShopUnlocked(save.value, activeId.value)) {
+      return '【' + sticker.name + '】效果保密 · 打赢用这种贴纸的庄家后解锁'
+    }
+    return '【' + sticker.name + '】' + sticker.desc
+  })
+
+  function refresh() {
+    save.value = loadCurrentSave()
+  }
+
+  function selectSticker(key : string) {
+    activeId.value = key
+  }
+
+  // 当前选中的贴纸是否已经贴在这个数字上
+  function hasActive(rankIndex : number) : boolean {
+    return isStuckAt(save.value, rankIndex, activeId.value)
+  }
+
+  // 这个数字身上所有贴纸的名字，用于格子里的小字。
+  // 名字是两个字，用顿号隔开才看得清哪是哪
+  function marksOf(rankIndex : number) : string {
+    const slots = stickersOfRank(save.value.stuck, rankIndex)
+    if (slots.length == 0) {
+      return '—'
+    }
+    let text = ''
+    for (let i = 0; i < slots.length; i++) {
+      if (i > 0) {
+        text = text + '、'
+      }
+      text = text + stickerAt(keyAtIndex(slots[i])).name
+    }
+    return text
+  }
+
+  function toggleSticker(rankIndex : number) {
+    const data = save.value
+    const key = activeId.value
+
+    if (isStuckAt(data, rankIndex, key)) {
+      // 撕下来退回手里，可以再贴到别处
+      peelSticker(data, rankIndex, key)
+      commit(data, '撕下【' + stickerAt(key).name + '】')
+      return
+    }
+
+    const reason = canStick(data, rankIndex, key)
+    if (reason != '') {
+      uni.showToast({
+        icon: 'none',
+        title: reason
+      })
+      return
+    }
+    applySticker(data, rankIndex, key)
+    commit(data, RANKS[rankIndex] + ' 贴上【' + stickerAt(key).name + '】')
+  }
+
+  // 数据改完整体替换一次，保证视图刷新
+  function commit(data : SaveData, tip : string) {
+    saveCurrent(data)
+    const next : SaveData = {
+      exists: data.exists,
+      label: data.label,
+      tickets: data.tickets,
+      win: data.win,
+      lose: data.lose,
+      push: data.push,
+      cleared: data.cleared,
+      stickersOwned: data.stickersOwned,
+      shopUnlocked: data.shopUnlocked,
+      achieved: data.achieved,
+      stuck: data.stuck
+    }
+    save.value = next
+    uni.showToast({
+      icon: 'none',
+      title: tip
+    })
+  }
+
+  function goShop() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/shop'
+    })
+  }
+
+  function goBack() {
+    uni.navigateBack()
+  }
+
+  onShow(() => {
+    refresh()
+  })
+
+  refresh()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 10px 12px;
+    background-color: #0b5d3b;
+  }
+
+  .head {
+    flex-direction: row;
+    justify-content: space-between;
+    background-color: #084730;
+    border-radius: 8px;
+    padding: 6px 12px;
+  }
+
+  .head-item {
+    flex: 1;
+    align-items: center;
+  }
+
+  .head-label {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .head-value {
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: bold;
+  }
+
+  .section {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-top: 8px;
+  }
+
+  /* 贴纸栏固定占两行的高度（每行 44 + 间距 5），拥有的多了就在里面滚 */
+  .sticker-scroll {
+    height: 98px;
+    margin-top: 4px;
+  }
+
+  .sticker-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .sticker-none {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .sticker {
+    width: 54px;
+    height: 44px;
+    margin-right: 5px;
+    margin-bottom: 5px;
+    border-radius: 6px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #0e6b45;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sticker-active {
+    border-color: #e8b23a;
+  }
+
+  /* 贴纸名是两个字，54px 宽配 14px 字号刚好完整显示 */
+  .sticker-name {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .sticker-count {
+    color: #e8b23a;
+    font-size: 10px;
+  }
+
+  .desc-box {
+    height: 34px;
+    margin-top: 6px;
+    background-color: #084730;
+    border-radius: 6px;
+    padding: 4px 8px;
+    justify-content: center;
+  }
+
+  .desc-text {
+    color: #cfeade;
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  /* 数字网格 */
+  .grid {
+    flex: 1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .cell {
+    width: 25%;
+    padding: 3px;
+  }
+
+  .cell-inner {
+    flex: 1;
+    background-color: #0e6b45;
+    border-radius: 6px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #0e6b45;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cell-on {
+    border-color: #e8b23a;
+    background-color: #12764e;
+  }
+
+  .cell-rank {
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: bold;
+  }
+
+  .cell-rank-on {
+    color: #e8b23a;
+  }
+
+  /* 一个数字最多盖 4 种章，名字连起来放不下一行，缩小字号让它换行 */
+  .cell-marks {
+    color: #9fd9bd;
+    font-size: 9px;
+    text-align: center;
+  }
+
+  /* 底部 */
+  .actions {
+    flex-direction: row;
+    margin-top: 6px;
+  }
+
+  .act-btn {
+    flex: 1;
+    height: 42px;
+    border-radius: 21px;
+    margin-right: 8px;
+    align-items: center;
+    justify-content: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .act-btn-primary {
+    background-color: #e8b23a;
+  }
+
+  .act-text {
+    color: #e8b23a;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .act-text-dark {
+    color: #3b2a00;
+  }
+</style>

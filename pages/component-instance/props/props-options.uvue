@@ -1,0 +1,41 @@
+<template>
+  <view class="page">
+    <array-literal class="array-literal-component" :str="str" :num="num" :bool="bool" :obj="obj" :arr="arr" />
+    <object-type class="object-type-component" str="str" :num="num" :bool="bool" :obj="obj" :arr="arr" />
+    <same-name-prop-default-value class="same-name-prop-default-value-component" />
+    <props-with-defaults class="props-with-defaults-component" />
+    <!-- #ifdef APP-ANDROID -->
+    <reference-types class="reference-types-component" :list="[1,2,3]" />
+    <!-- #endif -->
+    <!-- #ifndef APP-ANDROID -->
+    <reference-types class="reference-types-component" :list="['a','b','c']" />
+    <!-- #endif -->
+  </view>
+</template>
+
+<script lang="uts">
+  import ArrayLiteral from './array-literal-options.uvue'
+  import ObjectType from "./object-type-options.uvue";
+  import SameNamePropDefaultValue from "./same-name-prop-default-value-options.uvue";
+  import PropsWithDefaults from "./props-with-defaults.uvue";
+  import ReferenceTypes from './reference-types-options.uvue'
+
+  export default {
+    components: {
+      ArrayLiteral,
+      ObjectType,
+      SameNamePropDefaultValue,
+      PropsWithDefaults,
+      ReferenceTypes
+    },
+    data() {
+      return {
+        str: 'str',
+        num: 10,
+        bool: true,
+        obj: { age: 18 },
+        arr: ['a', 'b', 'c']
+      }
+    },
+  }
+</script>

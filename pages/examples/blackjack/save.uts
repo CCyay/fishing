@@ -1,0 +1,546 @@
+// 存档数据层：兑换券、战绩、通关进度、手里的贴纸、牌组上已贴的贴纸。
+// 52 张基础牌固定不可变，不需要存。
+// 存档格式为简单的分隔符文本，避免 JSON 泛型解析：
+// version|tickets|win|lose|push|cleared|owned|unlocked|stuck|achieved|label
+//   tickets：「稀有度:张数」列表，如 "0:2,1:1"
+//   owned：「贴纸 key:张数」列表，如 "lucky:3,steal:1"
+//   unlocked：贴纸 key 列表，如 "lucky,steal,beg"
+//   stuck：「数字-贴纸 key」对列表，如 "0-broken,5-lucky"
+// 贴纸一律按 key 存，不按数组下标存 ——
+// 下标会随着增删贴纸整体位移，key 不会，所以老存档永远读得对。
+
+import {
+  STICKER_COUNT,
+  MAX_STICKERS_PER_RANK,
+  S_LUCKY,
+  S_NONE,
+  RARITIES,
+  ACHIEVEMENT_COUNT,
+  achievementAt,
+  stickerAt,
+  rarityAt,
+  indexOfKey,
+  keyAtIndex
+} from '@/pages/examples/blackjack/stickers.uts'
+import {
+  RANKS,
+  emptyStickers,
+  stickerIndex,
+  stickersOfRank,
+  countStuckOf
+} from '@/pages/examples/blackjack/cards.uts'
+
+export const SLOT_COUNT : number = 3
+
+export type SaveData = {
+  exists : boolean
+  label : string
+  // 贴纸兑换券，按稀有度索引。一张券换一张对应稀有度的贴纸
+  tickets : number[]
+  win : number
+  lose : number
+  push : number
+  // 已通关的最高关卡，0 表示一关都没过
+  cleared : number
+  // 手里还没贴出去的贴纸张数，按贴纸 id 索引
+  stickersOwned : number[]
+  // 商店货架：通关或达成成就后解锁购买，1 表示已解锁
+  shopUnlocked : number[]
+  // 已经达成的成就，1 表示达成过
+  achieved : number[]
+  // 牌组：13 × 贴纸种类数的 0/1 矩阵，1 表示该数字贴了该贴纸
+  stuck : number[]
+}
+
+// 存档格式版本。只在格式本身变化时才加，加贴纸种类不用动它
+const SAVE_VERSION : string = 'v6'
+
+const KEY_PREFIX : string = 'bj_save_'
+const KEY_CURRENT : string = 'bj_current_slot'
+const KEY_LEVEL : string = 'bj_current_level'
+
+// ---------- 基础工具 ----------
+
+export function sumOf(list : number[]) : number {
+  let total = 0
+  for (let i = 0; i < list.length; i++) {
+    total = total + list[i]
+  }
+  return total
+}
+
+function zeroList(size : number) : number[] {
+  const list : number[] = []
+  for (let i = 0; i < size; i++) {
+    list.push(0)
+  }
+  return list
+}
+
+// 贴纸相关的字段一律按 key 存，不存按下标排列的定长数组。
+// 内存里还是用下标索引（矩阵要定长），但下标随增删贴纸会整体位移，
+// 存到档里就得换成 key。认不出来的 key（将来删掉某种贴纸）读的时候直接忽略。
+
+// 数字计数数组（稀有度用）→ 「下标:数量」列表，如 [3,0,0,1] 存成 "0:3,3:1"。
+// 稀有度只有四档、永远不会增删，用下标存没问题
+function countsToText(counts : number[]) : string {
+  let text = ''
+  for (let i = 0; i < counts.length; i++) {
+    if (counts[i] > 0) {
+      if (text != '') {
+        text = text + ','
+      }
+      text = text + i + ':' + counts[i]
+    }
+  }
+  return text
+}
+
+function textToCounts(text : string, size : number) : number[] {
+  const counts = zeroList(size)
+  if (text == '') {
+    return counts
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    const pair = parts[i].split(':')
+    if (pair.length != 2) {
+      continue
+    }
+    const id = parseInt(pair[0])
+    const num = parseInt(pair[1])
+    if (isNaN(id) || isNaN(num) || id < 0 || id >= size || num <= 0) {
+      continue
+    }
+    counts[id] = num
+  }
+  return counts
+}
+
+// 贴纸计数数组 → 「key:张数」列表，如 "lucky:3,steal:1"
+function stickerCountsToText(counts : number[]) : string {
+  let text = ''
+  for (let i = 0; i < counts.length; i++) {
+    if (counts[i] > 0) {
+      if (text != '') {
+        text = text + ','
+      }
+      text = text + keyAtIndex(i) + ':' + counts[i]
+    }
+  }
+  return text
+}
+
+function textToStickerCounts(text : string) : number[] {
+  const counts = zeroList(STICKER_COUNT)
+  if (text == '') {
+    return counts
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    const pair = parts[i].split(':')
+    if (pair.length != 2) {
+      continue
+    }
+    const at = indexOfKey(pair[0])
+    const num = parseInt(pair[1])
+    if (at < 0 || isNaN(num) || num <= 0) {
+      continue
+    }
+    counts[at] = num
+  }
+  return counts
+}
+
+// 0/1 标记数组 → key 列表，如 "lucky,steal"
+function flagsToKeys(flags : number[]) : string {
+  let text = ''
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] > 0) {
+      if (text != '') {
+        text = text + ','
+      }
+      text = text + keyAtIndex(i)
+    }
+  }
+  return text
+}
+
+function keysToFlags(text : string) : number[] {
+  const flags = zeroList(STICKER_COUNT)
+  if (text == '') {
+    return flags
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    const at = indexOfKey(parts[i])
+    if (at >= 0) {
+      flags[at] = 1
+    }
+  }
+  return flags
+}
+
+// 成就用下标存就行，它的编号不会因为增删贴纸而动
+function flagsToIds(flags : number[]) : string {
+  let text = ''
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] > 0) {
+      if (text != '') {
+        text = text + ','
+      }
+      text = text + i
+    }
+  }
+  return text
+}
+
+function idsToFlags(text : string, size : number) : number[] {
+  const flags = zeroList(size)
+  if (text == '') {
+    return flags
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    const id = parseInt(parts[i])
+    if (!isNaN(id) && id >= 0 && id < size) {
+      flags[id] = 1
+    }
+  }
+  return flags
+}
+
+// 贴纸矩阵 → 「数字-贴纸 key」对，如 "0-broken,5-lucky" 表示 A 贴了破碎、6 贴了幸运
+function stuckToText(stuck : number[]) : string {
+  let text = ''
+  for (let r = 0; r < RANKS.length; r++) {
+    for (let s = 0; s < STICKER_COUNT; s++) {
+      if (stuck[stickerIndex(r, s)] > 0) {
+        if (text != '') {
+          text = text + ','
+        }
+        text = text + r + '-' + keyAtIndex(s)
+      }
+    }
+  }
+  return text
+}
+
+function textToStuck(text : string) : number[] {
+  const stuck = emptyStickers()
+  if (text == '') {
+    return stuck
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    const pair = parts[i].split('-')
+    if (pair.length != 2) {
+      continue
+    }
+    const r = parseInt(pair[0])
+    const s = indexOfKey(pair[1])
+    if (isNaN(r) || s < 0 || r < 0 || r >= RANKS.length) {
+      continue
+    }
+    stuck[stickerIndex(r, s)] = 1
+  }
+  return stuck
+}
+
+// 幸运贴纸开局白送：商店不卖，直接按它的稀有度给满。
+// 已经贴出去的也算数，免得读档时又白送一批
+function ensureLucky(data : SaveData) {
+  const at = indexOfKey(S_LUCKY)
+  if (at < 0) {
+    return
+  }
+  const most = rarityAt(stickerAt(S_LUCKY).rarity).own
+  const out = countStuckOf(data.stuck, at)
+  if (data.stickersOwned[at] + out < most) {
+    data.stickersOwned[at] = most - out
+  }
+  data.shopUnlocked[at] = 1
+}
+
+function toInt(text : string, fallback : number) : number {
+  const parsed = parseInt(text)
+  if (isNaN(parsed)) {
+    return fallback
+  }
+  return parsed
+}
+
+function readString(key : string) : string {
+  const raw = uni.getStorageSync(key)
+  if (raw == null) {
+    return ''
+  }
+  if (typeof raw == 'string') {
+    return raw as string
+  }
+  return ''
+}
+
+// ---------- 存档读写 ----------
+
+export function emptySave() : SaveData {
+  const data : SaveData = {
+    exists: false,
+    label: '',
+    tickets: zeroList(RARITIES.length),
+    win: 0,
+    lose: 0,
+    push: 0,
+    cleared: 0,
+    stickersOwned: zeroList(STICKER_COUNT),
+    shopUnlocked: zeroList(STICKER_COUNT),
+    achieved: zeroList(ACHIEVEMENT_COUNT),
+    stuck: emptyStickers()
+  }
+  ensureLucky(data)
+  return data
+}
+
+export function newSave(label : string) : SaveData {
+  const data = emptySave()
+  data.exists = true
+  data.label = label
+  return data
+}
+
+export function loadSave(index : number) : SaveData {
+  const raw = readString(KEY_PREFIX + index)
+  if (raw == '') {
+    return emptySave()
+  }
+  const parts = raw.split('|')
+  // 版本对不上就当没有这个存档，重新开一个
+  if (parts.length < 11 || parts[0] != SAVE_VERSION) {
+    return emptySave()
+  }
+  // 存档名里可能有 '|'，最后一段之后的全拼回去
+  let label = parts[10]
+  for (let i = 11; i < parts.length; i++) {
+    label = label + '|' + parts[i]
+  }
+  const data : SaveData = {
+    exists: true,
+    label: label,
+    tickets: textToCounts(parts[1], RARITIES.length),
+    win: toInt(parts[2], 0),
+    lose: toInt(parts[3], 0),
+    push: toInt(parts[4], 0),
+    cleared: toInt(parts[5], 0),
+    stickersOwned: textToStickerCounts(parts[6]),
+    shopUnlocked: keysToFlags(parts[7]),
+    stuck: textToStuck(parts[8]),
+    achieved: idsToFlags(parts[9], ACHIEVEMENT_COUNT)
+  }
+  ensureLucky(data)
+  return data
+}
+
+export function writeSave(index : number, data : SaveData) {
+  const text = SAVE_VERSION
+    + '|' + countsToText(data.tickets)
+    + '|' + data.win
+    + '|' + data.lose
+    + '|' + data.push
+    + '|' + data.cleared
+    + '|' + stickerCountsToText(data.stickersOwned)
+    + '|' + flagsToKeys(data.shopUnlocked)
+    + '|' + stuckToText(data.stuck)
+    + '|' + flagsToIds(data.achieved)
+    + '|' + data.label
+  uni.setStorageSync(KEY_PREFIX + index, text)
+}
+
+export function clearSave(index : number) {
+  uni.removeStorageSync(KEY_PREFIX + index)
+}
+
+export function currentSlot() : number {
+  const raw = readString(KEY_CURRENT)
+  if (raw == '') {
+    return 1
+  }
+  const index = toInt(raw, 1)
+  if (index < 1 || index > SLOT_COUNT) {
+    return 1
+  }
+  return index
+}
+
+export function setCurrentSlot(index : number) {
+  uni.setStorageSync(KEY_CURRENT, '' + index)
+}
+
+// 当前存档；若还没有任何存档，自动在 1 号槽建一个
+export function loadCurrentSave() : SaveData {
+  const index = currentSlot()
+  const data = loadSave(index)
+  if (!data.exists) {
+    const created = newSave('存档 ' + index)
+    writeSave(index, created)
+    setCurrentSlot(index)
+    return created
+  }
+  return data
+}
+
+export function saveCurrent(data : SaveData) {
+  writeSave(currentSlot(), data)
+}
+
+// 正在挑战的关卡编号。用 storage 传参，牌桌页在 setup 阶段即可读到
+export function currentLevel() : number {
+  const raw = readString(KEY_LEVEL)
+  if (raw == '') {
+    return 1
+  }
+  return toInt(raw, 1)
+}
+
+export function setCurrentLevel(index : number) {
+  uni.setStorageSync(KEY_LEVEL, '' + index)
+}
+
+// ---------- 贴纸：解锁、购买、贴上、撕下 ----------
+
+// 对外一律用 key 认贴纸，内部再查回下标 —— 下标只活在内存里
+export function isShopUnlocked(data : SaveData, key : string) : boolean {
+  const at = indexOfKey(key)
+  return at >= 0 && data.shopUnlocked[at] > 0
+}
+
+// 达成成就：记下来并解锁对应的贴纸。已经达成过就返回 false
+export function markAchieved(data : SaveData, id : number) : boolean {
+  if (id < 0 || id >= ACHIEVEMENT_COUNT) {
+    return false
+  }
+  if (data.achieved[id] > 0) {
+    return false
+  }
+  data.achieved[id] = 1
+  const one : string[] = [achievementAt(id).sticker]
+  unlockShop(data, one)
+  return true
+}
+
+export function hasAchieved(data : SaveData, id : number) : boolean {
+  return id >= 0 && id < ACHIEVEMENT_COUNT && data.achieved[id] > 0
+}
+
+// 通关或达成成就后，把贴纸上架到货架
+export function unlockShop(data : SaveData, keys : string[]) : string[] {
+  const fresh : string[] = []
+  for (let i = 0; i < keys.length; i++) {
+    const at = indexOfKey(keys[i])
+    if (at >= 0 && data.shopUnlocked[at] == 0) {
+      data.shopUnlocked[at] = 1
+      fresh.push(keys[i])
+    }
+  }
+  return fresh
+}
+
+// 手里还有没贴出去的这种贴纸
+export function ownsSticker(data : SaveData, key : string) : boolean {
+  const at = indexOfKey(key)
+  return at >= 0 && data.stickersOwned[at] > 0
+}
+
+// 这种贴纸一共有几张：手里的加上已经贴出去的
+export function stickerTotal(data : SaveData, key : string) : number {
+  const at = indexOfKey(key)
+  if (at < 0) {
+    return 0
+  }
+  return data.stickersOwned[at] + countStuckOf(data.stuck, at)
+}
+
+// 这种贴纸最多能有几张，由稀有度决定
+export function stickerLimit(key : string) : number {
+  return rarityAt(stickerAt(key).rarity).own
+}
+
+// 手里这种稀有度的券还有几张
+export function ticketsOf(data : SaveData, rarity : number) : number {
+  if (rarity < 0 || rarity >= data.tickets.length) {
+    return 0
+  }
+  return data.tickets[rarity]
+}
+
+export function addTickets(data : SaveData, rarity : number, count : number) {
+  if (rarity < 0 || rarity >= data.tickets.length) {
+    return
+  }
+  data.tickets[rarity] = data.tickets[rarity] + count
+}
+
+// 一张券换一张同稀有度的贴纸，换到该种贴纸的上限为止
+export function redeemSticker(data : SaveData, key : string) : boolean {
+  const at = indexOfKey(key)
+  if (at < 0 || !isShopUnlocked(data, key)) {
+    return false
+  }
+  if (stickerTotal(data, key) >= stickerLimit(key)) {
+    return false
+  }
+  const rarity = stickerAt(key).rarity
+  if (ticketsOf(data, rarity) <= 0) {
+    return false
+  }
+  data.tickets[rarity] = data.tickets[rarity] - 1
+  data.stickersOwned[at] = data.stickersOwned[at] + 1
+  return true
+}
+
+// 能否把这种贴纸贴到第 rankIndex 个数字上，返回空串表示可以
+export function canStick(data : SaveData, rankIndex : number, key : string) : string {
+  const at = indexOfKey(key)
+  if (at < 0) {
+    return '没有这种贴纸'
+  }
+  if (!ownsSticker(data, key)) {
+    return stickerTotal(data, key) > 0 ? '这种贴纸都贴出去了，先撕一张下来' : '还没有这种贴纸，去商店买'
+  }
+  if (data.stuck[stickerIndex(rankIndex, at)] > 0) {
+    return '同一个数字不能贴同一种贴纸'
+  }
+  if (stickersOfRank(data.stuck, rankIndex).length >= MAX_STICKERS_PER_RANK) {
+    return '这个数字只有 4 张牌，已经贴满了'
+  }
+  return ''
+}
+
+// 一张贴纸贴一张牌，贴出去手里就少一张
+export function applySticker(data : SaveData, rankIndex : number, key : string) {
+  const at = indexOfKey(key)
+  if (at < 0) {
+    return
+  }
+  data.stuck[stickerIndex(rankIndex, at)] = 1
+  data.stickersOwned[at] = data.stickersOwned[at] - 1
+}
+
+// 这个数字上贴了这种贴纸没有
+export function isStuckAt(data : SaveData, rankIndex : number, key : string) : boolean {
+  const at = indexOfKey(key)
+  return at >= 0 && data.stuck[stickerIndex(rankIndex, at)] > 0
+}
+
+// 撕下贴纸：退回手里，可以再贴到别处
+export function peelSticker(data : SaveData, rankIndex : number, key : string) {
+  const slot = indexOfKey(key)
+  if (slot < 0) {
+    return
+  }
+  const at = stickerIndex(rankIndex, slot)
+  if (data.stuck[at] <= 0) {
+    return
+  }
+  data.stuck[at] = 0
+  data.stickersOwned[slot] = data.stickersOwned[slot] + 1
+}

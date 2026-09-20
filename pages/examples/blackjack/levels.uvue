@@ -1,0 +1,260 @@
+<template>
+  <view class="page">
+    <view class="head">
+      <view class="head-item">
+        <text class="head-label">兑换券</text>
+        <text id="bj-levels-tickets" class="head-value">{{ ticketCount }}</text>
+      </view>
+      <view class="head-item">
+        <text class="head-label">已通关</text>
+        <text id="bj-levels-cleared" class="head-value">{{ save.cleared }}/{{ LEVEL_COUNT }}</text>
+      </view>
+      <view class="head-item">
+        <text class="head-label">牌组贴纸</text>
+        <text id="bj-levels-deck" class="head-value">{{ stuckCount }}</text>
+      </view>
+    </view>
+
+    <!-- 10 个关卡：两列网格，整页不滚动 -->
+    <view class="grid">
+      <view
+        v-for="level in levels"
+        :key="level.index"
+        class="cell"
+        :id="'bj-level-' + level.index"
+        @click="enterLevel(level)">
+        <view
+          class="cell-inner"
+          :class="{
+            'cell-locked': !playable(level) && !cleared(level),
+            'cell-cleared': cleared(level)
+          }">
+          <view class="cell-head">
+            <text class="cell-index">{{ level.index }}</text>
+            <text class="cell-diff">{{ diffOf(level) }}</text>
+          </view>
+          <text class="cell-name">{{ level.name }}</text>
+          <text class="cell-goal"
+            >{{ cleared(level) ? '重打不给券' : rewardOf(level) }} · 庄家贴纸
+            {{ level.dealerStickers }}{{ hiddenOf(level) }}</text
+          >
+          <text class="cell-state" :class="{ 'cell-state-lock': !playable(level) }">{{
+            stateOf(level)
+          }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view id="bj-levels-back" class="back-btn" @click="goBack">
+      <text class="back-text">返回</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import { countStuck } from '@/pages/examples/blackjack/cards.uts'
+  import { rarityAt } from '@/pages/examples/blackjack/stickers.uts'
+  import {
+    SaveData,
+    loadCurrentSave,
+    emptySave,
+    setCurrentLevel,
+    sumOf
+  } from '@/pages/examples/blackjack/save.uts'
+  import {
+    Level,
+    LEVEL_COUNT,
+    allLevels,
+    isPlayable,
+    isCleared,
+    difficultyText
+  } from '@/pages/examples/blackjack/levels.uts'
+
+  const save = ref<SaveData>(emptySave())
+  const levels = ref<Level[]>(allLevels())
+
+  const stuckCount = computed<number>(() : number => {
+    return countStuck(save.value.stuck)
+  })
+
+  const ticketCount = computed<number>(() : number => {
+    return sumOf(save.value.tickets)
+  })
+
+  // 每关只能打一次，能挑战的永远只有下一关
+  function playable(level : Level) : boolean {
+    return isPlayable(level.index, save.value.cleared)
+  }
+
+  function cleared(level : Level) : boolean {
+    return isCleared(level.index, save.value.cleared)
+  }
+
+  function diffOf(level : Level) : string {
+    return difficultyText(level)
+  }
+
+  function rewardOf(level : Level) : string {
+    return '胜 +' + level.rewardCount + ' 张' + rarityAt(level.rewardRarity).name + '券'
+  }
+
+  // 高关卡的庄家会盖牌，这里先提醒一声
+  function hiddenOf(level : Level) : string {
+    return level.dealerHidden > 0 ? ' · 暗牌 ' + level.dealerHidden : ''
+  }
+
+  function stateOf(level : Level) : string {
+    if (cleared(level)) {
+      return '已通关 · 可重打'
+    }
+    if (playable(level)) {
+      return '可挑战'
+    }
+    return '未解锁'
+  }
+
+  function enterLevel(level : Level) {
+    if (!playable(level)) {
+      uni.showToast({
+        icon: 'none',
+        title: '先通关第 ' + (level.index - 1) + ' 关'
+      })
+      return
+    }
+    setCurrentLevel(level.index)
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/blackjack'
+    })
+  }
+
+  function goBack() {
+    uni.navigateBack()
+  }
+
+  onShow(() => {
+    save.value = loadCurrentSave()
+  })
+
+  save.value = loadCurrentSave()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 12px;
+    background-color: #0b5d3b;
+  }
+
+  .head {
+    flex-direction: row;
+    justify-content: space-between;
+    background-color: #084730;
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+
+  .head-item {
+    flex: 1;
+    align-items: center;
+  }
+
+  .head-label {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .head-value {
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: bold;
+  }
+
+  /* 10 个关卡：两列 */
+  .grid {
+    flex: 1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+
+  .cell {
+    width: 50%;
+    padding: 4px;
+    height: 20%;
+  }
+
+  .cell-inner {
+    flex: 1;
+    background-color: #0e6b45;
+    border-radius: 8px;
+    padding: 6px 8px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #0e6b45;
+    justify-content: center;
+  }
+
+  .cell-cleared {
+    border-color: #e8b23a;
+  }
+
+  .cell-locked {
+    background-color: #084730;
+    opacity: 0.6;
+  }
+
+  .cell-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .cell-index {
+    color: #e8b23a;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .cell-diff {
+    color: #9fd9bd;
+    font-size: 10px;
+  }
+
+  .cell-name {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .cell-goal {
+    color: #cfeade;
+    font-size: 10px;
+  }
+
+  .cell-state {
+    color: #8fc7ab;
+    font-size: 10px;
+  }
+
+  .cell-state-lock {
+    color: #ff8a80;
+  }
+
+  .back-btn {
+    height: 42px;
+    border-radius: 21px;
+    margin-top: 6px;
+    align-items: center;
+    justify-content: center;
+    background-color: #084730;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .back-text {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+  }
+</style>

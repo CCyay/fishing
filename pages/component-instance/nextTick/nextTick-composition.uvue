@@ -1,0 +1,88 @@
+<template>
+  <!-- #ifdef APP && !VUE3-VAPOR -->
+  <scroll-view style="flex: 1">
+  <!-- #endif -->
+    <view class="page">
+      <view class="flex justify-between flex-row mb-10">
+        <text ref="text">title:</text>
+        <text id="page-text">{{ dataInfo.title }}</text>
+      </view>
+      <view class="flex justify-between flex-row mb-10">
+        <text ref="text">before $nextTick title:</text>
+        <text>{{ dataInfo.beforeNextTickTitle }}</text>
+      </view>
+      <view class="flex justify-between flex-row mb-10">
+        <text ref="text">after $nextTick title:</text>
+        <text>{{ dataInfo.afterNextTickTitle }}</text>
+      </view>
+      <button id="page-test-next-tick-btn" @click="pageTestNextTick">
+        page test $nextTick
+      </button>
+      <Child id="child-component" />
+      <button class="mt-10" id="after-next-tick-get-text-btn" @click="afterNextTickGetText">toggle v-if text</button>
+      <text v-if="dataInfo.showTestText" class="mt-10" id="v-if-next-tick-should-getable">测试 v-if & nextTick 后获取元素</text>
+    </view>
+  <!-- #ifdef APP && !VUE3-VAPOR -->
+  </scroll-view>
+  <!-- #endif -->
+</template>
+
+<script setup lang="uts">
+  import Child from './child-composition.uvue'
+
+  type DataInfo = {
+    title : string
+    beforeNextTickTitle : string
+    afterNextTickTitle : string
+    showTestText: boolean
+    vIfNextTickTestTextGetAble: boolean
+  }
+
+  const dataInfo = reactive({
+    title: 'default title',
+    beforeNextTickTitle: '',
+    afterNextTickTitle: '',
+    showTestText: false,
+    vIfNextTickTestTextGetAble: false,
+  } as DataInfo)
+
+  const testNextTick = async () => {
+    const pageText = uni.getElementById('page-text')!
+    dataInfo.title = 'new title'
+
+    // #ifdef APP
+    dataInfo.beforeNextTickTitle = (pageText as UniTextElement).value
+    // #endif
+    // #ifndef APP
+    // @ts-ignore
+    dataInfo.beforeNextTickTitle = pageText.textContent
+    // #endif
+    
+    await nextTick()
+    
+    // #ifdef APP
+    dataInfo.afterNextTickTitle = (pageText as UniTextElement).value
+    // #endif
+    // #ifndef APP
+    // @ts-ignore
+    dataInfo.afterNextTickTitle = pageText.textContent
+    // #endif
+  }
+  const pageTestNextTick = () => {
+    testNextTick()
+  }
+
+  const afterNextTickGetText = () => {
+    dataInfo.showTestText = !dataInfo.showTestText
+    nextTick(() => {
+      const text = uni.getElementById('v-if-next-tick-should-getable')
+      dataInfo.vIfNextTickTestTextGetAble = text != null
+      console.log('after v-if nextTick should getable text:', dataInfo.vIfNextTickTestTextGetAble)
+    })
+  }
+
+  defineExpose({
+    dataInfo,
+    afterNextTickGetText
+  })
+</script>

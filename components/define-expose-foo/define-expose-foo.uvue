@@ -1,0 +1,18 @@
+<script setup lang='uts'>
+  const str = 'foo str'
+  const num = ref(0)
+  const increment = () => {
+    num.value++
+  }
+  
+  defineExpose({
+    str,
+    num,
+    increment
+  })
+  
+</script>
+
+<template>
+  <view></view>
+</template>
