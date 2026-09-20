@@ -36,7 +36,7 @@
     </view>
 
     <!-- 数字网格：点击贴上 / 撕下 -->
-    <text class="section">点击数字贴上，再点一次撕下来（撕下能重贴）</text>
+    <text class="section">点数字贴一张，同种能摞满 4 张；贴不下了再点一次，整摞撕下来</text>
     <view class="grid">
       <view
         v-for="(rank, index) in RANKS"
@@ -66,16 +66,16 @@
   import {
     Sticker,
     STICKERS,
-    S_LUCKY,
     stickerAt,
     rarityAt,
+    isFixedRank,
     keyAtIndex,
     indexOfKey
   } from '@/pages/examples/blackjack/stickers.uts'
   import {
     RANKS,
-    stickerIndex,
-    stickersOfRank,
+    stickerKindsOfRank,
+    stuckCountAt,
     countStuck
   } from '@/pages/examples/blackjack/cards.uts'
   import {
@@ -93,8 +93,9 @@
   } from '@/pages/examples/blackjack/save.uts'
 
   const save = ref<SaveData>(emptySave())
-  // 开局白送的幸运一定在手上，拿它当默认选中项
-  const activeId = ref<string>(S_LUCKY)
+  // 手里有什么就默认选什么。幸运不再白送，新存档可能一张贴纸都没有，
+  // 这时空着 —— 没有可选项，硬选一个只会让人以为自己有
+  const activeId = ref<string>('')
 
   // 只列自己有的贴纸。已经贴出去的也留在列表里 —— 不然就没法选中它撕下来了
   const ownedStickers = computed<Sticker[]>(() : Sticker[] => {
@@ -122,16 +123,30 @@
   })
 
   const activeDesc = computed<string>(() : string => {
-    const sticker = stickerAt(activeId.value)
-    // 跟商店一致：没解锁的贴纸只给看名字，不给看效果
-    if (!isShopUnlocked(save.value, activeId.value)) {
-      return '【' + sticker.name + '】效果保密 · 打赢用这种贴纸的庄家后解锁'
+    if (activeId.value == '') {
+      return '手里一张贴纸都没有，去兑换所用随机券抽几张'
     }
+    const sticker = stickerAt(activeId.value)
+    // 效果一律摊开给看，解没解锁都照说 ——
+    // 藏着效果只会让人对着名字瞎猜，贴上去才发现不是想要的
     return '【' + sticker.name + '】' + sticker.desc
   })
 
   function refresh() {
     save.value = loadCurrentSave()
+    // 选中项可能已经不在手上了（贴光了、或者是刚进页面还没选），
+    // 自动落到手里的第一张
+    const owned = ownedStickers.value
+    if (owned.length == 0) {
+      activeId.value = ''
+      return
+    }
+    for (let i = 0; i < owned.length; i++) {
+      if (owned[i].key == activeId.value) {
+        return
+      }
+    }
+    activeId.value = owned[0].key
   }
 
   function selectSticker(key : string) {
@@ -146,41 +161,67 @@
   // 这个数字身上所有贴纸的名字，用于格子里的小字。
   // 名字是两个字，用顿号隔开才看得清哪是哪
   function marksOf(rankIndex : number) : string {
-    const slots = stickersOfRank(save.value.stuck, rankIndex)
-    if (slots.length == 0) {
+    // J 焊着【通吃】，贴纸矩阵管不着它
+    if (isFixedRank(RANKS[rankIndex])) {
+      return '通吃·固定'
+    }
+    const kinds = stickerKindsOfRank(save.value.stuck, rankIndex)
+    if (kinds.length == 0) {
       return '—'
     }
+    // 同种贴了好几张就缀个 ×N，不然「幸运、幸运、幸运」读起来很怪
     let text = ''
-    for (let i = 0; i < slots.length; i++) {
+    for (let i = 0; i < kinds.length; i++) {
       if (i > 0) {
         text = text + '、'
       }
-      text = text + stickerAt(keyAtIndex(slots[i])).name
+      text = text + stickerAt(keyAtIndex(kinds[i])).name
+      const count = stuckCountAt(save.value.stuck, rankIndex, kinds[i])
+      if (count > 1) {
+        text = text + '×' + count
+      }
     }
     return text
   }
 
+  // 点一次加贴一张，同种可以摞到 4 张。
+  // 贴不下了再点一次，就把这个数字上这种贴纸整摞撕下来退回手里，重新来过 ——
+  // 摞着的时候「点一下撕一张」会在满和差一张之间来回跳，反而调不准
   function toggleSticker(rankIndex : number) {
     const data = save.value
     const key = activeId.value
-
-    if (isStuckAt(data, rankIndex, key)) {
-      // 撕下来退回手里，可以再贴到别处
-      peelSticker(data, rankIndex, key)
-      commit(data, '撕下【' + stickerAt(key).name + '】')
-      return
-    }
-
-    const reason = canStick(data, rankIndex, key)
-    if (reason != '') {
+    if (key == '') {
       uni.showToast({
         icon: 'none',
-        title: reason
+        title: '手里没有贴纸，先去兑换所'
       })
       return
     }
-    applySticker(data, rankIndex, key)
-    commit(data, RANKS[rankIndex] + ' 贴上【' + stickerAt(key).name + '】')
+    const name = stickerAt(key).name
+
+    const reason = canStick(data, rankIndex, key)
+    if (reason == '') {
+      applySticker(data, rankIndex, key)
+      const count = stuckCountAt(data.stuck, rankIndex, indexOfKey(key))
+      const tail = count > 1 ? '，共 ' + count + ' 张' : ''
+      commit(data, RANKS[rankIndex] + ' 贴上【' + name + '】' + tail)
+      return
+    }
+
+    if (isStuckAt(data, rankIndex, key)) {
+      let count = 0
+      while (isStuckAt(data, rankIndex, key)) {
+        peelSticker(data, rankIndex, key)
+        count = count + 1
+      }
+      commit(data, '撕下 ' + count + ' 张【' + name + '】')
+      return
+    }
+
+    uni.showToast({
+      icon: 'none',
+      title: reason
+    })
   }
 
   // 数据改完整体替换一次，保证视图刷新
@@ -190,6 +231,8 @@
       exists: data.exists,
       label: data.label,
       tickets: data.tickets,
+      randomTickets: data.randomTickets,
+      refundTickets: data.refundTickets,
       win: data.win,
       lose: data.lose,
       push: data.push,

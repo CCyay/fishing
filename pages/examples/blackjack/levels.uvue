@@ -35,8 +35,8 @@
           </view>
           <text class="cell-name">{{ level.name }}</text>
           <text class="cell-goal"
-            >{{ cleared(level) ? '重打不给券' : rewardOf(level) }} · 庄家贴纸
-            {{ level.dealerStickers }}{{ hiddenOf(level) }}</text
+            >{{ cleared(level) ? '重打不给券' : rewardOf(level) }} · {{ turnsOf(level) }} ·
+            庄家贴纸 {{ level.dealerStickers }}</text
           >
           <text class="cell-state" :class="{ 'cell-state-lock': !playable(level) }">{{
             stateOf(level)
@@ -95,12 +95,17 @@
   }
 
   function rewardOf(level : Level) : string {
-    return '胜 +' + level.rewardCount + ' 张' + rarityAt(level.rewardRarity).name + '券'
+    let text = '胜 +' + level.rewardCount + ' 张' + rarityAt(level.rewardRarity).name + '券'
+    if (level.randomCount > 0) {
+      text = text + '、' + level.randomCount + ' 张'
+        + rarityAt(level.randomRarity).name + '随机券'
+    }
+    return text
   }
 
-  // 高关卡的庄家会盖牌，这里先提醒一声
-  function hiddenOf(level : Level) : string {
-    return level.dealerHidden > 0 ? ' · 暗牌 ' + level.dealerHidden : ''
+  // 局有多长：每人各打几个回合
+  function turnsOf(level : Level) : string {
+    return '各 ' + level.turns + ' 回合'
   }
 
   function stateOf(level : Level) : string {
@@ -123,7 +128,7 @@
     }
     setCurrentLevel(level.index)
     uni.navigateTo({
-      url: '/pages/examples/blackjack/blackjack'
+      url: '/pages/examples/blackjack/fishing'
     })
   }
 

@@ -15,7 +15,9 @@
         </view>
 
         <view v-if="slot.data.exists" class="slot-info">
-          <text class="slot-text">兑换券 {{ ticketsOfSlot(slot) }}</text>
+          <text class="slot-text"
+            >兑换券 {{ ticketsOfSlot(slot) }} · 随机券 {{ randomTicketsOfSlot(slot) }}</text
+          >
           <text class="slot-text"
             >战绩 {{ slot.data.win }}/{{ slot.data.lose }}/{{ slot.data.push }}</text
           >
@@ -75,6 +77,10 @@
   // 手里各种稀有度的券加起来
   function ticketsOfSlot(slot : Slot) : number {
     return sumOf(slot.data.tickets)
+  }
+
+  function randomTicketsOfSlot(slot : Slot) : number {
+    return sumOf(slot.data.randomTickets)
   }
 
   // 已经贴到牌组上的贴纸张数

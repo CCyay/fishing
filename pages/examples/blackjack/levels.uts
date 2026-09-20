@@ -1,10 +1,16 @@
 // 10 个关卡。难度沿三条线递增：庄家牌组上的贴纸变多、庄家出牌越来越会算、
-// 高关卡还会盖暗牌。
+// 局越拖越长（每人 10 回合到 20 回合）。
+// 长局更难是因为抢堆拼的是记数字：短局抢中一两个大堆就能定胜负，
+// 局一长，哪个数字还剩几张没出就得自己心里有数，全靠运气撑不到最后。
 // 每关的券只发一次。通过之后还能回去重打，但不再给券 ——
 // 全程能拿到的券是固定的，所以每张券花在哪张贴纸上都是不可逆的取舍。
 // 重打的用处是刷成就和试牌组。输了不扣任何东西，可以改完牌组再来。
 
-import { MAX_STICKERS_PER_RANK, indexOfKey } from '@/pages/examples/blackjack/stickers.uts'
+import {
+  MAX_STICKERS_PER_RANK,
+  indexOfKey,
+  isFixedRank
+} from '@/pages/examples/blackjack/stickers.uts'
 import {
   RANKS,
   emptyStickers,
@@ -15,9 +21,13 @@ import {
 export type Level = {
   index : number
   name : string
-  // 通关奖励：哪种稀有度的兑换券、给几张。失败什么都不给
+  // 通关奖励：哪种稀有度的自选兑换券、给几张。失败什么都不给
   rewardRarity : number
   rewardCount : number
+  // 随机兑换券，跟自选券一起发。随机券抽到什么算什么，
+  // 但抽池里有隐藏贴纸 —— 那些通关和成就都给不了，只有这条路
+  randomRarity : number
+  randomCount : number
   // 庄家牌组上贴的贴纸总数
   dealerStickers : number
   // 庄家牌组上用的贴纸种类，纯粹决定这关难打成什么样
@@ -28,150 +38,203 @@ export type Level = {
   // 庄家出牌策略：1 随机、2 稳健、3 精算
   ai : number
   // 庄家最先打出的几张牌盖着不给你看，结算才翻开。
-  // 低关卡是 0，让你先把规则摸熟；高关卡才开始藏牌
+  // 低关卡是 0，让你先把规则摸熟；高关卡才开始藏牌。
+  // 抢堆规则里暂时不用 —— 堆是公共的，盖着的牌没法参与重复判定
   dealerHidden : number
+  // 重复通关给几张退换券。首次通关给的是正经券，重打给的是回炉的机会 ——
+  // 越难的关给得越多，第 10 关一趟能换三张
+  refundCount : number
+  // 每人各打几个回合，打满就结算。双方回合数分开走，所以这是「一人几手」。
+  // 局越长越考验记数字和控堆：短局抢一两个大堆就能定胜负，
+  // 长局里你得算清楚每个数字还剩几张没出
+  turns : number
 }
 
 export const LEVEL_COUNT : number = 10
 
-// 解锁有两条路：通关（unlockStickers，跟庄家用什么无关）和成就（见 stickers.uts）。
-// 靠成就拿的那几张（双生、奉献、乞讨、鼓舞、蝴蝶、置换、洞察、破碎）不放进通关解锁 ——
-// 想要就得先在牌桌上做出对应的事。两条路都能拿的话成就就白设了。
+// 贴纸一共 50 种，四条路拿到：
+//   · 免解锁 4 张（轻坠、小坠、窥探、盲换）—— 开局货架上就有；
+//   · 隐藏 1 张（幸运）—— 只有随机券抽得到；
+//   · 成就 8 张（福星、倒影、埋钩、暗桩、对换、假饵、撒网、摸底）—— 得先在牌桌上做到；
+//   · 通关 37 张 —— 就是下面各关的 unlockStickers。
+// 四条路互不重叠：成就那几张不放进通关解锁，否则成就就白设了。
 //
-// 解锁顺序严格跟着稀有度走，越贵的越靠后：
-//   1-3 关放普通、4-5 关放稀有、6-8 关放史诗、9 关放传说。
-// 发的券也同步跟上，打完就能立刻换上当关解锁的东西 —— 不会出现
-// 「传说早早解锁了，史诗还压在后面」这种倒挂。
-// 第 10 关不解锁任何贴纸，但给第二张传说券 —— 第 9 关一次放出三张传说，
+// 解锁顺序跟着稀有度走，越贵的越靠后：1-2 关放普通、3-5 关放稀有、
+// 6-8 关放史诗、9 关放传说。发的券也同步跟上，打完就能立刻换上当关解锁的东西。
+// 第 10 关不解锁任何贴纸，但给第二张传说券 —— 第 9 关一次放出两张传说，
 // 一张券挑不过来，打穿最后一关才配拿到第二张。
 //
-// 全程能拿到：普通 13、稀有 6、史诗 6、传说 2，共 27 张券。
-// 加上白送的 4 张幸运，牌组上最多有 31 张贴纸牌 —— 52 张里占六成。
+// 全程能拿到：普通 13、稀有 6、史诗 6、传说 2，共 27 张券，
+// 其中普通 5、稀有 2、史诗 3 是随机券（抽池里含隐藏贴纸），其余是自选券。
+// 再加上新存档白给的 4 张普通随机券，牌组上最多有 31 张贴纸牌 —— 52 张里占六成。
+// 这个总量跟改版前一样：以前是白送 4 张幸运，现在换成 4 张随机券去抽，
+// 幸运成了隐藏贴纸，抽不抽得到看运气。
+// 传说档不发随机券：那三张里没有隐藏的，随机抽不如自己挑。
 // 普通券给得比别的档宽，是因为普通贴纸是地基：单张影响最小，
-// 靠的是贴满同一种（上限 4 张）把抽到的概率堆上来，一张奇缘是运气、
-// 四张奇缘才是流派。13 张正好买满三种还剩一张零头。
-// 这是刻意做高的：贴纸之间的联动（改左邻、换位、扫场）要几张同时在桌上才成得了，
+// 靠的是贴满同一种（上限 4 张）把抽到的概率堆上来，一张轻坠是运气、
+// 四张轻坠才是流派。13 张正好买满三种还剩一张零头。
+// 这是刻意做高的：贴纸之间的联动（改数字、挪位置、垫空位）要几张同时在堆上才成得了，
 // 密度太低的话精心搭的组合一局都碰不上一次，构筑就白做了。
-// 高密度不等于高操作量 —— 永续类零交互，立即类里只有会反噬自己的才弹确认。
+// 高密度不等于高操作量 —— 永续类零交互，只有要挑位置、挑方向的才需要你动手。
 const LEVELS : Level[] = [
   {
     index: 1,
-    name: '新手桌',
+    name: '浅滩',
+    turns: 10,
+    refundCount: 1,
     rewardRarity: 0,
-    rewardCount: 5,
+    rewardCount: 3,
+    randomRarity: 0,
+    randomCount: 2,
     dealerStickers: 2,
-    dealerStickerKinds: ['peek', 'compare', 'cutin'],
-    unlockStickers: ['peek', 'compare', 'cutin'],
+    dealerStickerKinds: ['sinker1', 'peek'],
+    unlockStickers: ['sink1', 'drift', 'minus1', 'minus2'],
     ai: 1,
     dealerHidden: 0
   },
   {
     index: 2,
-    name: '街角赌局',
+    name: '小河湾',
+    turns: 11,
+    refundCount: 1,
     rewardRarity: 0,
-    rewardCount: 5,
+    rewardCount: 3,
+    randomRarity: 0,
+    randomCount: 2,
     dealerStickers: 4,
-    dealerStickerKinds: ['steal', 'odds', 'step'],
-    unlockStickers: ['backflow', 'steal', 'step', 'odds'],
+    dealerStickerKinds: ['sinker2', 'drift', 'sink1'],
+    unlockStickers: ['sinker3', 'hook', 'minus3', 'minus4'],
     ai: 1,
     dealerHidden: 0
   },
   {
     index: 3,
-    name: '小镇赌场',
+    name: '芦苇荡',
+    turns: 12,
+    refundCount: 1,
     rewardRarity: 0,
-    rewardCount: 3,
+    rewardCount: 2,
+    randomRarity: 0,
+    randomCount: 1,
     dealerStickers: 6,
-    dealerStickerKinds: ['give', 'step', 'odds', 'evens'],
-    unlockStickers: ['evens', 'pile'],
+    dealerStickerKinds: ['give', 'hook', 'sinker3'],
+    unlockStickers: ['sinker4', 'trade', 'dye', 'empty'],
     ai: 2,
     dealerHidden: 0
   },
   {
     index: 4,
-    name: '河畔赌船',
+    name: '野塘',
+    turns: 13,
+    refundCount: 1,
     rewardRarity: 1,
-    rewardCount: 3,
+    rewardCount: 2,
+    randomRarity: 1,
+    randomCount: 1,
     dealerStickers: 8,
-    dealerStickerKinds: ['butterfly', 'ruthless', 'ransack', 'sift'],
-    unlockStickers: ['boost', 'ruthless', 'trade', 'ransack', 'sift', 'strip', 'martyr', 'devour'],
+    dealerStickerKinds: ['trade', 'sinker4', 'strip', 'shadow'],
+    unlockStickers: ['reel', 'strip', 'sand', 'veil'],
     ai: 2,
     dealerHidden: 0
   },
   {
     index: 5,
-    name: '城市牌室',
+    name: '水库',
+    turns: 14,
+    refundCount: 2,
     rewardRarity: 1,
-    rewardCount: 3,
+    rewardCount: 2,
+    randomRarity: 1,
+    randomCount: 1,
     dealerStickers: 10,
-    dealerStickerKinds: ['swap', 'purge', 'cull', 'borrow'],
-    unlockStickers: ['purge', 'collapse', 'cull', 'same', 'borrow', 'echo', 'shunt', 'recall'],
+    dealerStickerKinds: ['reel', 'probe1', 'lucky', 'picked'],
+    unlockStickers: ['sink2', 'line', 'scan', 'dredge'],
     ai: 2,
     dealerHidden: 0
   },
   {
     index: 6,
-    name: '高额桌',
+    name: '江心',
+    turns: 15,
+    refundCount: 2,
     rewardRarity: 2,
-    rewardCount: 2,
+    rewardCount: 1,
+    randomRarity: 2,
+    randomCount: 1,
     dealerStickers: 12,
-    dealerStickerKinds: ['twins', 'regret', 'weed', 'blessed'],
-    unlockStickers: ['twins', 'regret', 'weed', 'bias', 'graft', 'morph', 'blessed'],
+    dealerStickerKinds: ['line', 'shadow', 'blessed', 'probe2'],
+    unlockStickers: ['sinker5', 'sinker6', 'blend', 'gate'],
     ai: 3,
     dealerHidden: 0
   },
   {
     index: 7,
-    name: '贵宾厅',
+    name: '深潭',
+    turns: 16,
+    refundCount: 2,
     rewardRarity: 2,
-    rewardCount: 2,
+    rewardCount: 1,
+    randomRarity: 2,
+    randomCount: 1,
     dealerStickers: 14,
-    dealerStickerKinds: ['crouch', 'mimic', 'standby', 'insight'],
-    unlockStickers: ['crouch', 'mimic', 'switch', 'ambush', 'standby', 'ebb'],
+    dealerStickerKinds: ['sinker5', 'stake', 'mirror', 'probe2'],
+    unlockStickers: ['mirror', 'streak', 'mask', 'stir'],
     ai: 3,
     dealerHidden: 1
   },
   {
     index: 8,
-    name: '地下赌场',
+    name: '暗流',
+    turns: 17,
+    refundCount: 2,
     rewardRarity: 2,
-    rewardCount: 2,
+    rewardCount: 1,
+    randomRarity: 2,
+    randomCount: 1,
     dealerStickers: 16,
-    dealerStickerKinds: ['beg', 'swapside', 'erode', 'behead'],
-    unlockStickers: ['swapside', 'erode', 'gnaw', 'behead', 'frisk', 'purgehand', 'revive'],
+    dealerStickerKinds: ['mirror', 'streak', 'lure', 'sinker6'],
+    unlockStickers: ['probe2', 'wash', 'same', 'dig', 'gather'],
     ai: 3,
     dealerHidden: 1
   },
   {
     index: 9,
-    name: '大师赛',
+    name: '断崖下',
+    turns: 18,
+    refundCount: 3,
     rewardRarity: 3,
     rewardCount: 1,
+    randomRarity: 3,
+    randomCount: 0,
     dealerStickers: 18,
-    dealerStickerKinds: ['broken', 'gnaw', 'behead', 'frisk', 'purgehand'],
-    // 传说五张，其中两张（破碎、乞讨）靠成就拿。
-    // 这一关放出三张，加上第 10 关给的那张券，全程两张传说券配五张牌
-    unlockStickers: ['calamity', 'reflect', 'seize'],
+    dealerStickerKinds: ['murky', 'cast', 'longline', 'blessed', 'stake'],
+    // 传说三张，其中撒网靠成就拿。这一关放出另外两张，
+    // 全程正好两张传说券，一张换一张
+    unlockStickers: ['longline', 'murky', 'hue', 'unify'],
     ai: 3,
     dealerHidden: 2
   },
   {
     index: 10,
-    name: '庄家之王',
+    name: '龙王潭',
+    turns: 20,
+    refundCount: 3,
     rewardRarity: 3,
     rewardCount: 1,
+    randomRarity: 3,
+    randomCount: 0,
     dealerStickers: 20,
     dealerStickerKinds: [
-      'twin',
-      'broken',
-      'beg',
-      'twins',
-      'mimic',
-      'switch',
-      'erode',
-      'behead',
-      'calamity',
-      'purgehand'
+      'cast',
+      'murky',
+      'longline',
+      'mirror',
+      'streak',
+      'lure',
+      'shadow',
+      'blessed',
+      'stake',
+      'sinker6'
     ],
     // 最后一关不解锁任何贴纸 —— 通关之后就没地方用了。
     // 但它给的是第二张传说券：第 9 关一次放出三张传说，一张券根本不够挑，
@@ -218,13 +281,19 @@ export function dealerStuck(level : Level) : number[] {
       if (left <= 0) {
         break
       }
+      // J 焊着【通吃】，庄家的也一样，贴纸分不到它头上
+      if (isFixedRank(RANKS[r])) {
+        continue
+      }
       const slot = indexOfKey(kinds[(r + round) % kinds.length])
       if (slot < 0) {
         continue
       }
       const at = stickerIndex(r, slot)
-      if (stuck[at] == 0 && stickersOfRank(stuck, r).length < MAX_STICKERS_PER_RANK) {
-        stuck[at] = 1
+      // 庄家跟你一样，同一个数字上可以摞好几张同种贴纸，
+      // 卡的只是这个数字统共 4 张牌
+      if (stickersOfRank(stuck, r).length < MAX_STICKERS_PER_RANK) {
+        stuck[at] = stuck[at] + 1
         left = left - 1
       }
     }

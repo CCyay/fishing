@@ -3,7 +3,7 @@
     {
       "path": "pages/examples/blackjack/home",
       "style": {
-        "navigationBarTitleText": "42 点（blackjack）",
+        "navigationBarTitleText": "钓鱼（fishing）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
         "backgroundColorBottom": "#0B5D3B"
@@ -46,7 +46,7 @@
       }
     },
     {
-      "path": "pages/examples/blackjack/blackjack",
+      "path": "pages/examples/blackjack/fishing",
       "style": {
         "navigationBarTitleText": "牌桌（table）",
         "backgroundColor": "#0B5D3B",
@@ -54,6 +54,7 @@
         "backgroundColorBottom": "#0B5D3B"
       }
     },
+
     {
       "path": "pages/index/index",
       "style": {

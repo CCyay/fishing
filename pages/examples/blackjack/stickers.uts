@@ -1,13 +1,29 @@
 // 贴纸定义。贴纸贴在基础牌上，让这张牌变成特殊牌。
 // 一张贴纸只能贴一张牌，撕下来就能再贴到别处。
 // 每种贴纸按稀有度决定单价和最多能拥有几张：越稀有越贵、越少，
-// 强力贴纸因此贴不满整副牌。同一个数字不能贴同一种贴纸，一张牌也只接受一张贴纸。
+// 强力贴纸因此贴不满整副牌。同一个数字可以贴好几张同种贴纸（最多 4 张，因为只有 4 张牌）。
 //
 // 贴纸分三类：
-// · 永续：只要牌在场上就一直有效，多是点数变动类。
-// · 立即：打到桌上的当下发动，可能反噬自己的才会问一句发不发动。绝大多数是这一类。
-// · 横置：留在桌上，等合适的时机横置它发动。
-// 加新贴纸时不特意登记成永续或横置的，默认就是立即类。
+// · 点数类：只要牌在堆上就一直有效，改的是「这张牌算几点」。本版生效的就是这一批。
+// · 空位类：落进牌堆但没有数字（点数算 0）。它占一个堆位，换来一个跟数字无关的效果。
+// · 立即类：打出的当下发动。不属于上面两类的都归这里。
+//
+// 下面这几条是贴纸描述里反复用到的共同规则，只在这里写一遍，
+// 各张贴纸的 desc 保持客观，不重复解释（牌桌的规则说明里也列了一份）：
+//
+//   顺位：十三个数首尾相接。K 往上一位是 A，A 往下一位是 K。
+//   钓点：点数得在 1 以上才当得了钓点。
+//   空位：落堆时没有点数 —— 撞不上别人，也没人撞得上它，但花色照样算数。
+//   0：提系压到底压出来的。跟没有点数一样当不了钓点，花色同样还在。
+//   背面牌：数字和花色都不算数。新加进堆的背面牌一律沉到最左侧（堆底）——
+//           钓牌是从撞中的位置往上收，所以沉在底下的基本带不走，会一直攒着。
+//           【起底】是把它们翻回来变成分的唯一一条路。
+//   落堆位置：默认压在堆顶（最右）；标「落堆底」的放最左侧。
+//   J：四张全都焊死【通吃】，贴不了别的贴纸。
+//
+// 点数类一共六套派生，各管一层，互不冲突（见 cards.uts 的 valueOptions）：
+//   暗桩改写基础值 → 坠子/提系加减一个定值 → 幸运和福星按顺位上下浮动、
+//   倒影翻到轴的对面、游动和跳钩跳单独一位、放线和长线顺延一段。
 //
 // 每张贴纸用一个字符串 key 认身份，不用数字编号 ——
 // 数字编号删一张就得把后面全部前移，存档也跟着错位；
@@ -57,433 +73,401 @@ export function rarityAt(id : number) : Rarity {
 
 // 贴纸 key。加新贴纸就在 STICKERS 里追加一条、在这里补一个常量。
 // 已有的 key 不要改 —— 存档按 key 记录贴纸贴在哪，改了老存档就对不上。
-// key 和 name 分成两个字段，是为了将来想改显示名时不用动存档
+// key 和 name 分成两个字段，所以改显示名不用动存档（埋钩的 key 还是 give）
+
+// 点数类
 export const S_LUCKY : string = 'lucky'
-export const S_PEEK : string = 'peek'
-export const S_TWIN : string = 'twin'
-export const S_BROKEN : string = 'broken'
-export const S_STEAL : string = 'steal'
-export const S_GIVE : string = 'give'
-export const S_BEG : string = 'beg'
-export const S_BOOST : string = 'boost'
-export const S_CHEER : string = 'cheer'
-export const S_BUTTERFLY : string = 'butterfly'
-export const S_SWAP : string = 'swap'
-export const S_TWINS : string = 'twins'
-export const S_RUTHLESS : string = 'ruthless'
-export const S_REGRET : string = 'regret'
-export const S_CROUCH : string = 'crouch'
-export const S_MIMIC : string = 'mimic'
-export const S_INSIGHT : string = 'insight'
-export const S_BACKFLOW : string = 'backflow'
-export const S_TRADE : string = 'trade'
-export const S_SWITCH : string = 'switch'
-export const S_RANSACK : string = 'ransack'
-export const S_AMBUSH : string = 'ambush'
-export const S_PURGE : string = 'purge'
-export const S_SWAPSIDE : string = 'swapside'
-export const S_COLLAPSE : string = 'collapse'
-export const S_ERODE : string = 'erode'
-export const S_GNAW : string = 'gnaw'
-export const S_CULL : string = 'cull'
-export const S_SAME : string = 'same'
-export const S_BEHEAD : string = 'behead'
-export const S_CALAMITY : string = 'calamity'
-export const S_FRISK : string = 'frisk'
-export const S_PURGEHAND : string = 'purgehand'
-export const S_STEP : string = 'step'
-export const S_COMPARE : string = 'compare'
-export const S_ODDS : string = 'odds'
-export const S_EVENS : string = 'evens'
-export const S_SIFT : string = 'sift'
-export const S_WEED : string = 'weed'
-export const S_BIAS : string = 'bias'
-export const S_CUTIN : string = 'cutin'
-export const S_BORROW : string = 'borrow'
 export const S_BLESSED : string = 'blessed'
-export const S_STANDBY : string = 'standby'
-export const S_ECHO : string = 'echo'
-export const S_REFLECT : string = 'reflect'
-export const S_GRAFT : string = 'graft'
-export const S_REVIVE : string = 'revive'
-export const S_SEIZE : string = 'seize'
+export const S_SINKER1 : string = 'sinker1'
+export const S_SINKER2 : string = 'sinker2'
+export const S_SINKER3 : string = 'sinker3'
+export const S_SINKER4 : string = 'sinker4'
+export const S_SINKER5 : string = 'sinker5'
+export const S_SINKER6 : string = 'sinker6'
+export const S_MINUS1 : string = 'minus1'
+export const S_MINUS2 : string = 'minus2'
+export const S_MINUS3 : string = 'minus3'
+export const S_MINUS4 : string = 'minus4'
+export const S_STAKE : string = 'stake'
+export const S_SHADOW : string = 'shadow'
+export const S_DRIFT : string = 'drift'
+export const S_HOOK : string = 'hook'
+export const S_LINE : string = 'line'
+export const S_LONGLINE : string = 'longline'
+// 手牌与牌库
+export const S_PEEK : string = 'peek'
+export const S_TRADE : string = 'trade'
+export const S_SINK1 : string = 'sink1'
+export const S_SINK2 : string = 'sink2'
+export const S_PROBE1 : string = 'probe1'
+export const S_PROBE2 : string = 'probe2'
+export const S_BLIND : string = 'blind'
+export const S_PICKED : string = 'picked'
+export const S_SCAN : string = 'scan'
+export const S_WASH : string = 'wash'
+export const S_SAME : string = 'same'
+export const S_EMPTY : string = 'empty'
+// 牌堆结构
+export const S_GIVE : string = 'give'
+export const S_REEL : string = 'reel'
 export const S_STRIP : string = 'strip'
-export const S_PILE : string = 'pile'
-export const S_EBB : string = 'ebb'
-export const S_SHUNT : string = 'shunt'
-export const S_MARTYR : string = 'martyr'
-export const S_RECALL : string = 'recall'
-export const S_DEVOUR : string = 'devour'
-export const S_MORPH : string = 'morph'
+export const S_SAND : string = 'sand'
+export const S_VEIL : string = 'veil'
+export const S_DREDGE : string = 'dredge'
+// 空位类
+export const S_LURE : string = 'lure'
+export const S_MIRROR : string = 'mirror'
+export const S_STREAK : string = 'streak'
+export const S_CAST : string = 'cast'
+export const S_MURKY : string = 'murky'
+export const S_GATE : string = 'gate'
+export const S_MASK : string = 'mask'
+export const S_STIR : string = 'stir'
+export const S_DIG : string = 'dig'
+export const S_GATHER : string = 'gather'
+// 花色系
+export const S_HUE : string = 'hue'
+export const S_BLEND : string = 'blend'
+export const S_UNIFY : string = 'unify'
+export const S_DYE : string = 'dye'
 
 // 没贴贴纸的普通牌用空串表示
 export const S_NONE : string = ''
 
-// 扫描方向。前三种拿点数当尺子，后两种拿奇偶当尺子
-export const CULL_BIGGER : number = 0
-export const CULL_SMALLER : number = 1
-export const CULL_EQUAL : number = 2
-export const CULL_ODD : number = 3
-export const CULL_EVEN : number = 4
+// J 身上焊死的效果。它不进 STICKERS —— 不上架、不能买、不能撕、也不能换，
+// 所以没理由占掉贴纸矩阵的一列，更没理由在商店和牌组编辑里露面
+export const S_HAUL : string = 'haul'
 
-// 换位、扫场要圈定范围：0 只管自己、1 只管庄家、2 两边都管
-export const SCOPE_OWN : number = 0
-export const SCOPE_CROSS : number = 1
-export const SCOPE_ANY : number = 2
+const HAUL : Sticker = {
+  key: 'haul',
+  name: '通吃',
+  rarity: 3,
+  desc: '打出时把整个牌堆连同这张牌一起收走。J 自带，撕不下来也换不掉'
+}
 
-// 洞察一次看几张
-export const INSIGHT_DEPTH : number = 3
+// 这个数字身上的贴纸是不是焊死的
+export function isFixedRank(rank : string) : boolean {
+  return rank == 'J'
+}
 
-// 稀有度按「能多大程度左右点数」排：
-// 能持续改写点数的（永续类）最贵，能把点数搬来搬去的次之，
-// 只提供信息或换牌的最便宜。
+// 稀有度按「能多大程度左右钓牌」排：
+// 能收割一片或者掀开对手底牌的最贵，能改写牌堆结构的次之，
+// 只动自己手牌和牌库的最便宜。
 export const STICKERS : Sticker[] = [
+  // ---------- 普通 ----------
   {
     key: 'lucky',
     name: '幸运',
     rarity: 0,
-    desc: '永续：这张牌的点数可以 +1 或 −1，也可以不变'
+    desc: '永续：点数还可以按顺位 ±1 算'
+  },
+  {
+    key: 'sinker1',
+    name: '轻坠',
+    rarity: 0,
+    desc: '永续：点数 +1'
+  },
+  {
+    key: 'sinker2',
+    name: '小坠',
+    rarity: 0,
+    desc: '永续：点数 +2'
+  },
+  {
+    key: 'minus1',
+    name: '轻提',
+    rarity: 0,
+    desc: '永续：点数 −1，最低 0'
+  },
+  {
+    key: 'minus2',
+    name: '小提',
+    rarity: 0,
+    desc: '永续：点数 −2，最低 0'
+  },
+  {
+    key: 'give',
+    name: '埋钩',
+    rarity: 0,
+    desc: '打出时自己选插进牌堆的哪一层'
   },
   {
     key: 'peek',
     name: '窥探',
     rarity: 0,
-    desc: '看一眼牌库顶那张牌，可以把它压到牌库底'
+    desc: '看自己牌库顶 1 张，可以压到牌库底'
   },
   {
-    key: 'twin',
-    name: '双生',
-    rarity: 1,
-    desc: '永续：这张牌可以按 11 减去它的点数算'
-  },
-  {
-    key: 'broken',
-    name: '破碎',
-    rarity: 3,
-    desc: '永续：这张牌可以按负数算'
-  },
-  {
-    key: 'steal',
-    name: '盗窃',
+    key: 'sink1',
+    name: '换饵',
     rarity: 0,
-    desc: '随机抽走庄家一张手牌并弃掉，他立刻补一张'
+    desc: '挑 1 张手牌压到自己牌库底，然后补满'
   },
   {
-    key: 'give',
-    name: '奉献',
+    key: 'blind',
+    name: '盲换',
     rarity: 0,
-    desc: '把这张牌推给庄家，它的点数改算在他头上'
+    desc: '跟庄家随机交换 2 张手牌'
   },
+
+  // ---------- 稀有 ----------
   {
-    key: 'beg',
-    name: '乞讨',
-    rarity: 3,
-    desc: '庄家从他桌上挑一张牌交给你，点数跟着一起过来'
-  },
-  {
-    key: 'boost',
-    name: '强化',
+    key: 'sinker3',
+    name: '中坠',
     rarity: 1,
-    desc: '横置：你下一张发动的立即类贴纸，效果连发两次'
+    desc: '永续：点数 +3'
   },
   {
-    key: 'cheer',
-    name: '鼓舞',
+    key: 'sinker4',
+    name: '重坠',
     rarity: 1,
-    desc: '把自己桌上一张横置的牌转回来，它能再横置一次'
+    desc: '永续：点数 +4'
   },
   {
-    key: 'butterfly',
-    name: '蝴蝶',
+    key: 'minus3',
+    name: '中提',
     rarity: 1,
-    desc: '把自己左边那张牌的基础点数改成和这张一样，那张牌的贴纸照常生效'
+    desc: '永续：点数 −3，最低 0'
   },
   {
-    key: 'swap',
-    name: '置换',
+    key: 'minus4',
+    name: '重提',
     rarity: 1,
-    desc: '手牌全部弃掉，立刻重新补满一手'
+    desc: '永续：点数 −4，最低 0'
   },
   {
-    key: 'twins',
-    name: '双子',
-    rarity: 2,
-    desc: '把牌库里所有同点数的牌摊开挑一张进手牌，然后弃掉一张手牌'
-  },
-  {
-    key: 'ruthless',
-    name: '狠心',
+    key: 'drift',
+    name: '游动',
     rarity: 1,
-    desc: '挑自己桌上任意一张牌弃掉，它的点数不再算数'
+    desc: '永续：点数还可以按顺位 −1 算'
   },
   {
-    key: 'regret',
-    name: '悔过',
-    rarity: 2,
-    desc: '把自己左边那张牌收回手牌，然后弃掉一张手牌'
-  },
-  {
-    key: 'crouch',
-    name: '蛰伏',
-    rarity: 2,
-    desc: '横置：挑自己桌上任意一张牌弃掉，它的点数不再算数'
-  },
-  {
-    key: 'mimic',
-    name: '拟态',
-    rarity: 2,
-    desc: '横置：把自己左边那张牌的基础点数改成和这张一样，那张牌的贴纸照常生效'
-  },
-  {
-    key: 'insight',
-    name: '洞察',
-    rarity: 2,
-    desc: '横置：连看牌库顶三张牌，每张都可以选择压到牌库底'
-  },
-  {
-    key: 'backflow',
-    name: '回流',
-    rarity: 0,
-    desc: '挑一张自己的手牌压回牌库底，立刻补一张'
-  },
-  {
-    key: 'trade',
-    name: '互市',
+    key: 'hook',
+    name: '跳钩',
     rarity: 1,
-    desc: '挑一张手牌给庄家，再从他手里随机换回一张'
+    desc: '永续：点数还可以按顺位 +2 算'
   },
   {
-    key: 'switch',
-    name: '易主',
-    rarity: 2,
-    desc: '双方的手牌整个对调，你拿他的，他拿你的'
-  },
-  {
-    key: 'ransack',
-    name: '搜刮',
+    key: 'shadow',
+    name: '倒影',
     rarity: 1,
-    desc: '随机抽走庄家两张手牌并弃掉，他立刻补满'
+    desc: '永续：点数还可以按 22 减去它算，超过 13 转一圈回来'
   },
   {
-    key: 'ambush',
-    name: '伏击',
-    rarity: 2,
-    desc: '横置：随机抽走庄家两张手牌并弃掉，他立刻补满'
-  },
-  {
-    key: 'purge',
-    name: '清算',
+    key: 'reel',
+    name: '收线',
     rarity: 1,
-    desc: '横置：双方手牌全部弃掉，各自重新补满'
-  },
-  {
-    key: 'swapside',
-    name: '掉包',
-    rarity: 2,
-    desc: '把这张牌送到庄家桌上，换他一张回来，两边点数跟着换'
-  },
-  {
-    key: 'collapse',
-    name: '崩落',
-    rarity: 1,
-    desc: '把自己左边那张牌强制翻成负数，它的点数从此按负的算'
-  },
-  {
-    key: 'erode',
-    name: '侵蚀',
-    rarity: 2,
-    desc: '挑庄家桌上一张牌强制翻成负数，它的点数从此按负的算'
-  },
-  {
-    key: 'gnaw',
-    name: '蚕食',
-    rarity: 2,
-    desc: '横置：挑庄家桌上两张牌强制翻成负数，它们的点数从此按负的算'
-  },
-  {
-    key: 'cull',
-    name: '削峰',
-    rarity: 1,
-    desc: '以它的点数为界，自己选扫大的还是扫小的，把自己桌上过线的牌弃掉'
-  },
-  {
-    key: 'same',
-    name: '同点',
-    rarity: 1,
-    desc: '挑场上任意一张牌，把全场跟它同点数的牌全弃掉，自己的也算。J、Q、K 都是 10 点'
-  },
-  {
-    key: 'behead',
-    name: '斩首',
-    rarity: 2,
-    desc: '以它的点数为界，自己选扫大的还是扫小的，把庄家桌上过线的牌弃掉'
-  },
-  {
-    key: 'calamity',
-    name: '天灾',
-    rarity: 3,
-    desc: '横置：以它的点数为界，自己选扫大的还是扫小的，全场过线的牌一律弃掉，自己的也算'
-  },
-  {
-    key: 'frisk',
-    name: '搜身',
-    rarity: 2,
-    desc: '以它的点数为界，自己选大或小，把庄家手里过线的牌抽走弃掉，他立刻补满'
-  },
-  {
-    key: 'purgehand',
-    name: '肃清',
-    rarity: 2,
-    desc: '横置：以它的点数为界，自己选大或小，双方手里过线的牌全部弃掉，各自补满'
-  },
-  {
-    key: 'step',
-    name: '垫脚',
-    rarity: 0,
-    desc: '从牌库顶摸一张进手牌，然后自己挑一张手牌弃掉'
-  },
-  {
-    key: 'compare',
-    name: '较劲',
-    rarity: 0,
-    desc: '永续：基础点数比左边那张大就 +2，不大就 −2'
-  },
-  {
-    key: 'odds',
-    name: '奇缘',
-    rarity: 0,
-    desc: '永续：自己桌上每有一张奇数牌，这张就 +1。它自己不算在内'
-  },
-  {
-    key: 'evens',
-    name: '偶合',
-    rarity: 0,
-    desc: '永续：自己桌上每有一张偶数牌，这张就 +1。它自己不算在内'
-  },
-  {
-    key: 'sift',
-    name: '筛选',
-    rarity: 1,
-    desc: '自己选奇还是偶，把自己桌上该类的牌全弃掉'
-  },
-  {
-    key: 'weed',
-    name: '剔除',
-    rarity: 2,
-    desc: '自己选奇还是偶，把庄家桌上该类的牌全弃掉'
-  },
-  {
-    key: 'bias',
-    name: '偏科',
-    rarity: 2,
-    desc: '自己选奇还是偶，把庄家桌上该类的牌全部强制翻负'
-  },
-  {
-    key: 'cutin',
-    name: '插队',
-    rarity: 0,
-    desc: '打出时挑一张自己桌上的牌，插到它左边'
-  },
-  {
-    key: 'borrow',
-    name: '借刀',
-    rarity: 1,
-    desc: '看庄家全部手牌，挑一张替他打到他桌上。那张牌上的贴纸由庄家发动，他随后补满手牌'
-  },
-  {
-    key: 'blessed',
-    name: '福星',
-    rarity: 2,
-    desc: '永续：这张牌的点数可以加减 2 以内的任意数，也可以不变'
-  },
-  {
-    key: 'standby',
-    name: '按兵',
-    rarity: 2,
-    desc: '横置：这一回合不出牌，把行动权让给庄家。等他出完这一张，还是轮到你'
-  },
-  {
-    key: 'echo',
-    name: '回响',
-    rarity: 1,
-    desc: '挑自己桌上一张立即类贴纸牌，再发动一次它的效果'
-  },
-  {
-    key: 'reflect',
-    name: '返照',
-    rarity: 3,
-    desc: '横置：挑庄家桌上一张立即类贴纸牌，那个效果改由你发动，按你的立场结算'
-  },
-  {
-    key: 'graft',
-    name: '移植',
-    rarity: 2,
-    desc: '弃一张手牌，把它的贴纸搬到这张牌上，本局有效。搬来的是立即类就当场发动'
-  },
-  {
-    key: 'revive',
-    name: '复生',
-    rarity: 2,
-    desc: '从自己弃牌堆挑一张直接拿回手上。它填的就是打出这张牌腾出的位子，不再从牌库补'
-  },
-  {
-    key: 'seize',
-    name: '夺取',
-    rarity: 3,
-    desc: '把庄家桌上一张牌的贴纸搬到这张牌上，他那张变回普通牌。搬来的是立即类就当场发动，横置过的搬过来能再横一次'
+    desc: '打出时从牌堆挑 1 张，移到这张牌左边'
   },
   {
     key: 'strip',
     name: '祛除',
     rarity: 1,
-    desc: '挑场上任意一张牌，去掉它的贴纸，自己的也能挑'
+    desc: '从牌堆挑 1 张，去掉它的贴纸'
   },
   {
-    key: 'pile',
-    name: '垒石',
-    rarity: 0,
-    desc: '永续：自己左边每有一张牌，这张就 +1'
+    key: 'trade',
+    name: '互市',
+    rarity: 1,
+    desc: '挑 1 张手牌给庄家，从他手里随机换回 1 张'
   },
   {
-    key: 'ebb',
-    name: '退潮',
+    key: 'sink2',
+    name: '换钩',
+    rarity: 1,
+    desc: '挑 2 张手牌压到自己牌库底，然后补满'
+  },
+  {
+    key: 'scan',
+    name: '探牌',
+    rarity: 1,
+    desc: '看自己牌库顶 2 张，可以压到牌库底，然后抽 2 张'
+  },
+  {
+    key: 'probe1',
+    name: '摸底',
+    rarity: 1,
+    desc: '看庄家全部手牌，挑 1 张压到他的牌库底'
+  },
+  {
+    key: 'empty',
+    name: '空手',
+    rarity: 1,
+    desc: '从自己牌库挑 1 张贴着空位类贴纸的牌，拿到手上'
+  },
+  {
+    key: 'sand',
+    name: '垫沙',
+    rarity: 1,
+    desc: '从自己牌库顶取 2 张，背面沉到堆底'
+  },
+  {
+    key: 'veil',
+    name: '遮眼',
+    rarity: 1,
+    desc: '把牌堆里它左边 2 张的点数变成 0'
+  },
+  {
+    key: 'dredge',
+    name: '淘沙',
+    rarity: 1,
+    desc: '把牌堆里所有点数 0 的牌移到这张牌右侧'
+  },
+  {
+    key: 'dye',
+    name: '染色',
+    rarity: 1,
+    desc: '空位：把它左边 2 张牌染成它的花色'
+  },
+
+  // ---------- 史诗 ----------
+  {
+    key: 'blessed',
+    name: '福星',
     rarity: 2,
-    desc: '永续：自己左边每有一张牌，这张就 −2，最低减到 0'
+    desc: '永续：点数还可以按顺位 ±1、±2 算'
   },
   {
-    key: 'shunt',
-    name: '转嫁',
-    rarity: 1,
-    desc: '燃尽：把这张牌的点数加给场上任意一张牌，然后它自己进弃牌堆，不占桌位'
-  },
-  {
-    key: 'martyr',
-    name: '献身',
-    rarity: 1,
-    desc: '燃尽：挑一张庄家桌上的牌弃掉，这张牌跟它一起进弃牌堆'
-  },
-  {
-    key: 'recall',
-    name: '回魂',
-    rarity: 1,
-    desc: '燃尽：从自己弃牌堆挑一张直接摆到桌上，它的立即类贴纸照常发动'
-  },
-  {
-    key: 'devour',
-    name: '吞并',
-    rarity: 1,
-    desc: '弃一张手牌，把它的点数加到这张牌上'
-  },
-  {
-    key: 'morph',
-    name: '化形',
+    key: 'sinker5',
+    name: '沉坠',
     rarity: 2,
-    desc: '燃尽：挑自己桌上一张牌，它从此还能按这张牌的点数算，两个数结算时挑有利的'
+    desc: '永续：点数 +5'
+  },
+  {
+    key: 'sinker6',
+    name: '巨坠',
+    rarity: 2,
+    desc: '永续：点数 +6'
+  },
+  {
+    key: 'stake',
+    name: '暗桩',
+    rarity: 2,
+    desc: '永续：点数一律按 11 算'
+  },
+  {
+    key: 'line',
+    name: '放线',
+    rarity: 2,
+    desc: '永续：点数还可以按顺位 +2、+3 算'
+  },
+  {
+    key: 'probe2',
+    name: '掏底',
+    rarity: 2,
+    desc: '看庄家全部手牌，挑 2 张压到他的牌库底'
+  },
+  {
+    key: 'picked',
+    name: '对换',
+    rarity: 2,
+    desc: '看庄家全部手牌，跟他交换 1 张，两边给哪张都由你挑'
+  },
+  {
+    key: 'wash',
+    name: '洗手',
+    rarity: 2,
+    desc: '看庄家全部手牌，把顺位在这张牌 ±2 以内的洗回他的牌库'
+  },
+  {
+    key: 'same',
+    name: '同号',
+    rarity: 2,
+    desc: '从自己牌库挑 1 张跟它同数字的牌，拿到手上'
+  },
+  {
+    key: 'lure',
+    name: '假饵',
+    rarity: 2,
+    desc: '空位：有人撞中它左边的牌时，改为只钓走这张'
+  },
+  {
+    key: 'mirror',
+    name: '照水',
+    rarity: 2,
+    desc: '空位：它在牌堆里时，庄家手牌一直明示'
+  },
+  {
+    key: 'streak',
+    name: '连竿',
+    rarity: 2,
+    desc: '空位：这一回合可以再打 2 张'
+  },
+  {
+    key: 'gate',
+    name: '闸门',
+    rarity: 2,
+    desc: '空位，落堆底：它在牌堆里时，任何人钓牌遇到比撞中数字大的牌就停止收牌。'
+      + '比 11 大的数不受影响'
+  },
+  {
+    key: 'mask',
+    name: '蒙牌',
+    rarity: 2,
+    desc: '空位：接下来 3 张牌不论谁打，一律背面沉到堆底'
+  },
+  {
+    key: 'stir',
+    name: '搅局',
+    rarity: 2,
+    desc: '空位：从庄家牌库顶取 2 张，背面沉到堆底'
+  },
+  {
+    key: 'gather',
+    name: '集花',
+    rarity: 2,
+    desc: '空位：包括它自己在内，选一组花色各不相同的牌进你的积分库'
+  },
+  {
+    key: 'dig',
+    name: '起底',
+    rarity: 2,
+    desc: '空位：从最左侧的背面牌开始逐张翻开，翻到两张数字相同为止，'
+      + '那两张连同它们之间的牌进你的积分库。翻完都没配上就都留在堆里'
+  },
+  {
+    key: 'blend',
+    name: '混色',
+    rarity: 2,
+    desc: '空位，落堆底：它在牌堆里时，红桃和方块算同一种花色、黑桃和梅花算同一种'
+  },
+
+  // ---------- 传说 ----------
+  {
+    key: 'longline',
+    name: '长线',
+    rarity: 3,
+    desc: '永续：点数还可以按顺位 +3、+4、+5 算'
+  },
+  {
+    key: 'cast',
+    name: '撒网',
+    rarity: 3,
+    desc: '空位：选奇数或偶数，牌堆里所有该类的牌进你的积分库'
+  },
+  {
+    key: 'hue',
+    name: '收色',
+    rarity: 3,
+    desc: '空位：牌堆里所有跟它同花色的牌，进你的积分库'
+  },
+  {
+    key: 'unify',
+    name: '统色',
+    rarity: 3,
+    desc: '空位，落堆底：它在牌堆里时，堆上所有牌视为跟它同花色'
+  },
+  {
+    key: 'murky',
+    name: '浑水',
+    rarity: 3,
+    desc: '空位：庄家下一个回合背面连打 3 张沉到堆底，那几张不触发钓牌'
   }
 ]
 
 export const STICKER_COUNT : number = STICKERS.length
-// 同一个数字只有 4 张牌，最多贴 4 种不同的贴纸
+// 同一个数字只有 4 张牌，所以最多贴 4 张贴纸。
+// 不限种类：4 张全贴轻坠可以，四种各一张也可以
 export const MAX_STICKERS_PER_RANK : number = 4
 
 // key 查下标。贴纸矩阵按下标索引，但下标是 STICKERS 的顺序决定的，
@@ -505,6 +489,10 @@ export function keyAtIndex(index : number) : string {
 }
 
 export function stickerAt(key : string) : Sticker {
+  // 通吃不在 STICKERS 里，得先单独认一下
+  if (key == S_HAUL) {
+    return HAUL
+  }
   for (let i = 0; i < STICKERS.length; i++) {
     if (STICKERS[i].key == key) {
       return STICKERS[i]
@@ -517,255 +505,170 @@ export function rarityOfKey(key : string) : number {
   return stickerAt(key).rarity
 }
 
-// 幸运贴纸：开局白送的专属贴纸，商店不卖，庄家也不会有
-export function isStarterSticker(key : string) : boolean {
+// ---------- 点数派生 ----------
+//
+// 下面六个函数各管一层，valueOptions 按顺序叠起来。
+// 一张牌只贴得下一张贴纸，所以这几层永远不会同时命中 ——
+// 分开写是为了让每一套自己说清楚自己在干什么。
+
+// 浮动系：顺位上下各让 N 位，中间的都算。返回 0 表示不是这一系的
+export function floatSpanOf(key : string) : number {
+  if (key == S_LUCKY) {
+    return 1
+  }
+  if (key == S_BLESSED) {
+    return 2
+  }
+  return 0
+}
+
+// 顺延系：还能按后面某一段顺位算。返回 [起, 止]，[0, 0] 表示不是这一系的。
+//
+// 两张各占一段、互不覆盖，也不被福星的 ±2 吃掉：放线够 +2~+3、长线够 +3~+5。
+// 早先放线是 +1~+2，那一整段都在福星的 ±2 里面，同为史诗却严格更弱 ——
+// 错在按「够几位」分档，而不是按「够到哪一段」分
+export function driftRangeOf(key : string) : number[] {
+  if (key == S_LINE) {
+    return [2, 3]
+  }
+  if (key == S_LONGLINE) {
+    return [3, 5]
+  }
+  return [0, 0]
+}
+
+// 单点跳位：只多出一个候选，中间的位跳过去。返回 0 表示这张贴纸不跳。
+// 游动往回退一位、跳钩往前跳两位 —— 一反一正，都不跟幸运的 ±1 重合。
+// 早先游动是 +1，那正好是幸运 ±1 的子集，稀有的反而弱于普通的
+export function jumpOffsetOf(key : string) : number {
+  if (key == S_DRIFT) {
+    return -1
+  }
+  if (key == S_HOOK) {
+    return 2
+  }
+  return 0
+}
+
+// 对称系：拿一个数当轴，把点数翻到对面去。返回那个「和」，0 表示不翻。
+// 倒影的和是 22（轴在 11）：10↔12、9↔13、8↔A、7↔2、6↔3、5↔4
+export function reflectSumOf(key : string) : number {
+  return key == S_SHADOW ? 22 : 0
+}
+
+// 孤数：把点数整个改写成一个定值，牌面是几都不算数。返回 -1 表示不改写。
+// 挑 11 是因为 J 从不落堆 —— 打出就通吃走了，所以 11 是牌堆里天然的空缺
+export function fixedValueOf(key : string) : number {
+  return key == S_STAKE ? 11 : -1
+}
+
+// 坠子系加、提系减，都是「一定改」不是「可以改」。
+//
+// 稀有度按稀缺性排，不按单张强度排 —— 单看一张，+1 和 +6 差不多，
+// 都只是把数字挪到别处。值钱的是大数：要把 4、5、6、7 全调到 10，
+// 需要的正是 +6、+5、+4、+3，大坠子才是凑套的瓶颈。
+// own 上限跟着卡住流派规模：史诗档一种只能有 2 张。
+//
+// 两头各有一个出口：坠子往上推出 13 成孤数，提系往下压到 0 成死数
+export function flatBonusOf(key : string) : number {
+  if (key == S_SINKER1) {
+    return 1
+  }
+  if (key == S_SINKER2) {
+    return 2
+  }
+  if (key == S_SINKER3) {
+    return 3
+  }
+  if (key == S_SINKER4) {
+    return 4
+  }
+  if (key == S_SINKER5) {
+    return 5
+  }
+  if (key == S_SINKER6) {
+    return 6
+  }
+  if (key == S_MINUS1) {
+    return -1
+  }
+  if (key == S_MINUS2) {
+    return -2
+  }
+  if (key == S_MINUS3) {
+    return -3
+  }
+  if (key == S_MINUS4) {
+    return -4
+  }
+  return 0
+}
+
+// 打出时直接放到牌堆最左侧（堆底），而不是压在堆顶。
+// 放堆底就是「活得久」：只有撞中堆底那张才会把它带走，
+// 所以那几张要持续生效的空位贴纸都走这条路
+export function dropsAtBottom(key : string) : boolean {
+  return key == S_GATE
+    || key == S_BLEND
+    || key == S_UNIFY
+}
+
+// ---------- 分类 ----------
+
+// 隐藏贴纸：货架上根本不露面，通关和成就也给不了，只能用随机兑换券抽到。
+// 抽中的那一刻就解锁了，之后它会出现在货架上，可以拿普通兑换券正常兑换
+export function isHiddenSticker(key : string) : boolean {
   return key == S_LUCKY
 }
 
-// 永续类：牌在场上就一直生效，不需要也不能主动发动
+// 开局就能兑换、不需要解锁的贴纸。
+// 随机券的抽池是「已解锁的 + 隐藏的」，没有这几张，新存档的普通随机券
+// 就只能抽到幸运一张，跟直接白送没区别
+export function isFreeSticker(key : string) : boolean {
+  return key == S_SINKER1 || key == S_SINKER2 || key == S_PEEK || key == S_BLIND
+}
+
+// 点数类：牌在堆上就一直生效，改的是「这张牌算几点」。
+// 判断直接问那六个派生函数，加新的点数贴纸时只要在对应函数里登记一下，
+// 这里不用跟着改。提系和游动会返回负数，那两处不能写 > 0
 export function isLastingSticker(key : string) : boolean {
-  return key == S_LUCKY
-    || key == S_PILE
-    || key == S_EBB
-    || key == S_BLESSED
-    || key == S_TWIN
-    || key == S_BROKEN
-    || key == S_COMPARE
-    || key == S_ODDS
-    || key == S_EVENS
+  return floatSpanOf(key) > 0
+    || driftRangeOf(key)[1] > 0
+    || jumpOffsetOf(key) != 0
+    || reflectSumOf(key) > 0
+    || flatBonusOf(key) != 0
+    || fixedValueOf(key) > 0
 }
 
-// 横置类：留着等时机横置发动
-export function isTapSticker(key : string) : boolean {
-  return key == S_REFLECT
-    || key == S_STANDBY
-    || key == S_BOOST
-    || key == S_CROUCH
-    || key == S_MIMIC
-    || key == S_INSIGHT
-    || key == S_AMBUSH
-    || key == S_PURGE
-    || key == S_GNAW
-    || key == S_CALAMITY
-    || key == S_PURGEHAND
+// 空位类：落进牌堆但没有数字，点数算 0
+export function isBlankSticker(key : string) : boolean {
+  return key == S_LURE
+    || key == S_MIRROR
+    || key == S_STREAK
+    || key == S_CAST
+    || key == S_MURKY
+    || key == S_GATE
+    || key == S_MASK
+    || key == S_STIR
+    || key == S_DIG
+    || key == S_GATHER
+    || key == S_HUE
+    || key == S_BLEND
+    || key == S_UNIFY
+    || key == S_DYE
 }
 
 // 立即类：打出的当下发动
 export function isPlayEffect(key : string) : boolean {
-  return key != S_NONE && !isLastingSticker(key) && !isTapSticker(key)
-}
-
-// 这张贴纸有没有可以横置发动的效果
-export function hasTapEffect(key : string) : boolean {
-  return isTapSticker(key)
-}
-
-// 横置版贴纸的效果跟哪张立即类是同一套，归一到那张去实现，
-// 免得同一个效果写两遍。洞察虽然也是看牌库，但张数不同，单独处理
-export function baseEffectOf(key : string) : string {
-  if (key == S_CROUCH) {
-    return S_RUTHLESS
-  }
-  if (key == S_MIMIC) {
-    return S_BUTTERFLY
-  }
-  if (key == S_RANSACK || key == S_AMBUSH) {
-    return S_STEAL
-  }
-  if (key == S_GNAW) {
-    return S_ERODE
-  }
-  return key
-}
-
-// 同一个效果动几张牌。这是拉开档次的第一个元素
-export function countOf(key : string) : number {
-  if (key == S_RANSACK || key == S_AMBUSH || key == S_GNAW) {
-    return 2
-  }
-  return 1
-}
-
-// 这个效果有没有可能反过来咬自己一口。
-// 只有这种才值得停下来问一句「发不发动」——
-// 窥探、垫脚这类永远该发动的，问了等于白按一下，
-// 牌组里贴纸密度越高，这种无意义的确认就越拖节奏
-export function hasDownside(key : string) : boolean {
-  const base = baseEffectOf(key)
-  return base == S_GIVE
-    || base == S_PURGE
-    || base == S_PURGEHAND
-    || base == S_SWITCH
-    || base == S_CALAMITY
-    || base == S_SAME
-    // 狠心一旦发动就必须弃掉自己一张牌，没有弃 0 张这个选项 ——
-    // 实在没有该弃的，不发动才是对的
-    || base == S_RUTHLESS
-    // 借刀替庄家出牌，那张牌上要是有他的贴纸，等于你亲手帮他发动
-    || base == S_BORROW
-    // 移植一发动就得弃掉一张手牌，手上没贴纸牌的话纯亏
-    || base == S_GRAFT
-    // 吞并加上来的点数是硬加的，眼看要爆的时候可不想吃
-    || base == S_DEVOUR
-    // 燃尽类发动完牌就烧了，那点数你就拿不到了 —— 要点数还是要效果，
-    // 每次打出都得当场选一次，所以一律问
-    || isBurnSticker(base)
-}
-
-// 代价具体在哪。打出时连着问句一起说清楚，省得每张都得记
-export function downsideText(key : string) : string {
-  const base = baseEffectOf(key)
-  if (isBurnSticker(base)) {
-    return '发动完这张牌就烧掉，它的点数不算数'
-  }
-  if (base == S_BORROW) {
-    return '替庄家出的那张牌上，他的贴纸会由他发动'
-  }
-  if (base == S_GIVE) {
-    return '的点数会记到庄家名下'
-  }
-  if (base == S_RUTHLESS) {
-    return '一发动就得弃掉自己一张牌'
-  }
-  if (base == S_GRAFT) {
-    return '要弃掉一张手牌换它的贴纸'
-  }
-  if (base == S_DEVOUR) {
-    return '要弃掉一张手牌换它的点数，吃多了会爆'
-  }
-  return '会连自己的牌一起算上'
-}
-
-// 燃尽类：效果发动完这张牌自己进弃牌堆，不留在桌上，也就不贡献点数。
-// 横置类没法燃尽 —— 横置要求牌待在桌上，所以这两类互斥
-export function isBurnSticker(key : string) : boolean {
-  return key == S_SHUNT || key == S_MARTYR || key == S_RECALL || key == S_MORPH
-}
-
-// 移植能搬的贴纸：那张手牌得真有贴纸，而且不能是移植自己 ——
-// 搬过来还是一张移植，没完没了
-export function isGraftable(key : string) : boolean {
-  return key != S_NONE && baseEffectOf(key) != S_GRAFT
-}
-
-// 夺取能搬的：对面那张得真有贴纸。夺取自己排除掉 ——
-// 搬过来当场又发动一次夺取，选牌阶段会套在一起，不值得为这点花样开这个口子
-export function isSeizable(key : string) : boolean {
-  const base = baseEffectOf(key)
-  return key != S_NONE && base != S_GRAFT && base != S_SEIZE
-}
-
-// 回响、返照能挑的只有立即类 —— 永续类没有「发动」这个时刻，
-// 横置类归鼓舞管。挑到回响自己会套娃，一并排除
-export function isEchoable(key : string) : boolean {
-  if (!isPlayEffect(key)) {
-    return false
-  }
-  const base = baseEffectOf(key)
-  return base != S_ECHO && base != S_REFLECT
-}
-
-// 盗窃、借刀要庄家手上有牌才动得了
-export function needsOpponentHand(key : string) : boolean {
-  const base = baseEffectOf(key)
-  return base == S_STEAL || base == S_BORROW
-}
-
-// 下面几个只用来提示「这次发动大概率白费」，不阻止你发动 ——
-// 立即类可以选择不发动，要不要浪费由你自己决定
-
-export function needsOpponentBoard(key : string) : boolean {
-  const base = baseEffectOf(key)
-  return base == S_BEG || base == S_ERODE
-}
-
-// 这几张是对自己桌上左边那张牌动手，左边没牌就白费
-export function needsLeftCard(key : string) : boolean {
-  const base = baseEffectOf(key)
-  return base == S_BUTTERFLY || base == S_REGRET || base == S_COLLAPSE
-}
-
-// 置换要手上有牌才换得动
-export function needsOwnHand(key : string) : boolean {
-  return baseEffectOf(key) == S_SWAP
-}
-
-// 换位系换的永远是「这张贴纸牌本身」和另一张，区别在于另一张能从哪挑：
-// 只能挑自己桌上的 / 只能挑庄家桌上的
-export function swapScopeOf(key : string) : number {
-  return key == S_SWAPSIDE ? SCOPE_CROSS : SCOPE_OWN
-}
-
-export function isSwapSticker(key : string) : boolean {
-  return key == S_SWAPSIDE
-}
-
-// 门槛系：拿点数或奇偶当尺子，把桌上过线的牌扫掉
-export function isCullSticker(key : string) : boolean {
-  return key == S_CULL
-    || key == S_SAME
-    || key == S_BEHEAD
-    || key == S_CALAMITY
-    || isParityCull(key)
-}
-
-// 拿奇偶当尺子的那几张，问的是「扫奇还是扫偶」而不是「扫大还是扫小」
-export function isParityCull(key : string) : boolean {
-  return key == S_SIFT || key == S_WEED || key == S_BIAS
-}
-
-// 除了「同点」要你挑一张牌当尺子，其余扫场的都在发动时问一句扫哪边
-export function cullAsksDirection(key : string) : boolean {
-  return key != S_SAME
-}
-
-// 同点的尺子不是它自己的点数，而是你当场挑的那张牌 ——
-// 写死成「跟自己同点」的话，贴在 10/J/Q/K 上才有用，贴别处就是废牌
-export function cullPicksTarget(key : string) : boolean {
-  return key == S_SAME
-}
-
-export function cullModeOf(key : string) : number {
-  if (key == S_SAME) {
-    return CULL_EQUAL
-  }
-  return isParityCull(key) ? CULL_ODD : CULL_BIGGER
-}
-
-// 门槛系扫谁的桌子
-export function cullScopeOf(key : string) : number {
-  if (key == S_BEHEAD || key == S_WEED || key == S_BIAS) {
-    return SCOPE_CROSS
-  }
-  if (key == S_CALAMITY || key == S_SAME) {
-    return SCOPE_ANY
-  }
-  return SCOPE_OWN
-}
-
-// 偏科不是弃牌，是把扫中的牌翻负
-export function cullFlipsInstead(key : string) : boolean {
-  return key == S_BIAS
-}
-
-// 扫手牌的那两张
-export function isFriskSticker(key : string) : boolean {
-  return key == S_FRISK || key == S_PURGEHAND
-}
-
-// 搜身只翻庄家的手牌，肃清连自己的一起翻
-export function friskScopeOf(key : string) : number {
-  return key == S_PURGEHAND ? SCOPE_ANY : SCOPE_CROSS
+  return key != S_NONE && !isLastingSticker(key) && !isBlankSticker(key)
 }
 
 // ---------- 成就 ----------
 //
-// 有些贴纸不靠通关拿，而是靠在对局里做出对应的事。
-// 挑选原则：成就本身就是那张贴纸在做的事 —— 你亲手凑出过两张同点数并排，
-// 才会解锁把牌变成同点数的「蝴蝶」。先做到，再拥有。
+// 有些贴纸不靠通关拿，而是靠在对局里做出对应的事。先做到，再拥有。
 //
 // 定成就有两条硬规矩：
-// 一是条件必须真能达成 —— 手牌恒为 3 张（多弃少补），所以「手上没牌」「牌库见底」
+// 一是条件必须真能达成 —— 手牌恒为 5 张（多弃少补），所以「手上没牌」
 //   这种条件在一局里根本不会出现；
 // 二是不能拿这张贴纸自己的效果当解锁条件，否则永远解不开。
 
@@ -786,59 +689,69 @@ export const ACH_FORESEE : number = 5
 export const ACH_COMEBACK : number = 6
 export const ACH_FLOW : number = 7
 
-// 逆风翻盘要落后多少点才算数
-export const BEHIND_GAP : number = 15
+// 逆风翻盘要落后多少分才算数
+export const BEHIND_GAP : number = 10
 // 川流不息要一局摸满几张牌
 export const FLOW_DRAWS : number = 10
+// 一网打尽要一次钓走几张
+export const BIG_TAKE : number = 6
+// 盆满钵满要一局钓满几分。
+// 一局进堆的牌总共只有 2 × 回合数（20 到 40 张），还得分给两家，
+// 18 分意味着大头都让你捞走了 —— 低关卡局短，基本得去高关卡刷
+export const RICH_SCORE : number = 18
+// 滴水不漏：把庄家压在几分以内
+export const CHOKE_SCORE : number = 5
+// 连锅端：撞上堆底那张、把多大的堆整个钓空
+export const DEEP_PILE : number = 5
 
 export const ACHIEVEMENTS : Achievement[] = [
   {
     id: 0,
-    name: '一模一样',
-    desc: '让自己桌上相邻的两张牌点数相同',
-    sticker: 'butterfly'
+    name: '一网打尽',
+    desc: '一次钓走 6 张以上',
+    sticker: 'blessed'
   },
   {
     id: 1,
-    name: '分毫不差',
-    desc: '正好凑到 42 点获胜',
-    sticker: 'twin'
+    name: '盆满钵满',
+    desc: '一局钓满 18 分',
+    sticker: 'shadow'
   },
   {
     id: 2,
-    name: '请君入瓮',
-    desc: '把庄家逼爆一次',
-    sticker: 'give'
+    name: '滴水不漏',
+    desc: '把庄家一局压在 5 分以内',
+    sticker: 'probe1'
   },
   {
     id: 3,
     name: '逆风翻盘',
-    desc: '一度落后 15 点以上，最后还是赢了',
-    sticker: 'broken'
+    desc: '一度落后 10 分以上，最后还是赢了',
+    sticker: 'stake'
   },
   {
     id: 4,
-    name: '功亏一篑',
-    desc: '把已经停牌的庄家拽回牌桌',
-    sticker: 'beg'
+    name: '连下两城',
+    desc: '连续两个自己的回合都钓到牌',
+    sticker: 'picked'
   },
   {
     id: 5,
-    name: '未卜先知',
-    desc: '用窥探把一张牌压到牌库底',
-    sticker: 'insight'
+    name: '连锅端',
+    desc: '撞上堆底那张，把 5 张以上的牌堆整个钓空',
+    sticker: 'lure'
   },
   {
     id: 6,
-    name: '起死回生',
-    desc: '在结算前的最后机会里翻盘成功',
-    sticker: 'cheer'
+    name: '一锤定音',
+    desc: '在自己最后一个回合钓到牌，并赢下这一局',
+    sticker: 'cast'
   },
   {
     id: 7,
     name: '川流不息',
     desc: '一局之内从牌库摸满 10 张牌',
-    sticker: 'swap'
+    sticker: 'give'
   }
 ]
 

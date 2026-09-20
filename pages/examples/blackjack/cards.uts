@@ -1,33 +1,34 @@
 // 牌与牌组。牌组固定 52 张：A-K 每种 4 张，不可变。
-// A 可以当 1 也可以当 11、2-10 按面值、J/Q/K 都是 10。
-// 点数从不在打出的当下定死：每张牌给出一组候选点数，结算时挑最有利的组合。
+// 每张牌就是它自己的点数：A=1、2-10 按面值、J=11、Q=12、K=13。
+// 十三个数字各自独立，各有 4 张 —— 没有「JQK 都算 10」这种合并，
+// 也没有「A 可以当 11」这种两可，撞重复时该是几就是几。
+// 会变的只有贴纸：点数类贴纸给一张牌加出几个候选数，那才是唯一的不确定性。
 // 贴了贴纸的牌变成特殊牌，牌组张数不变。
 
 import {
   STICKER_COUNT,
   S_NONE,
-  S_LUCKY,
-  S_BLESSED,
-  S_PILE,
-  S_EBB,
-  S_TWIN,
-  S_BROKEN,
-  S_COMPARE,
-  S_ODDS,
-  S_EVENS,
+  S_HAUL,
+  isFixedRank,
+  floatSpanOf,
+  driftRangeOf,
+  jumpOffsetOf,
+  reflectSumOf,
+  flatBonusOf,
+  fixedValueOf,
   keyAtIndex
 } from '@/pages/examples/blackjack/stickers.uts'
 
 export const SUITS : string[] = ['♠', '♥', '♦', '♣']
 export const RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
-// A 存基础值 1，算 11 的情况在出牌时单独处理
-export const RANK_VALUES : number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10]
+export const RANK_VALUES : number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
 export const DECK_SIZE : number = 52
-// 目标点数
-export const GOAL : number = 42
+// 十三个数字、每个数字四张（四种花色）。庄家记牌要用
+export const RANK_COUNT : number = 13
+export const SUIT_COUNT : number = 4
 // 手牌张数：每人固定保持这么多张，多的弃掉、少的立刻补
-export const HAND_SIZE : number = 3
+export const HAND_SIZE : number = 5
 
 export type Card = {
   suit : string
@@ -35,24 +36,26 @@ export type Card = {
   value : number
   // 贴的贴纸 key，空串表示没贴贴纸的普通牌
   stickerKey : string
-  // 打到桌上以后有没有被横置（横置过就发动不了第二次，除非用「鼓舞」重置）
+  // 落到公共牌堆上时锁定的数字，-1 表示不在堆里。
+  // 一张牌的候选点数可能有好几个（福星的 ±2、放线顺延出来的那几位），
+  // 落堆的那一刻必须定死一个 —— 否则后面的牌拿什么跟它比
+  pileValue : number
+
+  // 下面这几个字段眼下没有贴纸会动，一律保持初值。
+  // 留着是因为它们是数据模型的一部分，删掉要跟着改 buildDeck、cloneCard 几处构造；
+  // 而且空位类贴纸实现时用得上 —— 浑水逼对手盖牌连打，靠的就是 faceDown
+
+  // 横置状态。横置机制已经移除
   tapped : boolean
-  // 基础点数被「蝴蝶」改写成了几点，-1 表示没被改过。
-  // 改的只是基础点数，这张牌自己的贴纸效果照常生效
+  // 基础点数被改写成了几点，-1 表示没被改过
   forced : number
-  // 盖着的暗牌：高关卡的庄家会盖几张，你看不到牌面也算不到点数，
-  // 结算时才翻开。牌一旦转到对方桌上就翻明
+  // 盖着的暗牌：看不到牌面，钓走时才翻开
   faceDown : boolean
-  // 被强制翻成负数：所有候选点数一律取反，没得选。
-  // 破碎系里「对着别人用」的那几张干的就是这个
+  // 强制翻负：所有候选点数一律取反。负数机制已经移除
   negated : boolean
-  // 别的牌转嫁过来的点数，直接加在最终点数上。
-  // 不写进 forced 是因为 forced 是「改写基础点数」，会被蝴蝶再改一次冲掉；
-  // 这是纯加法，跟基础点数怎么变没关系
+  // 别处加过来的点数，直接加在最终点数上，不参与上面几层的派生
   extra : number
-  // 化形塞进来的一个额外候选点数，-1 表示没有。
-  // 它是第 3 层的东西 —— 跟 A 的 11、双生的 11 减并列，是「还能算成几点」，
-  // 不是 extra 那种无条件加上去的分
+  // 额外塞进来的一个候选点数，-1 表示没有
   altValue : number
 }
 
@@ -71,8 +74,25 @@ export function emptyStickers() : number[] {
   return list
 }
 
-// 某个数字身上已经贴了哪些贴纸
+// 某个数字身上贴的贴纸，一张一个条目、按张数展开。
+// 同一个数字有 4 张牌，同种贴纸可以贴满 4 张 —— 3 的四张全贴幸运是一种正经构筑，
+// 所以这里返回的是「贴纸清单」而不是「贴纸种类」，buildDeck 拿它按花色一张张发下去
 export function stickersOfRank(stuck : number[], rankIndex : number) : number[] {
+  const ids : number[] = []
+  for (let s = 0; s < STICKER_COUNT; s++) {
+    const at = stickerIndex(rankIndex, s)
+    if (at >= stuck.length) {
+      continue
+    }
+    for (let n = 0; n < stuck[at]; n++) {
+      ids.push(s)
+    }
+  }
+  return ids
+}
+
+// 某个数字身上有哪几种贴纸，同种只算一次。展示用
+export function stickerKindsOfRank(stuck : number[], rankIndex : number) : number[] {
   const ids : number[] = []
   for (let s = 0; s < STICKER_COUNT; s++) {
     const at = stickerIndex(rankIndex, s)
@@ -83,15 +103,14 @@ export function stickersOfRank(stuck : number[], rankIndex : number) : number[] 
   return ids
 }
 
-export function isRedSuit(suit : string) : boolean {
-  return suit == '♥' || suit == '♦'
+// 某个数字上这种贴纸贴了几张
+export function stuckCountAt(stuck : number[], rankIndex : number, slot : number) : number {
+  const at = stickerIndex(rankIndex, slot)
+  return at < stuck.length ? stuck[at] : 0
 }
 
-// A 是软牌，打出时可以选择算 1 还是算 11
-export const ACE_HIGH : number = 11
-
-export function isAce(card : Card) : boolean {
-  return card.rank == 'A'
+export function isRedSuit(suit : string) : boolean {
+  return suit == '♥' || suit == '♦'
 }
 
 export function isSpecial(card : Card) : boolean {
@@ -108,23 +127,26 @@ function shuffle(cards : Card[]) {
   }
 }
 
-// 固定 52 张，按贴纸矩阵给对应数字的牌依次贴上（同数字的贴纸分给不同花色）
+// 固定 52 张，按贴纸矩阵给对应数字的牌依次贴上（同数字的贴纸分给不同花色）。
+// J 是例外：四张全都焊着「通吃」，矩阵说什么都不算数
 export function buildDeck(stuck : number[]) : Card[] {
   const result : Card[] = []
   for (let r = 0; r < RANKS.length; r++) {
-    const slots = stickersOfRank(stuck, r)
+    const fixed = isFixedRank(RANKS[r])
+    const slots = fixed ? ([] as number[]) : stickersOfRank(stuck, r)
     for (let k = 0; k < SUITS.length; k++) {
       const card : Card = {
         suit: SUITS[k],
         rank: RANKS[r],
         value: RANK_VALUES[r],
-        stickerKey: k < slots.length ? keyAtIndex(slots[k]) : S_NONE,
+        stickerKey: fixed ? S_HAUL : (k < slots.length ? keyAtIndex(slots[k]) : S_NONE),
         tapped: false,
         forced: -1,
         faceDown: false,
         negated: false,
         extra: 0,
-        altValue: -1
+        altValue: -1,
+        pileValue: -1
       }
       result.push(card)
     }
@@ -144,33 +166,13 @@ export function cloneCard(origin : Card) : Card {
     faceDown: origin.faceDown,
     negated: origin.negated,
     extra: origin.extra,
-    altValue: origin.altValue
+    altValue: origin.altValue,
+    pileValue: origin.pileValue
   }
   return card
 }
 
-// 只算摊开的牌能凑出多少点。盖着的牌你看不见，也就算不进来
-export function openTotal(board : Card[]) : number {
-  const open : Card[] = []
-  for (let i = 0; i < board.length; i++) {
-    if (!board[i].faceDown) {
-      open.push(board[i])
-    }
-  }
-  return bestTotal(open)
-}
-
-export function countFaceDown(board : Card[]) : number {
-  let total = 0
-  for (let i = 0; i < board.length; i++) {
-    if (board[i].faceDown) {
-      total = total + 1
-    }
-  }
-  return total
-}
-
-// 这张牌现在按几点算（用于展示和 AI 粗算，真正的总分看 bestTotal）
+// 这张牌牌面上写着几点（没贴纸派生时就是它落堆的默认值）
 export function shownValue(card : Card) : number {
   if (card.forced >= 0) {
     return card.forced
@@ -178,84 +180,100 @@ export function shownValue(card : Card) : number {
   return card.value
 }
 
-// 比大小、看奇偶时算的点数：牌面点数加上转嫁、吞并堆上来的加成。
-// 加成要算进来 —— 一张吞到 20 点的牌，在削峰眼里就得是 20 点的牌，
-// 不然「把大的扫掉」会漏掉场上最大的那张。
-// 这不会像较劲那样绕回来：extra 是死数，不用反过来看邻居
+// 牌面点数加上别处堆过来的 extra。展示和提示用 ——
+// 真正能算成哪几个数看 valueOptions
 export function worthOf(card : Card) : number {
   return shownValue(card) + card.extra
 }
 
-// 拿来跟别的牌比大小时用的点数，被翻负的牌要按负数比
-export function effectiveValue(card : Card) : number {
-  const v = worthOf(card)
-  return card.negated ? -v : v
+// 「没有点数」。空位牌和背面牌都是这个值。
+//
+// 它跟「点数是 0」在规则上是一回事 —— 两种都不能当钓点，撞不上别人也没人撞得上，
+// 但花色照样算数，收色收得走。区别只在来头和显示：
+//   · 0 是提系一路压下来的，牌面上照旧标个数；
+//   · 没有点数的压根不显示数字。
+// 背面牌还要再少一样：它连花色都不算数。
+export const NO_VALUE : number = -100
+
+// 这张牌在堆里「是几」。数字在落堆那一刻就锁死了，之后谁来比重复看的都是它，
+// 不是牌面点数 —— 一张按 11 落堆的 A，在别人眼里就是 11
+export function pileValueOf(card : Card) : number {
+  // 背面牌数字花色一律不算数
+  if (card.faceDown) {
+    return NO_VALUE
+  }
+  return card.pileValue >= 0 || card.pileValue == NO_VALUE ? card.pileValue : worthOf(card)
 }
 
-// 看桌面才算得出来的那几张永续贴纸，给这张牌加多少点。
-// 一律拿基础点数比 —— 要是拿最终点数比，两张牌互相算对方就绕不出来了
-function contextBonus(card : Card, board : Card[], at : number) : number {
-  if (card.stickerKey == S_COMPARE) {
-    // 较劲：比左边那张大就 +2，不大就 −2。左边没牌就不算
-    if (at <= 0 || at > board.length - 1) {
-      return 0
-    }
-    return worthOf(card) > worthOf(board[at - 1]) ? 2 : -2
-  }
-  if (card.stickerKey == S_PILE || card.stickerKey == S_EBB) {
-    // 垒石 / 退潮：数左边有几张牌，一个加一个减。
-    // 越晚打出来加减得越狠，所以这两张都是「攒着等位置」的牌
-    const left = at > board.length ? board.length : at
-    return card.stickerKey == S_PILE ? left : -left * 2
-  }
-  if (card.stickerKey == S_ODDS || card.stickerKey == S_EVENS) {
-    // 奇缘 / 偶合：数桌上有几张奇数（或偶数）牌，自己不算在内。
-    // 数的是绝对的奇偶，不看自己是奇是偶 —— 所以贴在哪张牌上不影响它怎么数，
-    // 影响的是你要往牌组里堆奇数还是堆偶数
-    const wantOdd = card.stickerKey == S_ODDS
-    let hit = 0
-    for (let i = 0; i < board.length; i++) {
-      if (i == at) {
-        continue
-      }
-      const odd = worthOf(board[i]) % 2 != 0
-      if (odd == wantOdd) {
-        hit = hit + 1
-      }
-    }
-    return hit
-  }
-  return 0
+// 这张牌在堆里还算不算一个钓点。压到 0 的和没点数的都不算
+export function isDeadCard(card : Card) : boolean {
+  return pileValueOf(card) <= 0
 }
 
-// 这张牌打到桌上能算多少点，列出所有候选值。
-// 总点数不在打出的当下定死，每次结算都从这些候选里挑最有利的组合。
+// 跟 pileIndexOf 一样，但跳过指定的那张牌。
+// 出牌流程是「先落堆、发动效果、再判撞」，判撞时这张牌已经在堆里了，
+// 不排掉的话它会跟自己撞上
+export function pileIndexExcept(pile : Card[], worth : number, self : Card) : number {
+  if (worth <= 0) {
+    return -1
+  }
+  for (let i = 0; i < pile.length; i++) {
+    if (pile[i] != self && pileValueOf(pile[i]) == worth) {
+      return i
+    }
+  }
+  return -1
+}
+
+// 这张牌在堆里按什么花色算，空串表示没有花色。
 //
-// 点数分四层，顺序不能乱：
-//   1 基础点数 —— 牌面点数（A=1、JQK=10），蝴蝶、拟态改的就是这一层
-//   2 场上加减 —— 较劲、奇缘、偶合、垒石、退潮，看桌面算出来的一个定值，
-//                 减到 0 为止，把牌压成负数是破碎的活
-//   3 替代点数 —— 这张牌本身还能算成几点：A 的 11、双生的 11 减、
-//                 幸运 ±1、福星 ±2、破碎的取负。强制翻负也翻在这一层
-//   4 额外点数 —— 转嫁、吞并堆上来的 extra，最后加，不参与上面任何派生
+// 数字死不等于花色死，这两件事要分开看：
+//   · 空位牌、被提系压到 0 的牌 —— 数字是 0，谁都撞不上，但花色还在，
+//     所以收色照样能把它们捞走。提系压出来的死牌就是这么变现的；
+//   · 背面牌 —— 数字花色一律不算数，它是真正的死牌，收色也够不着。
+export function pileSuitOf(card : Card) : string {
+  return card.faceDown ? '' : card.suit
+}
+
+// 把点数折回 1 到 13 的圈里：K 再往上转回 A，A 再往下转到 K。
+// 被别的贴纸推到范围外的数（坠子加出来的 15、倒影翻出来的 21）都靠它归位
+function wrapRank(value : number) : number {
+  const span = RANKS.length
+  return ((value - 1) % span + span) % span + 1
+}
+
+// 往后数 step 个顺位，数到 K 再往后就转回 A
+function nextRank(value : number, step : number) : number {
+  return wrapRank(value + step)
+}
+
+// 这张牌能算成哪几个数，列出所有候选。
+// 数字不在打出的当下定死 —— 落堆那一刻才从这些候选里挑一个锁上。
 //
-// 第 4 层单独放在最后是有意的：extra 是「贴在牌上的分」，不是这张牌自己的点数。
-// 所以双生的 11 减不会把它减成负的，破碎和强制翻负也翻不掉它 ——
-// 堆上去的分只有转嫁能再搬走。
+// 点数分三层，顺序不能乱：
+//   1 基础点数 —— 牌面点数（A=1 到 K=13）。暗桩把这一层整个改写成 11
+//   2 固定加成 —— 坠子系加一个定值。加出 13 以外不裁剪，那个孤数正是它的用法
+//   3 派生候选 —— 在第 2 层的结果上派生出别的数：幸运/福星上下浮动、
+//                 倒影翻到轴对面、游动/放线/长线往后顺延、跳钩跳过一位。
+//                 这四套是顺位制的，一律转圈：K 往上是 A，A 往下是 K
 //
-// board / at 是它在谁的桌上、排第几 —— 第 2 层要看邻居才算得出来。
-export function valueOptions(card : Card, board : Card[], at : number) : number[] {
+// 一张牌只贴得下一张贴纸，所以第 3 层那四套永远不会同时命中。
+//
+// extra 最后加：它是「贴在牌上的分」，不是这张牌自己的点数，
+// 上面几层怎么翻怎么绕都动不着它
+export function valueOptions(card : Card) : number[] {
   const base : number[] = []
+  const fixed = fixedValueOf(card.stickerKey)
   if (card.forced >= 0) {
     base.push(card.forced)
+  } else if (fixed >= 0) {
+    // 孤数贴纸：牌面是几都不算数，直接按那个定值走
+    base.push(fixed)
   } else {
     base.push(card.value)
-    if (card.rank == 'A') {
-      base.push(ACE_HIGH)
-    }
   }
 
-  const bonus = contextBonus(card, board, at)
+  const bonus = flatBonusOf(card.stickerKey)
 
   const out : number[] = []
   for (let i = 0; i < base.length; i++) {
@@ -264,112 +282,143 @@ export function valueOptions(card : Card, board : Card[], at : number) : number[
       v = 0
     }
 
-    // 第 3 层：这张牌本身能算成的几个数
     const alts : number[] = []
     alts.push(v)
-    if (card.stickerKey == S_LUCKY) {
-      // 幸运：加 1 或减 1
-      alts.push(v - 1)
-      alts.push(v + 1)
-    } else if (card.stickerKey == S_BLESSED) {
-      // 福星：幸运的放大版，上下各让两点
-      alts.push(v - 2)
-      alts.push(v - 1)
-      alts.push(v + 1)
-      alts.push(v + 2)
-    } else if (card.stickerKey == S_TWIN) {
-      // 双生：视为 11 减去它
-      alts.push(11 - v)
+
+    // 浮动系：顺位上下各让几位，中间的都算
+    const float = floatSpanOf(card.stickerKey)
+    for (let f = 1; f <= float; f++) {
+      alts.push(nextRank(v, f))
+      alts.push(nextRank(v, -f))
     }
-    // 破碎：可以按负数算，但不强制，结算时挑有利的那个
-    if (card.stickerKey == S_BROKEN) {
-      alts.push(-v)
+    // 对称系：拿一个数当轴翻到对面去
+    const sum = reflectSumOf(card.stickerKey)
+    if (sum > 0) {
+      alts.push(wrapRank(sum - v))
     }
-    // 化形塞进来的那个数，跟上面几个并列当候选 ——
-    // 它不受场上加减影响，是原样按那个数算
+    // 顺延系：还能按后面某一段顺位算
+    const range = driftRangeOf(card.stickerKey)
+    for (let s = range[0]; s > 0 && s <= range[1]; s++) {
+      alts.push(nextRank(v, s))
+    }
+    // 单点跳位：只多这一个数。游动是负的（往回退），所以判 != 0
+    const jump = jumpOffsetOf(card.stickerKey)
+    if (jump != 0) {
+      alts.push(nextRank(v, jump))
+    }
+    // 别处塞进来的一个额外候选
     if (card.altValue >= 0) {
       alts.push(card.altValue)
     }
 
-    // 第 4 层：强制翻负只翻这张牌自己那几个数，翻完再加 extra。
-    // 破碎牌不吃翻负这一招 —— 它的候选正负成对，取反还是同一组
     for (let k = 0; k < alts.length; k++) {
-      const one = card.negated ? -alts[k] : alts[k]
-      out.push(one + card.extra)
+      out.push(alts[k] + card.extra)
     }
   }
   return out
 }
 
-// 桌上这些牌能凑出的最好成绩：每张牌各选一个候选点数，
-// 在所有组合里挑不超过 GOAL 的最大和；全都超过就返回最小的那个（少爆一点）。
-// 逐张递推「哪些和是可达的」，避免组合爆炸。
-export function bestTotal(board : Card[]) : number {
-  if (board.length == 0) {
-    return 0
-  }
-  // 单张牌的候选点数绝对值不会超过 16，按张数留够两边的空间
-  const span = 16 * board.length + 4
-  const size = span * 2 + 1
+// ---------- 钓鱼 ----------
+//
+// 双方轮流往同一个公共牌堆上出牌。打出的牌只要跟堆里某一张的数字撞上，
+// 就把那张、它后面压着的所有牌、连同自己这张一起钓走，前面的留在堆里。
+//
+// 所以撞哪个数字是有讲究的：撞堆底那张能连锅端走，撞最上面那张只捞到两张。
+// 「这张牌能算成几个数」于是同时决定了能不能钓、以及钓得多深 ——
+// 改点数的永续贴纸在这里全部重新有了意义。
+//
+// 堆里不会出现两张数字相同的牌：一撞上当场就被钓走了。所以下面找位置只找第一个。
 
-  let reach : boolean[] = []
-  for (let i = 0; i < size; i++) {
-    reach.push(false)
+// 堆里每张牌锁定的数字，按落堆顺序
+export function pileNumbers(pile : Card[]) : number[] {
+  const list : number[] = []
+  for (let i = 0; i < pile.length; i++) {
+    list.push(pileValueOf(pile[i]))
   }
-  // 下标 span 代表和为 0
-  reach[span] = true
-
-  for (let i = 0; i < board.length; i++) {
-    const opts = valueOptions(board[i], board, i)
-    const next : boolean[] = []
-    for (let k = 0; k < size; k++) {
-      next.push(false)
-    }
-    for (let k = 0; k < size; k++) {
-      if (!reach[k]) {
-        continue
-      }
-      for (let o = 0; o < opts.length; o++) {
-        const at = k + opts[o]
-        if (at >= 0 && at < size) {
-          next[at] = true
-        }
-      }
-    }
-    reach = next
-  }
-
-  let best = 0
-  let found = false
-  let least = 0
-  let hasLeast = false
-  for (let k = 0; k < size; k++) {
-    if (!reach[k]) {
-      continue
-    }
-    const value = k - span
-    if (!hasLeast) {
-      least = value
-      hasLeast = true
-    }
-    if (value <= GOAL && (!found || value > best)) {
-      best = value
-      found = true
-    }
-  }
-  if (found) {
-    return best
-  }
-  return least
+  return list
 }
 
-// 这种贴纸已经贴在几个数字上了（一张贴纸占一个数字）
+// 这张牌打到堆顶时，能算成哪几个数。去重后从小到大排好。
+//
+// 只看牌自己 —— 点数类贴纸现在全是「这张牌算几点」，没有一张要数邻居。
+// pile 参数留着是给调用方读着顺口，也给将来看堆的贴纸留个口子
+export function playOptions(card : Card, pile : Card[]) : number[] {
+  const raw = valueOptions(card)
+  const out : number[] = []
+  for (let i = 0; i < raw.length; i++) {
+    let seen = false
+    for (let k = 0; k < out.length; k++) {
+      if (out[k] == raw[i]) {
+        seen = true
+        break
+      }
+    }
+    if (!seen) {
+      out.push(raw[i])
+    }
+  }
+  // 候选最多七八个，插入排序足够
+  for (let i = 1; i < out.length; i++) {
+    const one = out[i]
+    let k = i - 1
+    while (k >= 0 && out[k] > one) {
+      out[k + 1] = out[k]
+      k = k - 1
+    }
+    out[k + 1] = one
+  }
+  return out
+}
+
+// 这张牌的候选里，哪几个能撞上堆里已有的数字
+export function hitOptions(card : Card, pile : Card[]) : number[] {
+  const numbers = pileNumbers(pile)
+  const opts = playOptions(card, pile)
+  const out : number[] = []
+  for (let i = 0; i < opts.length; i++) {
+    for (let k = 0; k < numbers.length; k++) {
+      if (opts[i] == numbers[k]) {
+        out.push(opts[i])
+        break
+      }
+    }
+  }
+  return out
+}
+
+// 这个数在堆里排第几，-1 表示堆里没有。
+// 0 和「没有点数」都撞不上：前者是提系压到底的牌，后者是空位牌和背面牌。
+// 一张牌要当钓点，点数得是 1 到 13 里的某个数（暗桩的 11、坠子推出去的 14 以上也算）
+export function pileIndexOf(pile : Card[], worth : number) : number {
+  if (worth <= 0) {
+    return -1
+  }
+  for (let i = 0; i < pile.length; i++) {
+    if (pileValueOf(pile[i]) == worth) {
+      return i
+    }
+  }
+  return -1
+}
+
+// 按这个数落下去能钓走几张：撞上的那张、压在它后面的所有牌、加上自己这张。
+// 撞不上就是 0。撞的位置越靠堆底，捞起来的越多
+export function takeCount(pile : Card[], worth : number) : number {
+  const at = pileIndexOf(pile, worth)
+  if (at < 0) {
+    return 0
+  }
+  return pile.length - at + 1
+}
+
+// 这种贴纸已经贴出去几张了。同一个数字上可以贴好几张同种的，所以是累加张数，
+// 不是数有几个数字贴了它 —— 拥有上限管的就是张数
 export function countStuckOf(stuck : number[], id : number) : number {
   let total = 0
   for (let r = 0; r < RANKS.length; r++) {
     const at = stickerIndex(r, id)
-    if (at < stuck.length && stuck[at] > 0) {
-      total = total + 1
+    if (at < stuck.length) {
+      total = total + stuck[at]
     }
   }
   return total

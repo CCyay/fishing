@@ -1,10 +1,16 @@
 <template>
   <view class="page">
-    <!-- 手里各稀有度的兑换券 -->
+    <!-- 手里各稀有度的兑换券。上排自选、下排随机 -->
     <view id="bj-shop-tickets" class="head">
       <view v-for="rarity in rarities" :key="rarity.id" class="head-item">
         <text class="head-label" :style="'color: ' + rarity.color">{{ rarity.name }}券</text>
         <text :id="'bj-ticket-' + rarity.id" class="head-value">{{ save.tickets[rarity.id] }}</text>
+        <text :id="'bj-random-ticket-' + rarity.id" class="head-random"
+          >随机 {{ save.randomTickets[rarity.id] }}</text
+        >
+        <text :id="'bj-refund-ticket-' + rarity.id" class="head-refund"
+          >退换 {{ save.refundTickets[rarity.id] }}</text
+        >
       </view>
     </view>
 
@@ -16,6 +22,13 @@
           <text class="group-sub"
             >每种最多 {{ rarity.own }} 张 · 手里 {{ save.tickets[rarity.id] }} 券</text
           >
+          <view
+            :id="'bj-draw-' + rarity.id"
+            class="buy-btn draw-btn"
+            :class="{ 'buy-btn-off': !drawable(rarity.id) }"
+            @click="drawOne(rarity.id)">
+            <text class="buy-text draw-text">{{ drawText(rarity.id) }}</text>
+          </view>
         </view>
         <view v-for="sticker in shelfOf(rarity.id)" :key="sticker.key" class="row">
           <view class="row-main">
@@ -26,6 +39,14 @@
               <text class="row-own">{{ ownText(sticker) }}</text>
             </view>
             <text class="row-desc">{{ rowDesc(sticker) }}</text>
+          </view>
+          <!-- 手里有这张、又有同档退换券时，才给退换的口子 -->
+          <view
+            v-if="refundable(sticker)"
+            :id="'bj-refund-sticker-' + sticker.key"
+            class="buy-btn refund-btn"
+            @click="refundOne(sticker.key)">
+            <text class="buy-text refund-text">退换</text>
           </view>
           <view
             :id="'bj-buy-sticker-' + sticker.key"
@@ -52,7 +73,8 @@
     RARITIES,
     stickerAt,
     rarityAt,
-    isStarterSticker,
+    indexOfKey,
+    isHiddenSticker,
     ACHIEVEMENTS
   } from '@/pages/examples/blackjack/stickers.uts'
   import { allLevels } from '@/pages/examples/blackjack/levels.uts'
@@ -62,25 +84,116 @@
     loadCurrentSave,
     saveCurrent,
     redeemSticker,
+    refundSticker,
+    drawSticker,
+    drawPool,
     isShopUnlocked,
     stickerTotal,
     stickerLimit,
-    ticketsOf
+    ticketsOf,
+    randomTicketsOf,
+    refundTicketsOf
   } from '@/pages/examples/blackjack/save.uts'
 
   const save = ref<SaveData>(emptySave())
   const rarities = ref<Rarity[]>(RARITIES)
 
-  // 这个稀有度下上架的贴纸。幸运是开局白送的专属贴纸，货架上没有
+  // 这个稀有度下上架的贴纸。隐藏贴纸在抽到之前连名字都不露 ——
+  // 抽到就解锁了，之后它会出现在这里，可以拿自选券正常兑换
   function shelfOf(rarity : number) : Sticker[] {
     const list : Sticker[] = []
     for (let i = 0; i < STICKERS.length; i++) {
       const sticker = STICKERS[i]
-      if (sticker.rarity == rarity && !isStarterSticker(sticker.key)) {
-        list.push(sticker)
+      if (sticker.rarity != rarity) {
+        continue
       }
+      if (isHiddenSticker(sticker.key) && !isShopUnlocked(save.value, sticker.key)) {
+        continue
+      }
+      list.push(sticker)
     }
     return list
+  }
+
+  // 这一档还有没有随机券、抽池里还有没有东西
+  function drawable(rarity : number) : boolean {
+    if (randomTicketsOf(save.value, rarity) <= 0) {
+      return false
+    }
+    return drawPool(save.value, rarity).length > 0
+  }
+
+  function drawText(rarity : number) : string {
+    const left = randomTicketsOf(save.value, rarity)
+    if (left <= 0) {
+      return '无随机券'
+    }
+    return '随机 ' + left
+  }
+
+  // 手里有这张没贴出去的、又有同档退换券，才退得了
+  function refundable(sticker : Sticker) : boolean {
+    return ownedLoose(sticker.key) > 0 && refundTicketsOf(save.value, sticker.rarity) > 0
+  }
+
+  // 手里还剩几张没贴出去的
+  function ownedLoose(key : string) : number {
+    const at = indexOfKey(key)
+    return at < 0 ? 0 : save.value.stickersOwned[at]
+  }
+
+  // 退换：把手里这张退掉，换回一张同档随机券，再抽就是了
+  function refundOne(key : string) {
+    const data = save.value
+    const sticker = stickerAt(key)
+    if (!refundSticker(data, key)) {
+      uni.showToast({
+        icon: 'none',
+        title: ownedLoose(key) > 0 ? '没有' + rarityAt(sticker.rarity).name + '退换券' : '手里没有这张'
+      })
+      return
+    }
+    commit(data, '退掉【' + sticker.name + '】，换回一张'
+      + rarityAt(sticker.rarity).name + '随机券')
+  }
+
+  // 烧一张随机券，抽池里随机一张。抽到藏着的就顺手解锁它
+  function drawOne(rarity : number) {
+    const data = save.value
+    if (randomTicketsOf(data, rarity) <= 0) {
+      uni.showToast({
+        icon: 'none',
+        title: '没有' + rarityAt(rarity).name + '随机券了'
+      })
+      return
+    }
+
+    // 先记下这一抽有哪些藏着的可能开出来 —— 抽完它们就已经解锁了，问不出来了
+    const secret : string[] = []
+    const pool = drawPool(data, rarity)
+    for (let i = 0; i < pool.length; i++) {
+      if (isHiddenSticker(pool[i]) && !isShopUnlocked(data, pool[i])) {
+        secret.push(pool[i])
+      }
+    }
+
+    const key = drawSticker(data, rarity)
+    if (key == '') {
+      uni.showToast({
+        icon: 'none',
+        title: '这一档的贴纸都攒满了'
+      })
+      return
+    }
+
+    let tip = '抽到贴纸【' + stickerAt(key).name + '】'
+    for (let i = 0; i < secret.length; i++) {
+      if (secret[i] == key) {
+        tip = '开出隐藏贴纸【' + stickerAt(key).name + '】，货架上解锁了'
+        break
+      }
+    }
+    commit(data, tip)
   }
 
   function refresh() {
@@ -123,8 +236,9 @@
     return '兑换'
   }
 
+  // 效果一律摊开：没解锁的照样给看。
+  // 得在花券之前知道它是干什么的 —— 买回来才发现不是想要的，比看不到更难受
   function rowDesc(sticker : Sticker) : string {
-    // 临时：效果全部摊开方便核对。正式版应该恢复成未解锁只给看名字
     if (!unlocked(sticker.key)) {
       return sticker.desc + '（未解锁 · ' + howToUnlock(sticker.key) + '）'
     }
@@ -157,6 +271,8 @@
       exists: data.exists,
       label: data.label,
       tickets: data.tickets,
+      randomTickets: data.randomTickets,
+      refundTickets: data.refundTickets,
       win: data.win,
       lose: data.lose,
       push: data.push,
@@ -242,6 +358,28 @@
     font-weight: bold;
   }
 
+  /* 随机券排在自选券下面，小一号 —— 它是副币种。
+     玫红是它的专属色：四个稀有度（淡绿/蓝/紫/橙）和金色主按钮都没占这个色相，
+     随机券横跨所有稀有度，不能借用其中任何一档的颜色 */
+  .head-random {
+    color: #ff7aa8;
+    font-size: 10px;
+  }
+
+  /* 退换券又是一个币种，青色跟金色的自选券、玫红的随机券都分得开 */
+  .head-refund {
+    color: #4dd0c7;
+    font-size: 10px;
+  }
+
+  .refund-btn {
+    background-color: #1d7a72;
+  }
+
+  .refund-text {
+    color: #ffffff;
+  }
+
   .section {
     color: #9fd9bd;
     font-size: 11px;
@@ -294,8 +432,19 @@
   }
 
   .group-sub {
+    flex: 1;
     color: #9fd9bd;
     font-size: 10px;
+  }
+
+  /* 分组头右端的随机兑换。玫红跟随机券对上，跟金色的自选兑换分开 */
+  .draw-btn {
+    height: 26px;
+    background-color: #d6336c;
+  }
+
+  .draw-text {
+    color: #ffffff;
   }
 
   .row-own {

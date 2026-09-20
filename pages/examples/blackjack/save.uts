@@ -1,8 +1,9 @@
 // 存档数据层：兑换券、战绩、通关进度、手里的贴纸、牌组上已贴的贴纸。
 // 52 张基础牌固定不可变，不需要存。
 // 存档格式为简单的分隔符文本，避免 JSON 泛型解析：
-// version|tickets|win|lose|push|cleared|owned|unlocked|stuck|achieved|label
-//   tickets：「稀有度:张数」列表，如 "0:2,1:1"
+// version|tickets|win|lose|push|cleared|owned|unlocked|stuck|achieved|random|refund|label
+//   tickets / random / refund：「稀有度:张数」列表，如 "0:2,1:1"。
+//                     依次是自选券、随机券、退换券
 //   owned：「贴纸 key:张数」列表，如 "lucky:3,steal:1"
 //   unlocked：贴纸 key 列表，如 "lucky,steal,beg"
 //   stuck：「数字-贴纸 key」对列表，如 "0-broken,5-lucky"
@@ -10,15 +11,19 @@
 // 下标会随着增删贴纸整体位移，key 不会，所以老存档永远读得对。
 
 import {
+  STICKERS,
   STICKER_COUNT,
   MAX_STICKERS_PER_RANK,
-  S_LUCKY,
   S_NONE,
   RARITIES,
+  RARITY_COMMON,
   ACHIEVEMENT_COUNT,
   achievementAt,
   stickerAt,
   rarityAt,
+  isFixedRank,
+  isFreeSticker,
+  isHiddenSticker,
   indexOfKey,
   keyAtIndex
 } from '@/pages/examples/blackjack/stickers.uts'
@@ -35,8 +40,14 @@ export const SLOT_COUNT : number = 3
 export type SaveData = {
   exists : boolean
   label : string
-  // 贴纸兑换券，按稀有度索引。一张券换一张对应稀有度的贴纸
+  // 贴纸兑换券，按稀有度索引。一张券换一张对应稀有度的贴纸，自己挑
   tickets : number[]
+  // 随机兑换券，同样按稀有度索引。一张换该稀有度里随机一张，没得挑，
+  // 但抽池里含隐藏贴纸 —— 隐藏的只有这一条路能拿到
+  randomTickets : number[]
+  // 退换券，按稀有度索引。一张把手里同稀有度的一张贴纸退掉，换回一张同档随机券。
+  // 重复通关拿的就是它 —— 总量不变，只是让你能把用不上的回炉重抽
+  refundTickets : number[]
   win : number
   lose : number
   push : number
@@ -53,7 +64,11 @@ export type SaveData = {
 }
 
 // 存档格式版本。只在格式本身变化时才加，加贴纸种类不用动它
-const SAVE_VERSION : string = 'v6'
+// v7：玩法从 42 点换成钓鱼，点数体系重定义（A=1…K=13）、J 焊死【通吃】。
+//     旧存档里的战绩和牌组配置对新玩法已经没有意义，v6 及以前一律当没有。
+// v8：多了一段随机兑换券，字段数从 11 变 12。幸运不再白送，改成隐藏贴纸。
+// v9：多了一段退换券，字段数 13
+const SAVE_VERSION : string = 'v9'
 
 const KEY_PREFIX : string = 'bj_save_'
 const KEY_CURRENT : string = 'bj_current_slot'
@@ -210,16 +225,19 @@ function idsToFlags(text : string, size : number) : number[] {
   return flags
 }
 
-// 贴纸矩阵 → 「数字-贴纸 key」对，如 "0-broken,5-lucky" 表示 A 贴了破碎、6 贴了幸运
+// 贴纸矩阵 → 「数字-贴纸 key:张数」，如 "0-broken:1,5-lucky:3"
+// 表示 A 贴了一张破碎、6 贴了三张幸运。
+// 同一个数字上同种贴纸能贴好几张，所以张数必须跟着存
 function stuckToText(stuck : number[]) : string {
   let text = ''
   for (let r = 0; r < RANKS.length; r++) {
     for (let s = 0; s < STICKER_COUNT; s++) {
-      if (stuck[stickerIndex(r, s)] > 0) {
+      const count = stuck[stickerIndex(r, s)]
+      if (count > 0) {
         if (text != '') {
           text = text + ','
         }
-        text = text + r + '-' + keyAtIndex(s)
+        text = text + r + '-' + keyAtIndex(s) + ':' + count
       }
     }
   }
@@ -237,29 +255,34 @@ function textToStuck(text : string) : number[] {
     if (pair.length != 2) {
       continue
     }
+    // 「key:张数」，张数缺省算一张
+    const tail = pair[1].split(':')
     const r = parseInt(pair[0])
-    const s = indexOfKey(pair[1])
+    const s = indexOfKey(tail[0])
     if (isNaN(r) || s < 0 || r < 0 || r >= RANKS.length) {
       continue
     }
-    stuck[stickerIndex(r, s)] = 1
+    const count = tail.length > 1 ? toInt(tail[1], 1) : 1
+    if (count <= 0) {
+      continue
+    }
+    stuck[stickerIndex(r, s)] = count > MAX_STICKERS_PER_RANK ? MAX_STICKERS_PER_RANK : count
   }
   return stuck
 }
 
-// 幸运贴纸开局白送：商店不卖，直接按它的稀有度给满。
-// 已经贴出去的也算数，免得读档时又白送一批
-function ensureLucky(data : SaveData) {
-  const at = indexOfKey(S_LUCKY)
-  if (at < 0) {
-    return
+// 免解锁的贴纸一开始就在货架上。写成读档时补一遍而不是建档时发一次，
+// 是因为这份名单将来会增减 —— 老存档再进来时也该看到新开放的那几张
+function ensureFreeUnlocks(data : SaveData) {
+  for (let i = 0; i < STICKERS.length; i++) {
+    if (!isFreeSticker(STICKERS[i].key)) {
+      continue
+    }
+    const at = indexOfKey(STICKERS[i].key)
+    if (at >= 0) {
+      data.shopUnlocked[at] = 1
+    }
   }
-  const most = rarityAt(stickerAt(S_LUCKY).rarity).own
-  const out = countStuckOf(data.stuck, at)
-  if (data.stickersOwned[at] + out < most) {
-    data.stickersOwned[at] = most - out
-  }
-  data.shopUnlocked[at] = 1
 }
 
 function toInt(text : string, fallback : number) : number {
@@ -288,6 +311,8 @@ export function emptySave() : SaveData {
     exists: false,
     label: '',
     tickets: zeroList(RARITIES.length),
+    randomTickets: zeroList(RARITIES.length),
+    refundTickets: zeroList(RARITIES.length),
     win: 0,
     lose: 0,
     push: 0,
@@ -297,14 +322,20 @@ export function emptySave() : SaveData {
     achieved: zeroList(ACHIEVEMENT_COUNT),
     stuck: emptyStickers()
   }
-  ensureLucky(data)
+  ensureFreeUnlocks(data)
   return data
 }
+
+// 开局本钱：4 张普通随机券。
+// 幸运不再白送，它成了隐藏贴纸，只能从这几张券里抽 —— 抽不抽得到看运气，
+// 抽不到也不至于开不了局，货架上那几张免解锁的普通永续同在抽池里
+export const STARTER_RANDOM_TICKETS : number = 4
 
 export function newSave(label : string) : SaveData {
   const data = emptySave()
   data.exists = true
   data.label = label
+  data.randomTickets[RARITY_COMMON] = STARTER_RANDOM_TICKETS
   return data
 }
 
@@ -315,12 +346,12 @@ export function loadSave(index : number) : SaveData {
   }
   const parts = raw.split('|')
   // 版本对不上就当没有这个存档，重新开一个
-  if (parts.length < 11 || parts[0] != SAVE_VERSION) {
+  if (parts.length < 13 || parts[0] != SAVE_VERSION) {
     return emptySave()
   }
   // 存档名里可能有 '|'，最后一段之后的全拼回去
-  let label = parts[10]
-  for (let i = 11; i < parts.length; i++) {
+  let label = parts[12]
+  for (let i = 13; i < parts.length; i++) {
     label = label + '|' + parts[i]
   }
   const data : SaveData = {
@@ -334,9 +365,11 @@ export function loadSave(index : number) : SaveData {
     stickersOwned: textToStickerCounts(parts[6]),
     shopUnlocked: keysToFlags(parts[7]),
     stuck: textToStuck(parts[8]),
-    achieved: idsToFlags(parts[9], ACHIEVEMENT_COUNT)
+    achieved: idsToFlags(parts[9], ACHIEVEMENT_COUNT),
+    randomTickets: textToCounts(parts[10], RARITIES.length),
+    refundTickets: textToCounts(parts[11], RARITIES.length)
   }
-  ensureLucky(data)
+  ensureFreeUnlocks(data)
   return data
 }
 
@@ -351,6 +384,8 @@ export function writeSave(index : number, data : SaveData) {
     + '|' + flagsToKeys(data.shopUnlocked)
     + '|' + stuckToText(data.stuck)
     + '|' + flagsToIds(data.achieved)
+    + '|' + countsToText(data.randomTickets)
+    + '|' + countsToText(data.refundTickets)
     + '|' + data.label
   uni.setStorageSync(KEY_PREFIX + index, text)
 }
@@ -479,6 +514,95 @@ export function addTickets(data : SaveData, rarity : number, count : number) {
   data.tickets[rarity] = data.tickets[rarity] + count
 }
 
+export function refundTicketsOf(data : SaveData, rarity : number) : number {
+  if (rarity < 0 || rarity >= data.refundTickets.length) {
+    return 0
+  }
+  return data.refundTickets[rarity]
+}
+
+export function addRefundTickets(data : SaveData, rarity : number, count : number) {
+  if (rarity < 0 || rarity >= data.refundTickets.length) {
+    return
+  }
+  data.refundTickets[rarity] = data.refundTickets[rarity] + count
+}
+
+// 退换：烧一张退换券，把手里一张同稀有度的贴纸退掉，换回一张同档随机券。
+// 总量不变，换的是「重抽一次」的机会 —— 手里那张用不上的，回炉再抽
+export function refundSticker(data : SaveData, key : string) : boolean {
+  const at = indexOfKey(key)
+  if (at < 0 || data.stickersOwned[at] <= 0) {
+    return false
+  }
+  const rarity = stickerAt(key).rarity
+  if (refundTicketsOf(data, rarity) <= 0) {
+    return false
+  }
+  data.refundTickets[rarity] = data.refundTickets[rarity] - 1
+  data.stickersOwned[at] = data.stickersOwned[at] - 1
+  data.randomTickets[rarity] = data.randomTickets[rarity] + 1
+  return true
+}
+
+export function randomTicketsOf(data : SaveData, rarity : number) : number {
+  if (rarity < 0 || rarity >= data.randomTickets.length) {
+    return 0
+  }
+  return data.randomTickets[rarity]
+}
+
+export function addRandomTickets(data : SaveData, rarity : number, count : number) {
+  if (rarity < 0 || rarity >= data.randomTickets.length) {
+    return
+  }
+  data.randomTickets[rarity] = data.randomTickets[rarity] + count
+}
+
+// 这个稀有度现在能抽到哪些：已经解锁的，加上还藏着的。
+// 攒到拥有上限的剔掉 —— 张数上限是硬的，抽到手也收不下。
+// 一张随机券必定出一张贴纸：每档的贴纸种类远多于全程能发的券，
+// 池子不会被抽空，所以不需要兜底
+export function drawPool(data : SaveData, rarity : number) : string[] {
+  const pool : string[] = []
+  for (let i = 0; i < STICKERS.length; i++) {
+    const sticker = STICKERS[i]
+    if (sticker.rarity != rarity) {
+      continue
+    }
+    if (!isShopUnlocked(data, sticker.key) && !isHiddenSticker(sticker.key)) {
+      continue
+    }
+    if (stickerTotal(data, sticker.key) >= stickerLimit(sticker.key)) {
+      continue
+    }
+    pool.push(sticker.key)
+  }
+  return pool
+}
+
+// 烧一张随机券，随机抽一张。返回抽中的 key，抽不成返回空串（券不动）。
+// 抽中隐藏贴纸就顺手解锁它 —— 之后它会出现在货架上，能拿普通券正常兑换。
+// 隐藏贴纸只有这一条路，通关和成就都给不了
+export function drawSticker(data : SaveData, rarity : number) : string {
+  if (randomTicketsOf(data, rarity) <= 0) {
+    return ''
+  }
+  const pool = drawPool(data, rarity)
+  if (pool.length == 0) {
+    return ''
+  }
+  const key = pool[Math.floor(Math.random() * pool.length)]
+  const at = indexOfKey(key)
+  if (at < 0) {
+    return ''
+  }
+  data.randomTickets[rarity] = data.randomTickets[rarity] - 1
+  data.stickersOwned[at] = data.stickersOwned[at] + 1
+  data.shopUnlocked[at] = 1
+  return key
+}
+
 // 一张券换一张同稀有度的贴纸，换到该种贴纸的上限为止
 export function redeemSticker(data : SaveData, key : string) : boolean {
   const at = indexOfKey(key)
@@ -503,12 +627,14 @@ export function canStick(data : SaveData, rankIndex : number, key : string) : st
   if (at < 0) {
     return '没有这种贴纸'
   }
+  if (isFixedRank(RANKS[rankIndex])) {
+    return 'J 自带【通吃】，贴不上别的'
+  }
   if (!ownsSticker(data, key)) {
     return stickerTotal(data, key) > 0 ? '这种贴纸都贴出去了，先撕一张下来' : '还没有这种贴纸，去商店买'
   }
-  if (data.stuck[stickerIndex(rankIndex, at)] > 0) {
-    return '同一个数字不能贴同一种贴纸'
-  }
+  // 同一个数字上贴几张同种的完全可以 —— 3 的四张全贴幸运是正经构筑。
+  // 卡的只有一条：这个数字统共 4 张牌，贴纸总数不能超过它
   if (stickersOfRank(data.stuck, rankIndex).length >= MAX_STICKERS_PER_RANK) {
     return '这个数字只有 4 张牌，已经贴满了'
   }
@@ -521,7 +647,8 @@ export function applySticker(data : SaveData, rankIndex : number, key : string) 
   if (at < 0) {
     return
   }
-  data.stuck[stickerIndex(rankIndex, at)] = 1
+  const slot = stickerIndex(rankIndex, at)
+  data.stuck[slot] = data.stuck[slot] + 1
   data.stickersOwned[at] = data.stickersOwned[at] - 1
 }
 
@@ -541,6 +668,7 @@ export function peelSticker(data : SaveData, rankIndex : number, key : string) {
   if (data.stuck[at] <= 0) {
     return
   }
-  data.stuck[at] = 0
+  // 贴了好几张的话一次只撕一张下来
+  data.stuck[at] = data.stuck[at] - 1
   data.stickersOwned[slot] = data.stickersOwned[slot] + 1
 }

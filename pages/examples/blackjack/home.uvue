@@ -1,8 +1,8 @@
 <template>
   <view class="page">
     <view class="hero">
-      <text class="hero-title">42</text>
-      <text class="hero-subtitle">出牌对战 · 先到 42 点者胜</text>
+      <text class="hero-title">钓鱼</text>
+      <text class="hero-subtitle">出牌对战 · 撞上同一个数就钓走一片</text>
     </view>
 
     <!-- 当前存档摘要 -->
@@ -14,6 +14,14 @@
       <view class="save-row">
         <text class="save-label">兑换券（普/稀/史/传）</text>
         <text id="bj-home-tickets" class="save-value">{{ ticketText }}</text>
+      </view>
+      <view class="save-row">
+        <text class="save-label">随机券（普/稀/史/传）</text>
+        <text id="bj-home-random" class="save-value">{{ randomTicketText }}</text>
+      </view>
+      <view class="save-row">
+        <text class="save-label">退换券（普/稀/史/传）</text>
+        <text id="bj-home-refund" class="save-value">{{ refundTicketText }}</text>
       </view>
       <view class="save-row">
         <text class="save-label">战绩（胜/负/和）</text>
@@ -77,15 +85,29 @@
 
   // 四种稀有度的券，按普通/稀有/史诗/传说的顺序排一行
   const ticketText = computed<string>(() : string => {
+    return countsText(save.value.tickets)
+  })
+
+  // 随机券单独一行。它跟自选券不通用：只有它抽得到隐藏贴纸
+  const randomTicketText = computed<string>(() : string => {
+    return countsText(save.value.randomTickets)
+  })
+
+  // 退换券：重复通关拿的，把手里用不上的贴纸回炉换成随机券
+  const refundTicketText = computed<string>(() : string => {
+    return countsText(save.value.refundTickets)
+  })
+
+  function countsText(counts : number[]) : string {
     let text = ''
-    for (let i = 0; i < save.value.tickets.length; i++) {
+    for (let i = 0; i < counts.length; i++) {
       if (i > 0) {
         text = text + '/'
       }
-      text = text + save.value.tickets[i]
+      text = text + counts[i]
     }
     return text
-  })
+  }
 
   function refresh() {
     slotIndex.value = currentSlot()

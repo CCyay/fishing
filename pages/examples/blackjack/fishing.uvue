@@ -1,0 +1,3480 @@
+<template>
+  <view class="page">
+    <!-- 顶部信息栏 -->
+    <view class="topbar">
+      <view class="topbar-item">
+        <text class="topbar-label">关卡</text>
+        <text id="bj-level-name" class="topbar-value">{{ level.index }} · {{ level.name }}</text>
+      </view>
+      <view class="topbar-item">
+        <text class="topbar-label">你的回合</text>
+        <text id="bj-turn" class="topbar-value">{{ playerTurns }}</text>
+      </view>
+      <view class="topbar-item">
+        <text class="topbar-label">共</text>
+        <text id="bj-turns-total" class="topbar-value">{{ level.turns }}</text>
+      </view>
+    </view>
+
+    <!-- 庄家手牌：跟你的手牌一样大，平时扣着。结算时亮出来；
+         将来「借刀」「洞察」那类贴纸接回来，也从这里放行 -->
+    <view class="hand-area">
+      <view class="hand-head">
+        <text class="hand-title">庄家手牌 {{ dealerHand.length }}/{{ HAND_SIZE }}</text>
+        <text class="hand-tip">回合 {{ dealerTurns }}/{{ level.turns }}</text>
+      </view>
+      <view class="hand">
+        <view
+          v-for="(card, index) in dealerHand"
+          :key="'dh-' + index"
+          :id="'bj-dealer-hand-' + index"
+          class="card card-hand"
+          :class="{
+            'card-back': !revealTheirs,
+            'card-stickered': revealTheirs && card.stickerKey != S_NONE,
+            'card-pickable': pickKind == 'theirs'
+          }"
+          @click="pickFromTheirs(index)">
+          <text v-if="!revealTheirs" class="card-back-mark">?</text>
+          <text v-if="revealTheirs" class="card-rank" :class="{ 'card-red': isRed(card) }">{{
+            card.rank
+          }}</text>
+          <text v-if="revealTheirs" class="card-suit" :class="{ 'card-red': isRed(card) }">{{
+            card.suit
+          }}</text>
+          <text
+            v-if="revealTheirs && card.stickerKey != S_NONE"
+            class="card-sticker"
+            @click.stop="showSticker(card)"
+            >{{ stickerName(card) }}</text
+          >
+        </view>
+      </view>
+    </view>
+
+    <!-- 公共牌堆：这局的主角。左边是堆底，越往左钓起来越值钱 -->
+    <view class="pile-area">
+      <view class="pile-head">
+        <text class="pile-title">牌堆 {{ pile.length }} 张</text>
+        <!-- 比分就贴在牌堆上：钓中的那一拍，收牌方的数字会亮起来放大，
+             一眼看出这一摞要去谁那边 -->
+        <view class="pile-score">
+          <text class="pile-score-label">庄</text>
+          <text
+            id="bj-dealer-points"
+            class="pile-score-num"
+            :class="{ 'pile-score-catch': catchMarks.length > 0 && catchBy }"
+            >{{ dealerPoints.length }}</text
+          >
+          <text class="pile-score-label">：你</text>
+          <text
+            id="bj-player-points"
+            class="pile-score-num"
+            :class="{ 'pile-score-catch': catchMarks.length > 0 && !catchBy }"
+            >{{ playerPoints.length }}</text
+          >
+        </view>
+      </view>
+      <scroll-view id="bj-pile" class="board" direction="horizontal">
+        <view class="board-row">
+          <text v-if="pile.length == 0" class="played-tip">空堆，下一张随便打</text>
+          <view
+            v-for="(card, index) in pile"
+            :key="'pl-' + index"
+            :id="'bj-pile-' + index"
+            class="card"
+            :class="{
+              'card-stickered': card.stickerKey != S_NONE,
+              'card-from-dealer': pileFromDealer[index],
+              'card-from-player': !pileFromDealer[index],
+              'card-caught': index < catchMarks.length && catchMarks[index],
+              'card-pickable': pickKind == 'pile' || pickKind == 'slot'
+            }"
+            @click="pickFromPile(index)">
+            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+            <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            <text
+              v-if="card.stickerKey != S_NONE"
+              class="card-sticker"
+              @click.stop="showSticker(card)"
+              >{{ stickerName(card) }}</text
+            >
+            <text v-if="cardMark(card) != ''" class="card-mark">{{ cardMark(card) }}</text>
+          </view>
+          <!-- 埋钩挑位置时，堆顶后面多一个「压堆顶」的落点 -->
+          <view
+            v-if="pickKind == 'slot'"
+            id="bj-pile-top"
+            class="card card-slot"
+            @click="pickFromPile(pile.length)">
+            <text class="card-slot-mark">压顶</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 提示 -->
+    <view class="message-box" :class="'message-' + resultKind">
+      <text id="bj-message" class="message-text">{{ message }}</text>
+    </view>
+
+    <!-- 手牌 / 选点数 / 结算 -->
+    <view class="hand-area">
+      <view v-if="phase != 'over'" class="hand-head">
+        <text class="hand-title">你的手牌 {{ playerHand.length }}/{{ HAND_SIZE }}</text>
+        <text class="hand-tip">{{ handTip }} · 点贴纸名看效果</text>
+      </view>
+
+      <!-- 这张牌能算成好几个数，而且按哪个落钓到的深浅不一样 -->
+      <scroll-view
+        v-if="phase == 'value'"
+        id="bj-value-pick"
+        class="value-box"
+        direction="horizontal">
+        <view class="board-row">
+          <text class="peek-label">按几点落？</text>
+          <text
+            v-for="(worth, index) in pendingOptions"
+            :key="'vo-' + index"
+            :id="'bj-value-' + index"
+            class="peek-btn"
+            :class="{ 'peek-btn-hit': takeOf(worth) > 0 }"
+            @click="chooseValue(worth)"
+            >{{ worth }}{{ takeOf(worth) > 0 ? ' 钓 ' + takeOf(worth) : '' }}</text
+          >
+        </view>
+      </scroll-view>
+
+      <!-- 空堆上打 J 是纯亏，拦一下 -->
+      <view v-if="phase == 'confirm'" id="bj-confirm" class="value-box">
+        <view class="board-row">
+          <text class="peek-label">堆是空的，真要打？</text>
+          <text id="bj-confirm-yes" class="peek-btn peek-btn-hit" @click="confirmHaul(true)"
+            >照打</text
+          >
+          <text id="bj-confirm-no" class="peek-btn" @click="confirmHaul(false)">再等等</text>
+        </view>
+      </view>
+
+      <!-- 摊开给你挑的牌：窥探和探牌看的是牌库顶，同号和空手是从牌库里挑 -->
+      <scroll-view
+        v-if="pickKind == 'top' || pickKind == 'deck'"
+        id="bj-spread"
+        class="value-box"
+        direction="horizontal">
+        <view class="board-row">
+          <view
+            v-for="(card, index) in pickCards"
+            :key="'sp-' + index"
+            :id="'bj-spread-' + index"
+            class="card card-hand card-pickable"
+            :class="{ 'card-stickered': card.stickerKey != S_NONE }"
+            @click="pickFromSpread(index)">
+            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+            <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            <text v-if="card.stickerKey != S_NONE" class="card-sticker">{{
+              stickerName(card)
+            }}</text>
+          </view>
+          <text v-if="pickKind == 'top'" id="bj-keep-top" class="peek-btn" @click="keepTop"
+            >留着</text
+          >
+        </view>
+      </scroll-view>
+
+      <view
+        v-if="phase != 'over' && phase != 'value' && phase != 'confirm'
+          && pickKind != 'top' && pickKind != 'deck'"
+        id="bj-hand"
+        class="hand">
+        <view
+          v-for="(card, index) in playerHand"
+          :key="'h-' + index"
+          :id="'bj-hand-' + index"
+          class="card card-hand"
+          :class="{
+            'card-stickered': card.stickerKey != S_NONE,
+            'card-ready': phase == 'player' && worthPlaying(card),
+            'card-pickable': pickKind == 'hand'
+          }"
+          @click="tapHand(index)">
+          <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+          <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+          <text
+            v-if="card.stickerKey != S_NONE"
+            class="card-sticker"
+            @click.stop="showSticker(card)"
+            >{{ stickerName(card) }}</text
+          >
+        </view>
+      </view>
+
+      <view v-if="phase == 'over'" class="over-box">
+        <text id="bj-result" class="over-text">{{ resultText }}</text>
+        <view class="over-actions">
+          <!-- 输了就地再来一局，不用绕回关卡页。输不扣东西，随便重打 -->
+          <view v-if="resultKind == 'lose'" id="bj-retry" class="btn btn-primary" @click="retry">
+            <text class="btn-text">重来</text>
+          </view>
+          <view
+            id="bj-back"
+            class="btn"
+            :class="{ 'btn-primary': resultKind != 'lose', 'btn-ghost': resultKind == 'lose' }"
+            @click="goBack">
+            <text class="btn-text" :class="{ 'btn-text-ghost': resultKind == 'lose' }"
+              >返回关卡</text
+            >
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 底部状态与入口 -->
+    <view class="toolbar">
+      <text id="bj-phase" class="toolbar-text">{{ phaseText }}</text>
+      <text id="bj-hand-stickers" class="toolbar-link" @click="showHandStickers">贴纸</text>
+      <text id="bj-waste-toggle" class="toolbar-link" @click="toggleWaste"
+        >废牌 {{ waste.length }}</text
+      >
+      <text id="bj-rules" class="toolbar-link" @click="showRules">规则</text>
+      <text id="bj-quit" class="toolbar-link" @click="goBack">退出</text>
+    </view>
+
+    <!-- 废牌堆浮层：散局时没人钓走的牌都在这 -->
+    <view v-if="showWaste" class="overlay">
+      <view class="overlay-panel">
+        <view class="overlay-header">
+          <text class="overlay-title">废牌堆</text>
+          <text id="bj-waste-count" class="overlay-count">{{ waste.length }} 张</text>
+          <text id="bj-waste-close" class="overlay-close" @click="toggleWaste">关闭</text>
+        </view>
+        <scroll-view class="overlay-body">
+          <text class="discard-label">谁都没钓走的牌</text>
+          <view id="bj-waste" class="mini-cards">
+            <text v-if="waste.length == 0" class="played-tip">暂无</text>
+            <view
+              v-for="(card, index) in waste"
+              :key="'ws-' + index"
+              class="mini-card"
+              :class="{ 'card-stickered': card.stickerKey != S_NONE }">
+              <text class="mini-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+              <text class="mini-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import {
+    Card,
+    HAND_SIZE,
+    RANK_COUNT,
+    SUIT_COUNT,
+    buildDeck,
+    cloneCard,
+    isRedSuit,
+    worthOf,
+    playOptions,
+    hitOptions,
+    pileIndexExcept,
+    pileValueOf,
+    pileSuitOf,
+    isDeadCard,
+    takeCount,
+    NO_VALUE
+  } from '@/pages/examples/blackjack/cards.uts'
+  import {
+    stickerAt,
+    rarityAt,
+    achievementAt,
+    isBlankSticker,
+    dropsAtBottom,
+    S_NONE,
+    S_HAUL,
+    S_LURE,
+    S_GATE,
+    S_HUE,
+    S_CAST,
+    S_DYE,
+    S_MASK,
+    S_STIR,
+    S_MURKY,
+    S_STREAK,
+    S_BLEND,
+    S_UNIFY,
+    S_MIRROR,
+    S_SAND,
+    S_VEIL,
+    S_BLIND,
+    S_WASH,
+    S_DIG,
+    S_GATHER,
+    S_DREDGE,
+    S_GIVE,
+    S_REEL,
+    S_STRIP,
+    S_PEEK,
+    S_SCAN,
+    S_SINK1,
+    S_SINK2,
+    S_TRADE,
+    S_PICKED,
+    S_PROBE1,
+    S_PROBE2,
+    S_SAME,
+    S_EMPTY,
+    ACH_TWIN_PAIR,
+    ACH_EXACT_GOAL,
+    ACH_DEALER_BUST,
+    ACH_BEHIND,
+    ACH_STAND_BROKEN,
+    ACH_FORESEE,
+    ACH_COMEBACK,
+    ACH_FLOW,
+    BEHIND_GAP,
+    FLOW_DRAWS,
+    BIG_TAKE,
+    RICH_SCORE,
+    CHOKE_SCORE,
+    DEEP_PILE
+  } from '@/pages/examples/blackjack/stickers.uts'
+  import {
+    SaveData,
+    emptySave,
+    loadCurrentSave,
+    saveCurrent,
+    currentLevel,
+    unlockShop,
+    addTickets,
+    addRandomTickets,
+    addRefundTickets,
+    markAchieved
+  } from '@/pages/examples/blackjack/save.uts'
+  import { Level, levelAt, dealerStuck } from '@/pages/examples/blackjack/levels.uts'
+
+  const DEALER_DELAY : number = 700
+  // 同一次挑战里最多平局重开几次，超了就算这关没过
+  const MAX_PUSH : number = 2
+  // 注意别在 setup() 里重置它 —— 洗牌重开走的就是 setup
+  let pushCount = 0
+
+  const save = ref<SaveData>(emptySave())
+  const level = ref<Level>(levelAt(1))
+
+  const playerDeck = ref<Card[]>([] as Card[])
+  const playerCursor = ref<number>(0)
+  const dealerDeck = ref<Card[]>([] as Card[])
+  const dealerCursor = ref<number>(0)
+
+  const playerHand = ref<Card[]>([] as Card[])
+  const dealerHand = ref<Card[]>([] as Card[])
+
+  // 公共牌堆，下标 0 是堆底。撞上谁就从谁那里往上一起钓走，
+  // 前面的留在堆里继续压着。每张牌的 pileValue 在落堆那一刻就锁死了
+  const pile = ref<Card[]>([] as Card[])
+  // 跟 pile 同步维护：这一张是谁打下来的。只用来染个边框色，不参与规则
+  const pileFromDealer = ref<boolean[]>([] as boolean[])
+
+  // 积分库。分数就是张数，不看点数
+  const playerPoints = ref<Card[]>([] as Card[])
+  const dealerPoints = ref<Card[]>([] as Card[])
+  // 散局时没人钓走的牌，谁都不算分
+  const waste = ref<Card[]>([] as Card[])
+  const showWaste = ref<boolean>(false)
+
+  // 庄家手牌摊开没有。现在只有结算时才亮，
+  // 等「借刀」「洞察」那类能看对手手牌的贴纸接回新规则，就由它们来掀
+  const dealerHandOpen = ref<boolean>(false)
+
+  // 回合各自算：你打一张是你的一个回合，庄家打一张是它的
+  const playerTurns = ref<number>(0)
+  const dealerTurns = ref<number>(0)
+
+  // dealer：庄家行动中；player：轮到你出牌；
+  // value：你打出的牌能算成好几个数、且落法之间有差别，等你挑一个；
+  // confirm：空堆上打 J，问一句；catch：钓中的那一段正亮着，等动画走完；over：结束
+  const phase = ref<string>('dealer')
+  const message = ref<string>('')
+  const resultKind = ref<string>('idle')
+  const resultText = ref<string>('')
+
+  // 正等你挑点数的那张手牌，以及它的候选
+  let pendingIndex = -1
+  const pendingOptions = ref<number[]>([] as number[])
+
+  let dealerTimer = -1
+
+  // 钓中之后、真正收走之前的那一拍。
+  // catchMarks 逐张标出这次要带走哪些（空数组表示没在钓），catchBy 是归谁。
+  // 用标记数组而不是「从第几张起」，是因为收色和撒网收的是散在堆里的牌，
+  // 不是连着的一段 —— 两种收割共用同一套动画
+  const CATCH_DELAY : number = 560
+  const catchMarks = ref<boolean[]>([] as boolean[])
+  const catchBy = ref<boolean>(false)
+  let catchTimer = -1
+  // 只给成就用：撞在堆里第几张、撞之前堆有多厚。散收的传 -1
+  let catchAt = -1
+  let catchDeep = 0
+
+  // ---------- 选牌 ----------
+  //
+  // 有一批贴纸要你从某处挑牌。统一走这套：pickKind 说明从哪挑、
+  // pickLeft 还差几张、pickKey 是哪张贴纸要的。
+  // 庄家打出这些牌时不进选牌阶段 —— 它按 autoPick 自己挑完就走，
+  // 不然轮到它出牌时会停在那等人点
+  const PICK_NONE : string = ''
+  const PICK_PILE : string = 'pile'
+  const PICK_SLOT : string = 'slot'
+  const PICK_HAND : string = 'hand'
+  const PICK_THEIRS : string = 'theirs'
+  const PICK_DECK : string = 'deck'
+  const PICK_TOP : string = 'top'
+
+  const pickKind = ref<string>(PICK_NONE)
+  const pickCards = ref<Card[]>([] as Card[])
+  let pickLeft = 0
+  let pickKey = ''
+  // 发起的那张贴纸牌自己，用来定位「它左边」
+  let pickOwner : Card | null = null
+  // 对换分两步：先挑自己的，再挑他的。这是已经挑好的自己那张
+  let pickHeld = -1
+
+  // 正在结算的这一手。出牌流程是「落堆 → 发动效果 → 判撞」，
+  // 而效果可能停下来等你挑牌，所以这一手的账得先存着，等效果跑完再接力判撞
+  let playCardRef : Card | null = null
+  let playWorth = 0
+  let playBy = false
+  let playDeep = 0
+
+  // 蒙牌欠下的张数：接下来这么多张牌不论谁打，一律背面落堆
+  let maskLeft = 0
+  // 浑水欠下的张数：轮到这一方时，得背面连打这么多张，而且不触发钓牌
+  let playerForced = 0
+  let dealerForced = 0
+  // 连竿给的额外出牌数：这一回合还能多打几张
+  let playerExtra = 0
+  let dealerExtra = 0
+
+  // 本局一度落后过多少分，用来判「逆风翻盘」
+  let maxBehind = 0
+  // 你上一次钓到牌是在自己的第几个回合，用来判「连下两城」
+  let lastTakeTurn = -1
+  // 最后一个回合有没有钓到牌，用来判「一锤定音」
+  let tookOnLastTurn = false
+
+  // ---------- 初始化 ----------
+
+  // 开一局。平局重来时也走这里，牌会重新洗过
+  function setup() {
+    const data = loadCurrentSave()
+    save.value = data
+    level.value = levelAt(currentLevel())
+
+    playerDeck.value = buildDeck(data.stuck)
+    playerCursor.value = 0
+    dealerDeck.value = buildDeck(dealerStuck(level.value))
+    dealerCursor.value = 0
+
+    playerHand.value = [] as Card[]
+    dealerHand.value = [] as Card[]
+    tidyPlayerHand()
+    tidyDealerHand()
+
+    pile.value = [] as Card[]
+    pileFromDealer.value = [] as boolean[]
+    playerPoints.value = [] as Card[]
+    dealerPoints.value = [] as Card[]
+    waste.value = [] as Card[]
+    dealerHandOpen.value = false
+
+    playerTurns.value = 0
+    dealerTurns.value = 0
+    pendingIndex = -1
+    pendingOptions.value = [] as number[]
+    catchMarks.value = [] as boolean[]
+    catchAt = -1
+    catchDeep = 0
+    playCardRef = null
+    playWorth = 0
+    playBy = false
+    playDeep = 0
+    if (catchTimer != -1) {
+      clearTimeout(catchTimer)
+      catchTimer = -1
+    }
+    maskLeft = 0
+    playerForced = 0
+    dealerForced = 0
+    playerExtra = 0
+    dealerExtra = 0
+    pickKind.value = PICK_NONE
+    pickCards.value = [] as Card[]
+    pickLeft = 0
+    pickKey = ''
+    pickOwner = null
+    pickHeld = -1
+    maxBehind = 0
+    lastTakeTurn = -1
+    tookOnLastTurn = false
+
+    resultKind.value = 'idle'
+    resultText.value = ''
+    message.value = '打出的牌跟堆里某张数字相同，就从那张往上一起钓走。每人 '
+      + level.value.turns + ' 个回合，钓得多的赢。'
+
+    phase.value = 'dealer'
+    dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+  }
+
+  // ---------- 摸牌 ----------
+
+  // 整理手牌：多于 HAND_SIZE 就把多出来的丢进废牌，少于就立刻从牌库补满
+  function tidyPlayerHand() {
+    const hand : Card[] = []
+    const over : Card[] = []
+    for (let i = 0; i < playerHand.value.length; i++) {
+      if (i < HAND_SIZE) {
+        hand.push(playerHand.value[i])
+      } else {
+        over.push(playerHand.value[i])
+      }
+    }
+    if (over.length > 0) {
+      waste.value = pushCards(waste.value, over)
+    }
+    while (hand.length < HAND_SIZE && playerCursor.value < playerDeck.value.length) {
+      hand.push(cloneCard(playerDeck.value[playerCursor.value]))
+      playerCursor.value = playerCursor.value + 1
+    }
+    playerHand.value = hand
+  }
+
+  function tidyDealerHand() {
+    const hand : Card[] = []
+    const over : Card[] = []
+    for (let i = 0; i < dealerHand.value.length; i++) {
+      if (i < HAND_SIZE) {
+        hand.push(dealerHand.value[i])
+      } else {
+        over.push(dealerHand.value[i])
+      }
+    }
+    if (over.length > 0) {
+      waste.value = pushCards(waste.value, over)
+    }
+    while (hand.length < HAND_SIZE && dealerCursor.value < dealerDeck.value.length) {
+      hand.push(cloneCard(dealerDeck.value[dealerCursor.value]))
+      dealerCursor.value = dealerCursor.value + 1
+    }
+    dealerHand.value = hand
+  }
+
+  function removeAt(list : Card[], index : number) : Card[] {
+    const next : Card[] = []
+    for (let i = 0; i < list.length; i++) {
+      if (i != index) {
+        next.push(list[i])
+      }
+    }
+    return next
+  }
+
+  function pushCards(target : Card[], cards : Card[]) : Card[] {
+    const next : Card[] = []
+    for (let i = 0; i < target.length; i++) {
+      next.push(target[i])
+    }
+    for (let i = 0; i < cards.length; i++) {
+      next.push(cards[i])
+    }
+    return next
+  }
+
+  function pushCard(target : Card[], card : Card) : Card[] {
+    const one : Card[] = [card]
+    return pushCards(target, one)
+  }
+
+  // 插到最前面 —— 落堆底的贴纸走这条
+  function unshiftCard(target : Card[], card : Card) : Card[] {
+    const next : Card[] = [card]
+    for (let i = 0; i < target.length; i++) {
+      next.push(target[i])
+    }
+    return next
+  }
+
+  // pileFromDealer 得跟 pile 一一对应，所以它也要有对应的两种插法
+  function pushOwner(list : boolean[], byDealer : boolean) : boolean[] {
+    const next : boolean[] = []
+    for (let i = 0; i < list.length; i++) {
+      next.push(list[i])
+    }
+    next.push(byDealer)
+    return next
+  }
+
+  function unshiftOwner(list : boolean[], byDealer : boolean) : boolean[] {
+    const next : boolean[] = [byDealer]
+    for (let i = 0; i < list.length; i++) {
+      next.push(list[i])
+    }
+    return next
+  }
+
+  // ---------- 出牌 ----------
+  //
+  // 轮到自己就出一张，没有别的选择 —— 要决定的是出哪张、按几点落。
+  // 撞上堆里某张就从那张往上一起钓走，前面的留着；撞不上就压在堆顶。
+  //
+  // 于是每一手都在权衡三件事：现在钓得到几张、把牌留在堆里会不会被对方
+  // 顺手捞走一大片、以及自己手上还有没有牌能在下一轮钓得更深。
+
+  // 手牌被点了。选牌阶段是在挑牌，别的时候才是打出去
+  function tapHand(index : number) {
+    if (phase.value == 'pick') {
+      pickFromHand(index)
+      return
+    }
+    playCard(index)
+  }
+
+  function playCard(index : number) {
+    if (phase.value != 'player') {
+      return
+    }
+    if (index >= playerHand.value.length) {
+      return
+    }
+    const card = playerHand.value[index]
+    const opts = playOptions(card, pile.value)
+
+    // 空位类没有数字可挑，直接落堆发动
+    if (isBlankSticker(card.stickerKey)) {
+      commitPlay(false, index, 0)
+      return
+    }
+
+    // 空堆上的 J 只能收到它自己，一张王牌就这么没了。
+    // 这是这一版唯一会让你白亏的操作，值得拦一下
+    if (card.stickerKey == S_HAUL && pile.value.length == 0) {
+      pendingIndex = index
+      pendingOptions.value = opts
+      phase.value = 'confirm'
+      message.value = '堆是空的，' + cardText(card) + ' 的【通吃】只收得到它自己，等于白扔一张王牌。'
+      return
+    }
+
+    // 只有「按哪个数落会改变钓到几张」时才值得停下来问。
+    // 每个落法结果都一样的话，问了也只是多按一下
+    if (needsChoice(opts)) {
+      pendingIndex = index
+      pendingOptions.value = opts
+      phase.value = 'value'
+      message.value = cardText(card) + ' 能算成 ' + listText(opts) + '，按哪个落钓得不一样深。'
+      return
+    }
+
+    commitPlay(false, index, bestWorthOf(opts))
+  }
+
+  // 这些候选落下去的结果全一样吗？不一样才值得问你
+  function needsChoice(opts : number[]) : boolean {
+    if (opts.length < 2) {
+      return false
+    }
+    const first = takeCount(pile.value, opts[0])
+    for (let i = 1; i < opts.length; i++) {
+      if (takeCount(pile.value, opts[i]) != first) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 候选里钓得最深的那个。都钓不到就用第一个（牌面点数）落堆
+  function bestWorthOf(opts : number[]) : number {
+    let best = opts[0]
+    let bestCount = takeCount(pile.value, opts[0])
+    for (let i = 1; i < opts.length; i++) {
+      const take = takeCount(pile.value, opts[i])
+      if (take > bestCount) {
+        bestCount = take
+        best = opts[i]
+      }
+    }
+    return best
+  }
+
+  // 空堆打 J 的确认：照打就认了，再等等就把牌放回手上
+  function confirmHaul(use : boolean) {
+    if (phase.value != 'confirm') {
+      return
+    }
+    const index = pendingIndex
+    const opts = pendingOptions.value
+    pendingIndex = -1
+    pendingOptions.value = [] as number[]
+    phase.value = 'player'
+    if (!use || index < 0 || index >= playerHand.value.length) {
+      message.value = 'J 先留着，等堆压厚了再通吃。'
+      return
+    }
+    commitPlay(false, index, bestWorthOf(opts))
+  }
+
+  // 候选条上点了一个数
+  function chooseValue(worth : number) {
+    if (phase.value != 'value') {
+      return
+    }
+    const index = pendingIndex
+    pendingIndex = -1
+    pendingOptions.value = [] as number[]
+    if (index < 0 || index >= playerHand.value.length) {
+      phase.value = 'player'
+      return
+    }
+    phase.value = 'player'
+    commitPlay(false, index, worth)
+  }
+
+  // 一张牌按 worth 点落下去。撞上就连着后面的一起钓走，撞不上就压在堆顶。
+  //
+  // 钓中了不当场收走 —— 牌先落到堆顶，把要带走的那一段整体点亮，停一拍再收。
+  // 这一拍是给你看的：撞在哪张、带走哪几张，正是这个玩法全部的信息量，
+  // 一闪而过的话，你只看得到分数变了，看不出为什么变这么多
+  function commitPlay(byDealer : boolean, index : number, worth : number) {
+    const hand = byDealer ? dealerHand.value : playerHand.value
+    if (index >= hand.length) {
+      return
+    }
+    const card = hand[index]
+    if (byDealer) {
+      dealerHand.value = removeAt(hand, index)
+    } else {
+      playerHand.value = removeAt(hand, index)
+    }
+
+    // 背面落堆：蒙牌欠着的那几张，或者浑水逼着这一方打的那几张。
+    // 背面牌数字花色都不算数，所以它既不发动效果、也不参与撞牌，直接压进堆里
+    const forced = byDealer ? dealerForced : playerForced
+    if (maskLeft > 0 || forced > 0) {
+      if (maskLeft > 0) {
+        maskLeft = maskLeft - 1
+      }
+      if (forced > 0) {
+        if (byDealer) {
+          dealerForced = forced - 1
+        } else {
+          playerForced = forced - 1
+        }
+      }
+      // 背面牌一律沉到堆底。钓牌是从撞中的位置往上收，所以沉在底下的
+      // 基本不会被普通钓牌带走 —— 它们攒在那儿等人来翻
+      card.faceDown = true
+      card.pileValue = NO_VALUE
+      pile.value = unshiftCard(pile.value, card)
+      pileFromDealer.value = unshiftOwner(pileFromDealer.value, byDealer)
+      message.value = (byDealer ? '庄家' : '你') + '盖了一张牌沉到堆底，堆里现在 '
+        + pile.value.length + ' 张。'
+      endTurn(byDealer)
+      return
+    }
+
+    // 空位类落堆时没有点数 —— 撞不上任何东西，也没人撞得上它
+    const blank = isBlankSticker(card.stickerKey)
+    if (blank) {
+      worth = NO_VALUE
+    }
+
+    const deep = pile.value.length
+    card.pileValue = worth
+
+    // 牌先摆进堆里。默认压堆顶，标了落堆底的插到最左边
+    const bottom = dropsAtBottom(card.stickerKey)
+    if (bottom) {
+      pile.value = unshiftCard(pile.value, card)
+      pileFromDealer.value = unshiftOwner(pileFromDealer.value, byDealer)
+    } else {
+      pile.value = pushCard(pile.value, card)
+      pileFromDealer.value = pushOwner(pileFromDealer.value, byDealer)
+    }
+
+    const who = byDealer ? '庄家' : '你'
+    const how = worth == worthOf(card) ? '' : '（按 ' + worth + ' 点）'
+    message.value = who + '打出 ' + cardText(card) + how + '。'
+
+    // 空位类：落堆就发动它自己的效果，不参与撞牌
+    if (blank) {
+      fireBlank(byDealer, card, who)
+      return
+    }
+
+    // 这一手的账先记下来 —— 效果可能要你挑牌，挑完才轮到判撞
+    playCardRef = card
+    playWorth = worth
+    playBy = byDealer
+    playDeep = deep
+
+    // 通吃不看数字，直接端走整堆
+    if (card.stickerKey == S_HAUL) {
+      resolveHit(true)
+      return
+    }
+
+    // 立即类先发动效果，再判撞 —— 效果可能改了堆的结构，
+    // 撞哪张、能带走哪几张都得按改完的算
+    if (isPlayEffect(card.stickerKey)) {
+      firePlay(byDealer, card, who)
+      return
+    }
+
+    resolveHit(false)
+  }
+
+  // 效果跑完了，这才判这一手撞没撞上。
+  // 判撞要排掉自己 —— 牌这会儿已经在堆里了，不排就跟自己撞上了
+  function resolveHit(haul : boolean) {
+    if (playCardRef == null) {
+      return
+    }
+    const one = playCardRef as Card
+    const byDealer = playBy
+    const worth = playWorth
+    const deep = playDeep
+    playCardRef = null
+
+    const at = haul ? 0 : pileIndexExcept(pile.value, worth, one)
+    const who = byDealer ? '庄家' : '你'
+
+    if (!haul && at < 0) {
+      message.value = message.value + '没撞上，堆里现在 ' + pile.value.length + ' 张。'
+      endTurn(byDealer)
+      return
+    }
+
+    // 钓中了。带走撞中那张、自己这张、以及夹在中间的全部。
+    // 通吃是特例：它从堆底一路端到自己这儿
+    const selfAt = indexInPile(one)
+    const marks = markRun(at, selfAt < 0 ? pile.value.length - 1 : selfAt)
+    const gain = countMarks(marks)
+    const left = pile.value.length - gain
+    if (haul) {
+      message.value = deep == 0
+        ? who + '把 ' + cardText(one) + ' 打在空堆上，【通吃】只收到它自己，白费一张。'
+        : who + '打出 ' + cardText(one) + '，【通吃】把整堆 ' + deep + ' 张连同自己一起收走（'
+          + gain + ' 分）。'
+    } else {
+      message.value = message.value + '撞上堆里的 ' + worth + '，钓走 ' + gain + ' 张。'
+        + (left > 0 ? '堆里还压着 ' + left + ' 张。' : '堆空了。')
+    }
+
+    startCatch(byDealer, marks, at, deep)
+  }
+
+  // ---------- 收牌 ----------
+
+  // 标出这一手要带走哪些牌：撞中的那张、打出的这张、以及夹在它们中间的全部。
+  //
+  // 平时牌压在堆顶，这一段就是「撞中位置一路到堆顶」；
+  // 但埋钩会把自己埋到中间，那时范围就在它那儿截止，右边的不跟着走。
+  //
+  // 闸门和假饵会再改写这个范围：
+  //   闸门 —— 从撞中那张往自己这边数，遇到比撞中数字更大的牌就停；
+  //   假饵 —— 撞中的位置在它左边时，整段不归对方，只带走假饵自己。
+  function markRun(at : number, selfAt : number) : boolean[] {
+    const marks : boolean[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      marks.push(false)
+    }
+    if (at < 0 || at >= pile.value.length || selfAt < 0 || selfAt >= pile.value.length) {
+      return marks
+    }
+
+    const from = at < selfAt ? at : selfAt
+    const to = at < selfAt ? selfAt : at
+
+    // 假饵挡刀：这一段里有假饵、而且撞点在它左边，就只带走假饵这一张
+    for (let i = from; i <= to; i++) {
+      const card = pile.value[i]
+      if (card.stickerKey == S_LURE && !card.faceDown && at < i) {
+        marks[i] = true
+        return marks
+      }
+    }
+
+    const line = pileValueOf(pile.value[at])
+    const gated = pileHasSticker(S_GATE)
+    const step = at <= selfAt ? 1 : -1
+    let i = at
+    while (i >= 0 && i < pile.value.length) {
+      // 闸门：一遇到比撞中数字大的牌就到此为止。
+      // 比 11 大的数不受它管 —— Q、K 和坠子推出去的大数照样跟着走
+      if (gated && i != at) {
+        const worth = pileValueOf(pile.value[i])
+        if (worth > line && worth <= 11) {
+          break
+        }
+      }
+      marks[i] = true
+      if (i == selfAt) {
+        break
+      }
+      i = i + step
+    }
+    return marks
+  }
+
+  // 这张牌现在在堆里排第几，-1 表示不在堆里
+  function indexInPile(card : Card) : number {
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pile.value[i] == card) {
+        return i
+      }
+    }
+    return -1
+  }
+
+  function countMarks(marks : boolean[]) : number {
+    let total = 0
+    for (let i = 0; i < marks.length; i++) {
+      if (marks[i]) {
+        total = total + 1
+      }
+    }
+    return total
+  }
+
+  // 点亮要带走的那些牌，停一拍再收。
+  // at 只用来判成就（撞在堆底才算连锅端），散收的效果传 -1。
+  // keepsJunk 为真时背面牌也算分 —— 只有【起网】是这样，它收的就是背面牌
+  function startCatch(byDealer : boolean, marks : boolean[], at : number, deep : number) {
+    catchMarks.value = marks
+    catchBy.value = byDealer
+    catchAt = at
+    catchDeep = deep
+    phase.value = 'catch'
+    catchTimer = setTimeout(finishCatch, CATCH_DELAY)
+  }
+
+  // 点亮那一拍过去了，把点亮的牌真正收进积分库
+  function finishCatch() {
+    catchTimer = -1
+    const marks = catchMarks.value
+    if (marks.length == 0) {
+      return
+    }
+    const byDealer = catchBy.value
+    catchMarks.value = [] as boolean[]
+
+    const kept : Card[] = []
+    const keptOwners : boolean[] = []
+    const taken : Card[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i < marks.length && marks[i]) {
+        taken.push(pile.value[i])
+      } else {
+        kept.push(pile.value[i])
+        keptOwners.push(pileFromDealer.value[i])
+      }
+    }
+
+    if (byDealer) {
+      dealerPoints.value = pushCards(dealerPoints.value, taken)
+    } else {
+      playerPoints.value = pushCards(playerPoints.value, taken)
+      noteTake(taken.length, catchAt, catchDeep)
+    }
+    pile.value = kept
+    pileFromDealer.value = keptOwners
+
+    endTurn(byDealer)
+  }
+
+  // ---------- 贴纸效果 ----------
+  //
+  // 本版接了「不用挑牌」的那一批：落堆就自己跑完，不需要停下来等谁选。
+  // 要挑位置、挑手牌、挑堆里某张的（埋钩、收线、祛除、窥探、换饵……）
+  // 得先有对应的选牌界面，留到下一轮。
+
+  // 堆里还有没有这种贴纸在起作用。背面牌整个不算数
+  function pileHasSticker(key : string) : boolean {
+    for (let i = 0; i < pile.value.length; i++) {
+      const card = pile.value[i]
+      if (card.stickerKey == key && !card.faceDown) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 两张牌在当前规则下算不算同花色。
+  // 统色一开全场同色，混色一开红黑各并成一种，都没有就看本来的花色
+  function sameSuit(a : string, b : string) : boolean {
+    if (a == '' || b == '') {
+      return false
+    }
+    if (pileHasSticker(S_UNIFY)) {
+      return true
+    }
+    if (pileHasSticker(S_BLEND)) {
+      return isRedSuit(a) == isRedSuit(b)
+    }
+    return a == b
+  }
+
+  // 空位类落堆之后发动。持续类的（照水、闸门、混色、统色）落下去就算数了，
+  // 不用在这做什么 —— 判定的时候去堆里查它在不在
+  function fireBlank(byDealer : boolean, card : Card, who : string) {
+    const key = card.stickerKey
+    const name = stickerName(card)
+    const head = who + '打出 ' + cardText(card) + '，【' + name + '】'
+
+    if (key == S_HUE) {
+      fireHarvest(byDealer, card, head, true)
+      return
+    }
+    if (key == S_CAST) {
+      fireHarvest(byDealer, card, head, false)
+      return
+    }
+    if (key == S_DIG) {
+      fireDig(byDealer, card, head)
+      return
+    }
+    if (key == S_GATHER) {
+      fireGather(byDealer, card, head)
+      return
+    }
+    if (key == S_DYE) {
+      const dyed = dyeLeft(card, 2)
+      message.value = head + '把左边 ' + dyed + ' 张染成了 ' + card.suit + '。'
+      endTurn(byDealer)
+      return
+    }
+    if (key == S_MASK) {
+      maskLeft = 3
+      message.value = head + '生效，接下来 3 张牌一律背面落堆。'
+      endTurn(byDealer)
+      return
+    }
+    if (key == S_STIR) {
+      const n = sinkFromDeck(!byDealer, 2)
+      message.value = head + '从对手牌库顶抽了 ' + n + ' 张背面压进堆里。'
+      endTurn(byDealer)
+      return
+    }
+    if (key == S_MURKY) {
+      if (byDealer) {
+        playerForced = 3
+      } else {
+        dealerForced = 3
+      }
+      message.value = head + '生效，对手下一个回合要背面连打 3 张。'
+      endTurn(byDealer)
+      return
+    }
+    if (key == S_STREAK) {
+      // 连竿不结束回合，直接把出牌权还回去
+      if (byDealer) {
+        dealerExtra = dealerExtra + 2
+        message.value = head + '生效，庄家这一回合还能再打 2 张。'
+        tidyDealerHand()
+        dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+      } else {
+        playerExtra = playerExtra + 2
+        message.value = head + '生效，你这一回合还能再打 2 张。'
+        tidyPlayerHand()
+        phase.value = 'player'
+      }
+      return
+    }
+
+    // 剩下的都是持续类：照水、闸门、混色、统色
+    message.value = head + '留在堆里持续生效。'
+    endTurn(byDealer)
+  }
+
+  // 收色 / 撒网：把堆里符合条件的牌一次收走。
+  // byHue 为真按花色收，否则按奇偶收 —— 收的都是散在堆里的牌，所以走标记数组
+  function fireHarvest(byDealer : boolean, card : Card, head : string, byHue : boolean) {
+    const marks : boolean[] = []
+    // 撒网按自己的花色定不了奇偶，用堆里奇数多还是偶数多来决定收哪一类
+    const wantOdd = byHue ? false : countParity(true) >= countParity(false)
+    for (let i = 0; i < pile.value.length; i++) {
+      const one = pile.value[i]
+      if (one == card) {
+        // 发动的这张自己也跟着走
+        marks.push(true)
+        continue
+      }
+      if (byHue) {
+        marks.push(sameSuit(pileSuitOf(one), card.suit))
+      } else {
+        // 没点数的牌谈不上奇偶；点数 0 是偶数
+        const worth = pileValueOf(one)
+        marks.push(worth != NO_VALUE && (worth % 2 != 0) == wantOdd)
+      }
+    }
+
+    const gain = countMarks(marks)
+    message.value = byHue
+      ? head + '收走堆里所有 ' + card.suit + '，一共 ' + gain + ' 张。'
+      : head + '收走堆里所有' + (wantOdd ? '奇数' : '偶数') + '牌，一共 ' + gain + ' 张。'
+    startCatch(byDealer, marks, -1, pile.value.length - 1)
+  }
+
+  // 集花：连它自己在内，凑一组花色各不相同的牌收走。
+  // 跟收色正好相反 —— 收色要的是一色到底，它要的是四色齐全，
+  // 所以统色、混色那几张一开，这张反而收不动了
+  function fireGather(byDealer : boolean, card : Card, head : string) {
+    const marks : boolean[] = []
+    const taken : string[] = []
+    taken.push(card.suit)
+
+    for (let i = 0; i < pile.value.length; i++) {
+      const one = pile.value[i]
+      if (one == card) {
+        marks.push(true)
+        continue
+      }
+      const suit = pileSuitOf(one)
+      // 背面牌没有花色，凑不进来
+      if (suit == '') {
+        marks.push(false)
+        continue
+      }
+      let dup = false
+      for (let k = 0; k < taken.length; k++) {
+        if (sameSuit(suit, taken[k])) {
+          dup = true
+          break
+        }
+      }
+      if (dup) {
+        marks.push(false)
+        continue
+      }
+      taken.push(suit)
+      marks.push(true)
+    }
+
+    const gain = countMarks(marks)
+    message.value = head + '凑齐了 ' + gain + ' 种花色，一并收走。'
+    startCatch(byDealer, marks, -1, pile.value.length - 1)
+  }
+
+  // 起底：从最左侧的背面牌开始逐张翻开，翻到两张数字相同为止，
+  // 那两张连同它们之间的牌一起收走。翻完都没配上就都留在堆里 ——
+  // 翻开的照旧是翻开的，于是它们成了下一手的钓点，谁都用得上
+  function fireDig(byDealer : boolean, card : Card, head : string) {
+    const next : Card[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      next.push(pile.value[i])
+    }
+
+    // 已经翻开过哪些数字，以及它们在堆里的位置
+    const seen : number[] = []
+    const seenAt : number[] = []
+    let from = -1
+    let to = -1
+    let flipped = 0
+
+    for (let i = 0; i < next.length; i++) {
+      if (!next[i].faceDown) {
+        continue
+      }
+      const one = cloneCard(next[i])
+      one.faceDown = false
+      one.pileValue = worthOf(one)
+      next[i] = one
+      flipped = flipped + 1
+
+      const worth = one.pileValue
+      // 翻出来的数字跟前面翻开的比。0 和没点数的配不了对
+      if (worth > 0) {
+        for (let k = 0; k < seen.length; k++) {
+          if (seen[k] == worth) {
+            from = seenAt[k]
+            to = i
+            break
+          }
+        }
+      }
+      if (from >= 0) {
+        break
+      }
+      seen.push(worth)
+      seenAt.push(i)
+    }
+
+    pile.value = next
+
+    if (from < 0) {
+      message.value = flipped == 0
+        ? head + '发动了，但堆底没有背面牌。'
+        : head + '翻开了 ' + flipped + ' 张，一对都没配上，全留在堆里。'
+      endTurn(byDealer)
+      return
+    }
+
+    const marks : boolean[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      marks.push((i >= from && i <= to) || pile.value[i] == card)
+    }
+    const gain = countMarks(marks)
+    message.value = head + '翻开 ' + flipped + ' 张，翻出一对 '
+      + pileValueOf(pile.value[to]) + '，连中间的一起收走 ' + gain + ' 张。'
+    startCatch(byDealer, marks, -1, pile.value.length - 1)
+  }
+
+  // 堆里有几张奇数（或偶数）牌。没点数的谈不上奇偶；压到 0 的算偶数
+  function countParity(odd : boolean) : number {
+    let total = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      const worth = pileValueOf(pile.value[i])
+      if (worth != NO_VALUE && (worth % 2 != 0) == odd) {
+        total = total + 1
+      }
+    }
+    return total
+  }
+
+  // 染色：把这张牌左边 n 张染成它的花色。返回真染到了几张
+  function dyeLeft(card : Card, n : number) : number {
+    let at = -1
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pile.value[i] == card) {
+        at = i
+        break
+      }
+    }
+    if (at <= 0) {
+      return 0
+    }
+    const next : Card[] = []
+    let done = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      const one = pile.value[i]
+      if (i < at && i >= at - n) {
+        const copy = cloneCard(one)
+        copy.suit = card.suit
+        next.push(copy)
+        done = done + 1
+      } else {
+        next.push(one)
+      }
+    }
+    pile.value = next
+    return done
+  }
+
+  // 从谁的牌库顶抽 n 张，背面沉到堆底。返回真抽到了几张。
+  // 背面牌一律加在最左侧 —— 钓牌从撞中的位置往上收，沉在底下的带不走，
+  // 它们会一直攒着，等【起底】来翻
+  function sinkFromDeck(fromDealer : boolean, n : number) : number {
+    let done = 0
+    for (let i = 0; i < n; i++) {
+      const deck = fromDealer ? dealerDeck.value : playerDeck.value
+      const cursor = fromDealer ? dealerCursor.value : playerCursor.value
+      if (cursor >= deck.length) {
+        break
+      }
+      const one = cloneCard(deck[cursor])
+      one.faceDown = true
+      one.pileValue = NO_VALUE
+      if (fromDealer) {
+        dealerCursor.value = cursor + 1
+      } else {
+        playerCursor.value = cursor + 1
+      }
+      pile.value = unshiftCard(pile.value, one)
+      pileFromDealer.value = unshiftOwner(pileFromDealer.value, fromDealer)
+      done = done + 1
+    }
+    return done
+  }
+
+  // 立即类落堆之后发动。要挑牌的走 startPick / autoPick，其余当场跑完
+  function firePlay(byDealer : boolean, card : Card, who : string) {
+    const key = card.stickerKey
+    const name = stickerName(card)
+    const head = who + '打出 ' + cardText(card) + '，【' + name + '】'
+
+    if (needsPick(key)) {
+      if (byDealer) {
+        // 庄家自己挑，挑完接着判撞
+        message.value = head + autoPick(card) + ' '
+        resolveHit(false)
+      } else {
+        startPick(card, head)
+      }
+      return
+    }
+
+    if (key == S_SAND) {
+      const n = sinkFromDeck(byDealer, 2)
+      message.value = head + '从自己牌库顶抽了 ' + n + ' 张沉到堆底。'
+    } else if (key == S_VEIL) {
+      const n = veilLeft(card, 2)
+      message.value = head + '把左边 ' + n + ' 张的点数压成了 0。'
+    } else if (key == S_DREDGE) {
+      const n = dredgeZeros(card)
+      message.value = n == 0
+        ? head + '发动了，但堆里没有点数 0 的牌。'
+        : head + '把 ' + n + ' 张 0 点牌淘到了它右边。'
+    } else if (key == S_BLIND) {
+      const n = blindSwap(byDealer, 2)
+      message.value = head + '跟对手随机换了 ' + n + ' 张手牌。'
+    } else if (key == S_WASH) {
+      const n = washHand(byDealer, worthOf(card), 2)
+      message.value = head + '把对手手里 ' + n + ' 张洗回了他的牌库。'
+    }
+    message.value = message.value + ' '
+    resolveHit(false)
+  }
+
+  // ---------- 要挑牌的那一批 ----------
+
+  function needsPick(key : string) : boolean {
+    return key == S_GIVE
+      || key == S_REEL
+      || key == S_STRIP
+      || key == S_PEEK
+      || key == S_SCAN
+      || key == S_SINK1
+      || key == S_SINK2
+      || key == S_TRADE
+      || key == S_PICKED
+      || key == S_PROBE1
+      || key == S_PROBE2
+      || key == S_SAME
+      || key == S_EMPTY
+  }
+
+  // 这张贴纸要你从哪挑
+  function pickKindOf(key : string) : string {
+    if (key == S_GIVE) {
+      return PICK_SLOT
+    }
+    if (key == S_REEL || key == S_STRIP) {
+      return PICK_PILE
+    }
+    if (key == S_SINK1 || key == S_SINK2 || key == S_TRADE || key == S_PICKED) {
+      return PICK_HAND
+    }
+    if (key == S_PROBE1 || key == S_PROBE2) {
+      return PICK_THEIRS
+    }
+    if (key == S_PEEK || key == S_SCAN) {
+      return PICK_TOP
+    }
+    return PICK_DECK
+  }
+
+  // 要挑几张
+  function pickCountOf(key : string) : number {
+    if (key == S_SINK2 || key == S_PROBE2 || key == S_SCAN) {
+      return 2
+    }
+    return 1
+  }
+
+  // 进选牌阶段，等你点
+  function startPick(card : Card, head : string) {
+    pickKey = card.stickerKey
+    pickOwner = card
+    pickLeft = pickCountOf(pickKey)
+    pickHeld = -1
+    pickKind.value = pickKindOf(pickKey)
+    pickCards.value = [] as Card[]
+
+    if (pickKind.value == PICK_TOP) {
+      // 把牌库顶那几张摊出来给你看
+      pickCards.value = topOfDeck(false, pickLeft)
+      if (pickCards.value.length == 0) {
+        message.value = head + '发动了，但牌库已经空了。'
+        finishPick()
+        return
+      }
+    } else if (pickKind.value == PICK_DECK) {
+      pickCards.value = deckChoices(false, pickKey, card)
+      if (pickCards.value.length == 0) {
+        message.value = head + '发动了，但牌库里没有挑得出的牌。'
+        finishPick()
+        return
+      }
+    } else if (pickKind.value == PICK_THEIRS && dealerHand.value.length == 0) {
+      message.value = head + '发动了，但庄家手上没牌。'
+      finishPick()
+      return
+    } else if (pickKind.value == PICK_HAND && playerHand.value.length == 0) {
+      message.value = head + '发动了，但你手上没别的牌了。'
+      finishPick()
+      return
+    } else if (pickKind.value == PICK_PILE && pile.value.length < 2) {
+      message.value = head + '发动了，但堆里没有别的牌可挑。'
+      finishPick()
+      return
+    }
+
+    phase.value = 'pick'
+    message.value = head + pickTip()
+  }
+
+  function pickTip() : string {
+    if (pickKey == S_GIVE) {
+      return '要插进哪一层？点牌堆里的牌，插到它左边；点最右边那个位置压堆顶。'
+    }
+    if (pickKey == S_REEL) {
+      return '从牌堆挑一张，把它移到这张牌左边。'
+    }
+    if (pickKey == S_STRIP) {
+      return '从牌堆挑一张，去掉它的贴纸。'
+    }
+    if (pickKey == S_PEEK || pickKey == S_SCAN) {
+      return '牌库顶翻开了，逐张决定留着还是压到牌库底。'
+    }
+    if (pickKey == S_SINK1 || pickKey == S_SINK2) {
+      return '挑 ' + pickLeft + ' 张手牌压到牌库底。'
+    }
+    if (pickKey == S_TRADE) {
+      return '挑一张手牌给庄家。'
+    }
+    if (pickKey == S_PICKED) {
+      return pickHeld < 0 ? '先挑一张自己的手牌给他。' : '再挑一张他的手牌拿过来。'
+    }
+    if (pickKey == S_PROBE1 || pickKey == S_PROBE2) {
+      return '挑 ' + pickLeft + ' 张庄家的手牌压到他的牌库底。'
+    }
+    if (pickKey == S_SAME) {
+      return '从牌库里挑一张同数字的牌拿到手上。'
+    }
+    return '从牌库里挑一张空位牌拿到手上。'
+  }
+
+  // 选牌结束。效果这才算跑完，接着判这一手撞没撞上
+  function finishPick() {
+    pickKind.value = PICK_NONE
+    pickCards.value = [] as Card[]
+    pickLeft = 0
+    pickKey = ''
+    pickOwner = null
+    pickHeld = -1
+    message.value = message.value + ' '
+    resolveHit(false)
+  }
+
+  // 牌库顶的 n 张（不动游标，只是看）
+  function topOfDeck(ofDealer : boolean, n : number) : Card[] {
+    const deck = ofDealer ? dealerDeck.value : playerDeck.value
+    const cursor = ofDealer ? dealerCursor.value : playerCursor.value
+    const out : Card[] = []
+    for (let i = 0; i < n && cursor + i < deck.length; i++) {
+      out.push(deck[cursor + i])
+    }
+    return out
+  }
+
+  // 同号 / 空手能从牌库里挑出哪些牌
+  function deckChoices(ofDealer : boolean, key : string, card : Card) : Card[] {
+    const deck = ofDealer ? dealerDeck.value : playerDeck.value
+    const cursor = ofDealer ? dealerCursor.value : playerCursor.value
+    const out : Card[] = []
+    for (let i = cursor; i < deck.length; i++) {
+      const one = deck[i]
+      if (key == S_SAME && one.rank == card.rank) {
+        out.push(one)
+      } else if (key == S_EMPTY && isBlankSticker(one.stickerKey)) {
+        out.push(one)
+      }
+    }
+    return out
+  }
+
+  // 淘沙：把堆里所有点数 0 的牌捞到这张牌右侧，也就是堆的最顶上。
+  //
+  // 0 点牌当不了钓点，压在堆底谁也带不走 —— 提系压出来的牌就卡在那。
+  // 淘到最顶之后，之后随便哪一次钓牌都会把它们捎上（收割是从撞中的位置
+  // 一路收到堆顶），死牌这才变得成分。
+  // 放右边而不是左边：搁左边的话，下回要是正好撞中淘沙这张牌本身，
+  // 收割从它往上走，左边那摞一张也带不走。
+  // 只认点数 0，空位牌和背面牌是「没有点数」，不在此列
+  function dredgeZeros(card : Card) : number {
+    const zeros : Card[] = []
+    const zeroOwners : boolean[] = []
+    const rest : Card[] = []
+    const restOwners : boolean[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      const one = pile.value[i]
+      if (one != card && pileValueOf(one) == 0) {
+        zeros.push(one)
+        zeroOwners.push(pileFromDealer.value[i])
+      } else {
+        rest.push(one)
+        restOwners.push(pileFromDealer.value[i])
+      }
+    }
+    if (zeros.length == 0) {
+      return 0
+    }
+
+    const next : Card[] = []
+    const owners : boolean[] = []
+    for (let i = 0; i < rest.length; i++) {
+      next.push(rest[i])
+      owners.push(restOwners[i])
+      if (rest[i] == card) {
+        for (let k = 0; k < zeros.length; k++) {
+          next.push(zeros[k])
+          owners.push(zeroOwners[k])
+        }
+      }
+    }
+    pile.value = next
+    pileFromDealer.value = owners
+    return zeros.length
+  }
+
+  // 遮眼：把这张牌左边 n 张的点数压成 0，位置和牌面都不动。
+  //
+  // 0 当不了钓点，所以这是在废掉对手现成的钓点；但花色还在，
+  // 收色和集花照样收得走，淘沙也能把它们淘到顶上 —— 废掉的牌不是死透了
+  function veilLeft(card : Card, n : number) : number {
+    const at = indexInPile(card)
+    if (at <= 0) {
+      return 0
+    }
+    const next : Card[] = []
+    let done = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      const one = pile.value[i]
+      if (i < at && i >= at - n && pileValueOf(one) > 0) {
+        const copy = cloneCard(one)
+        copy.pileValue = 0
+        next.push(copy)
+        done = done + 1
+      } else {
+        next.push(one)
+      }
+    }
+    pile.value = next
+    return done
+  }
+
+  // 盲换：双方各随机抽 n 张手牌对调
+  function blindSwap(byDealer : boolean, n : number) : number {
+    let done = 0
+    for (let i = 0; i < n; i++) {
+      const mine = byDealer ? dealerHand.value : playerHand.value
+      const yours = byDealer ? playerHand.value : dealerHand.value
+      if (mine.length == 0 || yours.length == 0) {
+        break
+      }
+      const a = Math.floor(Math.random() * mine.length)
+      const b = Math.floor(Math.random() * yours.length)
+      const one = mine[a]
+      const two = yours[b]
+      const nextMine : Card[] = []
+      for (let k = 0; k < mine.length; k++) {
+        nextMine.push(k == a ? two : mine[k])
+      }
+      const nextYours : Card[] = []
+      for (let k = 0; k < yours.length; k++) {
+        nextYours.push(k == b ? one : yours[k])
+      }
+      if (byDealer) {
+        dealerHand.value = nextMine
+        playerHand.value = nextYours
+      } else {
+        playerHand.value = nextMine
+        dealerHand.value = nextYours
+      }
+      done = done + 1
+    }
+    return done
+  }
+
+  // 洗手：对手手里顺位在 line ±span 以内的牌，全洗回他的牌库
+  function washHand(byDealer : boolean, line : number, span : number) : number {
+    const hand = byDealer ? playerHand.value : dealerHand.value
+    const keep : Card[] = []
+    let done = 0
+    for (let i = 0; i < hand.length; i++) {
+      if (withinRank(worthOf(hand[i]), line, span)) {
+        done = done + 1
+      } else {
+        keep.push(hand[i])
+      }
+    }
+    if (done == 0) {
+      return 0
+    }
+    if (byDealer) {
+      playerHand.value = keep
+      tidyPlayerHand()
+    } else {
+      dealerHand.value = keep
+      tidyDealerHand()
+    }
+    return done
+  }
+
+  // 两个点数的顺位差在 span 以内吗。顺位是转圈的，13 和 1 只差 1 位
+  function withinRank(a : number, b : number, span : number) : boolean {
+    let gap = a - b
+    if (gap < 0) {
+      gap = -gap
+    }
+    if (gap > 6) {
+      gap = 13 - gap
+    }
+    return gap <= span
+  }
+
+  // ---------- 选牌：你点下去之后 ----------
+
+  // 点了牌堆里第 index 张
+  function pickFromPile(index : number) {
+    if (phase.value != 'pick') {
+      return
+    }
+    if (pickKind.value == PICK_SLOT) {
+      movePickedInto(index)
+      return
+    }
+    if (pickKind.value != PICK_PILE) {
+      return
+    }
+    if (index < 0 || index >= pile.value.length) {
+      return
+    }
+    // 不能挑发起的那张自己
+    if (pile.value[index] == pickOwner) {
+      return
+    }
+
+    if (pickKey == S_REEL) {
+      const name = cardText(pile.value[index])
+      moveBeside(index)
+      message.value = '【收线】把 ' + name + ' 移到了这张牌左边。'
+    } else {
+      const one = pile.value[index]
+      const had = one.stickerKey != S_NONE
+      if (had) {
+        const next : Card[] = []
+        for (let i = 0; i < pile.value.length; i++) {
+          if (i == index) {
+            const copy = cloneCard(one)
+            copy.stickerKey = S_NONE
+            // 撕掉贴纸之后数字回到牌面值
+            copy.pileValue = worthOf(copy)
+            next.push(copy)
+          } else {
+            next.push(pile.value[i])
+          }
+        }
+        pile.value = next
+      }
+      message.value = had
+        ? '【祛除】撕掉了 ' + cardText(one) + ' 的贴纸。'
+        : '那张本来就没有贴纸。'
+    }
+    finishPick()
+  }
+
+  // 收线：把第 from 张抽出来，插到发起那张牌的左边
+  function moveBeside(from : number) {
+    const moving = pile.value[from]
+    const rest : Card[] = []
+    const restOwners : boolean[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i != from) {
+        rest.push(pile.value[i])
+        restOwners.push(pileFromDealer.value[i])
+      }
+    }
+    const next : Card[] = []
+    const owners : boolean[] = []
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] == pickOwner) {
+        next.push(moving)
+        owners.push(false)
+      }
+      next.push(rest[i])
+      owners.push(restOwners[i])
+    }
+    pile.value = next
+    pileFromDealer.value = owners
+  }
+
+  // 埋钩：把发起的那张牌抽出来，插到第 slot 张的左边。slot 等于堆长就是压堆顶
+  function movePickedInto(slot : number) {
+    const rest : Card[] = []
+    const restOwners : boolean[] = []
+    let self : Card | null = null
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pile.value[i] == pickOwner) {
+        self = pile.value[i]
+      } else {
+        rest.push(pile.value[i])
+        restOwners.push(pileFromDealer.value[i])
+      }
+    }
+    if (self == null) {
+      finishPick()
+      return
+    }
+    const one = self as Card
+    const next : Card[] = []
+    const owners : boolean[] = []
+    let at = slot
+    if (at > rest.length) {
+      at = rest.length
+    }
+    for (let i = 0; i < rest.length; i++) {
+      if (i == at) {
+        next.push(one)
+        owners.push(false)
+      }
+      next.push(rest[i])
+      owners.push(restOwners[i])
+    }
+    if (at >= rest.length) {
+      next.push(one)
+      owners.push(false)
+    }
+    pile.value = next
+    pileFromDealer.value = owners
+    message.value = '【埋钩】把它埋在了第 ' + (at + 1) + ' 层。'
+    finishPick()
+  }
+
+  // 点了自己第 index 张手牌
+  function pickFromHand(index : number) {
+    if (phase.value != 'pick' || pickKind.value != PICK_HAND) {
+      return
+    }
+    if (index < 0 || index >= playerHand.value.length) {
+      return
+    }
+    const one = playerHand.value[index]
+
+    if (pickKey == S_PICKED) {
+      // 对换第一步：记下要给出去的那张，换成挑他的
+      pickHeld = index
+      pickKind.value = PICK_THEIRS
+      message.value = '【对换】留着 ' + cardText(one) + ' 给他，' + pickTip()
+      return
+    }
+
+    if (pickKey == S_TRADE) {
+      // 互市：给他一张，随机换回一张
+      const got = tradeOne(index)
+      message.value = got == ''
+        ? '【互市】把 ' + cardText(one) + ' 给了庄家。'
+        : '【互市】把 ' + cardText(one) + ' 换成了 ' + got + '。'
+      finishPick()
+      return
+    }
+
+    // 换饵 / 换钩：压到牌库底
+    sinkHandCard(false, index)
+    pickLeft = pickLeft - 1
+    if (pickLeft > 0 && playerHand.value.length > 0) {
+      message.value = '压回去一张，还要挑 ' + pickLeft + ' 张。'
+      return
+    }
+    tidyPlayerHand()
+    message.value = '手牌压回牌库底，已经补满。'
+    finishPick()
+  }
+
+  // 点了庄家第 index 张手牌
+  function pickFromTheirs(index : number) {
+    if (phase.value != 'pick' || pickKind.value != PICK_THEIRS) {
+      return
+    }
+    if (index < 0 || index >= dealerHand.value.length) {
+      return
+    }
+    const one = dealerHand.value[index]
+
+    if (pickKey == S_PICKED) {
+      // 对换第二步：两张对调
+      if (pickHeld < 0 || pickHeld >= playerHand.value.length) {
+        finishPick()
+        return
+      }
+      const mine = playerHand.value[pickHeld]
+      const nextMine : Card[] = []
+      for (let i = 0; i < playerHand.value.length; i++) {
+        nextMine.push(i == pickHeld ? one : playerHand.value[i])
+      }
+      const nextTheirs : Card[] = []
+      for (let i = 0; i < dealerHand.value.length; i++) {
+        nextTheirs.push(i == index ? mine : dealerHand.value[i])
+      }
+      playerHand.value = nextMine
+      dealerHand.value = nextTheirs
+      message.value = '【对换】拿他的 ' + cardText(one) + ' 换走了你的 ' + cardText(mine) + '。'
+      finishPick()
+      return
+    }
+
+    // 摸底 / 掏底：压到他的牌库底
+    sinkHandCard(true, index)
+    pickLeft = pickLeft - 1
+    if (pickLeft > 0 && dealerHand.value.length > 0) {
+      message.value = '压下去一张，还要挑 ' + pickLeft + ' 张。'
+      return
+    }
+    tidyDealerHand()
+    message.value = '庄家的牌压到了牌库底，他重新补满了手牌。'
+    finishPick()
+  }
+
+  // 点了摊开的候选牌（牌库顶 / 牌库里挑）
+  function pickFromSpread(index : number) {
+    if (phase.value != 'pick') {
+      return
+    }
+    if (index < 0 || index >= pickCards.value.length) {
+      return
+    }
+    if (pickKind.value == PICK_DECK) {
+      takeFromDeck(index)
+      return
+    }
+    if (pickKind.value != PICK_TOP) {
+      return
+    }
+    // 窥探 / 探牌：点一张就是把它压到牌库底，不点就是留着
+    sinkTopCard(index)
+    const rest : Card[] = []
+    for (let i = 0; i < pickCards.value.length; i++) {
+      if (i != index) {
+        rest.push(pickCards.value[i])
+      }
+    }
+    pickCards.value = rest
+    if (rest.length > 0) {
+      message.value = '压到牌库底了。剩下的要压就接着点，不压就点「留着」。'
+      return
+    }
+    finishTop()
+  }
+
+  // 窥探 / 探牌：不再压了，剩下的留在牌库顶
+  function keepTop() {
+    if (phase.value != 'pick' || pickKind.value != PICK_TOP) {
+      return
+    }
+    finishTop()
+  }
+
+  function finishTop() {
+    // 探牌看完还要抽牌，窥探不抽 —— 手牌本来就满，抽了也是多弃少补
+    if (pickKey == S_SCAN) {
+      tidyPlayerHand()
+    }
+    message.value = '看完了牌库顶。'
+    finishPick()
+  }
+
+  // 把摊开的第 index 张从牌库拿到手上
+  function takeFromDeck(index : number) {
+    const one = pickCards.value[index]
+    const next : Card[] = []
+    let taken = false
+    for (let i = 0; i < playerDeck.value.length; i++) {
+      if (!taken && playerDeck.value[i] == one && i >= playerCursor.value) {
+        taken = true
+        continue
+      }
+      next.push(playerDeck.value[i])
+    }
+    playerDeck.value = next
+    playerHand.value = pushCard(playerHand.value, cloneCard(one))
+    message.value = '把 ' + cardText(one) + ' 拿到了手上。'
+    finishPick()
+  }
+
+  // 把某一方手里第 index 张压到他自己的牌库底
+  function sinkHandCard(ofDealer : boolean, index : number) {
+    const hand = ofDealer ? dealerHand.value : playerHand.value
+    if (index >= hand.length) {
+      return
+    }
+    const one = hand[index]
+    if (ofDealer) {
+      dealerHand.value = removeAt(hand, index)
+      dealerDeck.value = pushCard(dealerDeck.value, cloneCard(one))
+    } else {
+      playerHand.value = removeAt(hand, index)
+      playerDeck.value = pushCard(playerDeck.value, cloneCard(one))
+    }
+  }
+
+  // 窥探 / 探牌：把牌库顶摊开的第 index 张压到牌库底
+  function sinkTopCard(index : number) {
+    const one = pickCards.value[index]
+    const next : Card[] = []
+    let moved = false
+    for (let i = 0; i < playerDeck.value.length; i++) {
+      if (!moved && playerDeck.value[i] == one && i >= playerCursor.value) {
+        moved = true
+        continue
+      }
+      next.push(playerDeck.value[i])
+    }
+    if (moved) {
+      next.push(one)
+    }
+    playerDeck.value = next
+  }
+
+  // 互市：把自己第 index 张给庄家，从他手里随机换一张回来
+  function tradeOne(index : number) : string {
+    if (index >= playerHand.value.length) {
+      return ''
+    }
+    const mine = playerHand.value[index]
+    if (dealerHand.value.length == 0) {
+      playerHand.value = removeAt(playerHand.value, index)
+      dealerHand.value = pushCard(dealerHand.value, mine)
+      tidyPlayerHand()
+      return ''
+    }
+    const at = Math.floor(Math.random() * dealerHand.value.length)
+    const theirs = dealerHand.value[at]
+    const nextMine : Card[] = []
+    for (let i = 0; i < playerHand.value.length; i++) {
+      nextMine.push(i == index ? theirs : playerHand.value[i])
+    }
+    const nextTheirs : Card[] = []
+    for (let i = 0; i < dealerHand.value.length; i++) {
+      nextTheirs.push(i == at ? mine : dealerHand.value[i])
+    }
+    playerHand.value = nextMine
+    dealerHand.value = nextTheirs
+    return cardText(theirs)
+  }
+
+  // ---------- 选牌：庄家自己挑 ----------
+  //
+  // 庄家不进选牌阶段，打出来就按下面的路子挑完。挑法都很直白 ——
+  // 它看得到的信息跟你一样多，不作弊
+
+  function autoPick(card : Card) : string {
+    const key = card.stickerKey
+    pickOwner = card
+
+    if (key == S_GIVE) {
+      // 埋钩：埋到最底下，钓到它的人才捞得最多 —— 它赌的是自己先钓到
+      movePickedQuiet(0)
+      return '把它埋到了堆底。'
+    }
+    if (key == S_REEL) {
+      // 收线：把堆里最值钱的那个钓点抽到自己身边，让它变浅
+      const at = deepestPoint(card)
+      if (at < 0) {
+        return '发动了，但堆里没有别的牌可挑。'
+      }
+      const name = cardText(pile.value[at])
+      moveBeside(at)
+      return '把 ' + name + ' 移到了它左边。'
+    }
+    if (key == S_STRIP) {
+      // 祛除：撕掉你打出的、带贴纸的那张
+      const at = strippable(card)
+      if (at < 0) {
+        return '发动了，但堆里没有带贴纸的牌。'
+      }
+      const one = pile.value[at]
+      const next : Card[] = []
+      for (let i = 0; i < pile.value.length; i++) {
+        if (i == at) {
+          const copy = cloneCard(one)
+          copy.stickerKey = S_NONE
+          copy.pileValue = worthOf(copy)
+          next.push(copy)
+        } else {
+          next.push(pile.value[i])
+        }
+      }
+      pile.value = next
+      return '撕掉了 ' + cardText(one) + ' 的贴纸。'
+    }
+    if (key == S_PEEK || key == S_SCAN) {
+      // 看牌库顶：钓不到的就压回底下
+      const n = key == S_SCAN ? 2 : 1
+      const tops = topOfDeck(true, n)
+      let sunk = 0
+      for (let i = 0; i < tops.length; i++) {
+        if (hitOptions(tops[i], pile.value).length == 0) {
+          sinkDealerTop(tops[i])
+          sunk = sunk + 1
+        }
+      }
+      return '看了牌库顶 ' + tops.length + ' 张，压回去 ' + sunk + ' 张。'
+    }
+    if (key == S_SINK1 || key == S_SINK2) {
+      const n = key == S_SINK2 ? 2 : 1
+      let done = 0
+      for (let i = 0; i < n; i++) {
+        const at = worstInHand(dealerHand.value)
+        if (at < 0) {
+          break
+        }
+        sinkHandCard(true, at)
+        done = done + 1
+      }
+      tidyDealerHand()
+      return '把 ' + done + ' 张手牌压回了牌库底。'
+    }
+    if (key == S_TRADE) {
+      const at = worstInHand(dealerHand.value)
+      if (at < 0 || playerHand.value.length == 0) {
+        return '发动了，但没换成。'
+      }
+      dealerTradeOne(at)
+      return '跟你换了一张手牌。'
+    }
+    if (key == S_PICKED) {
+      const mine = worstInHand(dealerHand.value)
+      const yours = bestInHand(playerHand.value)
+      if (mine < 0 || yours < 0) {
+        return '发动了，但没换成。'
+      }
+      const a = dealerHand.value[mine]
+      const b = playerHand.value[yours]
+      const nextTheirs : Card[] = []
+      for (let i = 0; i < dealerHand.value.length; i++) {
+        nextTheirs.push(i == mine ? b : dealerHand.value[i])
+      }
+      const nextMine : Card[] = []
+      for (let i = 0; i < playerHand.value.length; i++) {
+        nextMine.push(i == yours ? a : playerHand.value[i])
+      }
+      dealerHand.value = nextTheirs
+      playerHand.value = nextMine
+      return '拿走了你的 ' + cardText(b) + '，塞给你一张 ' + cardText(a) + '。'
+    }
+    if (key == S_PROBE1 || key == S_PROBE2) {
+      const n = key == S_PROBE2 ? 2 : 1
+      let done = 0
+      for (let i = 0; i < n; i++) {
+        const at = bestInHand(playerHand.value)
+        if (at < 0) {
+          break
+        }
+        sinkHandCard(false, at)
+        done = done + 1
+      }
+      tidyPlayerHand()
+      return '把你 ' + done + ' 张手牌压到了牌库底。'
+    }
+    // 同号 / 空手：从自己牌库里挑第一张合适的
+    const choices = deckChoices(true, key, card)
+    if (choices.length == 0) {
+      return '发动了，但牌库里没有挑得出的牌。'
+    }
+    const one = choices[0]
+    const next : Card[] = []
+    let taken = false
+    for (let i = 0; i < dealerDeck.value.length; i++) {
+      if (!taken && dealerDeck.value[i] == one && i >= dealerCursor.value) {
+        taken = true
+        continue
+      }
+      next.push(dealerDeck.value[i])
+    }
+    dealerDeck.value = next
+    dealerHand.value = pushCard(dealerHand.value, cloneCard(one))
+    return '从牌库里抽走了一张牌。'
+  }
+
+  // 埋钩的庄家版：不出提示，直接插
+  function movePickedQuiet(slot : number) {
+    const rest : Card[] = []
+    const restOwners : boolean[] = []
+    let self : Card | null = null
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pile.value[i] == pickOwner) {
+        self = pile.value[i]
+      } else {
+        rest.push(pile.value[i])
+        restOwners.push(pileFromDealer.value[i])
+      }
+    }
+    if (self == null) {
+      return
+    }
+    const one = self as Card
+    const next : Card[] = []
+    const owners : boolean[] = []
+    for (let i = 0; i < rest.length; i++) {
+      if (i == slot) {
+        next.push(one)
+        owners.push(true)
+      }
+      next.push(rest[i])
+      owners.push(restOwners[i])
+    }
+    if (slot >= rest.length) {
+      next.push(one)
+      owners.push(true)
+    }
+    pile.value = next
+    pileFromDealer.value = owners
+  }
+
+  // 堆里最值钱的那个钓点（撞上它能带走最多）
+  function deepestPoint(skip : Card) : number {
+    let best = -1
+    let bestTake = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      const one = pile.value[i]
+      if (one == skip || isDeadCard(one)) {
+        continue
+      }
+      const take = pile.value.length - i
+      if (take > bestTake) {
+        bestTake = take
+        best = i
+      }
+    }
+    return best
+  }
+
+  // 堆里哪张带着贴纸，优先撕对手打出的
+  function strippable(skip : Card) : number {
+    let fallback = -1
+    for (let i = 0; i < pile.value.length; i++) {
+      const one = pile.value[i]
+      if (one == skip || one.stickerKey == S_NONE || one.faceDown) {
+        continue
+      }
+      if (!pileFromDealer.value[i]) {
+        return i
+      }
+      fallback = i
+    }
+    return fallback
+  }
+
+  // 庄家把牌库顶某张压到底
+  function sinkDealerTop(one : Card) {
+    const next : Card[] = []
+    let moved = false
+    for (let i = 0; i < dealerDeck.value.length; i++) {
+      if (!moved && dealerDeck.value[i] == one && i >= dealerCursor.value) {
+        moved = true
+        continue
+      }
+      next.push(dealerDeck.value[i])
+    }
+    if (moved) {
+      next.push(one)
+    }
+    dealerDeck.value = next
+  }
+
+  // 手里最没用的一张：钓不到东西、落下去还容易被接走的
+  function worstInHand(hand : Card[]) : number {
+    let worst = -1
+    let worstScore = -1
+    for (let i = 0; i < hand.length; i++) {
+      const one = hand[i]
+      if (one.stickerKey == S_HAUL) {
+        continue
+      }
+      if (hitOptions(one, pile.value).length > 0) {
+        continue
+      }
+      // 越是「对手还攥着一堆同号」的牌越该丢 —— 留着也接不上什么
+      const score = unseenCount(worthOf(one))
+      if (score > worstScore) {
+        worstScore = score
+        worst = i
+      }
+    }
+    if (worst < 0 && hand.length > 0) {
+      worst = 0
+    }
+    return worst
+  }
+
+  // 对手手里最值钱的一张：能钓到东西的优先，其次是 J
+  function bestInHand(hand : Card[]) : number {
+    for (let i = 0; i < hand.length; i++) {
+      if (hand[i].stickerKey == S_HAUL) {
+        return i
+      }
+    }
+    for (let i = 0; i < hand.length; i++) {
+      if (hitOptions(hand[i], pile.value).length > 0) {
+        return i
+      }
+    }
+    return hand.length > 0 ? 0 : -1
+  }
+
+  // 庄家的互市：给你一张，随机拿回一张
+  function dealerTradeOne(index : number) {
+    const mine = dealerHand.value[index]
+    const at = Math.floor(Math.random() * playerHand.value.length)
+    const yours = playerHand.value[at]
+    const nextTheirs : Card[] = []
+    for (let i = 0; i < dealerHand.value.length; i++) {
+      nextTheirs.push(i == index ? yours : dealerHand.value[i])
+    }
+    const nextMine : Card[] = []
+    for (let i = 0; i < playerHand.value.length; i++) {
+      nextMine.push(i == at ? mine : playerHand.value[i])
+    }
+    dealerHand.value = nextTheirs
+    playerHand.value = nextMine
+  }
+
+  // 一手走完：补牌、记回合、交给下一位。
+  // 连竿欠着的额外出牌先还完，还完了这一回合才算结束
+  function endTurn(byDealer : boolean) {
+    if (byDealer) {
+      tidyDealerHand()
+    } else {
+      tidyPlayerHand()
+    }
+
+    // 浑水欠着的盖牌还没打完 —— 那几张是同一个回合里连着打的，不各算一回合。
+    // forced 的递减在 commitPlay 里，这里只负责把出牌权留在同一方手上
+    const forced = byDealer ? dealerForced : playerForced
+    if (forced > 0 && phase.value != 'over') {
+      if (byDealer) {
+        dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+      } else {
+        phase.value = 'player'
+      }
+      return
+    }
+
+    const extra = byDealer ? dealerExtra : playerExtra
+    if (extra > 0 && phase.value != 'over') {
+      if (byDealer) {
+        dealerExtra = extra - 1
+        dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+      } else {
+        playerExtra = extra - 1
+        phase.value = 'player'
+      }
+      return
+    }
+
+    if (byDealer) {
+      dealerTurns.value = dealerTurns.value + 1
+    } else {
+      playerTurns.value = playerTurns.value + 1
+    }
+    afterAction(byDealer)
+  }
+
+  // 你钓到牌了：记下来给成就用。
+  // at 是撞在堆里第几张，deep 是撞之前堆有多大
+  function noteTake(gained : number, at : number, deep : number) {
+    if (gained >= BIG_TAKE) {
+      gainAchievement(ACH_TWIN_PAIR)
+    }
+    // 撞在堆底，把整个堆连锅端了
+    if (at == 0 && deep >= DEEP_PILE) {
+      gainAchievement(ACH_FORESEE)
+    }
+    // playerTurns 这时还没 +1，所以当前回合号是 playerTurns + 1
+    const nowTurn = playerTurns.value + 1
+    if (lastTakeTurn >= 0 && nowTurn - lastTakeTurn == 1) {
+      gainAchievement(ACH_STAND_BROKEN)
+    }
+    lastTakeTurn = nowTurn
+    tookOnLastTurn = nowTurn >= level.value.turns
+  }
+
+  // 一次行动做完：记成就、看要不要结算、再看该谁动
+  function afterAction(lastWasDealer : boolean) {
+    checkAchievements()
+    nextAction(lastWasDealer)
+  }
+
+  // ---------- 回合 ----------
+
+  function nextAction(lastWasDealer : boolean) {
+    if (phase.value == 'over') {
+      return
+    }
+    const turns = level.value.turns
+    if (playerTurns.value >= turns && dealerTurns.value >= turns) {
+      settle()
+      return
+    }
+
+    // 正常是你一手我一手；谁先打满自己的回合，就让另一方把剩下的打完
+    let dealerGoes = !lastWasDealer
+    if (dealerGoes && dealerTurns.value >= turns) {
+      dealerGoes = false
+    } else if (!dealerGoes && playerTurns.value >= turns) {
+      dealerGoes = true
+    }
+
+    if (dealerGoes) {
+      phase.value = 'dealer'
+      dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+      return
+    }
+    // 轮到你。牌库和手牌都空了就只能干看着，这一回合算走过场
+    if (playerHand.value.length == 0) {
+      playerTurns.value = playerTurns.value + 1
+      message.value = '你没牌可出，这一回合跳过。'
+      afterAction(false)
+      return
+    }
+    phase.value = 'player'
+  }
+
+  // ---------- 庄家 ----------
+
+  function dealerTurn() {
+    if (phase.value == 'over') {
+      return
+    }
+    if (dealerHand.value.length == 0) {
+      dealerTurns.value = dealerTurns.value + 1
+      message.value = '庄家没牌可出，这一回合跳过。'
+      afterAction(true)
+      return
+    }
+    dealerPlay()
+  }
+
+  // 庄家的全部决策都在这。它要回答的跟你一样：钓不钓、按几点落。
+  // 三档难度差在「肯不肯为了钓得更深忍一手」和「落下去的数字会不会送分」
+  function dealerPlay() {
+    const hand = dealerHand.value
+
+    // 手上钓得最深的那一手
+    let hitIndex = -1
+    let hitWorth = 0
+    let hitTake = 0
+    let haulIndex = -1
+    for (let i = 0; i < hand.length; i++) {
+      if (hand[i].stickerKey == S_HAUL) {
+        haulIndex = i
+        continue
+      }
+      // 空位牌落堆算 0，撞不上任何东西
+      if (isBlankSticker(hand[i].stickerKey)) {
+        continue
+      }
+      const hits = hitOptions(hand[i], pile.value)
+      for (let k = 0; k < hits.length; k++) {
+        const take = takeCount(pile.value, hits[k])
+        if (take > hitTake) {
+          hitTake = take
+          hitIndex = i
+          hitWorth = hits[k]
+        }
+      }
+    }
+
+    // 随机档：抓哪张打哪张，顺手能钓就钓
+    if (level.value.ai == 1) {
+      const at = Math.floor(Math.random() * hand.length)
+      const opts = playOptions(hand[at], pile.value)
+      commitPlay(true, at, bestWorthOf(opts))
+      return
+    }
+
+    // J 是一张随时能兑现的支票，越晚打越值钱 —— 但打完最后一个回合就作废了。
+    // 堆压够厚、或者已经没有下一手可等，就兑现它
+    if (haulIndex >= 0) {
+      const haulLine = level.value.ai == 3 ? 5 : 4
+      const lastCall = dealerTurns.value + 1 >= level.value.turns
+      if (pile.value.length + 1 >= haulLine || (lastCall && pile.value.length > 0)) {
+        commitPlay(true, haulIndex, worthOf(hand[haulIndex]))
+        return
+      }
+    }
+
+    // 稳健档：钓得够深就钓，否则随手挑张钓不到的落下去
+    if (level.value.ai == 2) {
+      if (hitIndex >= 0 && hitTake >= 3) {
+        commitPlay(true, hitIndex, hitWorth)
+        return
+      }
+      for (let i = 0; i < hand.length; i++) {
+        if (hand[i].stickerKey == S_HAUL || isBlankSticker(hand[i].stickerKey)) {
+          continue
+        }
+        const opts = playOptions(hand[i], pile.value)
+        for (let k = 0; k < opts.length; k++) {
+          if (takeCount(pile.value, opts[k]) == 0) {
+            commitPlay(true, i, opts[k])
+            return
+          }
+        }
+      }
+      if (hitIndex >= 0) {
+        commitPlay(true, hitIndex, hitWorth)
+        return
+      }
+      const fallback = playOptions(hand[0], pile.value)
+      commitPlay(true, 0, fallback[0])
+      return
+    }
+
+    // ---- 精算档：每种打法都算一笔账，挑分最高的 ----
+    //
+    //   分 = 这一手到手的牌 × 10 − 落完之后堆对我的威胁
+    //
+    // 威胁按「每个钓点能带走几张 × 这个数字还有几张可能在你手上」算，
+    // 所以它现在会做这些事：
+    //   · 一个数字出光了就放心落，哪怕那是张大牌；
+    //   · 宁可钓浅的，也不把厚堆留在你面前；
+    //   · 快收官了就不再留手，反正堆留着也是废牌。
+    let bestScore = -99999
+    let bestIndex = -1
+    let bestWorth = 0
+    const lastCall = dealerTurns.value + 1 >= level.value.turns
+
+    for (let i = 0; i < hand.length; i++) {
+      const card = hand[i]
+      if (card.stickerKey == S_HAUL) {
+        continue
+      }
+
+      // 空位牌不参与撞牌，它的价值全在效果上
+      if (isBlankSticker(card.stickerKey)) {
+        const gain = stickerGain(card)
+        // 收不到东西的空位牌先留着，别白填一层堆厚
+        const score = gain > 0 ? gain * 10 - pileThreat() : -50
+        if (score > bestScore) {
+          bestScore = score
+          bestIndex = i
+          bestWorth = NO_VALUE
+        }
+        continue
+      }
+
+      const opts = playOptions(card, pile.value)
+      for (let k = 0; k < opts.length; k++) {
+        const worth = opts[k]
+        const take = takeCount(pile.value, worth)
+        let score = take * 10 - threatAfter(card, worth)
+        // 立即类贴纸顺手能办点事，算一点加成
+        score = score + stickerGain(card) * 8
+        // 最后一手了，留着的牌一分不值，只认眼前能收多少
+        if (lastCall) {
+          score = take * 10
+        }
+        if (score > bestScore) {
+          bestScore = score
+          bestIndex = i
+          bestWorth = worth
+        }
+      }
+    }
+
+    if (bestIndex >= 0) {
+      commitPlay(true, bestIndex, bestWorth)
+      return
+    }
+
+    // 兜底：手上只剩 J 或者算不出结果，随便落一张
+    const opts = playOptions(hand[0], pile.value)
+    commitPlay(true, 0, opts[0])
+  }
+
+  // 试着把这张牌按这个数字落下去，算出落完之后的堆有多危险。
+  // 真动牌堆再还原 —— 比另写一套模拟省事，也不会跟真正落堆的规则走岔
+  function threatAfter(card : Card, worth : number) : number {
+    const backup : Card[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      backup.push(pile.value[i])
+    }
+    const copy = cloneCard(card)
+    copy.pileValue = worth
+    pile.value = dropsAtBottom(card.stickerKey)
+      ? unshiftCard(pile.value, copy)
+      : pushCard(pile.value, copy)
+    const threat = pileThreat()
+    pile.value = backup
+    return threat
+  }
+
+  // 这张贴纸现在打出去值几分。只估收割类 ——
+  // 别的效果（看手牌、埋背面牌、改花色）好处太绕，让它按 0 算，
+  // 于是庄家只在「这一手确实能收到东西」的时候才舍得用掉收割牌
+  function stickerGain(card : Card) : number {
+    const key = card.stickerKey
+    if (key == S_HUE) {
+      let total = 1
+      for (let i = 0; i < pile.value.length; i++) {
+        if (sameSuit(pileSuitOf(pile.value[i]), card.suit)) {
+          total = total + 1
+        }
+      }
+      return total
+    }
+    if (key == S_CAST) {
+      const odd = countParity(true)
+      const even = countParity(false)
+      return 1 + (odd >= even ? odd : even)
+    }
+    if (key == S_GATHER) {
+      // 最多凑四色，堆里花色越全收得越多
+      let kinds = 1
+      const taken : string[] = [card.suit]
+      for (let i = 0; i < pile.value.length; i++) {
+        const suit = pileSuitOf(pile.value[i])
+        if (suit == '') {
+          continue
+        }
+        let dup = false
+        for (let k = 0; k < taken.length; k++) {
+          if (sameSuit(suit, taken[k])) {
+            dup = true
+            break
+          }
+        }
+        if (!dup) {
+          taken.push(suit)
+          kinds = kinds + 1
+        }
+      }
+      return kinds
+    }
+    if (key == S_DIG) {
+      // 堆底攒着的背面牌越多，翻出一对的指望越大
+      let down = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (pile.value[i].faceDown) {
+          down = down + 1
+        }
+      }
+      return down >= 4 ? down - 2 : 0
+    }
+    return 0
+  }
+
+  // ---------- 庄家的算计 ----------
+  //
+  // 下面这几个函数只看公开信息加上庄家自己的东西：牌堆、两家的积分库、废牌堆、
+  // 它自己的手牌和牌库。你的手牌和你牌库的顺序它一概看不到，不作弊。
+
+  // 这个数字还有几张可能落在你手上。
+  // 每个数字一共 4 张，把公开见过的和庄家自己攥着的都扣掉，剩下的才是威胁。
+  // 一个已经出光的数字落到堆上是绝对安全的 —— 旧版本固定按 4 张算，
+  // 于是它从来不敢落大数，也看不出什么时候其实可以放心落
+  function unseenCount(worth : number) : number {
+    if (worth < 1 || worth > RANK_COUNT) {
+      // 贴纸才凑得出来的数，对手多半接不上
+      return 0
+    }
+    let seen = 0
+    seen = seen + countValue(pile.value, worth)
+    seen = seen + countValue(playerPoints.value, worth)
+    seen = seen + countValue(dealerPoints.value, worth)
+    seen = seen + countValue(waste.value, worth)
+    seen = seen + countValue(dealerHand.value, worth)
+    for (let i = dealerCursor.value; i < dealerDeck.value.length; i++) {
+      if (dealerDeck.value[i].value == worth) {
+        seen = seen + 1
+      }
+    }
+    const left = SUIT_COUNT - seen
+    return left > 0 ? left : 0
+  }
+
+  function countValue(list : Card[], worth : number) : number {
+    let total = 0
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].value == worth) {
+        total = total + 1
+      }
+    }
+    return total
+  }
+
+  // 现在这个堆摆在对手面前，他下一手大概能捞走多少。
+  // 逐个钓点算：撞上它能带走几张 × 他手上还可能有几张这个数字。
+  // 这比「这个数字危不危险」精确得多 —— 危险的不是数字，是它压着多深的一摞
+  function pileThreat() : number {
+    let total = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      const worth = pileValueOf(pile.value[i])
+      if (worth <= 0) {
+        continue
+      }
+      // 同一个数字在堆里只会有一张，不用去重
+      const take = pile.value.length - i
+      total = total + take * unseenCount(worth)
+    }
+    return total
+  }
+
+  // ---------- 成就 ----------
+
+  function checkAchievements() {
+    if (playerPoints.value.length >= RICH_SCORE) {
+      gainAchievement(ACH_EXACT_GOAL)
+    }
+    if (playerCursor.value >= FLOW_DRAWS) {
+      gainAchievement(ACH_FLOW)
+    }
+    const gap = dealerPoints.value.length - playerPoints.value.length
+    if (gap > maxBehind) {
+      maxBehind = gap
+    }
+  }
+
+  function gainAchievement(id : number) {
+    const data = save.value
+    if (!markAchieved(data, id)) {
+      return
+    }
+    save.value = data
+    saveCurrent(data)
+    const ach = achievementAt(id)
+    toast('达成【' + ach.name + '】，解锁贴纸【' + stickerAt(ach.sticker).name + '】')
+  }
+
+  // ---------- 结算 ----------
+
+  // 双方都打满回合。残堆谁都不算，直接比积分库的张数
+  function settle() {
+    const left = pile.value.length
+    if (left > 0) {
+      waste.value = pushCards(waste.value, pile.value)
+      pile.value = [] as Card[]
+      pileFromDealer.value = [] as boolean[]
+    }
+
+    const p = playerPoints.value.length
+    const d = dealerPoints.value.length
+    const tail = left > 0 ? ' 堆里剩的 ' + left + ' 张谁都没钓走。' : ''
+
+    if (p > d) {
+      finish('win', '打满 ' + level.value.turns + ' 回合，你 ' + p + ' 分比庄家 ' + d + ' 分多。' + tail)
+      return
+    }
+    if (p < d) {
+      finish('lose', '打满 ' + level.value.turns + ' 回合，庄家 ' + d + ' 分比你 ' + p + ' 分多。' + tail)
+      return
+    }
+    finish('push', '打满 ' + level.value.turns + ' 回合，双方都是 ' + p + ' 分。' + tail)
+  }
+
+  // 重打这一关给哪一档的退换券。
+  // 在首次奖励的两档里随机挑一档：这一关给普通券 + 稀有券，退换券就在普通和稀有里出；
+  // 给稀有 + 史诗的，就绝不会掉出普通的来。两档一样时自然就是定的
+  function refundRarity() : number {
+    const a = level.value.rewardRarity
+    const b = level.value.randomCount > 0 ? level.value.randomRarity : a
+    if (a == b) {
+      return a
+    }
+    return Math.random() < 0.5 ? a : b
+  }
+
+  // 平局不分胜负，洗牌重开这一局。
+  // 但重开是有限的：故意打平来换一手好牌，最多混两次
+  function restartMatch(tip : string) {
+    if (dealerTimer != -1) {
+      clearTimeout(dealerTimer)
+      dealerTimer = -1
+    }
+    const data = save.value
+    data.push = data.push + 1
+    save.value = data
+    saveCurrent(data)
+
+    pushCount = pushCount + 1
+    if (pushCount > MAX_PUSH) {
+      finish('lose', tip + ' 这一关已经平局 ' + MAX_PUSH + ' 次，算没过。')
+      return
+    }
+
+    resultKind.value = 'push'
+    message.value = tip + ' 平局，洗牌重来（' + pushCount + '/' + MAX_PUSH + '）。'
+    phase.value = 'dealer'
+    dealerTimer = setTimeout(setup, 1600)
+  }
+
+  function finish(kind : string, tip : string) {
+    if (kind == 'push') {
+      restartMatch(tip)
+      return
+    }
+    if (dealerTimer != -1) {
+      clearTimeout(dealerTimer)
+      dealerTimer = -1
+    }
+    phase.value = 'over'
+    resultKind.value = kind
+
+    // 赢下来的方式本身也能解锁贴纸
+    if (kind == 'win') {
+      if (dealerPoints.value.length <= CHOKE_SCORE) {
+        gainAchievement(ACH_DEALER_BUST)
+      }
+      if (maxBehind >= BEHIND_GAP) {
+        gainAchievement(ACH_BEHIND)
+      }
+      if (tookOnLastTurn) {
+        gainAchievement(ACH_COMEBACK)
+      }
+    }
+
+    const data = save.value
+    let extra = ''
+    if (kind == 'win') {
+      data.win = data.win + 1
+      // 券和解锁只在首次通关时给。重打是为了刷成就和试牌组，不是刷券
+      const firstClear = level.value.index > data.cleared
+      if (firstClear) {
+        const rarity = level.value.rewardRarity
+        addTickets(data, rarity, level.value.rewardCount)
+        extra = ' 获得 ' + level.value.rewardCount + ' 张' + rarityAt(rarity).name + '券'
+
+        // 随机券跟自选券一起发。隐藏贴纸只有随机券抽得到
+        const randomCount = level.value.randomCount
+        if (randomCount > 0) {
+          const randomRarity = level.value.randomRarity
+          addRandomTickets(data, randomRarity, randomCount)
+          extra = extra + '、' + randomCount + ' 张' + rarityAt(randomRarity).name + '随机券'
+        }
+        extra = extra + '。'
+
+        const fresh = unlockShop(data, level.value.unlockStickers)
+        if (fresh.length > 0) {
+          let names = ''
+          for (let i = 0; i < fresh.length; i++) {
+            if (i > 0) {
+              names = names + '、'
+            }
+            names = names + stickerAt(fresh[i]).name
+          }
+          extra = extra + ' 解锁【' + names + '】。'
+        }
+        data.cleared = level.value.index
+      } else {
+        // 重打不再给正经券，给的是退换券：把手里用不上的贴纸回炉重抽。
+        // 稀有度在这一关首次奖励的那两档里随机挑一档 ——
+        // 想回炉传说贴纸，就得反复打最后那两关
+        const n = level.value.refundCount
+        const rarity = refundRarity()
+        addRefundTickets(data, rarity, n)
+        extra = ' 这关之前通过了，给 ' + n + ' 张'
+          + rarityAt(rarity).name + '退换券。'
+      }
+    } else {
+      // 输了什么都不扣，改完牌组可以再打这一关
+      data.lose = data.lose + 1
+      extra = ' 可以改完牌组再打这一关。'
+    }
+
+    save.value = data
+    saveCurrent(data)
+
+    resultText.value = tip + extra
+    message.value = tip
+  }
+
+  // ---------- 展示 ----------
+
+  function isRed(card : Card) : boolean {
+    return isRedSuit(card.suit)
+  }
+
+
+  function stickerName(card : Card) : string {
+    return stickerAt(card.stickerKey).name
+  }
+
+  function cardText(card : Card) : string {
+    return card.suit + card.rank
+  }
+
+  // 堆里的牌：锁定的数字跟牌面对不上时才标出来，免得每张都挂个数
+  function cardMark(card : Card) : string {
+    if (card.faceDown) {
+      return ''
+    }
+    // 空位牌压根没有点数，标个记号说明它当不了钓点
+    if (card.pileValue == NO_VALUE) {
+      return '无点'
+    }
+    if (card.pileValue < 0) {
+      return ''
+    }
+    if (card.pileValue == worthOf(card)) {
+      return ''
+    }
+    return '算 ' + card.pileValue
+  }
+
+  // 这张牌打出去最多能拿走几张（含自己）
+  function bestTake(card : Card) : number {
+    // 通吃不挑数字，堆有多厚拿多厚
+    if (card.stickerKey == S_HAUL) {
+      return pile.value.length + 1
+    }
+    // 空位类落堆算 0，撞不上任何东西 —— 它值不值得打看的是效果，不是钓几张
+    if (isBlankSticker(card.stickerKey)) {
+      return 0
+    }
+    const hits = hitOptions(card, pile.value)
+    let best = 0
+    for (let i = 0; i < hits.length; i++) {
+      const take = takeCount(pile.value, hits[i])
+      if (take > best) {
+        best = take
+      }
+    }
+    return best
+  }
+
+  // 这一手有没有赚头。少于两张就等于只把自己拿回来，
+  // 空堆上的 J 正是这种情况 —— 别让它亮着绿边骗你打出去
+  function worthPlaying(card : Card) : boolean {
+    return bestTake(card) >= 2
+  }
+
+  // 候选条上这个数能钓几张
+  function takeOf(worth : number) : number {
+    return takeCount(pile.value, worth)
+  }
+
+  function listText(list : number[]) : string {
+    let text = ''
+    for (let i = 0; i < list.length; i++) {
+      if (i > 0) {
+        text = text + '、'
+      }
+      text = text + list[i]
+    }
+    return text
+  }
+
+  // 打完了就亮牌，没什么好藏的；中途靠【照水】掀 —— 只要它还在堆里就一直亮着
+  const showDealerHand = computed<boolean>(() : boolean => {
+    return dealerHandOpen.value || phase.value == 'over' || pileHasSticker(S_MIRROR)
+  })
+
+  // 要你从他手里挑牌的时候也得亮 —— 摸底、掏底、对换都写明了「看庄家全部手牌」
+  const revealTheirs = computed<boolean>(() : boolean => {
+    return showDealerHand.value || pickKind.value == PICK_THEIRS
+  })
+
+  const handTip = computed<string>(() : string => {
+    if (phase.value == 'player') {
+      return '点一张手牌打出'
+    }
+    if (phase.value == 'value') {
+      return '挑一个点数落堆'
+    }
+    if (phase.value == 'confirm') {
+      return '这张 J 现在打不划算'
+    }
+    if (phase.value == 'catch') {
+      return '亮着的这几张正被收走'
+    }
+    if (phase.value == 'pick') {
+      return '贴纸要你挑牌'
+    }
+    return '等庄家出牌…'
+  })
+
+  const phaseText = computed<string>(() : string => {
+    if (phase.value == 'dealer') {
+      return '庄家行动中'
+    }
+    if (phase.value == 'player') {
+      return '轮到你出牌'
+    }
+    if (phase.value == 'value') {
+      return '选落堆点数'
+    }
+    if (phase.value == 'confirm') {
+      return '确认是否打出'
+    }
+    if (phase.value == 'catch') {
+      return '收牌中'
+    }
+    if (phase.value == 'pick') {
+      return '选牌中'
+    }
+    return '对局结束'
+  })
+
+  function toast(tip : string) {
+    uni.showToast({
+      icon: 'none',
+      title: tip
+    })
+  }
+
+  function toggleWaste() {
+    showWaste.value = !showWaste.value
+  }
+
+  // 点牌面上那行贴纸名，单看这一张的效果。
+  // 模板那边用的是 @click.stop：不拦住冒泡的话，想看一眼效果就把牌打出去了
+  function showSticker(card : Card) {
+    if (card.stickerKey == S_NONE) {
+      return
+    }
+    const sticker = stickerAt(card.stickerKey)
+    uni.showModal({
+      title: '【' + sticker.name + '】',
+      content: sticker.desc,
+      showCancel: false,
+      confirmText: '知道了'
+    })
+  }
+
+  // 手上这几张贴纸牌都是干什么的，一次看全
+  function showHandStickers() {
+    let text = ''
+    for (let i = 0; i < playerHand.value.length; i++) {
+      const card = playerHand.value[i]
+      if (card.stickerKey == S_NONE) {
+        continue
+      }
+      const sticker = stickerAt(card.stickerKey)
+      if (text != '') {
+        text = text + '\n\n'
+      }
+      text = text + cardText(card) + '【' + sticker.name + '】\n' + sticker.desc
+    }
+    if (text == '') {
+      text = '手上没有贴纸牌，全是普通牌。'
+    }
+    uni.showModal({
+      title: '手牌贴纸',
+      content: text,
+      showCancel: false,
+      confirmText: '知道了'
+    })
+  }
+
+  function showRules() {
+    uni.showModal({
+      title: '规则',
+      content: '· 双方牌组都是固定的 52 张，各自摸各自的，手牌保持 ' + HAND_SIZE + ' 张。\n'
+        + '· 每张牌就是它自己的数：A 是 1，J 是 11，Q 是 12，K 是 13，十三个数各 4 张。\n'
+        + '· 轮到自己时出一张牌，放到中间的公共牌堆上，没有别的选择。\n'
+        + '· 打出的数字跟堆里某张相同，就把那张、自己这张、以及夹在它们之间的牌\n'
+        + '  全部钓走；这一段之外的留在堆里。牌平时压在堆顶，所以通常就是\n'
+        + '  「撞中那张一路收到顶」，但【埋钩】能把自己插到中间，那时范围就在它那儿截止。\n'
+        + '· 所以撞哪张很要紧：撞堆底能连锅端，撞最上面那张只捞到两张。\n'
+        + '· 积分算的是张数，不是点数 —— 钓走 7 张就是 7 分。\n'
+        + '· 撞不上就把牌压在堆顶，等于给对方多铺一个能撞的数字。\n'
+        + '· J 自带【通吃】：打出时不管撞不撞，整堆连同它自己全归你。\n'
+        + '  双方的 J 都一样，撕不下来也换不掉。堆越厚它越值钱，\n'
+        + '  打在空堆上只收到它自己，等于白扔一张。\n'
+        + '· 能算成几个数只有点数类贴纸说了算（幸运 ±1、福星 ±2 之类）。\n'
+        + '  几个落法钓得不一样深时会让你挑；结果都一样就自动落堆。\n'
+        + '· 牌一旦落堆，它算几点就锁死了，后面谁来撞都看这个锁定的数。\n'
+        + '· 每人各打 ' + level.value.turns + ' 个回合（回合分开算），打满就结算，钓得多的赢。\n'
+        + '· 庄家先手，你是后手 —— 最后一张牌是你打的，收尾的机会在你手上。\n'
+        + '· 散局时堆里剩的牌谁都不算分，所以压得太厚又钓不走就是白送。\n'
+        + '\n'
+        + '【贴纸通用规则】\n'
+        + '· 顺位：十三个数首尾相接。K 往上一位是 A，A 往下一位是 K。\n'
+        + '· 钓点：点数得在 1 以上才当得了钓点。\n'
+        + '· 空位类贴纸：落堆时没有点数 —— 撞不上别人，也没人撞得上它，但花色照样算数，\n'
+        + '  收色收得走。提系一路压到 0 的牌也是一样，当不了钓点但花色还在。\n'
+        + '· 背面牌：数字和花色都不算数。新加进堆的背面牌一律沉到最左侧 ——\n'
+        + '  钓牌是从撞中的位置往上收，所以沉在底下的基本带不走，会一直攒着。\n'
+        + '  【起底】把它们翻回来配对，是唯一能让它们变成分的路。\n'
+        + '· 落堆位置：默认压在堆顶；标「落堆底」的放到最左侧，只有撞中堆底才带得走。\n'
+        + '· 一张牌只贴得下一张贴纸；J 焊死【通吃】，贴不了别的。\n'
+        + '· 点牌面上的贴纸名可以看它的效果，底下的「贴纸」按钮能一次看全手牌。\n'
+        + '· 平局洗牌重来；同一关最多平局 ' + MAX_PUSH + ' 次，再平就算没过。\n'
+        + '· 通关奖励 ' + level.value.rewardCount + ' 张'
+        + rarityAt(level.value.rewardRarity).name + '券；输了不扣东西，可以改牌组再打。\n'
+        + '· 券只在首次通关时发，通过的关卡还能回来重打，用来刷成就和试牌组。',
+      showCancel: false,
+      confirmText: '知道了'
+    })
+  }
+
+  // 就地再来一局。输了不扣任何东西，所以重打不需要任何代价。
+  // pushCount 跟着清零 —— 它管的是「同一次挑战里平局重开几次」，
+  // 手动重来就是新的一次挑战
+  function retry() {
+    pushCount = 0
+    setup()
+  }
+
+  function goBack() {
+    uni.navigateBack()
+  }
+
+  onUnmounted(() => {
+    if (dealerTimer != -1) {
+      clearTimeout(dealerTimer)
+      dealerTimer = -1
+    }
+    if (catchTimer != -1) {
+      clearTimeout(catchTimer)
+      catchTimer = -1
+    }
+  })
+
+  setup()
+</script>
+
+<style>
+  /* 整页固定一屏，纵向不滚动 */
+  .page {
+    flex: 1;
+    padding: 8px 10px;
+    background-color: #0b5d3b;
+  }
+
+  /* 顶部信息栏 */
+  .topbar {
+    flex-direction: row;
+    justify-content: space-between;
+    background-color: #084730;
+    border-radius: 8px;
+    padding: 6px 10px;
+  }
+
+  .topbar-item {
+    flex: 1;
+    align-items: center;
+  }
+
+  .topbar-label {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .topbar-value {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  /* 扣着的牌背。庄家手牌平时全是这个样子 */
+  .card-back {
+    background-color: #123f6b;
+    border-color: #0b2a48;
+  }
+
+  .card-back-mark {
+    color: #7fb2e5;
+    font-size: 22px;
+    font-weight: bold;
+  }
+
+  /* 比分贴在牌堆标题行右端 */
+  .pile-score {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .pile-score-label {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-left: 2px;
+    margin-right: 2px;
+  }
+
+  .pile-score-num {
+    color: #e8b23a;
+    font-size: 18px;
+    font-weight: bold;
+  }
+
+  /* 钓中的那一拍，收牌方的分数亮起来放大 */
+  .pile-score-catch {
+    color: #ffd54f;
+    transform: scale(1.3);
+    transition-property: transform, color;
+    transition-duration: 180ms;
+  }
+
+  /* 公共牌堆 */
+  .pile-area {
+    flex: 1;
+    min-height: 96px;
+    margin-top: 6px;
+    background-color: #0e6b45;
+    border-radius: 8px;
+    padding: 6px 10px;
+  }
+
+  .pile-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .pile-title {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .board {
+    flex: 1;
+    height: 68px;
+    margin-top: 4px;
+  }
+
+  .board-row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .played-tip {
+    color: #8fc7ab;
+    font-size: 11px;
+  }
+
+  /* 牌面 */
+  .card {
+    width: 46px;
+    height: 64px;
+    background-color: #ffffff;
+    border-radius: 5px;
+    margin-right: 6px;
+    align-items: center;
+    justify-content: center;
+    border-width: 2px;
+    border-style: solid;
+    border-color: #ffffff;
+  }
+
+  .card-hand {
+    margin-right: 5px;
+  }
+
+  .card-stickered {
+    border-color: #e8b23a;
+  }
+
+  /* 打出去能钓到牌的，描边亮一点 */
+  .card-ready {
+    border-color: #7ce0a3;
+  }
+
+  /* 堆里的牌按谁打的染边框。放在贴纸描边后面，压过它 ——
+     堆里更要紧的是「这张是谁喂的」，贴纸名牌面上写着 */
+  .card-from-dealer {
+    border-color: #ff9e80;
+  }
+
+  .card-from-player {
+    border-color: #7ce0a3;
+  }
+
+  /* 钓中的那一段：整体点亮抬起，停一拍再收走。
+     放在归属色后面压过它们 —— 这一拍里「哪几张要走」比「谁喂的」重要得多 */
+  .card-caught {
+    background-color: #fff3c4;
+    border-color: #ffd54f;
+    transform: translateY(-8px);
+    transition-property: transform, background-color, border-color;
+    transition-duration: 180ms;
+  }
+
+  /* 贴纸正等你从这堆牌里挑一张。描边跟「能钓到」的绿边分开，
+     免得两种「可以点」混在一起 */
+  .card-pickable {
+    border-color: #7cc4ff;
+  }
+
+  /* 埋钩挑位置时堆顶后面那个落点 */
+  .card-slot {
+    background-color: #0a4a32;
+    border-color: #7cc4ff;
+  }
+
+  .card-slot-mark {
+    color: #7cc4ff;
+    font-size: 11px;
+    font-weight: bold;
+  }
+
+  .card-rank {
+    color: #1a1a1a;
+    font-size: 17px;
+    font-weight: bold;
+  }
+
+  .card-suit {
+    color: #1a1a1a;
+    font-size: 13px;
+  }
+
+  .card-red {
+    color: #d93025;
+  }
+
+  /* 贴纸名要完整显示，牌面又只有 46px 宽，字号压到 10px 刚好放下两个字 */
+  .card-sticker {
+    color: #b8860b;
+    font-size: 10px;
+    font-weight: bold;
+  }
+
+  /* 锁定的数字 / 能钓几张 */
+  .card-mark {
+    color: #1f7a4d;
+    font-size: 9px;
+    font-weight: bold;
+  }
+
+  /* 提示信息 */
+  .message-box {
+    height: 40px;
+    margin-top: 6px;
+    border-radius: 6px;
+    padding: 4px 10px;
+    justify-content: center;
+    background-color: #084730;
+  }
+
+  .message-win {
+    background-color: #1f7a4d;
+  }
+
+  .message-lose {
+    background-color: #8c2f2a;
+  }
+
+  .message-push {
+    background-color: #6b5a1e;
+  }
+
+  .message-text {
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  /* 手牌区 */
+  .hand-area {
+    height: 96px;
+    margin-top: 6px;
+  }
+
+  .hand-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .hand-title {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .hand-tip {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .hand {
+    flex-direction: row;
+    margin-top: 4px;
+  }
+
+  /* 点数候选条。贴了福星的 A 能凑出十来个数，得能横着滑 */
+  .value-box {
+    height: 44px;
+    margin-top: 8px;
+  }
+
+  .peek-label {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-right: 8px;
+  }
+
+  .peek-btn {
+    color: #3b2a00;
+    font-size: 12px;
+    font-weight: bold;
+    background-color: #cfd8d3;
+    border-radius: 12px;
+    padding: 5px 12px;
+    margin-left: 8px;
+  }
+
+  /* 能钓到牌的那几个数，标成金色 */
+  .peek-btn-hit {
+    background-color: #e8b23a;
+  }
+
+  .over-box {
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .over-text {
+    color: #ffffff;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  /* 结算后的两个按钮横着排 */
+  .over-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .btn {
+    height: 40px;
+    border-radius: 20px;
+    margin-top: 6px;
+    margin-left: 5px;
+    margin-right: 5px;
+    padding: 0 22px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn-primary {
+    background-color: #e8b23a;
+  }
+
+  /* 次要按钮：输了的时候「重来」是主选项，「返回关卡」退成描边 */
+  .btn-ghost {
+    background-color: #084730;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .btn-text {
+    color: #3b2a00;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  .btn-text-ghost {
+    color: #e8b23a;
+  }
+
+  /* 底部状态 */
+  .toolbar {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 8px;
+  }
+
+  .toolbar-text {
+    color: #8fc7ab;
+    font-size: 11px;
+  }
+
+  .toolbar-link {
+    color: #e8b23a;
+    font-size: 12px;
+  }
+
+  /* 废牌堆浮层 */
+  .overlay {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.55);
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  .overlay-panel {
+    width: 100%;
+    max-height: 70%;
+    background-color: #0e6b45;
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+
+  .overlay-header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .overlay-title {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  .overlay-count {
+    color: #e8b23a;
+    font-size: 12px;
+  }
+
+  .overlay-close {
+    color: #ffffff;
+    font-size: 13px;
+  }
+
+  .overlay-body {
+    max-height: 340px;
+    margin-top: 6px;
+  }
+
+  .discard-label {
+    color: #9fd9bd;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+
+  .mini-cards {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .mini-card {
+    width: 28px;
+    height: 38px;
+    background-color: #ffffff;
+    border-radius: 4px;
+    margin-right: 5px;
+    margin-top: 5px;
+    align-items: center;
+    justify-content: center;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #ffffff;
+  }
+
+  .mini-rank {
+    color: #1a1a1a;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .mini-suit {
+    color: #1a1a1a;
+    font-size: 10px;
+  }
+</style>
