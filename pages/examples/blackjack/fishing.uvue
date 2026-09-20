@@ -35,9 +35,11 @@
             'card-pickable': pickKind == 'theirs'
           }"
           @click="pickFromTheirs(index)">
-          <text v-if="!revealTheirs" class="card-back-mark">?</text>
+          <view v-if="!revealTheirs" class="card-back-art">
+            <view class="card-back-gem"></view>
+          </view>
           <text v-if="revealTheirs" class="card-rank" :class="{ 'card-red': isRed(card) }">{{
-            card.rank
+            rankText(card)
           }}</text>
           <text v-if="revealTheirs" class="card-suit" :class="{ 'card-red': isRed(card) }">{{
             card.suit
@@ -84,22 +86,30 @@
             :id="'bj-pile-' + index"
             class="card"
             :class="{
-              'card-stickered': card.stickerKey != S_NONE,
-              'card-from-dealer': pileFromDealer[index],
-              'card-from-player': !pileFromDealer[index],
+              'card-stickered': !card.faceDown && card.stickerKey != S_NONE,
+              'card-from-dealer': !card.faceDown && pileFromDealer[index],
+              'card-from-player': !card.faceDown && !pileFromDealer[index],
+              'card-back': card.faceDown,
               'card-caught': index < catchMarks.length && catchMarks[index],
               'card-pickable': pickKind == 'pile' || pickKind == 'slot'
             }"
             @click="pickFromPile(index)">
-            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
-            <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            <!-- 沉在堆底的暗牌：数字花色贴纸一概不露，跟庄家手牌一个背面 -->
+            <view v-if="card.faceDown" class="card-back-art">
+              <view class="card-back-gem"></view>
+            </view>
+            <text v-if="!card.faceDown" class="card-rank" :class="{ 'card-red': isRed(card) }">{{
+              rankText(card)
+            }}</text>
+            <text v-if="!card.faceDown" class="card-suit" :class="{ 'card-red': isRed(card) }">{{
+              card.suit
+            }}</text>
             <text
-              v-if="card.stickerKey != S_NONE"
+              v-if="!card.faceDown && card.stickerKey != S_NONE"
               class="card-sticker"
               @click.stop="showSticker(card)"
               >{{ stickerName(card) }}</text
             >
-            <text v-if="cardMark(card) != ''" class="card-mark">{{ cardMark(card) }}</text>
           </view>
           <!-- 埋钩挑位置时，堆顶后面多一个「压堆顶」的落点 -->
           <view
@@ -198,7 +208,7 @@
             'card-pickable': pickKind == 'hand'
           }"
           @click="tapHand(index)">
-          <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+          <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ rankText(card) }}</text>
           <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
           <text
             v-if="card.stickerKey != S_NONE"
@@ -291,6 +301,7 @@
     rarityAt,
     achievementAt,
     isBlankSticker,
+    isPlayEffect,
     dropsAtBottom,
     S_NONE,
     S_HAUL,
@@ -2583,7 +2594,9 @@
       return 0
     }
     let seen = 0
-    seen = seen + countValue(pile.value, worth)
+    // 堆里的牌按它锁定的数字记 —— 牌面上写的就是这个数，
+    // 它原来是几谁都看不见，庄家也一样。没点数的牌哪个数字都不占
+    seen = seen + countPileValue(worth)
     seen = seen + countValue(playerPoints.value, worth)
     seen = seen + countValue(dealerPoints.value, worth)
     seen = seen + countValue(waste.value, worth)
@@ -2595,6 +2608,17 @@
     }
     const left = SUIT_COUNT - seen
     return left > 0 ? left : 0
+  }
+
+  // 堆里这个数字明着摆了几张。只认锁定的数字，不认牌原来是几
+  function countPileValue(worth : number) : number {
+    let total = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pileValueOf(pile.value[i]) == worth) {
+        total = total + 1
+      }
+    }
+    return total
   }
 
   function countValue(list : Card[], worth : number) : number {
@@ -2807,22 +2831,35 @@
     return card.suit + card.rank
   }
 
-  // 堆里的牌：锁定的数字跟牌面对不上时才标出来，免得每张都挂个数
-  function cardMark(card : Card) : string {
+  // 牌面上写的数字。贴纸把点数改掉了就直接写改完的那个数 ——
+  // 与其在旁边挂个「算几」让人对着牌面换算，不如牌面本身就是它现在算几。
+  //
+  // 堆里的牌按落堆时锁死的数字写；还在手上的牌只有算法唯一时才改写 ——
+  // 幸运那种一张牌能算成好几个数的仍旧写牌面，
+  // 挑中哪个是打出去那一刻的事，这会儿指定一个数反而是误导
+  function rankText(card : Card) : string {
+    // 背面牌的数字翻开之前谁都不该看见
     if (card.faceDown) {
       return ''
     }
-    // 空位牌压根没有点数，标个记号说明它当不了钓点
+    let real : number = 0
     if (card.pileValue == NO_VALUE) {
-      return '无点'
-    }
-    if (card.pileValue < 0) {
+      // 没有点数的牌就是没数字，牌面上空着 —— 不写数也不挂标记，
+      // 一眼就看得出它当不了钓点
       return ''
+    } else if (card.pileValue >= 0) {
+      real = card.pileValue
+    } else {
+      const opts = playOptions(card, pile.value)
+      if (opts.length != 1) {
+        return card.rank
+      }
+      real = opts[0]
     }
-    if (card.pileValue == worthOf(card)) {
-      return ''
+    if (real == card.value) {
+      return card.rank
     }
-    return '算 ' + card.pileValue
+    return real.toString()
   }
 
   // 这张牌打出去最多能拿走几张（含自己）
@@ -3071,18 +3108,6 @@
     font-weight: bold;
   }
 
-  /* 扣着的牌背。庄家手牌平时全是这个样子 */
-  .card-back {
-    background-color: #123f6b;
-    border-color: #0b2a48;
-  }
-
-  .card-back-mark {
-    color: #7fb2e5;
-    font-size: 22px;
-    font-weight: bold;
-  }
-
   /* 比分贴在牌堆标题行右端 */
   .pile-score {
     flex-direction: row;
@@ -3185,6 +3210,37 @@
     border-color: #7ce0a3;
   }
 
+  /* 扣着的牌背。庄家手牌平时全是这个样子，沉到堆底的暗牌也是同一张脸。
+     写在归属色后面压过它们 —— 背面牌连是谁盖的都不该看出来 */
+  .card-back {
+    background-color: #123f6b;
+    border-color: #0b2a48;
+  }
+
+  /* 牌背纹样：深蓝底上套一圈细边，中间压一枚菱形。
+     纯 view 拼出来的，不靠字体、不靠伪元素，各端画出来都一个样 */
+  .card-back-art {
+    width: 34px;
+    height: 52px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #3d7fc1;
+    border-radius: 3px;
+    align-items: center;
+    justify-content: center;
+    background-color: #17497a;
+  }
+
+  .card-back-gem {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+    border-style: solid;
+    border-color: #7fb2e5;
+    background-color: #1b5691;
+    transform: rotate(45deg);
+  }
+
   /* 钓中的那一段：整体点亮抬起，停一拍再收走。
      放在归属色后面压过它们 —— 这一拍里「哪几张要走」比「谁喂的」重要得多 */
   .card-caught {
@@ -3232,13 +3288,6 @@
   .card-sticker {
     color: #b8860b;
     font-size: 10px;
-    font-weight: bold;
-  }
-
-  /* 锁定的数字 / 能钓几张 */
-  .card-mark {
-    color: #1f7a4d;
-    font-size: 9px;
     font-weight: bold;
   }
 
