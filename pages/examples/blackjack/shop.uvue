@@ -1,6 +1,7 @@
 <template>
   <view class="page">
-    <!-- 手里各稀有度的兑换券。上排自选、下排随机 -->
+    <!-- 手里各稀有度的兑换券：自选券和随机券。
+         退换券不在这儿列 —— 它只在能退的那一行上有意义，摆在顶上是干扰 -->
     <view id="bj-shop-tickets" class="head">
       <view v-for="rarity in rarities" :key="rarity.id" class="head-item">
         <text class="head-label" :style="'color: ' + rarity.color">{{ rarity.name }}券</text>
@@ -8,16 +9,32 @@
         <text :id="'bj-random-ticket-' + rarity.id" class="head-random"
           >随机 {{ save.randomTickets[rarity.id] }}</text
         >
-        <text :id="'bj-refund-ticket-' + rarity.id" class="head-refund"
-          >退换 {{ save.refundTickets[rarity.id] }}</text
-        >
       </view>
     </view>
+
+    <!-- 效果查询：贴纸有四十多张，光靠翻找不着。
+         名字、效果说明、解锁条件都进了匹配范围 -->
+    <view class="search">
+      <input
+        id="bj-shop-search"
+        class="search-input"
+        type="text"
+        confirm-type="search"
+        placeholder="查贴纸：名字或效果，如「堆底」「点数」"
+        placeholder-class="search-hint"
+        v-model="query" />
+      <text v-if="query != ''" id="bj-shop-search-clear" class="search-clear" @click="clearQuery"
+        >清空</text
+      >
+    </view>
+    <text v-if="query != '' && matchCount() == 0" class="search-empty"
+      >没有匹配「{{ query }}」的贴纸</text
+    >
 
     <!-- 贴纸按稀有度分组，用同稀有度的券兑换 -->
     <scroll-view class="list">
       <view v-for="rarity in rarities" :key="'g-' + rarity.id">
-        <view class="group-head">
+        <view v-if="shelfOf(rarity.id).length > 0" class="group-head">
           <text class="group-name" :style="'color: ' + rarity.color">{{ rarity.name }}</text>
           <text class="group-sub"
             >每种最多 {{ rarity.own }} 张 · 手里 {{ save.tickets[rarity.id] }} 券</text
@@ -97,9 +114,12 @@
 
   const save = ref<SaveData>(emptySave())
   const rarities = ref<Rarity[]>(RARITIES)
+  // 效果查询栏里敲的字。空串就是不过滤
+  const query = ref<string>('')
 
   // 这个稀有度下上架的贴纸。隐藏贴纸在抽到之前连名字都不露 ——
-  // 抽到就解锁了，之后它会出现在这里，可以拿自选券正常兑换
+  // 抽到就解锁了，之后它会出现在这里，可以拿自选券正常兑换。
+  // 查询栏有字的时候再筛一道
   function shelfOf(rarity : number) : Sticker[] {
     const list : Sticker[] = []
     for (let i = 0; i < STICKERS.length; i++) {
@@ -110,9 +130,45 @@
       if (isHiddenSticker(sticker.key) && !isShopUnlocked(save.value, sticker.key)) {
         continue
       }
+      if (!matches(sticker)) {
+        continue
+      }
       list.push(sticker)
     }
     return list
+  }
+
+  // 查询词匹配名字、效果说明和解锁条件。
+  // 说明也进匹配范围是故意的 —— 想找「能压到堆底的有哪些」时，
+  // 记得住效果记不住名字才是常态
+  function matches(sticker : Sticker) : boolean {
+    const q = query.value.trim().toLowerCase()
+    if (q == '') {
+      return true
+    }
+    if (sticker.name.toLowerCase().indexOf(q) >= 0) {
+      return true
+    }
+    if (sticker.desc.toLowerCase().indexOf(q) >= 0) {
+      return true
+    }
+    if (sticker.key.toLowerCase().indexOf(q) >= 0) {
+      return true
+    }
+    return howToUnlock(sticker.key).toLowerCase().indexOf(q) >= 0
+  }
+
+  // 当前查询一共匹配到几张，一张都没有时给句话，免得整页空着没交代
+  function matchCount() : number {
+    let total = 0
+    for (let i = 0; i < RARITIES.length; i++) {
+      total = total + shelfOf(RARITIES[i].id).length
+    }
+    return total
+  }
+
+  function clearQuery() {
+    query.value = ''
   }
 
   // 这一档还有没有随机券、抽池里还有没有东西
@@ -366,12 +422,6 @@
     font-size: 10px;
   }
 
-  /* 退换券又是一个币种，青色跟金色的自选券、玫红的随机券都分得开 */
-  .head-refund {
-    color: #4dd0c7;
-    font-size: 10px;
-  }
-
   .refund-btn {
     background-color: #1d7a72;
   }
@@ -387,6 +437,41 @@
   }
 
   /* 贴纸列表 */
+  /* 效果查询栏 */
+  .search {
+    flex-direction: row;
+    align-items: center;
+    background-color: #084730;
+    border-radius: 8px;
+    padding: 2px 10px;
+    margin-top: 6px;
+  }
+
+  .search-input {
+    flex: 1;
+    height: 32px;
+    color: #ffffff;
+    font-size: 13px;
+  }
+
+  .search-hint {
+    color: #6fa98c;
+    font-size: 13px;
+  }
+
+  .search-clear {
+    color: #9fd9bd;
+    font-size: 12px;
+    padding: 4px 6px;
+    margin-left: 6px;
+  }
+
+  .search-empty {
+    color: #8fc7ab;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+
   .list {
     flex: 1;
     margin-top: 4px;

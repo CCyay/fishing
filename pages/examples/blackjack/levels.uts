@@ -1,26 +1,36 @@
-// 10 个关卡。难度沿三条线递增：庄家牌组上的贴纸变多、庄家出牌越来越会算、
-// 局越拖越长（每人 10 回合到 20 回合）。
+// 四个钓场，各四关，从普通爬到传说。
+//
+// 一个钓场教一条路：打通它就拿齐了那条路上的全部贴纸，所以「先去哪个钓场」
+// 等于「这一周目玩什么」。四个普通关一开始就都开着，随便先打哪个；
+// 往后每关要求同一个钓场的上一关先通。钓场之间互不挡路 ——
+// 你可以把浅滩打穿了却一次都没进过暗流。
+//
+// 难度沿三条线递增：庄家牌组上的贴纸变多、庄家出牌越来越会算、局越拖越长。
 // 长局更难是因为抢堆拼的是记数字：短局抢中一两个大堆就能定胜负，
 // 局一长，哪个数字还剩几张没出就得自己心里有数，全靠运气撑不到最后。
+//
 // 每关的券只发一次。通过之后还能回去重打，但不再给券 ——
 // 全程能拿到的券是固定的，所以每张券花在哪张贴纸上都是不可逆的取舍。
 // 重打的用处是刷成就和试牌组。输了不扣任何东西，可以改完牌组再来。
 
 import {
-  MAX_STICKERS_PER_RANK,
   indexOfKey,
   isFixedRank
 } from '@/pages/examples/blackjack/stickers.uts'
 import {
   RANKS,
+  SUITS,
   emptyStickers,
-  stickerIndex,
-  stickersOfRank
+  stickerIndex
 } from '@/pages/examples/blackjack/cards.uts'
 
 export type Level = {
   index : number
   name : string
+  // 属于哪个钓场（0 起）。一个钓场教一条路，四关从普通爬到传说
+  field : number
+  // 这一关在钓场里的档次，跟贴纸稀有度对齐：0 普通、1 稀有、2 史诗、3 传说
+  tier : number
   // 通关奖励：哪种稀有度的自选兑换券、给几张。失败什么都不给
   rewardRarity : number
   rewardCount : number
@@ -30,223 +40,502 @@ export type Level = {
   randomCount : number
   // 庄家牌组上贴的贴纸总数
   dealerStickers : number
-  // 庄家牌组上用的贴纸种类，纯粹决定这关难打成什么样
+  // 庄家牌组上用的贴纸种类，纯粹决定这关难打成什么样。
+  // 一般就取本钓场那条路上的牌 —— 打谁的场子就先挨谁的招
   dealerStickerKinds : string[]
   // 通关后解锁到货架上的贴纸。跟庄家用不用无关 ——
   // 有些贴纸庄家从来不用，照样能靠通关拿到
   unlockStickers : string[]
   // 庄家出牌策略：1 随机、2 稳健、3 精算
   ai : number
-  // 庄家最先打出的几张牌盖着不给你看，结算才翻开。
-  // 低关卡是 0，让你先把规则摸熟；高关卡才开始藏牌。
-  // 抢堆规则里暂时不用 —— 堆是公共的，盖着的牌没法参与重复判定
+  // 庄家最先打出的几张牌盖着不给你看，结算才翻开
   dealerHidden : number
-  // 重复通关给几张退换券。首次通关给的是正经券，重打给的是回炉的机会 ——
-  // 越难的关给得越多，第 10 关一趟能换三张
+  // 重复通关给几张退换券。首次通关给的是正经券，重打给的是回炉的机会
   refundCount : number
-  // 每人各打几个回合，打满就结算。双方回合数分开走，所以这是「一人几手」。
-  // 局越长越考验记数字和控堆：短局抢一两个大堆就能定胜负，
-  // 长局里你得算清楚每个数字还剩几张没出
+  // 每人各打几个回合，打满就结算。双方回合数分开走，所以这是「一人几手」
   turns : number
 }
 
-export const LEVEL_COUNT : number = 10
+export const LEVEL_COUNT : number = 24
+// 一个钓场几关。四关对四个稀有度
+export const FIELD_TIERS : number = 4
+// 钓场名，按 field 下标。关卡名是「钓场 · 关名」，这里只留钓场那半截
+export const FIELD_NAMES : string[] = [
+  '浅滩钓场', '深潭钓场', '枯塘钓场', '暗流钓场', '彩滩钓场', '浑塘钓场'
+]
+// 每个钓场教的是哪条路，列表页拿去当副标题
+export const FIELD_TAGS : string[] = ['点数', '大数', '0 数', '控制', '花色', '混沌']
 
-// 贴纸一共 50 种，四条路拿到：
-//   · 免解锁 4 张（轻坠、小坠、窥探、盲换）—— 开局货架上就有；
+// 贴纸一共 80 种，四条路拿到：
+//   · 免解锁 3 张（轻坠、小坠、窥探）—— 开局货架上就有；
 //   · 隐藏 1 张（幸运）—— 只有随机券抽得到；
 //   · 成就 8 张（福星、倒影、埋钩、暗桩、对换、假饵、撒网、摸底）—— 得先在牌桌上做到；
-//   · 通关 37 张 —— 就是下面各关的 unlockStickers。
+//   · 通关 68 张 —— 就是下面各关的 unlockStickers，六个钓场分完，一张不重。
 // 四条路互不重叠：成就那几张不放进通关解锁，否则成就就白设了。
 //
-// 解锁顺序跟着稀有度走，越贵的越靠后：1-2 关放普通、3-5 关放稀有、
-// 6-8 关放史诗、9 关放传说。发的券也同步跟上，打完就能立刻换上当关解锁的东西。
-// 第 10 关不解锁任何贴纸，但给第二张传说券 —— 第 9 关一次放出两张传说，
-// 一张券挑不过来，打穿最后一关才配拿到第二张。
+// 每关解锁的都是本档次的贴纸，所以拿到券的同时货架上正好上新。
+// 全程能拿到：普通 18 自选 + 6 随机、稀有 12 + 6、史诗 12 + 6、传说 6 + 0，共 60 张券。
+// 但单独一条路只有 11 张（3+1、2+1、2+1、1+0），配不齐一整条路 ——
+// 想把一条路走深，就得拿别的钓场的券去换退换券回炉。这是刻意的：
+// 六个钓场全打通能解锁所有贴纸，但券永远不够把它们全买下来。
 //
-// 全程能拿到：普通 13、稀有 6、史诗 6、传说 2，共 27 张券，
-// 其中普通 5、稀有 2、史诗 3 是随机券（抽池里含隐藏贴纸），其余是自选券。
-// 再加上新存档白给的 4 张普通随机券，牌组上最多有 31 张贴纸牌 —— 52 张里占六成。
-// 这个总量跟改版前一样：以前是白送 4 张幸运，现在换成 4 张随机券去抽，
-// 幸运成了隐藏贴纸，抽不抽得到看运气。
-// 传说档不发随机券：那三张里没有隐藏的，随机抽不如自己挑。
 // 普通券给得比别的档宽，是因为普通贴纸是地基：单张影响最小，
-// 靠的是贴满同一种（上限 4 张）把抽到的概率堆上来，一张轻坠是运气、
-// 四张轻坠才是流派。13 张正好买满三种还剩一张零头。
-// 这是刻意做高的：贴纸之间的联动（改数字、挪位置、垫空位）要几张同时在堆上才成得了，
+// 靠的是贴满同一种（上限 4 张）把抽到的概率堆上来 —— 一张轻坠是运气，
+// 四张轻坠才是流派。贴纸之间的联动要几张同时在堆上才成得了，
 // 密度太低的话精心搭的组合一局都碰不上一次，构筑就白做了。
-// 高密度不等于高操作量 —— 永续类零交互，只有要挑位置、挑方向的才需要你动手。
 const LEVELS : Level[] = [
+  // ---------- 浅滩钓场：点数 ----------
+  // 教的是「这张牌算几点」。坠子提系把点数拢到一处，派生系把钓面铺开
   {
     index: 1,
-    name: '浅滩',
-    turns: 10,
+    name: '浅滩 · 初涉',
+    field: 0,
+    tier: 0,
+    turns: 12,
     refundCount: 1,
     rewardRarity: 0,
     rewardCount: 3,
     randomRarity: 0,
-    randomCount: 2,
-    dealerStickers: 2,
+    randomCount: 1,
+    dealerStickers: 4,
     dealerStickerKinds: ['sinker1', 'peek'],
-    unlockStickers: ['sink1', 'drift', 'minus1', 'minus2'],
+    unlockStickers: ['minus1', 'minus2', 'sink1'],
     ai: 1,
     dealerHidden: 0
   },
   {
     index: 2,
-    name: '小河湾',
-    turns: 11,
+    name: '浅滩 · 涨水',
+    field: 0,
+    tier: 1,
+    turns: 15,
     refundCount: 1,
-    rewardRarity: 0,
-    rewardCount: 3,
-    randomRarity: 0,
-    randomCount: 2,
-    dealerStickers: 4,
-    dealerStickerKinds: ['sinker2', 'drift', 'sink1'],
-    unlockStickers: ['sinker3', 'hook', 'minus3', 'minus4'],
-    ai: 1,
-    dealerHidden: 0
-  },
-  {
-    index: 3,
-    name: '芦苇荡',
-    turns: 12,
-    refundCount: 1,
-    rewardRarity: 0,
-    rewardCount: 2,
-    randomRarity: 0,
-    randomCount: 1,
-    dealerStickers: 6,
-    dealerStickerKinds: ['give', 'hook', 'sinker3'],
-    unlockStickers: ['sinker4', 'trade', 'dye', 'empty'],
-    ai: 2,
-    dealerHidden: 0
-  },
-  {
-    index: 4,
-    name: '野塘',
-    turns: 13,
-    refundCount: 1,
-    rewardRarity: 1,
-    rewardCount: 2,
-    randomRarity: 1,
-    randomCount: 1,
-    dealerStickers: 8,
-    dealerStickerKinds: ['trade', 'sinker4', 'strip', 'shadow'],
-    unlockStickers: ['reel', 'strip', 'sand', 'veil'],
-    ai: 2,
-    dealerHidden: 0
-  },
-  {
-    index: 5,
-    name: '水库',
-    turns: 14,
-    refundCount: 2,
     rewardRarity: 1,
     rewardCount: 2,
     randomRarity: 1,
     randomCount: 1,
     dealerStickers: 10,
-    dealerStickerKinds: ['reel', 'probe1', 'lucky', 'picked'],
-    unlockStickers: ['sink2', 'line', 'scan', 'dredge'],
+    dealerStickerKinds: ['sinker2', 'minus1', 'drift'],
+    unlockStickers: [
+      'sinker3', 'sinker4', 'minus3', 'minus4', 'drift', 'hook', 'reel', 'strip',
+      'sink2', 'streak'
+    ],
     ai: 2,
     dealerHidden: 0
   },
   {
-    index: 6,
-    name: '江心',
-    turns: 15,
-    refundCount: 2,
-    rewardRarity: 2,
-    rewardCount: 1,
-    randomRarity: 2,
-    randomCount: 1,
-    dealerStickers: 12,
-    dealerStickerKinds: ['line', 'shadow', 'blessed', 'probe2'],
-    unlockStickers: ['sinker5', 'sinker6', 'blend', 'gate'],
-    ai: 3,
-    dealerHidden: 0
-  },
-  {
-    index: 7,
-    name: '深潭',
-    turns: 16,
-    refundCount: 2,
-    rewardRarity: 2,
-    rewardCount: 1,
-    randomRarity: 2,
-    randomCount: 1,
-    dealerStickers: 14,
-    dealerStickerKinds: ['sinker5', 'stake', 'mirror', 'probe2'],
-    unlockStickers: ['mirror', 'streak', 'mask', 'stir'],
-    ai: 3,
-    dealerHidden: 1
-  },
-  {
-    index: 8,
-    name: '暗流',
-    turns: 17,
-    refundCount: 2,
-    rewardRarity: 2,
-    rewardCount: 1,
-    randomRarity: 2,
-    randomCount: 1,
-    dealerStickers: 16,
-    dealerStickerKinds: ['mirror', 'streak', 'lure', 'sinker6'],
-    unlockStickers: ['probe2', 'wash', 'same', 'dig', 'gather'],
-    ai: 3,
-    dealerHidden: 1
-  },
-  {
-    index: 9,
-    name: '断崖下',
+    index: 3,
+    name: '浅滩 · 深流',
+    field: 0,
+    tier: 2,
     turns: 18,
-    refundCount: 3,
-    rewardRarity: 3,
-    rewardCount: 1,
-    randomRarity: 3,
-    randomCount: 0,
+    refundCount: 2,
+    rewardRarity: 2,
+    rewardCount: 2,
+    randomRarity: 2,
+    randomCount: 1,
     dealerStickers: 18,
-    dealerStickerKinds: ['murky', 'cast', 'longline', 'blessed', 'stake'],
-    // 传说三张，其中撒网靠成就拿。这一关放出另外两张，
-    // 全程正好两张传说券，一张换一张
-    unlockStickers: ['longline', 'murky', 'hue', 'unify'],
+    dealerStickerKinds: ['sinker3', 'sinker4', 'hook', 'reel'],
+    unlockStickers: ['sinker5', 'sinker6', 'minus5', 'minus6', 'line', 'same'],
     ai: 3,
-    dealerHidden: 2
+    dealerHidden: 1
   },
   {
-    index: 10,
-    name: '龙王潭',
+    index: 4,
+    name: '浅滩 · 长线',
+    field: 0,
+    tier: 3,
     turns: 20,
     refundCount: 3,
     rewardRarity: 3,
     rewardCount: 1,
     randomRarity: 3,
     randomCount: 0,
-    dealerStickers: 20,
-    dealerStickerKinds: [
-      'cast',
-      'murky',
-      'longline',
-      'mirror',
-      'streak',
-      'lure',
-      'shadow',
-      'blessed',
-      'stake',
-      'sinker6'
-    ],
-    // 最后一关不解锁任何贴纸 —— 通关之后就没地方用了。
-    // 但它给的是第二张传说券：第 9 关一次放出三张传说，一张券根本不够挑，
-    // 打穿最后一关才配拿到第二张
-    unlockStickers: [],
+    dealerStickers: 26,
+    dealerStickerKinds: ['sinker5', 'sinker6', 'line', 'blessed', 'shadow'],
+    unlockStickers: ['longline'],
     ai: 3,
     dealerHidden: 2
+  },
+
+  // ---------- 深潭钓场：大数 ----------
+  // 11 及以上是大数。J 从不落堆，11 是牌堆里天然的空缺 ——
+  // 这条路就是在那个没人到得了的地方建自己的钓点，顺带把小数的收益压干
+  {
+    index: 5,
+    name: '深潭 · 探底',
+    field: 1,
+    tier: 0,
+    turns: 12,
+    refundCount: 1,
+    rewardRarity: 0,
+    rewardCount: 3,
+    randomRarity: 0,
+    randomCount: 1,
+    dealerStickers: 4,
+    dealerStickerKinds: ['sinker2', 'peek'],
+    unlockStickers: ['rise'],
+    ai: 1,
+    dealerHidden: 0
+  },
+  {
+    index: 6,
+    name: '深潭 · 沉底',
+    field: 1,
+    tier: 1,
+    turns: 15,
+    refundCount: 1,
+    rewardRarity: 1,
+    rewardCount: 2,
+    randomRarity: 1,
+    randomCount: 1,
+    dealerStickers: 10,
+    dealerStickerKinds: ['sinker4', 'hook', 'narrow'],
+    unlockStickers: ['prop', 'drain', 'narrow', 'scan'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 7,
+    name: '深潭 · 闸口',
+    field: 1,
+    tier: 2,
+    turns: 18,
+    refundCount: 2,
+    rewardRarity: 2,
+    rewardCount: 2,
+    randomRarity: 2,
+    randomCount: 1,
+    dealerStickers: 18,
+    dealerStickerKinds: ['stake', 'gate', 'sinker6', 'surge'],
+    unlockStickers: ['anchor', 'peak', 'gate', 'surge', 'drag'],
+    ai: 3,
+    dealerHidden: 1
+  },
+  {
+    index: 8,
+    name: '深潭 · 死水',
+    field: 1,
+    tier: 3,
+    turns: 20,
+    refundCount: 3,
+    rewardRarity: 3,
+    rewardCount: 1,
+    randomRarity: 3,
+    randomCount: 0,
+    dealerStickers: 26,
+    dealerStickerKinds: ['stake', 'anchor', 'gate', 'deep', 'sinker6'],
+    unlockStickers: ['deep'],
+    ai: 3,
+    dealerHidden: 2
+  },
+
+  // ---------- 枯塘钓场：0 数 ----------
+  // 把牌压成 0 点：钩不上也没人钩得上，但花色还在、还算偶数。
+  // 变现全靠不看点数的那几种收法 —— 拾零认 0 点，拾偶认偶数（0 也算偶数）
+  {
+    index: 9,
+    name: '枯塘 · 见底',
+    field: 2,
+    tier: 0,
+    turns: 12,
+    refundCount: 1,
+    rewardRarity: 0,
+    rewardCount: 3,
+    randomRarity: 0,
+    randomCount: 1,
+    dealerStickers: 4,
+    dealerStickerKinds: ['minus2', 'peek'],
+    unlockStickers: ['slack'],
+    ai: 1,
+    dealerHidden: 0
+  },
+  {
+    index: 10,
+    name: '枯塘 · 淤沙',
+    field: 2,
+    tier: 1,
+    turns: 15,
+    refundCount: 1,
+    rewardRarity: 1,
+    rewardCount: 2,
+    randomRarity: 1,
+    randomCount: 1,
+    dealerStickers: 10,
+    dealerStickerKinds: ['minus4', 'veil', 'slack'],
+    unlockStickers: ['veil', 'dredge', 'glean', 'empty'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 11,
+    name: '枯塘 · 平潮',
+    field: 2,
+    tier: 2,
+    turns: 18,
+    refundCount: 2,
+    rewardRarity: 2,
+    rewardCount: 2,
+    randomRarity: 2,
+    randomCount: 1,
+    dealerStickers: 18,
+    dealerStickerKinds: ['minus6', 'veil', 'evens', 'glean'],
+    unlockStickers: ['bare', 'dry', 'again', 'evens'],
+    ai: 3,
+    dealerHidden: 1
+  },
+  {
+    index: 12,
+    name: '枯塘 · 静水',
+    field: 2,
+    tier: 3,
+    turns: 20,
+    refundCount: 3,
+    rewardRarity: 3,
+    rewardCount: 1,
+    randomRarity: 3,
+    randomCount: 0,
+    dealerStickers: 26,
+    dealerStickerKinds: ['calm', 'evens', 'glean', 'dry', 'bare'],
+    unlockStickers: ['calm'],
+    ai: 3,
+    dealerHidden: 2
+  },
+
+  // ---------- 暗流钓场：控制与混沌 ----------
+  // 不比谁钓得多，比谁还打得出有效牌。看清对手手上有什么、把能用的抽走、
+  // 再把他的手牌顶过上限让他摸不到新的 —— 他就只能当血包给你养堆
+  {
+    index: 13,
+    name: '暗流 · 窥影',
+    field: 3,
+    tier: 0,
+    turns: 12,
+    refundCount: 1,
+    rewardRarity: 0,
+    rewardCount: 3,
+    randomRarity: 0,
+    randomCount: 1,
+    dealerStickers: 4,
+    dealerStickerKinds: ['peek', 'sink1'],
+    unlockStickers: ['spy', 'feed'],
+    ai: 1,
+    dealerHidden: 0
+  },
+  {
+    index: 14,
+    name: '暗流 · 摸底',
+    field: 3,
+    tier: 1,
+    turns: 15,
+    refundCount: 1,
+    rewardRarity: 1,
+    rewardCount: 2,
+    randomRarity: 1,
+    randomCount: 1,
+    dealerStickers: 10,
+    dealerStickerKinds: ['probe1', 'press', 'spy'],
+    unlockStickers: ['press', 'unhook'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 15,
+    name: '暗流 · 锁喉',
+    field: 3,
+    tier: 2,
+    turns: 18,
+    refundCount: 2,
+    rewardRarity: 2,
+    rewardCount: 2,
+    randomRarity: 2,
+    randomCount: 1,
+    dealerStickers: 18,
+    dealerStickerKinds: ['mirror', 'probe2', 'lead', 'narrow'],
+    unlockStickers: ['probe2', 'probe3', 'lead', 'mirror', 'wash'],
+    ai: 3,
+    dealerHidden: 1
+  },
+  {
+    index: 16,
+    name: '暗流 · 闭口',
+    field: 3,
+    tier: 3,
+    turns: 20,
+    refundCount: 3,
+    rewardRarity: 3,
+    rewardCount: 1,
+    randomRarity: 3,
+    randomCount: 0,
+    dealerStickers: 26,
+    dealerStickerKinds: ['shut', 'lead', 'narrow', 'mirror', 'wash'],
+    unlockStickers: ['shut'],
+    ai: 3,
+    dealerHidden: 2
+  },
+
+  // ---------- 彩滩钓场：花色 ----------
+  // 不看点数只认花色。收色、集花这几张收的是散在堆里的牌，
+  // 所以它是唯一能把死牌（0 点的、被推走的）捞回来的路子 —— 背面牌除外，那个没花色
+  {
+    index: 17,
+    name: '彩滩 · 沾色',
+    field: 4,
+    tier: 0,
+    turns: 12,
+    refundCount: 1,
+    rewardRarity: 0,
+    rewardCount: 3,
+    randomRarity: 0,
+    randomCount: 1,
+    dealerStickers: 4,
+    dealerStickerKinds: ['smear', 'peek'],
+    unlockStickers: ['smear'],
+    ai: 1,
+    dealerHidden: 0
+  },
+  {
+    index: 18,
+    name: '彩滩 · 染池',
+    field: 4,
+    tier: 1,
+    turns: 15,
+    refundCount: 1,
+    rewardRarity: 1,
+    rewardCount: 2,
+    randomRarity: 1,
+    randomCount: 1,
+    dealerStickers: 10,
+    dealerStickerKinds: ['dye', 'smear', 'veil'],
+    unlockStickers: ['dye'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 19,
+    name: '彩滩 · 聚色',
+    field: 4,
+    tier: 2,
+    turns: 18,
+    refundCount: 2,
+    rewardRarity: 2,
+    rewardCount: 2,
+    randomRarity: 2,
+    randomCount: 1,
+    dealerStickers: 18,
+    dealerStickerKinds: ['gather', 'blend', 'dye', 'smear'],
+    unlockStickers: ['gather', 'blend', 'akin', 'hue'],
+    ai: 3,
+    dealerHidden: 1
+  },
+  {
+    index: 20,
+    name: '彩滩 · 一色',
+    field: 4,
+    tier: 3,
+    turns: 20,
+    refundCount: 3,
+    rewardRarity: 3,
+    rewardCount: 1,
+    randomRarity: 3,
+    randomCount: 0,
+    dealerStickers: 26,
+    dealerStickerKinds: ['unify', 'hue', 'gather', 'blend', 'dye'],
+    unlockStickers: ['unify', 'split'],
+    ai: 3,
+    dealerHidden: 2
+  },
+
+  // ---------- 浑塘钓场：混沌 ----------
+  // 往堆里塞谁也碰不着的背面牌 —— 没数字没花色，是这个玩法里唯一的绝对死牌。
+  // 全表只有起底能把它们变成分，所以这条路是「埋一座坟，再自己去挖」
+  {
+    index: 21,
+    name: '浑塘 · 落沙',
+    field: 5,
+    tier: 0,
+    turns: 12,
+    refundCount: 1,
+    rewardRarity: 0,
+    rewardCount: 3,
+    randomRarity: 0,
+    randomCount: 1,
+    dealerStickers: 4,
+    dealerStickerKinds: ['grit', 'peek'],
+    unlockStickers: ['grit'],
+    ai: 1,
+    dealerHidden: 0
+  },
+  {
+    index: 22,
+    name: '浑塘 · 乱投',
+    field: 5,
+    tier: 1,
+    turns: 15,
+    refundCount: 1,
+    rewardRarity: 1,
+    rewardCount: 2,
+    randomRarity: 1,
+    randomCount: 1,
+    dealerStickers: 10,
+    dealerStickerKinds: ['sand', 'grit', 'volley'],
+    unlockStickers: ['sand', 'volley', 'sieve'],
+    ai: 2,
+    dealerHidden: 0
+  },
+  {
+    index: 23,
+    name: '浑塘 · 蒙面',
+    field: 5,
+    tier: 2,
+    turns: 18,
+    refundCount: 2,
+    rewardRarity: 2,
+    rewardCount: 2,
+    randomRarity: 2,
+    randomCount: 1,
+    dealerStickers: 18,
+    dealerStickerKinds: ['mask', 'stir', 'sand', 'troll'],
+    unlockStickers: ['mask', 'stir', 'dig', 'troll'],
+    ai: 3,
+    dealerHidden: 2
+  },
+  {
+    index: 24,
+    name: '浑塘 · 浑水',
+    field: 5,
+    tier: 3,
+    turns: 20,
+    refundCount: 3,
+    rewardRarity: 3,
+    rewardCount: 1,
+    randomRarity: 3,
+    randomCount: 0,
+    dealerStickers: 26,
+    dealerStickerKinds: ['murky', 'mask', 'stir', 'dig', 'lure'],
+    unlockStickers: ['murky'],
+    ai: 3,
+    dealerHidden: 3
   }
 ]
 
 export function allLevels() : Level[] {
   return LEVELS
+}
+
+// 某个钓场的四关，按档次排好
+export function levelsOfField(field : number) : Level[] {
+  const list : Level[] = []
+  for (let i = 0; i < LEVELS.length; i++) {
+    if (LEVELS[i].field == field) {
+      list.push(LEVELS[i])
+    }
+  }
+  return list
+}
+
+export function fieldCount() : number {
+  return FIELD_NAMES.length
 }
 
 export function levelAt(index : number) : Level {
@@ -258,16 +547,56 @@ export function levelAt(index : number) : Level {
   return LEVELS[0]
 }
 
+// 史诗关和传说关另外要求「总共通关几关」，跨钓场算。
+//
+// 这是刻意拦的：一条路的券只有 11 张（3+1、2+1、2+1、1+0），配不齐那条路本身，
+// 所以想打动自己这条路的后两关，就得先去别的钓场攒券和贴纸。
+// 没有这道坎的话，一头扎进浅滩一路打到传说是可行的 ——
+// 那样既玩不到别的路子，牌组也弱得过不去
+export function tierGate(tier : number) : number {
+  if (tier == 2) {
+    return 6
+  }
+  if (tier == 3) {
+    return 12
+  }
+  return 0
+}
+
+// 能不能打这一关。
+//
+// 每个钓场的普通关一开始就开着，往后每关要求同一个钓场的上一关先通；
+// 史诗、传说还要看总通关数够不够。
 // 通过的关卡可以回去重打（刷成就、试牌组），只是不再给券
-export function isPlayable(index : number, cleared : number) : boolean {
-  return index <= cleared + 1
+export function isPlayable(index : number, cleared : number[]) : boolean {
+  const level = levelAt(index)
+  if (level.tier == 0) {
+    return true
+  }
+  // 同一个钓场的关卡 index 是连着排的，上一关就是 index - 1
+  if (!isCleared(index - 1, cleared)) {
+    return false
+  }
+  return cleared.length >= tierGate(level.tier)
 }
 
-export function isCleared(index : number, cleared : number) : boolean {
-  return index <= cleared
+// 差几关才够门槛，0 表示门槛已经过了。列表页拿它写「还差 N 关」
+export function gateLeft(index : number, cleared : number[]) : number {
+  const need = tierGate(levelAt(index).tier) - cleared.length
+  return need > 0 ? need : 0
 }
 
-// 庄家牌组的贴纸矩阵：只用本关指定的贴纸种类，尽量摊到不同数字上
+export function isCleared(index : number, cleared : number[]) : boolean {
+  for (let i = 0; i < cleared.length; i++) {
+    if (cleared[i] == index) {
+      return true
+    }
+  }
+  return false
+}
+
+// 庄家牌组的贴纸矩阵：只用本关指定的贴纸种类，尽量摊到不同数字上。
+// 矩阵一个格子就是一张牌，所以一轮填一个花色，填满四轮为止
 export function dealerStuck(level : Level) : number[] {
   const stuck = emptyStickers()
   const kinds = level.dealerStickerKinds
@@ -275,8 +604,7 @@ export function dealerStuck(level : Level) : number[] {
     return stuck
   }
   let left = level.dealerStickers
-  let round = 0
-  while (left > 0 && round < MAX_STICKERS_PER_RANK) {
+  for (let round = 0; round < SUITS.length && left > 0; round++) {
     for (let r = 0; r < RANKS.length; r++) {
       if (left <= 0) {
         break
@@ -285,35 +613,30 @@ export function dealerStuck(level : Level) : number[] {
       if (isFixedRank(RANKS[r])) {
         continue
       }
-      const slot = indexOfKey(kinds[(r + round) % kinds.length])
-      if (slot < 0) {
+      const id = indexOfKey(kinds[(r + round) % kinds.length])
+      if (id < 0) {
         continue
       }
-      const at = stickerIndex(r, slot)
-      // 庄家跟你一样，同一个数字上可以摞好几张同种贴纸，
-      // 卡的只是这个数字统共 4 张牌
-      if (stickersOfRank(stuck, r).length < MAX_STICKERS_PER_RANK) {
-        stuck[at] = stuck[at] + 1
+      const at = stickerIndex(r, round)
+      if (stuck[at] == 0) {
+        stuck[at] = id + 1
         left = left - 1
       }
     }
-    round = round + 1
   }
   return stuck
 }
 
+// 难度跟档次走，四个钓场同档的一样难
 export function difficultyText(level : Level) : string {
-  if (level.index <= 2) {
+  if (level.tier == 0) {
     return '入门'
   }
-  if (level.index <= 4) {
-    return '普通'
+  if (level.tier == 1) {
+    return '进阶'
   }
-  if (level.index <= 6) {
+  if (level.tier == 2) {
     return '困难'
-  }
-  if (level.index <= 8) {
-    return '残酷'
   }
   return '地狱'
 }

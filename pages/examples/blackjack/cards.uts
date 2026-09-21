@@ -6,7 +6,6 @@
 // 贴了贴纸的牌变成特殊牌，牌组张数不变。
 
 import {
-  STICKER_COUNT,
   S_NONE,
   S_HAUL,
   isFixedRank,
@@ -16,6 +15,8 @@ import {
   reflectSumOf,
   flatBonusOf,
   fixedValueOf,
+  anchorsDeep,
+  baresHook,
   keyAtIndex
 } from '@/pages/examples/blackjack/stickers.uts'
 
@@ -36,10 +37,17 @@ export type Card = {
   value : number
   // 贴的贴纸 key，空串表示没贴贴纸的普通牌
   stickerKey : string
-  // 落到公共牌堆上时锁定的数字，-1 表示不在堆里。
-  // 一张牌的候选点数可能有好几个（福星的 ±2、放线顺延出来的那几位），
-  // 落堆的那一刻必须定死一个 —— 否则后面的牌拿什么跟它比
+
+  // 在不在堆里、有没有点数。-1 是还没落堆，NO_VALUE 是落了堆但没有数字
+  //（空位牌、背面牌），0 及以上表示落了堆而且有数字 —— 具体是哪几个数看 pileValues
   pileValue : number
+  // 落堆之后这张牌算哪几个数。
+  //
+  // 不锁死成一个：一张能算 13/1/2 的幸运 A 落进堆里，这三个数同时是它的钓点，
+  // 谁打出的牌能算成其中任何一个都钓得走它。反过来它也更容易被人钓走 ——
+  // 多候选换来的钓面，在堆里就是多出来的破绽。
+  // 平潮会就地改写这个数组（奇数压成 0），改完是永久的
+  pileValues : number[]
 
   // 下面这几个字段眼下没有贴纸会动，一律保持初值。
   // 留着是因为它们是数据模型的一部分，删掉要跟着改 buildDeck、cloneCard 几处构造；
@@ -59,34 +67,39 @@ export type Card = {
   altValue : number
 }
 
-// 贴纸矩阵按「行 = 数字，列 = 贴纸」展开成一维，长度 13 × 贴纸种类数。
-// 列用的是 STICKERS 里的下标，不是 key —— 矩阵要定长，下标最省事；
-// 存档时再换算回 key，那边才需要稳定的标识
-export function stickerIndex(rankIndex : number, stickerSlot : number) : number {
-  return rankIndex * STICKER_COUNT + stickerSlot
+// 贴纸矩阵按「行 = 数字，列 = 花色」展开成一维，长度 13 × 4 —— 一个格子就是一张牌。
+//
+// 格子里存的是「贴纸下标 + 1」，0 表示这张牌上什么都没贴。
+// 存 +1 是因为下标从 0 开始，而数组初值就是 0，不错开的话分不清「贴了第 0 种」
+// 和「什么都没贴」。存档时再换算回 key —— 只有那边需要稳定的标识，
+// 下标会随着增删贴纸变动。
+//
+// 旧版矩阵是「数字 × 贴纸种类 → 张数」，存得下「这个数字贴了几张幸运」，
+// 却存不下「♥3 贴的是哪张」。改成按花色存之后，牌组编辑页才能精确到单张牌
+export function stickerIndex(rankIndex : number, suitIndex : number) : number {
+  return rankIndex * SUITS.length + suitIndex
 }
 
 export function emptyStickers() : number[] {
   const list : number[] = []
-  for (let i = 0; i < RANKS.length * STICKER_COUNT; i++) {
+  for (let i = 0; i < RANKS.length * SUITS.length; i++) {
     list.push(0)
   }
   return list
 }
 
-// 某个数字身上贴的贴纸，一张一个条目、按张数展开。
-// 同一个数字有 4 张牌，同种贴纸可以贴满 4 张 —— 3 的四张全贴幸运是一种正经构筑，
-// 所以这里返回的是「贴纸清单」而不是「贴纸种类」，buildDeck 拿它按花色一张张发下去
+// 这个数字这个花色的那张牌贴的是哪张贴纸，-1 表示没贴
+export function stickerAtSuit(stuck : number[], rankIndex : number, suitIndex : number) : number {
+  const at = stickerIndex(rankIndex, suitIndex)
+  return at < stuck.length ? stuck[at] - 1 : -1
+}
+
+// 某个数字的四张牌各贴着什么，按花色顺序排。-1 表示那个花色空着。
+// buildDeck 拿它一张张发下去，下标跟 SUITS 对齐
 export function stickersOfRank(stuck : number[], rankIndex : number) : number[] {
   const ids : number[] = []
-  for (let s = 0; s < STICKER_COUNT; s++) {
-    const at = stickerIndex(rankIndex, s)
-    if (at >= stuck.length) {
-      continue
-    }
-    for (let n = 0; n < stuck[at]; n++) {
-      ids.push(s)
-    }
+  for (let s = 0; s < SUITS.length; s++) {
+    ids.push(stickerAtSuit(stuck, rankIndex, s))
   }
   return ids
 }
@@ -94,19 +107,34 @@ export function stickersOfRank(stuck : number[], rankIndex : number) : number[] 
 // 某个数字身上有哪几种贴纸，同种只算一次。展示用
 export function stickerKindsOfRank(stuck : number[], rankIndex : number) : number[] {
   const ids : number[] = []
-  for (let s = 0; s < STICKER_COUNT; s++) {
-    const at = stickerIndex(rankIndex, s)
-    if (at < stuck.length && stuck[at] > 0) {
-      ids.push(s)
+  for (let s = 0; s < SUITS.length; s++) {
+    const id = stickerAtSuit(stuck, rankIndex, s)
+    if (id < 0) {
+      continue
+    }
+    let dup = false
+    for (let k = 0; k < ids.length; k++) {
+      if (ids[k] == id) {
+        dup = true
+        break
+      }
+    }
+    if (!dup) {
+      ids.push(id)
     }
   }
   return ids
 }
 
 // 某个数字上这种贴纸贴了几张
-export function stuckCountAt(stuck : number[], rankIndex : number, slot : number) : number {
-  const at = stickerIndex(rankIndex, slot)
-  return at < stuck.length ? stuck[at] : 0
+export function stuckCountAt(stuck : number[], rankIndex : number, id : number) : number {
+  let total = 0
+  for (let s = 0; s < SUITS.length; s++) {
+    if (stickerAtSuit(stuck, rankIndex, s) == id) {
+      total = total + 1
+    }
+  }
+  return total
 }
 
 export function isRedSuit(suit : string) : boolean {
@@ -133,20 +161,23 @@ export function buildDeck(stuck : number[]) : Card[] {
   const result : Card[] = []
   for (let r = 0; r < RANKS.length; r++) {
     const fixed = isFixedRank(RANKS[r])
-    const slots = fixed ? ([] as number[]) : stickersOfRank(stuck, r)
+    const slots = stickersOfRank(stuck, r)
     for (let k = 0; k < SUITS.length; k++) {
+      // 矩阵一个格子就是一张牌，下标跟 SUITS 对齐，直接取
+      const id = fixed ? -1 : slots[k]
       const card : Card = {
         suit: SUITS[k],
         rank: RANKS[r],
         value: RANK_VALUES[r],
-        stickerKey: fixed ? S_HAUL : (k < slots.length ? keyAtIndex(slots[k]) : S_NONE),
+        stickerKey: fixed ? S_HAUL : (id >= 0 ? keyAtIndex(id) : S_NONE),
         tapped: false,
         forced: -1,
         faceDown: false,
         negated: false,
         extra: 0,
         altValue: -1,
-        pileValue: -1
+        pileValue: -1,
+        pileValues: [] as number[]
       }
       result.push(card)
     }
@@ -156,6 +187,10 @@ export function buildDeck(stuck : number[]) : Card[] {
 }
 
 export function cloneCard(origin : Card) : Card {
+  const values : number[] = []
+  for (let i = 0; i < origin.pileValues.length; i++) {
+    values.push(origin.pileValues[i])
+  }
   const card : Card = {
     suit: origin.suit,
     rank: origin.rank,
@@ -167,7 +202,8 @@ export function cloneCard(origin : Card) : Card {
     negated: origin.negated,
     extra: origin.extra,
     altValue: origin.altValue,
-    pileValue: origin.pileValue
+    pileValue: origin.pileValue,
+    pileValues: values
   }
   return card
 }
@@ -195,30 +231,71 @@ export function worthOf(card : Card) : number {
 // 背面牌还要再少一样：它连花色都不算数。
 export const NO_VALUE : number = -100
 
-// 这张牌在堆里「是几」。数字在落堆那一刻就锁死了，之后谁来比重复看的都是它，
-// 不是牌面点数 —— 一张按 11 落堆的 A，在别人眼里就是 11
-export function pileValueOf(card : Card) : number {
+// 这张牌现在算哪几个数。
+//
+// 在堆里就是落堆时记下的那几个（平潮可能改写过），不在堆里就现算一遍候选。
+// 返回空数组表示「没有点数」：空位牌、背面牌都是这样，它们当不了钓点，
+// 也没人撞得上 —— 但花色还在，收色照样捞得走
+export function valuesOf(card : Card) : number[] {
   // 背面牌数字花色一律不算数
   if (card.faceDown) {
-    return NO_VALUE
+    return [] as number[]
   }
-  return card.pileValue >= 0 || card.pileValue == NO_VALUE ? card.pileValue : worthOf(card)
+  if (card.pileValue == NO_VALUE) {
+    return [] as number[]
+  }
+  if (card.pileValue >= 0) {
+    return card.pileValues
+  }
+  return playOptions(card)
 }
 
-// 这张牌在堆里还算不算一个钓点。压到 0 的和没点数的都不算
+// 两张牌钩不钩得上：候选里只要有一个数对得上就算。
+// 各自能算成好几个数，所以这是集合交集，不是数字相等
+export function shareValue(a : number[], b : number[]) : boolean {
+  for (let i = 0; i < a.length; i++) {
+    // 0 和负数当不了钓点，撞不上也没人撞得上
+    if (a[i] <= 0) {
+      continue
+    }
+    for (let k = 0; k < b.length; k++) {
+      if (a[i] == b[k]) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+// 候选里有没有这个数。0 也查得到 —— 续钩要靠它认「落堆算 0 点」
+export function hasValue(values : number[], worth : number) : boolean {
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] == worth) {
+      return true
+    }
+  }
+  return false
+}
+
+// 这张牌在堆里还算不算一个钓点。候选全是 0 的、没有点数的都不算
 export function isDeadCard(card : Card) : boolean {
-  return pileValueOf(card) <= 0
+  const values = valuesOf(card)
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] > 0) {
+      return false
+    }
+  }
+  return true
 }
 
-// 跟 pileIndexOf 一样，但跳过指定的那张牌。
-// 出牌流程是「先落堆、发动效果、再判撞」，判撞时这张牌已经在堆里了，
-// 不排掉的话它会跟自己撞上
-export function pileIndexExcept(pile : Card[], worth : number, self : Card) : number {
-  if (worth <= 0) {
-    return -1
-  }
+// 打出的这张能钩到堆里第几张，-1 表示谁也钩不上。
+//
+// 从堆底开始找，找到的第一张就是钩点 —— 撞得越深收得越多，所以这不是
+// 「随便找一个」，是「自动挑最赚的那个」。
+// 要跳过自己：出牌流程是「先落堆、发动效果、再判撞」，判撞时这张牌已经在堆里了
+export function pileIndexExcept(pile : Card[], values : number[], self : Card) : number {
   for (let i = 0; i < pile.length; i++) {
-    if (pile[i] != self && pileValueOf(pile[i]) == worth) {
+    if (pile[i] != self && shareValue(values, valuesOf(pile[i]))) {
       return i
     }
   }
@@ -306,6 +383,19 @@ export function valueOptions(card : Card) : number[] {
     if (jump != 0) {
       alts.push(nextRank(v, jump))
     }
+    // 归深：这张牌还可以视为 11 点。
+    //
+    // 不转圈也不看原来是几 —— 它是「沉到同一个深度」，不是顺位推移。
+    // 11 是 J 的数，而 J 从不落堆（打出就通吃走了），所以普通牌组里根本
+    // 没有 11。贴了归深的牌因此接进同一个私有钓点，彼此钩得上，别人够不着
+    if (anchorsDeep(card.stickerKey)) {
+      alts.push(11)
+    }
+    // 空钩：还可以视为 0 点。跟归深同构，接的网络在另一头 ——
+    // 0 当不了钓点，所以它不增加钩面，增加的是被自己人收走的路
+    if (baresHook(card.stickerKey)) {
+      alts.push(0)
+    }
     // 别处塞进来的一个额外候选
     if (card.altValue >= 0) {
       alts.push(card.altValue)
@@ -323,26 +413,19 @@ export function valueOptions(card : Card) : number[] {
 // 双方轮流往同一个公共牌堆上出牌。打出的牌只要跟堆里某一张的数字撞上，
 // 就把那张、它后面压着的所有牌、连同自己这张一起钓走，前面的留在堆里。
 //
-// 所以撞哪个数字是有讲究的：撞堆底那张能连锅端走，撞最上面那张只捞到两张。
-// 「这张牌能算成几个数」于是同时决定了能不能钓、以及钓得多深 ——
+// 所以撞哪张是有讲究的：撞堆底那张能连锅端走，撞最上面那张只捞到两张。
+// 一张牌能算成几个数，于是同时决定了能不能钓、以及钓得多深 ——
 // 改点数的永续贴纸在这里全部重新有了意义。
 //
-// 堆里不会出现两张数字相同的牌：一撞上当场就被钓走了。所以下面找位置只找第一个。
-
-// 堆里每张牌锁定的数字，按落堆顺序
-export function pileNumbers(pile : Card[]) : number[] {
-  const list : number[] = []
-  for (let i = 0; i < pile.length; i++) {
-    list.push(pileValueOf(pile[i]))
-  }
-  return list
-}
+// 牌落堆不坍缩成一个数：能算 13/1/2 的牌，这三个数同时是它的钓点。
+// 判撞找的是「候选有交集」的第一张，从堆底数起 —— 自动挑最赚的那个钩点。
+//
+// 堆里可能出现候选重叠的两张吗？不会：一重叠当场就钓走了。
 
 // 这张牌打到堆顶时，能算成哪几个数。去重后从小到大排好。
 //
-// 只看牌自己 —— 点数类贴纸现在全是「这张牌算几点」，没有一张要数邻居。
-// pile 参数留着是给调用方读着顺口，也给将来看堆的贴纸留个口子
-export function playOptions(card : Card, pile : Card[]) : number[] {
+// 只看牌自己 —— 点数类贴纸现在全是「这张牌算几点」，没有一张要数邻居
+export function playOptions(card : Card) : number[] {
   const raw = valueOptions(card)
   const out : number[] = []
   for (let i = 0; i < raw.length; i++) {
@@ -370,55 +453,34 @@ export function playOptions(card : Card, pile : Card[]) : number[] {
   return out
 }
 
-// 这张牌的候选里，哪几个能撞上堆里已有的数字
-export function hitOptions(card : Card, pile : Card[]) : number[] {
-  const numbers = pileNumbers(pile)
-  const opts = playOptions(card, pile)
-  const out : number[] = []
-  for (let i = 0; i < opts.length; i++) {
-    for (let k = 0; k < numbers.length; k++) {
-      if (opts[i] == numbers[k]) {
-        out.push(opts[i])
-        break
-      }
-    }
-  }
-  return out
-}
-
-// 这个数在堆里排第几，-1 表示堆里没有。
-// 0 和「没有点数」都撞不上：前者是提系压到底的牌，后者是空位牌和背面牌。
-// 一张牌要当钓点，点数得是 1 到 13 里的某个数（暗桩的 11、坠子推出去的 14 以上也算）
-export function pileIndexOf(pile : Card[], worth : number) : number {
-  if (worth <= 0) {
-    return -1
-  }
+// 这组候选能钩到堆里第几张，-1 表示谁也钩不上。从堆底数起，找第一个。
+// 0 和「没有点数」都钩不上：前者是提系压到底的牌，后者是空位牌和背面牌
+export function pileIndexOf(pile : Card[], values : number[]) : number {
   for (let i = 0; i < pile.length; i++) {
-    if (pileValueOf(pile[i]) == worth) {
+    if (shareValue(values, valuesOf(pile[i]))) {
       return i
     }
   }
   return -1
 }
 
-// 按这个数落下去能钓走几张：撞上的那张、压在它后面的所有牌、加上自己这张。
-// 撞不上就是 0。撞的位置越靠堆底，捞起来的越多
-export function takeCount(pile : Card[], worth : number) : number {
-  const at = pileIndexOf(pile, worth)
+// 这张牌打下去能钓走几张：钩中的那张、压在它后面的所有牌、加上自己这张。
+// 钩不上就是 0。钩的位置越靠堆底，捞起来的越多
+export function takeCount(pile : Card[], values : number[]) : number {
+  const at = pileIndexOf(pile, values)
   if (at < 0) {
     return 0
   }
   return pile.length - at + 1
 }
 
-// 这种贴纸已经贴出去几张了。同一个数字上可以贴好几张同种的，所以是累加张数，
-// 不是数有几个数字贴了它 —— 拥有上限管的就是张数
+// 这种贴纸已经贴出去几张了。一个格子就是一张牌，所以数格子即可 ——
+// 拥有上限管的就是张数
 export function countStuckOf(stuck : number[], id : number) : number {
   let total = 0
-  for (let r = 0; r < RANKS.length; r++) {
-    const at = stickerIndex(r, id)
-    if (at < stuck.length) {
-      total = total + stuck[at]
+  for (let i = 0; i < stuck.length; i++) {
+    if (stuck[i] == id + 1) {
+      total = total + 1
     }
   }
   return total
@@ -427,7 +489,9 @@ export function countStuckOf(stuck : number[], id : number) : number {
 export function countStuck(stuck : number[]) : number {
   let total = 0
   for (let i = 0; i < stuck.length; i++) {
-    total = total + stuck[i]
+    if (stuck[i] > 0) {
+      total = total + 1
+    }
   }
   return total
 }

@@ -32,7 +32,7 @@
       <view class="save-row">
         <text class="save-label">通关 / 牌组贴纸</text>
         <text id="bj-home-deck" class="save-value"
-          >{{ save.cleared }}/{{ LEVEL_COUNT }} · {{ stuckCount }} 张</text
+          >{{ save.cleared.length }}/{{ LEVEL_COUNT }} · {{ stuckCount }} 张</text
         >
       </view>
     </view>

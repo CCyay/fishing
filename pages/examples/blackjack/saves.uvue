@@ -21,7 +21,7 @@
           <text class="slot-text"
             >战绩 {{ slot.data.win }}/{{ slot.data.lose }}/{{ slot.data.push }}</text
           >
-          <text class="slot-text">通关 {{ slot.data.cleared }}</text>
+          <text class="slot-text">通关 {{ slot.data.cleared.length }}</text>
           <text class="slot-text">已贴 {{ stuckOf(slot) }} · 存货 {{ ownedOf(slot) }} 张</text>
         </view>
         <text v-else class="slot-empty">槽位 {{ slot.index }} 尚未创建</text>

@@ -88,7 +88,31 @@ export const S_MINUS1 : string = 'minus1'
 export const S_MINUS2 : string = 'minus2'
 export const S_MINUS3 : string = 'minus3'
 export const S_MINUS4 : string = 'minus4'
+export const S_MINUS5 : string = 'minus5'
+export const S_MINUS6 : string = 'minus6'
 export const S_STAKE : string = 'stake'
+// 齐顶的点数要看牌堆，是 cards.uts 算不出来的东西 ——
+// 它的点数在 fishing.uvue 落堆那一刻现查现定
+export const S_PEAK : string = 'peak'
+// 大数流派：11 及以上是大数，10 及以下是小数。
+// 归深把大数牌拢到 11 这个私有钓点上，深水把小数的收益压到最低
+export const S_ANCHOR : string = 'anchor'
+export const S_DEEP : string = 'deep'
+// 放大系：把堆上的牌往大数区间推。
+// 前三张改别人的点数，自己站开（空位、不判撞）；后两张从别人身上抽点数，
+// 自己必须在场（立即类）—— 类别是按机制定的，不是按档位
+export const S_RISE : string = 'rise'
+export const S_PROP : string = 'prop'
+export const S_SURGE : string = 'surge'
+export const S_DRAIN : string = 'drain'
+// 0 数流派：0 点当不了钓点，但花色还在、还算偶数、还喂得了续钩。
+// 卸力跟暗桩对称（覆盖成定值），空钩跟归深对称（追加一个候选）
+export const S_SLACK : string = 'slack'
+export const S_BARE : string = 'bare'
+export const S_GLEAN : string = 'glean'
+export const S_DRY : string = 'dry'
+// 同源：用花色给钩牌做精准制导 —— 挑中哪张，哪张就变成跟它同点数
+export const S_AKIN : string = 'akin'
 export const S_SHADOW : string = 'shadow'
 export const S_DRIFT : string = 'drift'
 export const S_HOOK : string = 'hook'
@@ -96,12 +120,20 @@ export const S_LINE : string = 'line'
 export const S_LONGLINE : string = 'longline'
 // 手牌与牌库
 export const S_PEEK : string = 'peek'
-export const S_TRADE : string = 'trade'
 export const S_SINK1 : string = 'sink1'
 export const S_SINK2 : string = 'sink2'
 export const S_PROBE1 : string = 'probe1'
 export const S_PROBE2 : string = 'probe2'
-export const S_BLIND : string = 'blind'
+// 探底看的是庄家的牌库，摸底（probe1/2）翻的是他的手牌，两码事
+export const S_PROBE3 : string = 'probe3'
+// 控制流派：看清对手手上有什么，再决定留什么给他
+export const S_SPY : string = 'spy'
+export const S_PRESS : string = 'press'
+export const S_UNHOOK : string = 'unhook'
+// 让对手手牌顶过上限，他回合结束就不补牌了 —— 牌池从此冻在你看过的那几张里
+export const S_FEED : string = 'feed'
+export const S_LEAD : string = 'lead'
+export const S_SHUT : string = 'shut'
 export const S_PICKED : string = 'picked'
 export const S_SCAN : string = 'scan'
 export const S_WASH : string = 'wash'
@@ -112,6 +144,7 @@ export const S_GIVE : string = 'give'
 export const S_REEL : string = 'reel'
 export const S_STRIP : string = 'strip'
 export const S_SAND : string = 'sand'
+export const S_GRIT : string = 'grit'
 export const S_VEIL : string = 'veil'
 export const S_DREDGE : string = 'dredge'
 // 空位类
@@ -119,13 +152,26 @@ export const S_LURE : string = 'lure'
 export const S_MIRROR : string = 'mirror'
 export const S_STREAK : string = 'streak'
 export const S_CAST : string = 'cast'
+// 分水：红黑二选一，跟撒网（奇偶二选一）对称
+export const S_SPLIT : string = 'split'
 export const S_MURKY : string = 'murky'
 export const S_GATE : string = 'gate'
 export const S_MASK : string = 'mask'
 export const S_STIR : string = 'stir'
 export const S_DIG : string = 'dig'
 export const S_GATHER : string = 'gather'
+export const S_EVENS : string = 'evens'
+export const S_NARROW : string = 'narrow'
+export const S_AGAIN : string = 'again'
+export const S_CALM : string = 'calm'
+// 从牌库连着往外打的三张。停手的条件各不相同，机制是同一套
+export const S_TROLL : string = 'troll'
+export const S_VOLLEY : string = 'volley'
+export const S_SIEVE : string = 'sieve'
+// 拖网不是空位类：它自己有点数，照常落堆，只是落下去时多收一段
+export const S_DRAG : string = 'drag'
 // 花色系
+export const S_SMEAR : string = 'smear'
 export const S_HUE : string = 'hue'
 export const S_BLEND : string = 'blend'
 export const S_UNIFY : string = 'unify'
@@ -201,13 +247,46 @@ export const STICKERS : Sticker[] = [
     key: 'sink1',
     name: '换饵',
     rarity: 0,
-    desc: '挑 1 张手牌压到自己牌库底，然后补满'
+    desc: '挑至多 1 张手牌压到自己牌库底，然后补满'
   },
   {
-    key: 'blind',
-    name: '盲换',
+    key: 'smear',
+    name: '抹色',
     rarity: 0,
-    desc: '跟庄家随机交换 2 张手牌'
+    desc: '空位：把它左边 1 张染成它的花色，那张同时变成空位 —— '
+      + '没有点数就当不了钓点，之后只有收色、集花够得着它'
+  },
+  {
+    key: 'grit',
+    name: '落沙',
+    rarity: 0,
+    desc: '从自己牌库顶取 1 张，背面沉到堆底 —— 背面牌没数字没花色，谁也钩不着'
+  },
+  {
+    key: 'slack',
+    name: '卸力',
+    rarity: 0,
+    desc: '永续：这张牌的点数一律按 0 算 —— 0 点钩不上也没人钩得上，'
+      + '但花色还在、还算偶数，是 0 数那条路的原料'
+  },
+  {
+    key: 'rise',
+    name: '涨水',
+    rarity: 0,
+    desc: '空位：牌堆里所有有点数的牌，点数各 +1。'
+      + '反复用才见效 —— 水位一格格涨上去，对手的牌迟早够不着'
+  },
+  {
+    key: 'spy',
+    name: '窥手',
+    rarity: 0,
+    desc: '看庄家全部手牌，一直明示到这一回合结束'
+  },
+  {
+    key: 'feed',
+    name: '喂食',
+    rarity: 0,
+    desc: '双方各从自己牌库抽 1 张。手牌顶过上限的那一方，回合结束就不补牌了'
   },
 
   // ---------- 稀有 ----------
@@ -266,22 +345,66 @@ export const STICKERS : Sticker[] = [
     desc: '从牌堆挑 1 张，去掉它的贴纸'
   },
   {
-    key: 'trade',
-    name: '互市',
-    rarity: 1,
-    desc: '挑 1 张手牌给庄家，从他手里随机换回 1 张'
-  },
-  {
     key: 'sink2',
     name: '换钩',
     rarity: 1,
-    desc: '挑 2 张手牌压到自己牌库底，然后补满'
+    desc: '挑至多 3 张手牌压到自己牌库底，然后补满'
   },
   {
     key: 'scan',
     name: '探牌',
     rarity: 1,
     desc: '看自己牌库顶 2 张，可以压到牌库底，然后抽 2 张'
+  },
+  {
+    key: 'glean',
+    name: '拾零',
+    rarity: 1,
+    desc: '空位：牌堆里所有算 0 点的牌，连同它自己进你的积分库'
+  },
+  {
+    key: 'prop',
+    name: '托底',
+    rarity: 1,
+    desc: '空位：把牌堆里它左边 2 张的点数各 +2'
+  },
+  {
+    key: 'drain',
+    name: '抽底',
+    rarity: 1,
+    desc: '把牌堆里它左边 1 张的点数抽干 —— 那张变成 0 点，'
+      + '这张牌的点数加上它原来的数'
+  },
+  {
+    key: 'press',
+    name: '压舱',
+    rarity: 1,
+    desc: '看庄家全部手牌，挑 1 张压到他的牌库底'
+  },
+  {
+    key: 'unhook',
+    name: '摘钩',
+    rarity: 1,
+    desc: '看庄家全部手牌，挑 1 张拿到你手上'
+  },
+  {
+    key: 'narrow',
+    name: '窄口',
+    rarity: 1,
+    desc: '空位，落堆底：它在牌堆里时，庄家每回合只补到 4 张手牌'
+  },
+  {
+    key: 'volley',
+    name: '连投',
+    rarity: 1,
+    desc: '空位：从自己牌库顶连着打 3 张，每张各自判撞。打出的牌照常发动自己的贴纸'
+  },
+  {
+    key: 'sieve',
+    name: '滤水',
+    rarity: 1,
+    desc: '空位：从自己牌库顶一张张往下打，直到打出一张点数不是 0 的，'
+      + '最多打 6 张。打出的牌照常发动自己的贴纸'
   },
   {
     key: 'probe1',
@@ -293,7 +416,8 @@ export const STICKERS : Sticker[] = [
     key: 'empty',
     name: '空手',
     rarity: 1,
-    desc: '从自己牌库挑 1 张贴着空位类贴纸的牌，拿到手上'
+    desc: '从自己牌库顶一张张往下翻，翻到的第一张空位牌拿到手上，'
+      + '翻过的其他牌压到牌库底'
   },
   {
     key: 'sand',
@@ -317,7 +441,8 @@ export const STICKERS : Sticker[] = [
     key: 'dye',
     name: '染色',
     rarity: 1,
-    desc: '空位：把它左边 2 张牌染成它的花色'
+    desc: '空位：把它左边 2 张染成它的花色，那两张同时变成空位 —— '
+      + '废掉对手的钓点，也把它们锁进只有花色收得走的那条路'
   },
 
   // ---------- 史诗 ----------
@@ -340,16 +465,69 @@ export const STICKERS : Sticker[] = [
     desc: '永续：点数 +6'
   },
   {
+    key: 'minus5',
+    name: '沉提',
+    rarity: 2,
+    desc: '永续：点数 −5，最低 0'
+  },
+  {
+    key: 'minus6',
+    name: '巨提',
+    rarity: 2,
+    desc: '永续：点数 −6，最低 0'
+  },
+  {
     key: 'stake',
     name: '暗桩',
     rarity: 2,
-    desc: '永续：点数一律按 11 算'
+    desc: '永续：点数一律按 11 算，打出时落到堆底'
   },
   {
     key: 'line',
     name: '放线',
     rarity: 2,
     desc: '永续：点数还可以按顺位 +2、+3 算'
+  },
+  {
+    key: 'surge',
+    name: '涨潮',
+    rarity: 2,
+    desc: '空位：把牌堆里它左边 1 张的点数 +10 —— 一下推出对手的射程'
+  },
+  {
+    key: 'akin',
+    name: '同源',
+    rarity: 2,
+    desc: '打出时从牌堆挑 1 张跟它同花色的牌，把自己的点数改成跟那张一样 —— '
+      + '改完必然钩中它，挑得越靠堆底收得越多'
+  },
+  {
+    key: 'dry',
+    name: '枯水',
+    rarity: 2,
+    desc: '空位：牌堆里所有牌的点数一律变成 0 —— 堆上再没有钓点，'
+      + '但那一摞谁都收得走，扫完最好接着变现'
+  },
+  {
+    key: 'bare',
+    name: '空钩',
+    rarity: 2,
+    desc: '永续：它还可以视为 0 点 —— 原来的点数照样能钩牌，'
+      + '同时接进 0 那条路：续钩认它、拾零拾偶都收得走'
+  },
+  {
+    key: 'anchor',
+    name: '归深',
+    rarity: 2,
+    desc: '永续：它还可以视为 11 点 —— 11 是 J 的数，而 J 从不落堆，'
+      + '所以那是一个只有贴了归深的牌才够得到的钓点'
+  },
+  {
+    key: 'peak',
+    name: '齐顶',
+    rarity: 2,
+    desc: '打出时它算堆里最大的那个点数 —— 堆上有多大它就有多大，落下去必钩中。'
+      + '空堆上打出就算 0 点'
   },
   {
     key: 'probe2',
@@ -367,7 +545,7 @@ export const STICKERS : Sticker[] = [
     key: 'wash',
     name: '洗手',
     rarity: 2,
-    desc: '看庄家全部手牌，把顺位在这张牌 ±2 以内的洗回他的牌库'
+    desc: '看庄家全部手牌，把顺位在这张牌 ±2 以内的压到他的牌库底'
   },
   {
     key: 'same',
@@ -378,27 +556,27 @@ export const STICKERS : Sticker[] = [
   {
     key: 'lure',
     name: '假饵',
-    rarity: 2,
+    rarity: 1,
     desc: '空位：有人撞中它左边的牌时，改为只钓走这张'
   },
   {
     key: 'mirror',
     name: '照水',
     rarity: 2,
-    desc: '空位：它在牌堆里时，庄家手牌一直明示'
+    desc: '空位：落到堆底，它在牌堆里时庄家手牌一直明示'
   },
   {
     key: 'streak',
     name: '连竿',
-    rarity: 2,
+    rarity: 1,
     desc: '空位：这一回合可以再打 2 张'
   },
   {
     key: 'gate',
     name: '闸门',
     rarity: 2,
-    desc: '空位，落堆底：它在牌堆里时，任何人钓牌遇到比撞中数字大的牌就停止收牌。'
-      + '比 11 大的数不受影响'
+    desc: '空位，落堆底：它在牌堆里时，任何人钓牌遇到比钩中数字大的牌就停止收牌。'
+      + '11 点以上的大数不算坎 —— 拿大数钩进来一路畅通，拿小数钩进来处处是坎'
   },
   {
     key: 'mask',
@@ -426,10 +604,51 @@ export const STICKERS : Sticker[] = [
       + '那两张连同它们之间的牌进你的积分库。翻完都没配上就都留在堆里'
   },
   {
+    key: 'hue',
+    name: '收色',
+    rarity: 2,
+    desc: '空位：牌堆里所有跟它同花色的牌，进你的积分库。'
+      + '收得走没点数的死牌 —— 花色还在就够了'
+  },
+  {
     key: 'blend',
     name: '混色',
     rarity: 2,
     desc: '空位，落堆底：它在牌堆里时，红桃和方块算同一种花色、黑桃和梅花算同一种'
+  },
+  {
+    key: 'lead',
+    name: '灌铅',
+    rarity: 2,
+    desc: '双方各从自己牌库抽 2 张。庄家抽的那 2 张灌了铅：'
+      + '点数永久算 0，身上的贴纸也一并失效'
+  },
+  {
+    key: 'probe3',
+    name: '探底',
+    rarity: 2,
+    desc: '空位：看庄家牌库顶 2 张，逐张决定留着还是压到他牌库底'
+  },
+  {
+    key: 'troll',
+    name: '试钓',
+    rarity: 2,
+    desc: '空位：从自己牌库顶一张张往下打，直到有一张撞上牌堆里的数字，'
+      + '最多打 6 张。打出的牌照常发动自己的贴纸'
+  },
+  {
+    key: 'again',
+    name: '续钩',
+    rarity: 2,
+    desc: '空位，落堆底：它在牌堆里时，谁打出的牌落堆算 0 点，谁就能接着再打一张。'
+      + '认的是 0 点，空位牌没有点数，不算'
+  },
+  {
+    key: 'evens',
+    name: '拾偶',
+    rarity: 2,
+    desc: '空位：从堆底往右连着收偶数点的牌，遇到第一张不是偶数的就停，'
+      + '收到的连同它自己进你的积分库。0 点算偶数，没有点数的不算'
   },
 
   // ---------- 传说 ----------
@@ -446,10 +665,10 @@ export const STICKERS : Sticker[] = [
     desc: '空位：选奇数或偶数，牌堆里所有该类的牌进你的积分库'
   },
   {
-    key: 'hue',
-    name: '收色',
+    key: 'split',
+    name: '分水',
     rarity: 3,
-    desc: '空位：牌堆里所有跟它同花色的牌，进你的积分库'
+    desc: '空位：红黑各数一遍，哪边多收哪边 —— 堆里所有该色的牌进你的积分库'
   },
   {
     key: 'unify',
@@ -462,12 +681,42 @@ export const STICKERS : Sticker[] = [
     name: '浑水',
     rarity: 3,
     desc: '空位：庄家下一个回合背面连打 3 张沉到堆底，那几张不触发钓牌'
-  }
+  },
+  {
+    key: 'deep',
+    name: '深水',
+    rarity: 3,
+    desc: '空位，落堆底：它在牌堆里时，钩中 10 点以内的数只能带走钩中那张和自己，'
+      + '中间那一段一张也收不走。想连锅端，得拿 11 以上的数钩'
+  },
+  {
+    key: 'shut',
+    name: '闭口',
+    rarity: 3,
+    desc: '空位：庄家下一个回合要从手牌连打 3 张，那几张一律按 0 点正面落到堆顶 —— '
+      + '他打了等于没打，堆却厚了三层'
+  },
+  {
+    key: 'calm',
+    name: '平潮',
+    rarity: 3,
+    desc: '空位，落堆底：它在牌堆里时，堆上的奇数点牌一律压成 0 点，'
+      + '当不了钓点也没人撞得上。压过的牌就此定死，它离场也变不回来'
+  },
+  {
+    key: 'drag',
+    name: '拖网',
+    rarity: 3,
+    desc: '打出时：从堆底往右连着收点数在它自己 +0 到 +6 顺位内的牌，'
+      + '遇到第一张不在范围里的就停。顺位转圈，K 之后接 A'
+  },
 ]
 
 export const STICKER_COUNT : number = STICKERS.length
 // 同一个数字只有 4 张牌，所以最多贴 4 张贴纸。
 // 不限种类：4 张全贴轻坠可以，四种各一张也可以
+// 留着给展示和文案用。贴纸矩阵改成「数字 × 花色」之后，
+// 这条限制由结构本身保证了 —— 一个数字就四个格子，填满就是满
 export const MAX_STICKERS_PER_RANK : number = 4
 
 // key 查下标。贴纸矩阵按下标索引，但下标是 STICKERS 的顺序决定的，
@@ -559,7 +808,15 @@ export function reflectSumOf(key : string) : number {
 // 孤数：把点数整个改写成一个定值，牌面是几都不算数。返回 -1 表示不改写。
 // 挑 11 是因为 J 从不落堆 —— 打出就通吃走了，所以 11 是牌堆里天然的空缺
 export function fixedValueOf(key : string) : number {
-  return key == S_STAKE ? 11 : -1
+  if (key == S_STAKE) {
+    return 11
+  }
+  // 卸力：一律按 0 算。返回 0 而不是 -1 —— -1 的意思是「不改写」，
+  // 所以问它的地方一律判 >= 0，别写成 > 0
+  if (key == S_SLACK) {
+    return 0
+  }
+  return -1
 }
 
 // 坠子系加、提系减，都是「一定改」不是「可以改」。
@@ -569,7 +826,9 @@ export function fixedValueOf(key : string) : number {
 // 需要的正是 +6、+5、+4、+3，大坠子才是凑套的瓶颈。
 // own 上限跟着卡住流派规模：史诗档一种只能有 2 张。
 //
-// 两头各有一个出口：坠子往上推出 13 成孤数，提系往下压到 0 成死数
+// 两头各有一个出口：坠子往上推出 13 成孤数，提系往下压到 0 成死数。
+// 两边都排到 6：提系的大数比坠子挑牌 —— −6 只有 7 点以上的牌用着不归零，
+// 但把 K、Q 拉到 7、6 这种低位正是它的活，小坠子够不着
 export function flatBonusOf(key : string) : number {
   if (key == S_SINKER1) {
     return 1
@@ -601,16 +860,44 @@ export function flatBonusOf(key : string) : number {
   if (key == S_MINUS4) {
     return -4
   }
+  if (key == S_MINUS5) {
+    return -5
+  }
+  if (key == S_MINUS6) {
+    return -6
+  }
   return 0
+}
+
+// 归深：这张牌还可以视为 11 点，不管它本来是几。
+// 单开一个函数而不是塞进派生系那几个，是因为它不转圈也不按顺位推 ——
+// 它是「沉到同一个深度」，把贴了它的牌全接进 11 这个私有钓点
+export function anchorsDeep(key : string) : boolean {
+  return key == S_ANCHOR
+}
+
+// 空钩：这张牌还可以视为 0 点，不管它本来是几。
+// 跟归深同构，只是接的网络在另一头 —— 归深把牌接进 11，空钩把牌接进 0。
+// 0 当不了钓点，所以它不增加钩面，增加的是「被自己人收走」的路：
+// 续钩认 0 点，拾零、拾偶、撒网都收得走
+export function baresHook(key : string) : boolean {
+  return key == S_BARE
 }
 
 // 打出时直接放到牌堆最左侧（堆底），而不是压在堆顶。
 // 放堆底就是「活得久」：只有撞中堆底那张才会把它带走，
-// 所以那几张要持续生效的空位贴纸都走这条路
+// 所以那几张要持续生效的贴纸都走这条路 —— 空位类靠它把效果留在场上，
+// 暗桩这种点数类靠它把 11 这个钓点钉在堆底，谁想收都得连整摞一块儿收
 export function dropsAtBottom(key : string) : boolean {
   return key == S_GATE
     || key == S_BLEND
     || key == S_UNIFY
+    || key == S_MIRROR
+    || key == S_STAKE
+    || key == S_NARROW
+    || key == S_AGAIN
+    || key == S_CALM
+    || key == S_DEEP
 }
 
 // ---------- 分类 ----------
@@ -625,7 +912,7 @@ export function isHiddenSticker(key : string) : boolean {
 // 随机券的抽池是「已解锁的 + 隐藏的」，没有这几张，新存档的普通随机券
 // 就只能抽到幸运一张，跟直接白送没区别
 export function isFreeSticker(key : string) : boolean {
-  return key == S_SINKER1 || key == S_SINKER2 || key == S_PEEK || key == S_BLIND
+  return key == S_SINKER1 || key == S_SINKER2 || key == S_PEEK
 }
 
 // 点数类：牌在堆上就一直生效，改的是「这张牌算几点」。
@@ -637,7 +924,20 @@ export function isLastingSticker(key : string) : boolean {
     || jumpOffsetOf(key) != 0
     || reflectSumOf(key) > 0
     || flatBonusOf(key) != 0
-    || fixedValueOf(key) > 0
+    || fixedValueOf(key) >= 0
+    || anchorsDeep(key)
+    || baresHook(key)
+}
+
+// 空手能从牌库里捞出来的牌。
+//
+// 本来就是「空位类」这一条，但齐顶得算进来：它自己没有点数，
+// 点数是落堆那一刻从牌堆借的，算半张空位牌 —— 只是它借完之后真能钩牌，
+// 所以不能塞进 isBlankSticker（那条管的是「落堆没有数字」，
+// 塞进去它就永远钩不上东西，效果整个作废）。
+// 两件事在这儿分开：一个管落堆算几点，一个管能不能被检索
+export function isFetchable(key : string) : boolean {
+  return isBlankSticker(key) || key == S_PEAK
 }
 
 // 空位类：落进牌堆但没有数字，点数算 0
@@ -656,6 +956,22 @@ export function isBlankSticker(key : string) : boolean {
     || key == S_BLEND
     || key == S_UNIFY
     || key == S_DYE
+    || key == S_EVENS
+    || key == S_PROBE3
+    || key == S_NARROW
+    || key == S_AGAIN
+    || key == S_CALM
+    || key == S_TROLL
+    || key == S_VOLLEY
+    || key == S_SIEVE
+    || key == S_SHUT
+    || key == S_DEEP
+    || key == S_RISE
+    || key == S_PROP
+    || key == S_SURGE
+    || key == S_GLEAN
+    || key == S_DRY
+    || key == S_SMEAR
 }
 
 // 立即类：打出的当下发动

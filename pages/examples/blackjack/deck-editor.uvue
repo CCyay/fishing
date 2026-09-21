@@ -35,6 +35,32 @@
       <text id="bj-sticker-desc" class="desc-text">{{ activeDesc }}</text>
     </view>
 
+    <!-- 花色切换：一个数字上贴的几张贴纸，是按 ♠♥♦♣ 的顺序分给那 4 张牌的。
+         切到某个花色就单看那一张牌，「全部」是把这个数字上的都列出来 -->
+    <view id="bj-suits" class="suits">
+      <view
+        id="bj-suit-all"
+        class="suit suit-all"
+        :class="{ 'suit-on': activeSuit < 0 }"
+        @click="selectSuit(-1)">
+        <text class="suit-text" :class="{ 'suit-text-on': activeSuit < 0 }">全部</text>
+      </view>
+      <view
+        v-for="(suit, index) in SUITS"
+        :key="suit"
+        :id="'bj-suit-' + index"
+        class="suit"
+        :class="{ 'suit-on': index == activeSuit }"
+        @click="selectSuit(index)">
+        <text
+          class="suit-text"
+          :class="{ 'suit-red': isRedSuit(suit), 'suit-text-on': index == activeSuit }"
+          >{{ suit }}</text
+        >
+      </view>
+      <text class="suit-tip">{{ suitTip }}</text>
+    </view>
+
     <!-- 数字网格：点击贴上 / 撕下 -->
     <text class="section">点数字贴一张，同种能摞满 4 张；贴不下了再点一次，整摞撕下来</text>
     <view class="grid">
@@ -45,13 +71,18 @@
         class="cell"
         @click="toggleSticker(index)">
         <view class="cell-inner" :class="{ 'cell-on': hasActive(index) }">
-          <text class="cell-rank" :class="{ 'cell-rank-on': hasActive(index) }">{{ rank }}</text>
+          <text class="cell-rank" :class="{ 'cell-rank-on': hasActive(index) }"
+            >{{ activeSuit < 0 ? '' : SUITS[activeSuit] }}{{ rank }}</text
+          >
           <text class="cell-marks">{{ marksOf(index) }}</text>
         </view>
       </view>
     </view>
 
     <view class="actions">
+      <view id="bj-deck-clear" class="act-btn act-btn-warn" @click="clearAll">
+        <text class="act-text act-text-warn">清空</text>
+      </view>
       <view id="bj-deck-shop" class="act-btn" @click="goShop">
         <text class="act-text">去商店</text>
       </view>
@@ -74,6 +105,9 @@
   } from '@/pages/examples/blackjack/stickers.uts'
   import {
     RANKS,
+    SUITS,
+    isRedSuit,
+    stickerAtSuit,
     stickerKindsOfRank,
     stuckCountAt,
     countStuck
@@ -96,6 +130,10 @@
   // 手里有什么就默认选什么。幸运不再白送，新存档可能一张贴纸都没有，
   // 这时空着 —— 没有可选项，硬选一个只会让人以为自己有
   const activeId = ref<string>('')
+  // 正在看第几个花色（0 = ♠，按 SUITS 的顺序），-1 表示「全部」。
+  // 一个数字上贴的几张贴纸就是按这个顺序分给那 4 张牌的，
+  // 所以切花色等于切「看这个数字的第几张牌」；全部则是把整摞列出来
+  const activeSuit = ref<number>(-1)
 
   // 只列自己有的贴纸。已经贴出去的也留在列表里 —— 不然就没法选中它撕下来了
   const ownedStickers = computed<Sticker[]>(() : Sticker[] => {
@@ -149,27 +187,63 @@
     activeId.value = owned[0].key
   }
 
+  // 再点一次就取消选中 —— 选着贴纸时点数字是贴，不选贴纸时点数字是撕，
+  // 两种操作得分得开
   function selectSticker(key : string) {
-    activeId.value = key
+    activeId.value = activeId.value == key ? '' : key
   }
 
-  // 当前选中的贴纸是否已经贴在这个数字上
+  function selectSuit(index : number) {
+    activeSuit.value = index
+  }
+
+  // 这个数字这个花色的那一张牌，贴的是哪张贴纸。空串表示这张牌上什么都没有
+  function suitStickerOf(rankIndex : number, suitIndex : number) : string {
+    if (suitIndex < 0 || isFixedRank(RANKS[rankIndex])) {
+      return ''
+    }
+    const id = stickerAtSuit(save.value.stuck, rankIndex, suitIndex)
+    return id < 0 ? '' : keyAtIndex(id)
+  }
+
+  // 这个数字上第一张空着的牌是哪个花色，-1 表示四张都贴满了。
+  // 「全部」模式下贴纸就落到这儿 —— 跟旧版依次往下发的顺序一致
+  function firstFreeSuit(rankIndex : number) : number {
+    for (let s = 0; s < SUITS.length; s++) {
+      if (stickerAtSuit(save.value.stuck, rankIndex, s) < 0) {
+        return s
+      }
+    }
+    return -1
+  }
+
+  // 当前选中的贴纸，在这个格子上算不算「已贴」。
+  // 看单个花色时比的是那一张牌，看全部时只问这个数字上有没有
   function hasActive(rankIndex : number) : boolean {
-    return isStuckAt(save.value, rankIndex, activeId.value)
+    if (activeId.value == '') {
+      return false
+    }
+    if (activeSuit.value < 0) {
+      return stuckCountAt(save.value.stuck, rankIndex, indexOfKey(activeId.value)) > 0
+    }
+    return suitStickerOf(rankIndex, activeSuit.value) == activeId.value
   }
 
-  // 这个数字身上所有贴纸的名字，用于格子里的小字。
-  // 名字是两个字，用顿号隔开才看得清哪是哪
+  // 格子里的小字。看单个花色时只写那一张牌贴着什么，
+  // 看全部时把这个数字上的都列出来，同种缀个 ×N
   function marksOf(rankIndex : number) : string {
     // J 焊着【通吃】，贴纸矩阵管不着它
     if (isFixedRank(RANKS[rankIndex])) {
       return '通吃·固定'
     }
+    if (activeSuit.value >= 0) {
+      const key = suitStickerOf(rankIndex, activeSuit.value)
+      return key == '' ? '—' : stickerAt(key).name
+    }
     const kinds = stickerKindsOfRank(save.value.stuck, rankIndex)
     if (kinds.length == 0) {
       return '—'
     }
-    // 同种贴了好几张就缀个 ×N，不然「幸运、幸运、幸运」读起来很怪
     let text = ''
     for (let i = 0; i < kinds.length; i++) {
       if (i > 0) {
@@ -184,44 +258,105 @@
     return text
   }
 
+  const suitTip = '贴纸按 ♠♥♦♣ 的顺序分给这个数字的 4 张牌'
+
   // 点一次加贴一张，同种可以摞到 4 张。
   // 贴不下了再点一次，就把这个数字上这种贴纸整摞撕下来退回手里，重新来过 ——
   // 摞着的时候「点一下撕一张」会在满和差一张之间来回跳，反而调不准
   function toggleSticker(rankIndex : number) {
     const data = save.value
-    const key = activeId.value
-    if (key == '') {
+    if (isFixedRank(RANKS[rankIndex])) {
       uni.showToast({
         icon: 'none',
-        title: '手里没有贴纸，先去兑换所'
+        title: 'J 自带【通吃】，贴不上别的'
       })
       return
     }
-    const name = stickerAt(key).name
 
-    const reason = canStick(data, rankIndex, key)
-    if (reason == '') {
-      applySticker(data, rankIndex, key)
-      const count = stuckCountAt(data.stuck, rankIndex, indexOfKey(key))
-      const tail = count > 1 ? '，共 ' + count + ' 张' : ''
-      commit(data, RANKS[rankIndex] + ' 贴上【' + name + '】' + tail)
-      return
-    }
-
-    if (isStuckAt(data, rankIndex, key)) {
-      let count = 0
-      while (isStuckAt(data, rankIndex, key)) {
-        peelSticker(data, rankIndex, key)
-        count = count + 1
+    const key = activeId.value
+    // 没选贴纸就是「撕」：单花色撕那一张，全部模式撕这个数字上的第一张
+    if (key == '') {
+      const suit = activeSuit.value >= 0 ? activeSuit.value : firstStuckSuit(rankIndex)
+      if (suit < 0) {
+        uni.showToast({
+          icon: 'none',
+          title: '这里没有贴纸可撕。选一张贴纸再点就是贴上'
+        })
+        return
       }
-      commit(data, '撕下 ' + count + ' 张【' + name + '】')
+      const id = peelSticker(data, rankIndex, suit)
+      if (id < 0) {
+        uni.showToast({
+          icon: 'none',
+          title: '这张牌上没有贴纸'
+        })
+        return
+      }
+      commit(data, '撕下 ' + SUITS[suit] + RANKS[rankIndex]
+        + ' 的【' + stickerAt(keyAtIndex(id)).name + '】')
       return
     }
 
-    uni.showToast({
-      icon: 'none',
-      title: reason
-    })
+    const name = stickerAt(key).name
+    // 选了贴纸：看单花色就贴那一张，全部模式落到第一张空着的牌上
+    const suit = activeSuit.value >= 0 ? activeSuit.value : firstFreeSuit(rankIndex)
+    if (suit < 0) {
+      uni.showToast({
+        icon: 'none',
+        title: '这个数字的 4 张牌都贴满了'
+      })
+      return
+    }
+
+    // 这张牌上已经是这种贴纸了，再点一次就撕下来
+    if (isStuckAt(data, rankIndex, suit, key)) {
+      peelSticker(data, rankIndex, suit)
+      commit(data, '撕下 ' + SUITS[suit] + RANKS[rankIndex] + ' 的【' + name + '】')
+      return
+    }
+
+    const reason = canStick(data, rankIndex, suit, key)
+    if (reason != '') {
+      uni.showToast({
+        icon: 'none',
+        title: reason
+      })
+      return
+    }
+    applySticker(data, rankIndex, suit, key)
+    commit(data, SUITS[suit] + RANKS[rankIndex] + ' 贴上【' + name + '】')
+  }
+
+  // 把整副牌组上的贴纸全撕下来退回手里。
+  // 换流派的时候一张张撕太费事 —— 贴纸没有损耗，撕完照样能重贴
+  function clearAll() {
+    const data = save.value
+    let count = 0
+    for (let r = 0; r < RANKS.length; r++) {
+      for (let s = 0; s < SUITS.length; s++) {
+        if (peelSticker(data, r, s) >= 0) {
+          count = count + 1
+        }
+      }
+    }
+    if (count == 0) {
+      uni.showToast({
+        icon: 'none',
+        title: '牌组上本来就没有贴纸'
+      })
+      return
+    }
+    commit(data, '撕下全部 ' + count + ' 张贴纸，都退回手里了')
+  }
+
+  // 这个数字上第一张贴着东西的牌是哪个花色，-1 表示四张都空着
+  function firstStuckSuit(rankIndex : number) : number {
+    for (let s = 0; s < SUITS.length; s++) {
+      if (stickerAtSuit(save.value.stuck, rankIndex, s) >= 0) {
+        return s
+      }
+    }
+    return -1
   }
 
   // 数据改完整体替换一次，保证视图刷新
@@ -364,6 +499,57 @@
     line-height: 14px;
   }
 
+  /* 花色切换条 */
+  .suits {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 6px;
+  }
+
+  .suit {
+    width: 30px;
+    height: 26px;
+    margin-right: 5px;
+    border-radius: 6px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #0e6b45;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 「全部」是两个字，比花色符号宽 */
+  .suit-all {
+    width: 42px;
+  }
+
+  .suit-on {
+    border-color: #e8b23a;
+    background-color: #12764e;
+  }
+
+  .suit-text {
+    color: #cfeade;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .suit-red {
+    color: #ff9e80;
+  }
+
+  /* 选中时一律描金，压过红黑 —— 这会儿要紧的是「选的是哪个」 */
+  .suit-text-on {
+    color: #e8b23a;
+  }
+
+  .suit-tip {
+    flex: 1;
+    color: #9fd9bd;
+    font-size: 9px;
+  }
+
   /* 数字网格 */
   .grid {
     flex: 1;
@@ -433,6 +619,11 @@
     background-color: #e8b23a;
   }
 
+  /* 清空是不可逆的一下，描红跟另外两个分开 */
+  .act-btn-warn {
+    border-color: #ff9e80;
+  }
+
   .act-text {
     color: #e8b23a;
     font-size: 14px;
@@ -441,5 +632,9 @@
 
   .act-text-dark {
     color: #3b2a00;
+  }
+
+  .act-text-warn {
+    color: #ff9e80;
   }
 </style>
