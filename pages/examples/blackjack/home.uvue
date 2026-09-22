@@ -42,6 +42,10 @@
       <view id="bj-enter-game" class="menu-btn menu-btn-primary" @click="enterGame">
         <text class="menu-btn-text menu-btn-text-dark">进入游戏</text>
       </view>
+      <!-- 另一种玩法：不再一张张挑着打，而是提前把接下来五张排成一串 -->
+      <view id="bj-enter-relay" class="menu-btn" @click="enterRelay">
+        <text class="menu-btn-text">排竿对局</text>
+      </view>
       <view id="bj-choose-save" class="menu-btn" @click="chooseSave">
         <text class="menu-btn-text">选择存档</text>
       </view>
@@ -117,6 +121,12 @@
   function enterGame() {
     uni.navigateTo({
       url: '/pages/examples/blackjack/levels'
+    })
+  }
+
+  function enterRelay() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/relay-levels'
     })
   }
 

@@ -1,0 +1,1012 @@
+<template>
+  <view class="page">
+    <view class="head">
+      <view class="head-item">
+        <text class="head-label">金币</text>
+        <text id="rs-coins" class="head-value head-coin">{{ save.runCoins }}</text>
+      </view>
+      <view class="head-item">
+        <text class="head-label">下一关</text>
+        <text id="rs-next" class="head-value">{{ nextText }}</text>
+      </view>
+      <view class="head-item">
+        <text class="head-label">贴纸位</text>
+        <text id="rs-slots" class="head-value">{{ usedSlots }}/{{ save.runSlots }}</text>
+      </view>
+    </view>
+
+    <view class="bar">
+      <text class="bar-text">{{ barText }}</text>
+    </view>
+
+    <text v-if="gained != ''" class="gained">{{ gained }}</text>
+
+    <scroll-view class="body">
+      <!-- 贴纸位就是这一轮攥着的全部贴纸：买来的落进空位，
+           带进关里贴出去就腾空，没贴掉的留着进下一关 -->
+      <!-- 位子数随关卡白给，不花钱 —— 所以这一块只管配，不管买 -->
+      <text class="section">贴纸位 {{ save.runSlots }} 个 · 点一下卸掉不想带的</text>
+      <view class="slot-row">
+        <view
+          v-for="(key, si) in slotKeys"
+          :key="'s-' + si"
+          :id="'rs-slot-' + si"
+          class="slot"
+          :class="{ 'slot-empty': key == '' }"
+          @click="tapSlot(si)">
+          <text v-if="key == ''" class="slot-plus">空</text>
+          <text v-else class="slot-name" :style="'color: ' + colorOf(key)">{{ nameOf(key) }}</text>
+        </view>
+      </view>
+
+      <!-- 贴纸库紧挨着贴纸位：这两块是一套操作 ——
+           点库里的一张就装进上面的空位，隔着别的分区来回够太难受 -->
+      <text class="section">贴纸库 {{ ownedTotal }} 张 · 点一张装进上面的空位</text>
+      <view class="lib-row">
+        <text v-if="libKeys.length == 0" class="dim">库里还没有贴纸，下面买</text>
+        <view
+          v-for="(key, li) in libKeys"
+          :key="'l-' + li"
+          :id="'rs-lib-' + li"
+          class="chip"
+          :class="{ 'chip-out': spareOf(key) <= 0 }"
+          @click="tapLib(key)">
+          <text class="chip-name" :style="'color: ' + colorOf(key)">{{ nameOf(key) }}</text>
+          <text class="chip-count">{{ spareOf(key) }}/{{ ownedOf(key) }}</text>
+        </view>
+      </view>
+
+      <!-- 货架：随机上货，买走一件就空一格。
+           盲盒跟贴纸摆在一排，每批只有一个 —— 它是兜底：
+           货架上没中意的、或者钱不够买那几件时，它是唯一还买得动的 -->
+      <view class="shelf-head">
+        <text class="section">货架 · 第 {{ save.runLevel }} 关的行情</text>
+        <text id="rs-reroll" class="reroll" @click="reroll">换一批 {{ rerollCost }}</text>
+      </view>
+      <!-- 盲盒的概率摆在明面上。要赌总得先知道赌的是什么 -->
+      <text class="odds">盲盒 {{ blindOdds }}</text>
+      <view class="lib-row">
+        <view
+          v-for="(key, gi) in shelf"
+          :key="'g-' + gi"
+          :id="'rs-buy-' + gi"
+          class="goods"
+          :class="{ 'goods-sold': key == '', 'goods-sale': key != '' && gi == saleAt }"
+          @click="buySticker(gi)">
+          <text v-if="key == ''" class="goods-sold-text">已售</text>
+          <view v-else class="goods-inner">
+            <text class="goods-name" :style="'color: ' + colorOf(key)">{{ nameOf(key) }}</text>
+            <text class="goods-price" :class="{ 'goods-price-sale': gi == saleAt }">{{
+              priceAt(gi)
+            }}</text>
+            <text v-if="gi == saleAt" class="goods-tag">半价</text>
+          </view>
+        </view>
+        <!-- 盲盒：这一批就这一个，买完等换批 -->
+        <view
+          id="rs-blind"
+          class="goods goods-blind"
+          :class="{ 'goods-sold': blindSold }"
+          @click="buyBlind">
+          <text v-if="blindSold" class="goods-sold-text">已售</text>
+          <view v-else class="goods-inner">
+            <text class="goods-name goods-blind-name">盲盒</text>
+            <text class="goods-price">{{ blindCost }}</text>
+          </view>
+        </view>
+      </view>
+
+      <text v-if="tip != ''" class="tip">{{ tip }}</text>
+    </scroll-view>
+
+    <view class="actions">
+      <view id="rs-go" class="act-btn act-btn-primary" @click="goNext">
+        <text class="act-text act-text-dark">{{ goText }}</text>
+      </view>
+      <view id="rs-quit" class="act-btn" @click="goHome">
+        <text class="act-text">回首页</text>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  // 排竿的商店，每打完一关就进这儿一趟。
+  //
+  // 三件事在这页办完：把赢来的金币花掉（贴纸、道具、贴纸位）、
+  // 把库存整理进贴纸位、然后进下一关。
+  //
+  // 货架是随机上货的，这是这套玩法经得起重复玩的关键 ——
+  // 要是每次都买得到想要的，几轮之后所有挑战都会收敛成同一套最优解
+  import {
+    stickerAt,
+    rarityAt,
+    keyAtIndex
+  } from '@/pages/examples/blackjack/stickers.uts'
+  import {
+    SaveData,
+    emptySave,
+    loadCurrentSave,
+    saveCurrent,
+    cloneSave,
+    addRunSticker,
+    firstFreeSlot,
+    setRunEquip,
+    runOwnedOf,
+    runOwnLimit,
+    runSpare,
+    trimEquip,
+    kitCountOf,
+    addKit,
+    setCurrentRelayLevel
+  } from '@/pages/examples/blackjack/save.uts'
+  import {
+    RelayItem,
+    KitItem,
+    RELAY_ITEMS,
+    KIT_ITEMS,
+    RELAY_COUNT,
+    SHOP_SIZE,
+    REROLL_PRICE,
+    blindPrice,
+    shelfWeights,
+    rollRarity,
+    slotsWith,
+    stickerPrice,
+    priceWith,
+    hasItem,
+    relayLevelAt,
+    relayStickerPool
+  } from '@/pages/examples/blackjack/relay-levels.uts'
+
+  const save = ref<SaveData>(emptySave())
+  // 货架上这一批。买走的位置留个空串占位，不重排 ——
+  // 一买就整排往左跳，手会点错
+  const shelf = ref<string[]>([] as string[])
+  // 这一批的盲盒卖掉没有。每批就一个，买完等换批
+  const blindSold = ref<boolean>(false)
+  // 这一批哪一件半价。-1 表示没有
+  const saleAt = ref<number>(-1)
+  const tip = ref<string>('')
+  // 刚打完那一关赚了多少，进店时在顶上说一句
+  const gained = ref<string>('')
+  // 能上货的贴纸池
+  let pool : string[] = [] as string[]
+
+  const nextText = computed<string>(() : string => {
+    const lv = save.value.runLevel
+    if (lv > RELAY_COUNT) {
+      return '已通关'
+    }
+    return lv + ' ' + relayLevelAt(lv).name
+  })
+
+  const goText = computed<string>(() : string => {
+    return save.value.runLevel > RELAY_COUNT ? '看结算' : '进下一关'
+  })
+
+  const slotKeys = computed<string[]>(() : string[] => {
+    const list : string[] = []
+    for (let i = 0; i < save.value.runSlots; i++) {
+      list.push(i < save.value.runEquip.length ? save.value.runEquip[i] : '')
+    }
+    return list
+  })
+
+  const usedSlots = computed<number>(() : number => {
+    let n = 0
+    for (let i = 0; i < slotKeys.value.length; i++) {
+      if (slotKeys.value[i] != '') {
+        n = n + 1
+      }
+    }
+    return n
+  })
+
+  const libKeys = computed<string[]>(() : string[] => {
+    const list : string[] = []
+    for (let i = 0; i < save.value.runOwned.length; i++) {
+      if (save.value.runOwned[i] > 0) {
+        list.push(keyAtIndex(i))
+      }
+    }
+    return list
+  })
+
+  const ownedTotal = computed<number>(() : number => {
+    let n = 0
+    for (let i = 0; i < save.value.runOwned.length; i++) {
+      n = n + save.value.runOwned[i]
+    }
+    return n
+  })
+
+  // 位子决定这一关带几张进场，不是总共能有几张 ——
+  // 库里十张、位子三个，就得挑三张
+  const barText = computed<string>(() : string => {
+    const free = save.value.runSlots - usedSlots.value
+    if (free <= 0) {
+      return '位子装满了。想换别的先点一个位子卸下来'
+    }
+    return '还空着 ' + free + ' 个位子 · 上一关贴出去的都撕回库里了'
+  })
+
+  const rerollCost = computed<number>(() : number => {
+    return priceWith(save.value.runItems, REROLL_PRICE)
+  })
+
+  // ---------- 上货 ----------
+
+  // 能上架的贴纸：这个模式真能生效的那些，取的是 relayStickerPool 那一份。
+  //
+  // TODO 解锁：眼下池子是「能用的全在」。等排竿的成就系统做出来，
+  // 这里要改成只放已解锁的那些
+  function buildPool() {
+    pool = relayStickerPool()
+  }
+
+  function restock() {
+    const list : string[] = []
+    for (let i = 0; i < SHOP_SIZE; i++) {
+      const key = pickGoods()
+      if (key == '') {
+        break
+      }
+      list.push(key)
+    }
+    shelf.value = list
+    blindSold.value = false
+    // 这一批挑一件半价。摆完货才挑 —— 挑的是位置不是贴纸，
+    // 于是特价落在哪一档全看运气，有时是张普通，有时是张传说
+    saleAt.value = list.length > 0 ? Math.floor(Math.random() * list.length) : -1
+  }
+
+  // 上一件货，分两层抽。
+  //
+  // 第一层按关号摇稀有度：头两关压根不出史诗传说，后半程普通的只剩一成。
+  // 不这么分的话，第一关货架上摆张传说等于逗人 —— 那会儿金币也买不起；
+  // 打到第九关还全是轻坠，又等于没货可买。
+  //
+  // 第二层在那一档里挑具体哪张，库里已经有的权重翻三倍 ——
+  // 你已经在走这条路了，货架就该顺着给。齐头随机的话一轮下来
+  // 手上全是各一张的杂牌，什么组合都凑不成。
+  //
+  // 两层都把「攒到上限的」剔干净：摆出来也买不了，白占一个格子
+  function pickGoods() : string {
+    const rarity = rollRarity(shelfWeights(save.value.runLevel), rarityHasStock(), Math.random())
+    if (rarity < 0) {
+      return ''
+    }
+    return pickOfRarity(rarity)
+  }
+
+  function pickOfRarity(rarity : number) : string {
+    let total = 0
+    for (let i = 0; i < pool.length; i++) {
+      total = total + weightOf(pool[i], rarity)
+    }
+    if (total <= 0) {
+      return ''
+    }
+    let hit = Math.random() * total
+    for (let i = 0; i < pool.length; i++) {
+      hit = hit - weightOf(pool[i], rarity)
+      if (hit <= 0) {
+        return pool[i]
+      }
+    }
+    return ''
+  }
+
+  function weightOf(key : string, rarity : number) : number {
+    if (stickerAt(key).rarity != rarity) {
+      return 0
+    }
+    const owned = runOwnedOf(save.value, key)
+    if (owned >= runOwnLimit(key)) {
+      return 0
+    }
+    return owned > 0 ? 3 : 1
+  }
+
+  // 各稀有度还有没有收得下的货。全攒到上限的那一档就别摇了
+  function rarityHasStock() : boolean[] {
+    const has : boolean[] = []
+    for (let r = 0; r < 4; r++) {
+      let any = false
+      for (let i = 0; i < pool.length; i++) {
+        if (weightOf(pool[i], r) > 0) {
+          any = true
+          break
+        }
+      }
+      has.push(any)
+    }
+    return has
+  }
+
+  function reroll() {
+    const cost = rerollCost.value
+    if (save.value.runCoins < cost) {
+      warn('金币不够换这一批，差 ' + (cost - save.value.runCoins))
+      return
+    }
+    confirmBuy('换一批新货？', cost, () => {
+      const data = save.value
+      data.runCoins = data.runCoins - cost
+      commit(data, '')
+      restock()
+      tip.value = '换了一批新货'
+    })
+  }
+
+  // ---------- 买 ----------
+
+  // 这一批里有一件半价。
+  //
+  // 它的用处是把「按计划买」和「捡便宜」摆在一起为难人：
+  // 特价那张未必是你要的路子，但半价的史诗跟原价的稀有摆在一排，
+  // 这一笔钱花在哪儿就不是显然的了。
+  // 熟客的八折照样叠在半价上面 —— 两样都是折扣，没有互斥的道理
+  function priceAt(index : number) : number {
+    const key = shelf.value[index]
+    if (key == '') {
+      return 0
+    }
+    let base = stickerPrice(stickerAt(key).rarity)
+    if (index == saleAt.value) {
+      base = Math.floor(base / 2)
+      if (base < 1) {
+        base = 1
+      }
+    }
+    return priceWith(save.value.runItems, base)
+  }
+
+  function buySticker(index : number) {
+    const key = shelf.value[index]
+    if (key == '') {
+      return
+    }
+    const cost = priceAt(index)
+    const data = save.value
+    if (data.runCoins < cost) {
+      warn('金币不够，差 ' + (cost - data.runCoins))
+      return
+    }
+    // 同种攒到稀有度上限就买不动了。上货那边也把满了的剔掉了，
+    // 这儿再兜一道 —— 上一次上货之后可能又买了一张
+    if (runOwnedOf(data, key) >= runOwnLimit(key)) {
+      warn('【' + nameOf(key) + '】攒够 ' + runOwnLimit(key) + ' 张了，收不下')
+      return
+    }
+    const head = index == saleAt.value ? '半价买下【' : '买下【'
+    confirmBuy(head + nameOf(key) + '】？', cost, () => {
+      doBuySticker(index, key, cost)
+    })
+  }
+
+  function doBuySticker(index : number, key : string, cost : number) {
+    const data = save.value
+    if (!addRunSticker(data, key)) {
+      return
+    }
+    data.runCoins = data.runCoins - cost
+    // 买来的顺手装进空位，省得还要回去点一遍。位子满了就先躺在库里
+    const slot = firstFreeSlot(data)
+    if (slot >= 0) {
+      setRunEquip(data, slot, key)
+    }
+    // 买走的留个空位，不把后面的挪上来 —— 一买就整排往左跳，手会点错
+    const next : string[] = []
+    for (let i = 0; i < shelf.value.length; i++) {
+      next.push(i == index ? '' : shelf.value[i])
+    }
+    shelf.value = next
+    commit(data, '')
+    tip.value = slot >= 0
+      ? '买下【' + nameOf(key) + '】，装进第 ' + (slot + 1) + ' 个位子'
+      : '买下【' + nameOf(key) + '】，位子满了，先在库里躺着'
+  }
+
+  const blindCost = computed<number>(() : number => {
+    return priceWith(save.value.runItems, blindPrice(save.value.runLevel))
+  })
+
+  // 开出各档的概率，摊开写给人看。
+  //
+  // 盲盒是要花钱赌的，赌之前总得知道赌的是什么概率 ——
+  // 藏着不写，那是坑人不是设计。
+  // 权重加起来正好 100，所以直接当百分比用
+  const blindOdds = computed<string>(() : string => {
+    const weights = shelfWeights(save.value.runLevel)
+    let text = ''
+    for (let i = 0; i < weights.length; i++) {
+      if (weights[i] <= 0) {
+        continue
+      }
+      if (text != '') {
+        text = text + ' · '
+      }
+      text = text + rarityAt(i).name + ' ' + weights[i] + '%'
+    }
+    return text
+  })
+
+  // 开一个盲盒：先按权重摇稀有度，再从那一档里随便挑一张。
+  //
+  // 稀有度跟货架用同一张随关号走的权重表，所以早期开不出传说。
+  // 但挑具体哪张时不偏向「库里已经有的」—— 盲盒本来就是赌，
+  // 偏向了就成了另一个货架
+  function buyBlind() {
+    const cost = blindCost.value
+    const data = save.value
+    if (blindSold.value) {
+      return
+    }
+    if (data.runCoins < cost) {
+      warn('金币不够，差 ' + (cost - data.runCoins))
+      return
+    }
+    // 概率写在确认框里 —— 掏钱那一下才是真正需要看见它的时候
+    uni.showModal({
+      title: '开一个盲盒？',
+      content: '花 ' + cost + ' 金币，还剩 ' + (data.runCoins - cost)
+        + '\n\n开出的概率：' + blindOdds.value,
+      confirmText: '开',
+      cancelText: '算了',
+      success: (res) => {
+        if (res.confirm) {
+          doBuyBlind(cost)
+        }
+      }
+    })
+  }
+
+  function doBuyBlind(cost : number) {
+    const data = save.value
+    const rarity = rollRarity(shelfWeights(data.runLevel), rarityHasStock(), Math.random())
+    if (rarity < 0) {
+      warn('每一档都攒到上限了，盲盒里没有你还收得下的')
+      return
+    }
+    // 这一档里随便挑，不看库里有没有
+    const picks : string[] = []
+    for (let i = 0; i < pool.length; i++) {
+      const key = pool[i]
+      if (stickerAt(key).rarity == rarity && runOwnedOf(data, key) < runOwnLimit(key)) {
+        picks.push(key)
+      }
+    }
+    if (picks.length == 0) {
+      warn('这一档没货了')
+      return
+    }
+    const key = picks[Math.floor(Math.random() * picks.length)]
+    if (!addRunSticker(data, key)) {
+      return
+    }
+    data.runCoins = data.runCoins - cost
+    const slot = firstFreeSlot(data)
+    if (slot >= 0) {
+      setRunEquip(data, slot, key)
+    }
+    blindSold.value = true
+    commit(data, '')
+    tip.value = '盲盒开出【' + nameOf(key) + '】（' + rarityAt(rarity).name + '）'
+      + (slot >= 0 ? '，装进第 ' + (slot + 1) + ' 个位子' : '，位子满了先躺库里')
+  }
+
+  function kitCost(kt : KitItem) : number {
+    return priceWith(save.value.runItems, kt.price)
+  }
+
+  function kitHave(key : string) : number {
+    return kitCountOf(save.value, key)
+  }
+
+  function buyKit(kt : KitItem) {
+    const cost = kitCost(kt)
+    const data = save.value
+    if (data.runCoins < cost) {
+      warn('金币不够，差 ' + (cost - data.runCoins))
+      return
+    }
+    confirmBuy('买一个【' + kt.name + '】？', cost, () => {
+      const d = save.value
+      d.runCoins = d.runCoins - cost
+      addKit(d, kt.key)
+      commit(d, '')
+      tip.value = '买了一个【' + kt.name + '】，手上 ' + kitCountOf(d, kt.key) + ' 个'
+    })
+  }
+
+  function itemCost(it : RelayItem) : number {
+    return priceWith(save.value.runItems, it.price)
+  }
+
+  function ownItem(key : string) : boolean {
+    return hasItem(save.value.runItems, key)
+  }
+
+  function buyItem(it : RelayItem) {
+    if (ownItem(it.key)) {
+      warn('【' + it.name + '】已经在身上了')
+      return
+    }
+    const cost = itemCost(it)
+    const data = save.value
+    if (data.runCoins < cost) {
+      warn('金币不够，差 ' + (cost - data.runCoins))
+      return
+    }
+    confirmBuy('买下【' + it.name + '】？', cost, () => {
+      const d = save.value
+      d.runCoins = d.runCoins - cost
+      d.runItems.push(it.key)
+      // 竿架买完位子当场就多一个，不用等下一关
+      d.runSlots = slotsWith(d.runLevel, d.runItems)
+      commit(d, '')
+      tip.value = '买下【' + it.name + '】'
+    })
+  }
+
+
+  // ---------- 贴纸库与贴纸位 ----------
+
+  function nameOf(key : string) : string {
+    return stickerAt(key).name
+  }
+
+  function colorOf(key : string) : string {
+    return rarityAt(stickerAt(key).rarity).color
+  }
+
+  function ownedOf(key : string) : number {
+    return runOwnedOf(save.value, key)
+  }
+
+  // 库里这张还有几张没装上位子
+  function spareOf(key : string) : number {
+    return runSpare(save.value, key)
+  }
+
+  // 点库里的贴纸：装进第一个空位。
+  // 卸下来不会丢 —— 贴纸一直在库里，位子只是「这一关带哪几张」
+  function tapLib(key : string) {
+    const data = save.value
+    if (spareOf(key) <= 0) {
+      tip.value = '这张都装上了，库里没有多的'
+      return
+    }
+    const slot = firstFreeSlot(data)
+    if (slot < 0) {
+      tip.value = '位子满了，先点一个位子把它卸下来'
+      return
+    }
+    setRunEquip(data, slot, key)
+    commit(data, '')
+    tip.value = '第 ' + (slot + 1) + ' 个位子装上【' + nameOf(key) + '】'
+  }
+
+  // 点位子上的贴纸：卸回库里。库存不变，只是这一关不带它
+  function tapSlot(index : number) {
+    if (index >= slotKeys.value.length || slotKeys.value[index] == '') {
+      return
+    }
+    const key = slotKeys.value[index]
+    const data = save.value
+    setRunEquip(data, index, '')
+    commit(data, '')
+    tip.value = '【' + nameOf(key) + '】放回库里了'
+  }
+
+  // ---------- 出门 ----------
+
+  function goNext() {
+    const data = save.value
+    const lv = data.runLevel
+    if (lv > RELAY_COUNT) {
+      // 十关打完了，这一轮到头 —— 回入口那边看战绩
+      uni.navigateBack()
+      return
+    }
+    // 出了这个门就不在商店了。放下牌子，「继续」才会直奔牌桌
+    data.runShop = false
+    saveCurrent(data)
+    save.value = cloneSave(data)
+    setCurrentRelayLevel(lv)
+    uni.redirectTo({
+      url: '/pages/examples/blackjack/relay'
+    })
+  }
+
+  function goHome() {
+    // 中途走人不算输，这一轮的家当都存着。
+    // runShop 那个牌子还立着 —— 下次点「继续」会回到这儿，
+    // 东西没买完不至于被直接推上牌桌
+    uni.navigateBack()
+  }
+
+  function commit(data : SaveData, msg : string) {
+    saveCurrent(data)
+    save.value = cloneSave(data)
+    if (msg != '') {
+      tip.value = msg
+    }
+  }
+
+  // 买不成的话要当场弹出来。
+  // 压在页面最底下那行小字里等于没提示 —— 手指在货架上，眼睛不在那儿
+  function warn(msg : string) {
+    uni.showToast({
+      icon: 'none',
+      title: msg
+    })
+  }
+
+  // 花钱之前问一句。金币是一轮挑战里最要紧的东西，
+  // 点歪一下少一件道具，这一轮可能就折在某一关上了
+  function confirmBuy(title : string, cost : number, onYes : () => void) {
+    uni.showModal({
+      title: title,
+      content: '花 ' + cost + ' 金币，还剩 ' + (save.value.runCoins - cost),
+      confirmText: '买',
+      cancelText: '算了',
+      success: (res) => {
+        if (res.confirm) {
+          onYes()
+        }
+      }
+    })
+  }
+
+  onLoad((options : OnLoadOptions) => {
+    // 上一关赚了多少，从牌桌那边带过来的。路上编过码，这儿解回来
+    const got = options['got']
+    if (got != null) {
+      gained.value = decodeURIComponent('' + got)
+    }
+  })
+
+  onShow(() => {
+    const data = loadCurrentSave()
+    // 位子数是算出来的：关号白送的 + 竿架那一个。
+    // 在这儿对一次 —— 进店时正好是下一关的关号，
+    // 于是「打到第几关就有几个位子」对得上
+    const want = slotsWith(data.runLevel, data.runItems)
+    if (data.runSlots != want) {
+      data.runSlots = want
+      saveCurrent(data)
+    }
+    // 位子上装着库里已经没有的东西就清掉，兜个底
+    trimEquip(data)
+    save.value = data
+    buildPool()
+    // 这一批货只上一次。每次回到这页都重抽的话，
+    // 出去看一眼再回来就换了一批，等于白送刷新
+    if (shelf.value.length == 0) {
+      restock()
+    }
+  })
+
+  save.value = loadCurrentSave()
+  buildPool()
+  restock()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 10px 12px;
+    background-color: #0b5d3b;
+  }
+
+  .head {
+    flex-direction: row;
+    justify-content: space-between;
+    background-color: #084730;
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+
+  .head-item {
+    flex: 1;
+    align-items: center;
+  }
+
+  .head-label {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .head-value {
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: bold;
+  }
+
+  .head-coin {
+    color: #ffd54f;
+  }
+
+  .gained {
+    color: #ffd54f;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+
+  /* 贴纸位还空着几个 —— 位子满了买不动贴纸，这行得随时看得见 */
+  .bar {
+    margin-top: 6px;
+  }
+
+  .bar-text {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .body {
+    flex: 1;
+    margin-top: 4px;
+  }
+
+  .section {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-top: 10px;
+  }
+
+  /* 贴纸位 */
+  .slot-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .slot {
+    width: 62px;
+    height: 36px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #0e6b45;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 空位画成虚线，一眼看得出还能装 */
+  .slot-empty {
+    border-style: dashed;
+    border-color: #4f8a6c;
+    background-color: #0a5334;
+  }
+
+  .slot-on {
+    border-style: solid;
+    border-color: #e8b23a;
+    background-color: #12764e;
+  }
+
+  .slot-plus {
+    color: #4f8a6c;
+    font-size: 16px;
+  }
+
+  .slot-name {
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  /* 库存 / 货架 */
+  .lib-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .dim {
+    color: #8fc7ab;
+    font-size: 11px;
+  }
+
+  .chip {
+    height: 34px;
+    padding: 0 9px;
+    margin-right: 5px;
+    margin-bottom: 5px;
+    border-radius: 8px;
+    background-color: #0e6b45;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .chip-out {
+    opacity: 0.4;
+  }
+
+  .chip-name {
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .chip-count {
+    color: #9fd9bd;
+    font-size: 9px;
+  }
+
+  .goods {
+    width: 72px;
+    height: 52px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .goods-sold {
+    border-style: dashed;
+    border-color: #4f8a6c;
+    background-color: #0a5334;
+  }
+
+
+  .goods-sold-text {
+    color: #4f8a6c;
+    font-size: 11px;
+  }
+
+  .goods-inner {
+    align-items: center;
+  }
+
+  .goods-name {
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .goods-price {
+    color: #ffd54f;
+    font-size: 11px;
+    font-weight: bold;
+  }
+
+  .shelf-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .reroll {
+    color: #e8b23a;
+    font-size: 11px;
+  }
+
+  /* 这一批的半价货：描红，价钱也换个色 —— 扫一眼就该看见 */
+  .goods-sale {
+    border-color: #ff7a59;
+    background-color: #12764e;
+  }
+
+  .goods-price-sale {
+    color: #ff9e80;
+  }
+
+  .goods-tag {
+    color: #ff7a59;
+    font-size: 9px;
+    font-weight: bold;
+  }
+
+  /* 盲盒的概率，摆在货架上面那行 */
+  .odds {
+    color: #d59bff;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  /* 盲盒跟贴纸摆一排，描紫分开 —— 那几件是看着买的，这个是赌的 */
+  .goods-blind {
+    border-color: #d59bff;
+  }
+
+  .goods-blind-name {
+    color: #d59bff;
+  }
+
+  /* 道具 */
+  .item-row {
+    margin-top: 4px;
+  }
+
+  .item {
+    background-color: #0e6b45;
+    border-radius: 8px;
+    padding: 6px 9px;
+    margin-bottom: 5px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #0e6b45;
+  }
+
+  .item-own {
+    border-color: #e8b23a;
+    opacity: 0.75;
+  }
+
+  .item-top {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .item-name {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .item-price {
+    color: #ffd54f;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .item-price-own {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .item-desc {
+    color: #cfeade;
+    font-size: 10px;
+    line-height: 14px;
+    margin-top: 2px;
+  }
+
+  .tip {
+    color: #e8b23a;
+    font-size: 11px;
+    margin-top: 8px;
+  }
+
+  .actions {
+    flex-direction: row;
+    margin-top: 8px;
+  }
+
+  .act-btn {
+    flex: 1;
+    height: 44px;
+    border-radius: 22px;
+    margin-right: 8px;
+    align-items: center;
+    justify-content: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .act-btn-primary {
+    background-color: #e8b23a;
+  }
+
+  .act-text {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  .act-text-dark {
+    color: #3b2a00;
+  }
+</style>

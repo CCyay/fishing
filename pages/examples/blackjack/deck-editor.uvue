@@ -61,23 +61,49 @@
       <text class="suit-tip">{{ suitTip }}</text>
     </view>
 
-    <!-- 数字网格：点击贴上 / 撕下 -->
-    <text class="section">点数字贴一张，同种能摞满 4 张；贴不下了再点一次，整摞撕下来</text>
-    <view class="grid">
-      <view
-        v-for="(rank, index) in RANKS"
-        :key="rank"
-        :id="'bj-rank-' + index"
-        class="cell"
-        @click="toggleSticker(index)">
-        <view class="cell-inner" :class="{ 'cell-on': hasActive(index) }">
-          <text class="cell-rank" :class="{ 'cell-rank-on': hasActive(index) }"
-            >{{ activeSuit < 0 ? '' : SUITS[activeSuit] }}{{ rank }}</text
-          >
-          <text class="cell-marks">{{ marksOf(index) }}</text>
+    <!-- 数字网格：选着贴纸点格子就贴上，撕一律点标签右边的 × -->
+    <text class="section">选好贴纸点数字贴上；撕下来点标签右边的 ×</text>
+    <scroll-view class="grid">
+      <view class="grid-row">
+        <view
+          v-for="(rank, index) in RANKS"
+          :key="rank"
+          :id="'bj-rank-' + index"
+          class="cell"
+          @click="toggleSticker(index)">
+          <view class="cell-inner" :class="{ 'cell-on': hasActive(index) }">
+            <text class="cell-rank" :class="{ 'cell-rank-on': hasActive(index) }"
+              >{{ activeSuit < 0 ? '' : SUITS[activeSuit] }}{{ rank }}</text
+            >
+            <!-- J 焊死的【通吃】不是贴上去的，撕不掉，所以不给它标签 -->
+            <text v-if="isFixedRank(rank)" class="cell-marks">通吃·固定</text>
+            <view v-else class="tag-grid">
+              <!-- 一个格位就是一张具体的牌，空着也占着位子：
+                   看「全部」时四个格位固定按 ♠♥♦♣ 排成两行两列，
+                   哪张贴了哪张空着一眼看得出，格子高度也就不会忽高忽低 -->
+              <view
+                v-for="tag in rankTags[index]"
+                :key="'tg-' + index + '-' + tag.suit"
+                class="tag-cell"
+                :class="{ 'tag-cell-half': activeSuit < 0 }">
+                <view class="tag" :style="tagStyle(tag)">
+                  <text class="tag-name" :class="{ 'tag-name-empty': tag.color == '' }">{{
+                    tag.label
+                  }}</text>
+                  <view
+                    v-if="tag.color != ''"
+                    :id="'bj-peel-' + index + '-' + tag.suit"
+                    class="tag-x"
+                    @click.stop="peelTag(index, tag.suit)">
+                    <text class="tag-x-text">×</text>
+                  </view>
+                </view>
+              </view>
+            </view>
+          </view>
         </view>
       </view>
-    </view>
+    </scroll-view>
 
     <view class="actions">
       <view id="bj-deck-clear" class="act-btn act-btn-warn" @click="clearAll">
@@ -108,7 +134,6 @@
     SUITS,
     isRedSuit,
     stickerAtSuit,
-    stickerKindsOfRank,
     stuckCountAt,
     countStuck
   } from '@/pages/examples/blackjack/cards.uts'
@@ -117,14 +142,23 @@
     emptySave,
     loadCurrentSave,
     saveCurrent,
+    cloneSave,
     canStick,
     applySticker,
     peelSticker,
     stickerTotal,
-    isStuckAt,
     isShopUnlocked,
     sumOf
   } from '@/pages/examples/blackjack/save.uts'
+
+  // 格子里的一个格位 = 牌组里的一张具体的牌。suit 是这个数字的哪张牌，
+  // 撕的时候按它定位 —— 同种贴纸贴了好几张也各撕各的。
+  // color 是空串就表示这张牌还空着，格位留着占地方，label 写花色符号
+  type DeckTag = {
+    suit : number
+    label : string
+    color : string
+  }
 
   const save = ref<SaveData>(emptySave())
   // 手里有什么就默认选什么。幸运不再白送，新存档可能一张贴纸都没有，
@@ -229,40 +263,73 @@
     return suitStickerOf(rankIndex, activeSuit.value) == activeId.value
   }
 
-  // 格子里的小字。看单个花色时只写那一张牌贴着什么，
-  // 看全部时把这个数字上的都列出来，同种缀个 ×N
-  function marksOf(rankIndex : number) : string {
+  // 十三个数字各自的标签，一次算好。模板里 rankTags[index] 直接取，
+  // 省得每个格子渲染一次就重算一遍
+  const rankTags = computed<DeckTag[][]>(() : DeckTag[][] => {
+    const all : DeckTag[][] = []
+    for (let r = 0; r < RANKS.length; r++) {
+      all.push(tagsOfRank(r))
+    }
+    return all
+  })
+
+  // 这个数字的四张牌，按 ♠♥♦♣ 的顺序各占一个格位。空着的也返回 ——
+  // 格位数固定下来，标签才能排成整齐的两行两列，格子高度也才不会随贴纸数变。
+  // 看单个花色时只返回那一张牌，格位就一个。
+  // 同种贴纸不再合并成 ×N：每个格位背后得是一张能单独撕掉的牌
+  function tagsOfRank(rankIndex : number) : DeckTag[] {
+    const list : DeckTag[] = []
     // J 焊着【通吃】，贴纸矩阵管不着它
     if (isFixedRank(RANKS[rankIndex])) {
-      return '通吃·固定'
+      return list
     }
-    if (activeSuit.value >= 0) {
-      const key = suitStickerOf(rankIndex, activeSuit.value)
-      return key == '' ? '—' : stickerAt(key).name
-    }
-    const kinds = stickerKindsOfRank(save.value.stuck, rankIndex)
-    if (kinds.length == 0) {
-      return '—'
-    }
-    let text = ''
-    for (let i = 0; i < kinds.length; i++) {
-      if (i > 0) {
-        text = text + '、'
+    for (let s = 0; s < SUITS.length; s++) {
+      if (activeSuit.value >= 0 && s != activeSuit.value) {
+        continue
       }
-      text = text + stickerAt(keyAtIndex(kinds[i])).name
-      const count = stuckCountAt(save.value.stuck, rankIndex, kinds[i])
-      if (count > 1) {
-        text = text + '×' + count
+      const id = stickerAtSuit(save.value.stuck, rankIndex, s)
+      if (id < 0) {
+        // 空格位：写个花色符号占着，顺便标出这一格是哪张牌
+        list.push({ suit: s, label: SUITS[s], color: '' } as DeckTag)
+        continue
       }
+      const sticker = stickerAt(keyAtIndex(id))
+      list.push({
+        suit: s,
+        // 格位的位置已经表示花色了（左上♠、右上♥、左下♦、右下♣），
+        // 名字前面不用再缀一遍 —— 四分之一屏宽的格子塞不下
+        label: sticker.name,
+        // 颜色跟着稀有度走，跟上面贴纸栏里的名字是同一套色
+        color: rarityAt(sticker.rarity).color
+      } as DeckTag)
     }
-    return text
+    return list
+  }
+
+  // 贴了东西就用稀有度色，空格位压暗一档。
+  // 空格位也得给个底色，不然 :style 绑空串在 uts 里不好收场
+  function tagStyle(tag : DeckTag) : string {
+    return 'background-color: ' + (tag.color == '' ? '#0a5334' : tag.color)
+  }
+
+  // 点标签右边的 × 就撕这一张。跟点格子分开：点格子只管贴，
+  // 免得手一抖把刚贴好的撕了
+  function peelTag(rankIndex : number, suitIndex : number) {
+    const data = save.value
+    const id = peelSticker(data, rankIndex, suitIndex)
+    if (id < 0) {
+      return
+    }
+    commit(
+      data,
+      '撕下 ' + SUITS[suitIndex] + RANKS[rankIndex] + ' 的【' + stickerAt(keyAtIndex(id)).name + '】'
+    )
   }
 
   const suitTip = '贴纸按 ♠♥♦♣ 的顺序分给这个数字的 4 张牌'
 
-  // 点一次加贴一张，同种可以摞到 4 张。
-  // 贴不下了再点一次，就把这个数字上这种贴纸整摞撕下来退回手里，重新来过 ——
-  // 摞着的时候「点一下撕一张」会在满和差一张之间来回跳，反而调不准
+  // 点格子只管贴：看单花色就贴那一张，全部模式落到第一张空着的牌上。
+  // 撕归标签上的 × 管 —— 两件事各有各的入口，就不会点一下不知道会发生什么
   function toggleSticker(rankIndex : number) {
     const data = save.value
     if (isFixedRank(RANKS[rankIndex])) {
@@ -274,44 +341,21 @@
     }
 
     const key = activeId.value
-    // 没选贴纸就是「撕」：单花色撕那一张，全部模式撕这个数字上的第一张
     if (key == '') {
-      const suit = activeSuit.value >= 0 ? activeSuit.value : firstStuckSuit(rankIndex)
-      if (suit < 0) {
-        uni.showToast({
-          icon: 'none',
-          title: '这里没有贴纸可撕。选一张贴纸再点就是贴上'
-        })
-        return
-      }
-      const id = peelSticker(data, rankIndex, suit)
-      if (id < 0) {
-        uni.showToast({
-          icon: 'none',
-          title: '这张牌上没有贴纸'
-        })
-        return
-      }
-      commit(data, '撕下 ' + SUITS[suit] + RANKS[rankIndex]
-        + ' 的【' + stickerAt(keyAtIndex(id)).name + '】')
+      uni.showToast({
+        icon: 'none',
+        title: '先在上面选一张贴纸。撕请点标签右边的 ×'
+      })
       return
     }
 
     const name = stickerAt(key).name
-    // 选了贴纸：看单花色就贴那一张，全部模式落到第一张空着的牌上
     const suit = activeSuit.value >= 0 ? activeSuit.value : firstFreeSuit(rankIndex)
     if (suit < 0) {
       uni.showToast({
         icon: 'none',
         title: '这个数字的 4 张牌都贴满了'
       })
-      return
-    }
-
-    // 这张牌上已经是这种贴纸了，再点一次就撕下来
-    if (isStuckAt(data, rankIndex, suit, key)) {
-      peelSticker(data, rankIndex, suit)
-      commit(data, '撕下 ' + SUITS[suit] + RANKS[rankIndex] + ' 的【' + name + '】')
       return
     }
 
@@ -349,35 +393,10 @@
     commit(data, '撕下全部 ' + count + ' 张贴纸，都退回手里了')
   }
 
-  // 这个数字上第一张贴着东西的牌是哪个花色，-1 表示四张都空着
-  function firstStuckSuit(rankIndex : number) : number {
-    for (let s = 0; s < SUITS.length; s++) {
-      if (stickerAtSuit(save.value.stuck, rankIndex, s) >= 0) {
-        return s
-      }
-    }
-    return -1
-  }
-
   // 数据改完整体替换一次，保证视图刷新
   function commit(data : SaveData, tip : string) {
     saveCurrent(data)
-    const next : SaveData = {
-      exists: data.exists,
-      label: data.label,
-      tickets: data.tickets,
-      randomTickets: data.randomTickets,
-      refundTickets: data.refundTickets,
-      win: data.win,
-      lose: data.lose,
-      push: data.push,
-      cleared: data.cleared,
-      stickersOwned: data.stickersOwned,
-      shopUnlocked: data.shopUnlocked,
-      achieved: data.achieved,
-      stuck: data.stuck
-    }
-    save.value = next
+    save.value = cloneSave(data)
     uni.showToast({
       icon: 'none',
       title: tip
@@ -550,12 +569,15 @@
     font-size: 9px;
   }
 
-  /* 数字网格 */
+  /* 数字网格。贴满的格子要摞四枚标签，高度撑起来就超屏了，所以整片能滚 */
   .grid {
     flex: 1;
+    margin-top: 4px;
+  }
+
+  .grid-row {
     flex-direction: row;
     flex-wrap: wrap;
-    margin-top: 4px;
   }
 
   .cell {
@@ -563,15 +585,19 @@
     padding: 3px;
   }
 
+  /* 高度写死：数字一行 + 标签两行。贴几张贴纸格子都一样高，
+     网格才不会因为某一格贴满了就整行跟着长 */
   .cell-inner {
-    flex: 1;
+    height: 66px;
     background-color: #0e6b45;
     border-radius: 6px;
     border-width: 1px;
     border-style: solid;
     border-color: #0e6b45;
-    align-items: center;
-    justify-content: center;
+    padding: 3px;
+    /* 标签要撑满格子宽，所以不能再 center 了，数字自己居中 */
+    align-items: stretch;
+    justify-content: flex-start;
   }
 
   .cell-on {
@@ -583,17 +609,73 @@
     color: #ffffff;
     font-size: 17px;
     font-weight: bold;
+    text-align: center;
   }
 
   .cell-rank-on {
     color: #e8b23a;
   }
 
-  /* 一个数字最多盖 4 种章，名字连起来放不下一行，缩小字号让它换行 */
+  /* 只剩 J 在用：它的效果是焊死的，没有格位也没有 × */
   .cell-marks {
     color: #9fd9bd;
     font-size: 9px;
     text-align: center;
+  }
+
+  /* 四个格位排成两行两列 */
+  .tag-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+
+  /* 格位外面这一层只管占地方和留缝。缝走外层的 padding，
+     不走标签自己的 margin —— 50% 宽再加 margin 就超出一行，会被挤到下一行去 */
+  .tag-cell {
+    width: 100%;
+    padding: 1px;
+  }
+
+  /* 看「全部」时一行摆两个，看单花色时就那一张牌，占满整行 */
+  .tag-cell-half {
+    width: 50%;
+  }
+
+  /* 底色就是稀有度色（在模板里按贴纸绑上去），字压深色 ——
+     四种稀有度色都偏亮，深字比白字清楚 */
+  .tag {
+    flex-direction: row;
+    align-items: center;
+    height: 15px;
+    border-radius: 3px;
+    padding-left: 2px;
+  }
+
+  .tag-name {
+    flex: 1;
+    color: #12321f;
+    font-size: 9px;
+    font-weight: bold;
+  }
+
+  .tag-name-empty {
+    color: #4f8a6c;
+    text-align: center;
+  }
+
+  /* × 要能点中，所以撑成一块方形，不是光一个字符 */
+  .tag-x {
+    width: 13px;
+    height: 15px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tag-x-text {
+    color: #12321f;
+    font-size: 11px;
+    font-weight: bold;
   }
 
   /* 底部 */

@@ -54,6 +54,33 @@
         "backgroundColorBottom": "#0B5D3B"
       }
     },
+    {
+      "path": "pages/examples/blackjack/relay-levels",
+      "style": {
+        "navigationBarTitleText": "排竿选关（relay）",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
+    {
+      "path": "pages/examples/blackjack/relay-shop",
+      "style": {
+        "navigationBarTitleText": "排竿商店（shop）",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
+    {
+      "path": "pages/examples/blackjack/relay",
+      "style": {
+        "navigationBarTitleText": "排竿（relay）",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
 
     {
       "path": "pages/index/index",

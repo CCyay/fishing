@@ -17,33 +17,24 @@
       </view>
     </view>
 
-    <!-- 四关的档次、奖励、回合都是按位次定死的，统一在这儿说一次，
-         省得每个格子里重复一遍 -->
     <view class="legend">
-      <text class="legend-text">每场四关</text>
-      <text
-        v-for="rarity in rarities"
-        :key="'lg-' + rarity.id"
-        class="legend-tier"
-        :style="'color: ' + rarity.color"
-        >{{ rarity.name }}</text
-      >
-      <text class="legend-text"
-        >· 通关给同档券，重打给退换券 · 史诗关要先通 6 关、传说关 12 关（跨钓场算）</text
-      >
+      <text class="legend-text">通关给同档券，重打给退换券 · 前三档教机制，传说六关才是六条流派</text>
     </view>
 
-    <!-- 六个钓场各一行，一行四关。普通关随时能打，往后每关要求同场上一关先通 -->
+    <!-- 一档一行。各档关卡数不一样（4/5/6/6），行长跟着变 ——
+         同一行的解锁条件一样，所以「现在能打哪些」看一行就够 -->
     <scroll-view class="fields">
-      <view v-for="(field, fi) in fields" :key="'f-' + fi" class="field">
+      <view v-for="(row, ti) in tiers" :key="'t-' + ti" class="field">
         <view class="field-head">
-          <text class="field-name">{{ FIELD_NAMES[fi] }}</text>
-          <text class="field-tag">{{ FIELD_TAGS[fi] }}</text>
-          <text class="field-done">{{ doneOf(fi) }}/{{ FIELD_TIERS }}</text>
+          <text class="field-name" :style="'color: ' + rarityAt(ti).color"
+            >{{ TIER_NAMES[ti] }}</text
+          >
+          <text class="field-tag">{{ tierNote(ti) }}</text>
+          <text class="field-done">{{ doneOf(ti) }}/{{ row.length }}</text>
         </view>
         <view class="grid">
           <view
-            v-for="level in field"
+            v-for="level in row"
             :key="level.index"
             class="cell"
             :id="'bj-level-' + level.index"
@@ -54,9 +45,9 @@
                 'cell-locked': !playable(level) && !cleared(level),
                 'cell-cleared': cleared(level)
               }">
-              <text class="cell-name" :style="'color: ' + tierColor(level)">{{
-                tailName(level)
-              }}</text>
+              <text class="cell-name" :style="'color: ' + tierColor(level)">{{ level.short }}</text>
+              <!-- 传说关才有流派，写在名字下面；前三档这一格留给状态 -->
+              <text v-if="level.spot >= 0" class="cell-tag">{{ FIELD_TAGS[level.spot] }}</text>
               <text class="cell-state" :class="{ 'cell-state-lock': !playable(level) }">{{
                 stateOf(level)
               }}</text>
@@ -74,7 +65,7 @@
 
 <script setup lang="uts">
   import { countStuck } from '@/pages/examples/blackjack/cards.uts'
-  import { Rarity, RARITIES, rarityAt } from '@/pages/examples/blackjack/stickers.uts'
+  import { rarityAt } from '@/pages/examples/blackjack/stickers.uts'
   import {
     SaveData,
     loadCurrentSave,
@@ -85,11 +76,10 @@
   import {
     Level,
     LEVEL_COUNT,
-    FIELD_TIERS,
-    FIELD_NAMES,
+    TIER_COUNT,
     FIELD_TAGS,
-    levelsOfField,
-    fieldCount,
+    TIER_NAMES,
+    levelsOfTier,
     isPlayable,
     isCleared,
     tierGate,
@@ -97,14 +87,14 @@
   } from '@/pages/examples/blackjack/levels.uts'
 
   const save = ref<SaveData>(emptySave())
-  const rarities = ref<Rarity[]>(RARITIES)
-  // 六个钓场，每个钓场四关。列表按钓场分行，一眼看得出有几条路可走
-  const fields = ref<Level[][]>(buildFields())
+  // 四个难度档，一档一行。行长不齐是有意的：
+  // 入门 4、进阶 5、困难 6、传说 6，越往下内容越厚
+  const tiers = ref<Level[][]>(buildTiers())
 
-  function buildFields() : Level[][] {
+  function buildTiers() : Level[][] {
     const list : Level[][] = []
-    for (let i = 0; i < fieldCount(); i++) {
-      list.push(levelsOfField(i))
+    for (let i = 0; i < TIER_COUNT; i++) {
+      list.push(levelsOfTier(i))
     }
     return list
   }
@@ -117,7 +107,7 @@
     return sumOf(save.value.tickets)
   })
 
-  // 普通关随时能打，往后每关要求同一个钓场的上一关先通
+  // 入门那一档随时能打，往上每档要求总通关数够门槛
   function playable(level : Level) : boolean {
     return isPlayable(level.index, save.value.cleared)
   }
@@ -126,9 +116,9 @@
     return isCleared(level.index, save.value.cleared)
   }
 
-  // 这个钓场通了几关
-  function doneOf(field : number) : number {
-    const list = fields.value[field]
+  // 这一档通了几关
+  function doneOf(tier : number) : number {
+    const list = tiers.value[tier]
     let done = 0
     for (let i = 0; i < list.length; i++) {
       if (cleared(list[i])) {
@@ -138,15 +128,14 @@
     return done
   }
 
-  // 关卡名是「钓场 · 关名」，钓场那半截已经写在行头上了，格子里只留后半截
-  function tailName(level : Level) : string {
-    const parts = level.name.split(' · ')
-    return parts.length > 1 ? parts[1] : level.name
+  // 行头写这一档怎么开。同一行的条件都一样，写一次就够
+  function tierNote(tier : number) : string {
+    const gate = tierGate(tier)
+    return gate > 0 ? '需先通 ' + gate + ' 关' : '随时可打'
   }
 
-
   // 关名用档次的颜色写，跟贴纸稀有度一致 —— 这一关放的就是那一档的贴纸。
-  // 难度、奖励、回合都按位次定死，统一写在列表上方那行，格子里不重复
+  // 难度、奖励、回合都按档次定死，统一写在列表上方那行，格子里不重复
   function tierColor(level : Level) : string {
     return rarityAt(level.tier).color
   }
@@ -158,24 +147,17 @@
     if (playable(level)) {
       return '可挑战'
     }
-    // 卡在门槛上就写还差几关，卡在前一关就写「先过上一关」——
-    // 两种锁法原因不同，混成一句「未解锁」等于没说
-    const left = gateLeft(level.index, save.value.cleared)
-    if (left > 0 && isCleared(level.index - 1, save.value.cleared)) {
-      return '还差 ' + left + ' 关'
-    }
-    return '未解锁'
+    // 锁上只有一种原因：总通关数不够。格子只有六分之一屏宽，
+    // 这里能塞下的就三四个字
+    return '差 ' + gateLeft(level.index, save.value.cleared) + ' 关'
   }
 
   function enterLevel(level : Level) {
     if (!playable(level)) {
       const left = gateLeft(level.index, save.value.cleared)
-      const gated = left > 0 && isCleared(level.index - 1, save.value.cleared)
       uni.showToast({
         icon: 'none',
-        title: gated
-          ? '这一关要先通关 ' + tierGate(level.tier) + ' 关，还差 ' + left + ' 关。去别的钓场看看'
-          : '先通关本钓场的上一关'
+        title: '这一档要先通关 ' + tierGate(level.tier) + ' 关，还差 ' + left + ' 关'
       })
       return
     }
@@ -241,14 +223,7 @@
     font-size: 9px;
   }
 
-  .legend-tier {
-    font-size: 9px;
-    font-weight: bold;
-    margin-left: 4px;
-    margin-right: 4px;
-  }
-
-  /* 六个钓场竖着排，整页能滚 */
+  /* 四个档次竖着排，整页能滚 */
   .fields {
     flex: 1;
     margin-top: 4px;
@@ -271,7 +246,7 @@
     margin-right: 6px;
   }
 
-  /* 这个钓场教哪条路，一眼看得出该往哪走 */
+  /* 这一档怎么开。同一行的条件都一样，写一次就够 */
   .field-tag {
     flex: 1;
     color: #9fd9bd;
@@ -283,24 +258,25 @@
     font-size: 11px;
   }
 
-  /* 一个钓场四关，横着排成一行 —— 六个钓场刚好一屏，
-     从左到右就是普通、稀有、史诗、传说 */
+  /* 一档一行，从上到下就是入门、进阶、困难、传说。
+     各档关卡数不一样，所以格子宽度按最长的那一档（6 关）定死 ——
+     按行内数量均分的话入门那四格会胖一圈，四行就参差不齐了 */
   .grid {
     flex-direction: row;
     margin-top: 2px;
   }
 
   .cell {
-    width: 25%;
+    width: 16.66%;
     padding: 2px;
-    height: 52px;
+    height: 56px;
   }
 
   .cell-inner {
     flex: 1;
     background-color: #0e6b45;
     border-radius: 8px;
-    padding: 6px 8px;
+    padding: 6px 3px;
     border-width: 1px;
     border-style: solid;
     border-color: #0e6b45;
@@ -316,27 +292,27 @@
     opacity: 0.6;
   }
 
-  /* 档次用贴纸稀有度的颜色，一眼看出这关放的是哪一档的贴纸 */
-  .cell-diff {
-    font-size: 10px;
-    font-weight: bold;
-  }
-
+  /* 格子里写关卡短名，档次靠颜色和行头表达 */
   .cell-name {
     color: #ffffff;
     font-size: 13px;
     font-weight: bold;
+    text-align: center;
   }
 
-  /* 四列之后格子只有四分之一屏宽，这两行得压到 9px 才不挤 */
-  .cell-goal {
-    color: #cfeade;
+  /* 传说关才有的流派标 —— 那一档六关就是六条路，
+     光看「浅滩」不知道它教什么 */
+  .cell-tag {
+    color: #e8b23a;
     font-size: 9px;
+    text-align: center;
   }
 
+  /* 六列之后格子只有六分之一屏宽，这行得压到 9px 才不挤 */
   .cell-state {
     color: #8fc7ab;
     font-size: 9px;
+    text-align: center;
   }
 
   .cell-state-lock {

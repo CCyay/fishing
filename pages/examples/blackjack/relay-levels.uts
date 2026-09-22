@@ -1,0 +1,532 @@
+// 排竿的十关，以及贴纸位怎么给。
+//
+// 这十关跟主玩法那二十一关没有关系：另一套难度曲线、另一本通关账、
+// 另一个贴纸库。排竿赚的贴纸只在排竿用，主玩法买的也带不过来 ——
+// 两种玩法各玩各的，进度不互相绑架。
+//
+// 难度沿三条线走：庄家牌组上的贴纸越来越多、庄家排队越来越会算、
+// 一局的轮数越来越长。轮数长了更难，是因为排竿拼的是「手上这五张
+// 能不能凑出成对的点数」—— 局短的话运气好凑上两对就赢了，
+// 局一长，压牌压掉什么、牌库还剩什么就都得心里有数。
+
+import {
+  STICKERS,
+  S_NONE,
+  S_HAUL,
+  indexOfKey,
+  isFixedRank,
+  isBlankSticker
+} from '@/pages/examples/blackjack/stickers.uts'
+import {
+  Card,
+  RANKS,
+  SUITS,
+  emptyStickers,
+  stickerIndex,
+  playOptions
+} from '@/pages/examples/blackjack/cards.uts'
+
+// ---------- 这个模式认得的贴纸 ----------
+//
+// 不是手写一张名单，是挨个试出来的：拿同一张牌贴上去，看它算的数变没变。
+// 变了的是点数类，空位类另算 —— 这两类在 cards.uts 里就结算完了，
+// 排竿认得。要当场挑牌的那些给了也白给：一轮十张连着自动演完，没处插手。
+//
+// 手写名单迟早会跟八十种的贴纸表对不上（以后加贴纸就得记着同步），
+// 试出来的不会。牌桌、商店、入口页三处都取这一份
+export function relayStickerPool() : string[] {
+  const list : string[] = []
+  const plain = probeValues(S_NONE)
+  for (let i = 0; i < STICKERS.length; i++) {
+    const key = STICKERS[i].key
+    // J 焊死的固定效果，贴不上也买不着
+    if (key == S_HAUL) {
+      continue
+    }
+    if (isBlankSticker(key) || !sameNumbers(probeValues(key), plain)) {
+      list.push(key)
+    }
+  }
+  return list
+}
+
+// 拿一张 7 当试纸：贴上这个 key 之后它算哪几个数
+function probeValues(key : string) : number[] {
+  const probe : Card = {
+    suit: '♠',
+    rank: '7',
+    value: 7,
+    stickerKey: key,
+    tapped: false,
+    forced: -1,
+    faceDown: false,
+    negated: false,
+    extra: 0,
+    altValue: -1,
+    pileValue: -1,
+    pileValues: [] as number[]
+  }
+  return playOptions(probe)
+}
+
+function sameNumbers(a : number[], b : number[]) : boolean {
+  if (a.length != b.length) {
+    return false
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) {
+      return false
+    }
+  }
+  return true
+}
+
+// 庄家排队的脑子：
+//   0 不排 —— 照牌库顺序打，你占大便宜；
+//   1 配对 —— 把点数对得上的两张排到相邻位，中间夹着的你那张就被一并收走；
+//   2 配对加压大数 —— 配完对，剩下的大数往后放，晚落堆少挨钩
+export const DEAL_PLAIN : number = 0
+export const DEAL_PAIR : number = 1
+export const DEAL_TUNED : number = 2
+
+export type RelayLevel = {
+  index : number
+  name : string
+  // 一局打几轮，一轮双方各五张
+  rounds : number
+  // 庄家牌组上贴几张贴纸
+  dealerStickers : number
+  // 庄家用哪几种。只挑改点数的 —— 这个模式认的就是点数，
+  // 给它挂一堆要挑牌的贴纸，它一张也发动不了
+  dealerKinds : string[]
+  // 庄家排队的脑子，见上面三个常量
+  dealerSmart : number
+}
+
+export const RELAY_COUNT : number = 10
+
+// ---------- 金币 ----------
+//
+// 过关给两笔：一笔固定的过关费，一笔按分差算的赏钱。
+//
+// 固定那笔随关号涨，保证越往后每关的底子越厚；按分差那笔才是大头 ——
+// 收 20 张赢它 2 张，和收 12 张赢它 10 张，含金量差远了。
+// 赏钱挂在分差上，才逼着人去想「怎么赢得更狠」，而不是打满轮数了事。
+// 顺带把「忍住不收攒大的」也接上了：憋一手大的，分差就拉得开
+export function baseCoins(index : number) : number {
+  return 8 + index * 2
+}
+
+export const COIN_PER_GAP : number = 3
+
+export function gapCoins(gap : number) : number {
+  return gap > 0 ? gap * COIN_PER_GAP : 0
+}
+
+// ---------- 贴纸位 ----------
+
+export const MAX_SLOTS : number = 6
+
+// 打到第几关就有几个贴纸位，不花钱买，随难度直接给。
+//
+// 早先是拿金币买的，但那让每一关的商店都在问同一个问题
+// （扩位还是买战力），而扩位是复利 —— 答案长期都偏向扩位，
+// 问了也白问。改成白给之后，金币就只跟「买什么贴纸」较劲，
+// 商店里的决策反而更集中。
+//
+// 位子数也就跟着关卡的轮数走了：前期关短位子少，后期关长位子多，
+// 一轮差不多摊得到一张
+export function slotsAt(level : number) : number {
+  if (level <= 2) {
+    return 3
+  }
+  if (level <= 4) {
+    return 4
+  }
+  if (level <= 6) {
+    return 5
+  }
+  return MAX_SLOTS
+}
+
+// 贴纸按稀有度卖。普通那档局内每轮白送，商店里定得便宜 ——
+// 真要花钱买的是上面那几档，单张就能改一局的那种
+export function stickerPrice(rarity : number) : number {
+  if (rarity <= 0) {
+    return 15
+  }
+  if (rarity == 1) {
+    return 35
+  }
+  if (rarity == 2) {
+    return 70
+  }
+  return 130
+}
+
+// ---------- 上货的稀有度权重 ----------
+//
+// 跟着关号走。头两关根本不出史诗和传说 —— 那会儿金币也买不起，
+// 摆出来只是占着格子；到了后半程反过来，普通的比重压到一成，
+// 不然打到第九关货架上还都是轻坠，等于没货可买。
+//
+// 分段写死而不是拿公式插值：这四条线各是什么形状要一眼看得见，
+// 调某一段的手感时也不会牵动别的段
+export function shelfWeights(level : number) : number[] {
+  if (level <= 2) {
+    return [70, 30, 0, 0]
+  }
+  if (level <= 4) {
+    return [50, 35, 15, 0]
+  }
+  if (level <= 6) {
+    return [35, 35, 25, 5]
+  }
+  if (level <= 8) {
+    return [20, 35, 35, 10]
+  }
+  return [10, 30, 40, 20]
+}
+
+// 按权重摇一个稀有度出来。
+//
+// has 是各档还有没有货的标记 —— 某一档全攒到上限了就别摇中它，
+// 摇中了也开不出东西。roll 传 0..1 的随机数，摇号本身不碰 Math.random，
+// 好让调用处自己决定随机源
+export function rollRarity(weights : number[], has : boolean[], roll : number) : number {
+  let total = 0
+  for (let i = 0; i < weights.length; i++) {
+    if (i < has.length && has[i]) {
+      total = total + weights[i]
+    }
+  }
+  if (total <= 0) {
+    return -1
+  }
+  let hit = roll * total
+  for (let i = 0; i < weights.length; i++) {
+    if (i >= has.length || !has[i]) {
+      continue
+    }
+    hit = hit - weights[i]
+    if (hit <= 0) {
+      return i
+    }
+  }
+  return -1
+}
+
+// ---------- 盲盒 ----------
+//
+// 不挑，但便宜。货架是「看着买」，盲盒是「赌一把」——
+// 手头紧、货架上又没有中意的时候，这是唯一还买得动的东西。
+//
+// 稀有度跟货架共用上面那张随关号走的权重表，所以价钱也得跟着走：
+// 第一关的盒子里根本没有传说，第十关有两成，两者卖一个价就荒唐了。
+//
+// 定价照着期望价值的七成走。各档货架价是 15/35/70/130，那么
+//   关 1-2 期望 21 → 卖 15
+//   关 3-4 期望 30 → 卖 20
+//   关 5-6 期望 42 → 卖 30
+//   关 7-8 期望 53 → 卖 40
+//   关 9-10 期望 66 → 卖 50
+// 七成是有意留的口子：赌它长期划算，但单次要认方差 ——
+// 后期花 50 开出一张普通，那也认了
+export function blindPrice(level : number) : number {
+  if (level <= 2) {
+    return 15
+  }
+  if (level <= 4) {
+    return 20
+  }
+  if (level <= 6) {
+    return 30
+  }
+  if (level <= 8) {
+    return 40
+  }
+  return 50
+}
+
+// 商店一次上几件货，以及刷新一次多少钱。
+//
+// 不把解锁的贴纸全摆出来，是这套玩法能重复玩的关键：
+// 要是每次都买得到想要的，几轮之后所有挑战都会收敛成同一套最优解。
+// 随机上货逼着人在「凑合买眼前这张」和「攒钱赌下一关」之间选
+export const SHOP_SIZE : number = 5
+export const REROLL_PRICE : number = 10
+
+const LEVELS : RelayLevel[] = [
+  {
+    index: 1,
+    name: '试竿',
+    rounds: 3,
+    // 素牌。先把顺序这件事摸明白
+    dealerStickers: 0,
+    dealerKinds: [] as string[],
+    dealerSmart: DEAL_PLAIN,
+  },
+  {
+    index: 2,
+    name: '顺水',
+    rounds: 3,
+    dealerStickers: 4,
+    dealerKinds: ['sinker1'],
+    dealerSmart: DEAL_PLAIN,
+  },
+  {
+    index: 3,
+    name: '逆流',
+    rounds: 4,
+    // 从这一关起庄家会排队了 —— 它开始主动凑对，夹在中间的就是你的牌
+    dealerStickers: 7,
+    dealerKinds: ['sinker1', 'minus1'],
+    dealerSmart: DEAL_PAIR,
+  },
+  {
+    index: 4,
+    name: '暗涌',
+    rounds: 4,
+    dealerStickers: 10,
+    dealerKinds: ['sinker2', 'minus1'],
+    dealerSmart: DEAL_PAIR,
+  },
+  {
+    index: 5,
+    name: '深槽',
+    rounds: 4,
+    dealerStickers: 13,
+    dealerKinds: ['sinker2', 'minus2', 'drift'],
+    dealerSmart: DEAL_PAIR,
+  },
+  {
+    index: 6,
+    name: '乱石',
+    rounds: 5,
+    dealerStickers: 16,
+    dealerKinds: ['sinker3', 'minus2', 'drift'],
+    dealerSmart: DEAL_TUNED,
+  },
+  {
+    index: 7,
+    name: '回漩',
+    rounds: 5,
+    dealerStickers: 19,
+    dealerKinds: ['sinker3', 'minus3', 'drift'],
+    dealerSmart: DEAL_TUNED,
+  },
+  {
+    index: 8,
+    name: '断流',
+    rounds: 5,
+    dealerStickers: 23,
+    dealerKinds: ['sinker4', 'minus3', 'sinker1'],
+    dealerSmart: DEAL_TUNED,
+  },
+  {
+    index: 9,
+    name: '死水',
+    rounds: 6,
+    dealerStickers: 27,
+    dealerKinds: ['sinker4', 'minus4', 'drift'],
+    dealerSmart: DEAL_TUNED,
+  },
+  {
+    index: 10,
+    name: '长夜',
+    rounds: 6,
+    dealerStickers: 32,
+    dealerKinds: ['sinker5', 'minus4', 'drift', 'sinker1'],
+    dealerSmart: DEAL_TUNED,
+  }
+]
+
+export function allRelayLevels() : RelayLevel[] {
+  return LEVELS
+}
+
+export function relayLevelAt(index : number) : RelayLevel {
+  for (let i = 0; i < LEVELS.length; i++) {
+    if (LEVELS[i].index == index) {
+      return LEVELS[i]
+    }
+  }
+  return LEVELS[0]
+}
+
+// 头一关随时能打，往后每关要求上一关先通。
+// 十关是一条直路，不像主玩法那边是六条并排的钓场
+// ---------- 道具 ----------
+//
+// 道具买了就一直管用，管到这一轮结束。跟贴纸不一样：贴纸是贴在某张牌上的
+// 一次性资源，道具改的是这一轮的规矩本身。
+//
+// 「饵盒」这一件把原先默认每轮白送的那张贴纸收编成了要花钱的东西 ——
+// 白送的话金币就不值钱了，买了它才有稳定的普通贴纸流
+export type RelayItem = {
+  key : string
+  name : string
+  desc : string
+  price : number
+}
+
+// ---------- 消耗道具：一次性的，可以囤 ----------
+//
+// 跟上面那三件不一样：它们不改规矩，用一次就没了。
+//
+// 这一类顶的都是「这一关的硬约束」—— 不白送，但允许你花钱买一次通融。
+// 白给的话那些约束就名存实亡了；要花钱买，约束就还立得住
+export type KitItem = {
+  key : string
+  name : string
+  desc : string
+  price : number
+}
+
+export const KIT_TAKE : string = 'take'
+export const KIT_CLEAR : string = 'clear'
+
+export const KIT_ITEMS : KitItem[] = [
+  {
+    key: KIT_TAKE,
+    name: '翻箱',
+    desc: '从贴纸库里再取一张到手上。顶过「一关只带得了位子那么多张」这条限制。',
+    price: 35
+  },
+  {
+    key: KIT_CLEAR,
+    name: '清水',
+    desc: '手上盖着的牌全翻开。压牌补上来的那几张是盲的，这一件让它们现形。',
+    price: 25
+  }
+]
+
+export function kitAt(key : string) : KitItem {
+  for (let i = 0; i < KIT_ITEMS.length; i++) {
+    if (KIT_ITEMS[i].key == key) {
+      return KIT_ITEMS[i]
+    }
+  }
+  return KIT_ITEMS[0]
+}
+
+export function kitIndexOf(key : string) : number {
+  for (let i = 0; i < KIT_ITEMS.length; i++) {
+    if (KIT_ITEMS[i].key == key) {
+      return i
+    }
+  }
+  return -1
+}
+
+export const ITEM_BAIT : string = 'bait'
+export const ITEM_SCALE : string = 'scale'
+export const ITEM_REGULAR : string = 'regular'
+export const ITEM_RACK : string = 'rack'
+
+// 三件道具都是「越早买越值」：剩下的关卡越多，回本的机会越多。
+// 所以头几关手头紧的时候买不买，本身就是这一轮最难的决定之一
+export const RELAY_ITEMS : RelayItem[] = [
+  {
+    key: ITEM_BAIT,
+    name: '饵盒',
+    desc: '往后每一轮开头，从饵盒里摸一张普通贴纸。这一轮挑战里一直管用。',
+    price: 60
+  },
+  {
+    key: ITEM_SCALE,
+    name: '秤钩',
+    desc: '往后每次过关，到手的金币多三成。',
+    price: 80
+  },
+  {
+    key: ITEM_REGULAR,
+    name: '熟客',
+    desc: '商店里的贴纸、道具一律八折。刷新和盲盒也便宜。',
+    price: 70
+  },
+  {
+    key: ITEM_RACK,
+    name: '竿架',
+    desc: '多架一根竿：贴纸位永久 +1，往后每一关都多带一张。',
+    price: 120
+  }
+]
+
+// 这一关实际有几个贴纸位：关号白送的，加上竿架那一个。
+//
+// 位子的地基是白送的，天花板才要花钱 —— 所以竿架不是「买得起就一定买」：
+// 120 金币够买两三张贴纸，而它的回报要摊到往后每一关才划得来。
+// 买得早赚，临到第九关买就是纯亏
+export function slotsWith(level : number, items : string[]) : number {
+  const base = slotsAt(level)
+  return hasItem(items, ITEM_RACK) ? base + 1 : base
+}
+
+// 秤钩：过关的金币多三成
+export function coinBonus(items : string[], coins : number) : number {
+  if (!hasItem(items, ITEM_SCALE)) {
+    return coins
+  }
+  return Math.floor(coins * 13 / 10)
+}
+
+// 熟客：店里一律八折。算价的地方一律过这道，
+// 免得漏掉一处就有个不打折的角落
+export function priceWith(items : string[], price : number) : number {
+  if (!hasItem(items, ITEM_REGULAR)) {
+    return price
+  }
+  const cut = Math.floor(price * 8 / 10)
+  return cut < 1 ? 1 : cut
+}
+
+export function relayItemAt(key : string) : RelayItem {
+  for (let i = 0; i < RELAY_ITEMS.length; i++) {
+    if (RELAY_ITEMS[i].key == key) {
+      return RELAY_ITEMS[i]
+    }
+  }
+  return RELAY_ITEMS[0]
+}
+
+export function hasItem(items : string[], key : string) : boolean {
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] == key) {
+      return true
+    }
+  }
+  return false
+}
+
+// 庄家牌组的贴纸矩阵，跟主玩法那边一个铺法：
+// 只用本关指定的几种，尽量摊到不同数字上，一轮填一个花色
+export function relayDealerStuck(level : RelayLevel) : number[] {
+  const stuck = emptyStickers()
+  const kinds = level.dealerKinds
+  if (kinds.length == 0) {
+    return stuck
+  }
+  let left = level.dealerStickers
+  for (let round = 0; round < SUITS.length && left > 0; round++) {
+    for (let r = 0; r < RANKS.length; r++) {
+      if (left <= 0) {
+        break
+      }
+      // J 焊着【通吃】，贴纸分不到它头上
+      if (isFixedRank(RANKS[r])) {
+        continue
+      }
+      const id = indexOfKey(kinds[(r + round) % kinds.length])
+      if (id < 0) {
+        continue
+      }
+      const at = stickerIndex(r, round)
+      if (stuck[at] == 0) {
+        stuck[at] = id + 1
+        left = left - 1
+      }
+    }
+  }
+  return stuck
+}

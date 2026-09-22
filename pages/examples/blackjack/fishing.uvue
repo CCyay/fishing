@@ -24,8 +24,8 @@
         <text class="hand-tip">回合 {{ dealerTurns }}/{{ level.turns }}</text>
       </view>
       <!-- 手牌可以多于 5 张（对换、同号那几张会往手上塞），所以横着能滑 -->
-      <scroll-view class="hand" direction="horizontal">
-        <view class="hand-row">
+      <scroll-view class="hand hand-top" direction="horizontal">
+        <view class="hand-row hand-row-top">
           <view
             v-for="(card, index) in dealerHand"
             :key="'dh-' + index"
@@ -87,14 +87,14 @@
           >
         </view>
       </view>
-      <scroll-view id="bj-pile" class="board" direction="horizontal">
-        <view class="board-row">
+      <scroll-view id="bj-pile" class="board" :class="{ 'board-drop': dragReady }">
+        <view class="board-row pile-cards">
           <text v-if="pile.length == 0" class="played-tip">空堆，下一张随便打</text>
           <view
             v-for="(card, index) in pile"
             :key="'pl-' + index"
             :id="'bj-pile-' + index"
-            class="card"
+            class="card card-in-pile"
             :class="{
               'card-stickered': !card.faceDown && card.stickerKey != S_NONE,
               'card-from-dealer': !card.faceDown && pileFromDealer[index],
@@ -103,7 +103,7 @@
               'card-caught': index < catchMarks.length && catchMarks[index],
               'card-pickable': pickKind == 'pile' || pickKind == 'slot'
             }"
-            @click="pickFromPile(index)">
+            @click="tapPile(index)">
             <!-- 沉在堆底的暗牌：数字花色贴纸一概不露，跟庄家手牌一个背面 -->
             <view v-if="card.faceDown" class="card-back-art">
               <view class="card-back-gem"></view>
@@ -114,18 +114,16 @@
             <text v-if="!card.faceDown" class="card-suit" :class="{ 'card-red': isRed(card) }">{{
               card.suit
             }}</text>
-            <text
-              v-if="!card.faceDown && card.stickerKey != S_NONE"
-              class="card-sticker"
-              @click.stop="showSticker(card)"
-              >{{ stickerName(card) }}</text
-            >
+            <!-- 整张牌点一下就看得到，这行小字不用再单独接一次点击 -->
+            <text v-if="!card.faceDown && card.stickerKey != S_NONE" class="card-sticker">{{
+              stickerName(card)
+            }}</text>
           </view>
           <!-- 埋钩挑位置时，堆顶后面多一个「压堆顶」的落点 -->
           <view
             v-if="pickKind == 'slot'"
             id="bj-pile-top"
-            class="card card-slot"
+            class="card card-slot card-in-pile"
             @click="pickFromPile(pile.length)">
             <text class="card-slot-mark">压顶</text>
           </view>
@@ -140,10 +138,19 @@
 
     <!-- 手牌 / 选点数 / 结算 -->
     <!-- 摊牌给你挑的时候要加高：摊开的那排和手牌得同时看得见 -->
-    <view class="hand-area" :class="{ 'hand-area-tall': pickKind == 'top' || pickKind == 'deck' }">
+    <view
+      class="hand-area hand-area-mine"
+      :class="{ 'hand-area-tall': pickKind == 'top' || pickKind == 'deck' }">
       <view v-if="phase != 'over'" class="hand-head">
         <text class="hand-title">你的手牌 {{ playerHand.length }}/{{ handLimit(false) }}</text>
-        <text class="hand-tip">{{ handTip }} · 点贴纸名看效果</text>
+        <!-- 已经拖够远了，这会儿松手就出牌 -->
+        <text v-if="dragReady" class="hand-tip hand-tip-drop">松手就打出</text>
+        <!-- 选中一张之后给一个按钮，不想拖的可以按这儿打。
+             没有「收起」——再点一次那张牌就收了，一个动作够了 -->
+        <view v-else-if="selectedHand >= 0 && phase == 'player'" class="hand-acts">
+          <text id="bj-play-now" class="peek-btn peek-btn-hit" @click="playSelected">打出</text>
+        </view>
+        <text v-else class="hand-tip">{{ handTip }}</text>
       </view>
 
       <!-- 空堆上打 J 是纯亏，拦一下 -->
@@ -206,9 +213,15 @@
             :class="{
               'card-stickered': card.stickerKey != S_NONE,
               'card-ready': phase == 'player' && worthPlaying(card),
-              'card-pickable': pickKind == 'hand'
+              'card-pickable': pickKind == 'hand',
+              'card-picked': index == selectedHand && phase == 'player',
+              'card-dragging': index == dragIndex && dragging
             }"
-            @click="tapHand(index)">
+            :style="dragStyleOf(index)"
+            @touchstart="dragStart(index, $event)"
+            @touchmove="dragMove"
+            @touchend="dragEnd"
+            @touchcancel="dragEnd">
             <text
               class="card-rank"
               :class="{
@@ -219,12 +232,11 @@
               >{{ rankText(card) }}</text
             >
             <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
-            <text
-              v-if="card.stickerKey != S_NONE"
-              class="card-sticker"
-              @click.stop="showSticker(card)"
-              >{{ stickerName(card) }}</text
-            >
+            <!-- 这行贴纸名不再单独接点击：整张牌点一下就摊开效果，
+                 不用再瞄准这十来个像素高的小字 -->
+            <text v-if="card.stickerKey != S_NONE" class="card-sticker">{{
+              stickerName(card)
+            }}</text>
           </view>
           <!-- 换饵 / 换钩压到一半可以收手，剩下的不压了 -->
           <text
@@ -257,39 +269,69 @@
       </view>
     </view>
 
-    <!-- 底部状态与入口 -->
+    <!-- 底部状态与入口。
+         阶段文字和废牌张数都撤了 —— 轮到谁出牌，手牌区的提示和牌本身
+         已经说得很清楚；废牌是散局才有的账，对着打的时候用不上 -->
     <view class="toolbar">
-      <text id="bj-phase" class="toolbar-text">{{ phaseText }}</text>
+      <text id="bj-play-mode" class="toolbar-link" @click="togglePlayMode">{{ playModeText }}</text>
       <text id="bj-hand-stickers" class="toolbar-link" @click="showHandStickers">贴纸</text>
-      <text id="bj-waste-toggle" class="toolbar-link" @click="toggleWaste"
-        >废牌 {{ waste.length }}</text
-      >
       <text id="bj-rules" class="toolbar-link" @click="showRules">规则</text>
       <text id="bj-quit" class="toolbar-link" @click="goBack">退出</text>
     </view>
 
-    <!-- 废牌堆浮层：散局时没人钓走的牌都在这 -->
-    <view v-if="showWaste" class="overlay">
-      <view class="overlay-panel">
-        <view class="overlay-header">
-          <text class="overlay-title">废牌堆</text>
-          <text id="bj-waste-count" class="overlay-count">{{ waste.length }} 张</text>
-          <text id="bj-waste-close" class="overlay-close" @click="toggleWaste">关闭</text>
-        </view>
-        <scroll-view class="overlay-body">
-          <text class="discard-label">谁都没钓走的牌</text>
-          <view id="bj-waste" class="mini-cards">
-            <text v-if="waste.length == 0" class="played-tip">暂无</text>
-            <view
-              v-for="(card, index) in waste"
-              :key="'ws-' + index"
-              class="mini-card"
-              :class="{ 'card-stickered': card.stickerKey != S_NONE }">
-              <text class="mini-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
-              <text class="mini-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
-            </view>
-          </view>
-        </scroll-view>
+    <!-- 对面头一次亮这种贴纸：停下来，把牌放大摆在正中间，
+         效果写在牌下面，点一下才继续。
+         稀有度越高闪得越凶 —— 稀有起步闪边，史诗往上再加一圈放射炫光 -->
+    <view
+      v-if="flashOn && flashWait"
+      id="bj-flash-show"
+      class="show-layer"
+      :class="{ 'show-layer-in': flashIn }"
+      @click="tapFlash">
+      <view v-if="flashRarity >= 2" class="show-rays">
+        <view
+          v-for="(deg, ri) in RAY_ANGLES"
+          :key="'ray-' + ri"
+          class="ray"
+          :class="{ 'ray-on': flashPulse, 'ray-legend': flashRarity == 3 }"
+          :style="'transform: rotate(' + deg + 'deg);'"></view>
+      </view>
+      <view class="show-card" :class="{ 'show-card-in': flashIn }" :style="flashCardStyle()">
+        <text class="show-rank" :class="{ 'card-red': flashRed }">{{ flashRank }}</text>
+        <text class="show-suit" :class="{ 'card-red': flashRed }">{{ flashSuit }}</text>
+        <text class="show-sticker" :style="'color: ' + flashColor">{{ flashName }}</text>
+      </view>
+      <text class="show-desc">{{ flashDesc }}</text>
+      <text class="show-by">{{ flashBy }}</text>
+      <text class="show-go">点一下继续</text>
+    </view>
+
+    <!-- 见过的贴纸就不拦了，只在上方闪一条横幅，自己淡出。
+         传说那一档会把整个画面压暗，等于给它一个独占的镜头 -->
+    <view
+      v-if="flashOn && !flashWait && flashRarity == 3"
+      class="flash-dim"
+      :class="{ 'flash-dim-in': flashIn }"
+      @click="tapFlash"></view>
+    <view v-if="flashOn && !flashWait" id="bj-flash" class="flash-wrap" @click="tapFlash">
+      <view
+        class="flash"
+        :class="{
+          'flash-r1': flashRarity == 1,
+          'flash-r2': flashRarity == 2,
+          'flash-r3': flashRarity == 3,
+          'flash-in': flashIn
+        }"
+        :style="'border-color: ' + flashColor">
+        <text class="flash-by">{{ flashBy }}</text>
+        <text
+          id="bj-flash-name"
+          class="flash-name"
+          :class="{ 'flash-name-big': flashRarity >= 2 }"
+          :style="'color: ' + flashColor"
+          >{{ flashName }}</text
+        >
+        <text class="flash-desc">{{ flashDesc }}</text>
       </view>
     </view>
   </view>
@@ -305,6 +347,7 @@
     cloneCard,
     isRedSuit,
     worthOf,
+    faceOf,
     playOptions,
     pileIndexExcept,
     pileIndexOf,
@@ -439,9 +482,10 @@
   // 积分库。分数就是张数，不看点数
   const playerPoints = ref<Card[]>([] as Card[])
   const dealerPoints = ref<Card[]>([] as Card[])
-  // 散局时没人钓走的牌，谁都不算分
+  // 散局时没人钓走的牌，谁都不算分。
+  // 不再单独开个面板给人翻 —— 算牌要用的是「这个数还剩几张没露面」，
+  // unseenOf 那条路已经把废牌算进去了，摆一摞牌出来反而是噪声
   const waste = ref<Card[]>([] as Card[])
-  const showWaste = ref<boolean>(false)
 
   // 庄家手牌摊开没有。现在只有结算时才亮，
   // 等「借刀」「洞察」那类能看对手手牌的贴纸接回新规则，就由它们来掀
@@ -461,6 +505,49 @@
 
   // 正等你确认要不要打的那张手牌（只剩空堆打 J 这一种情形）
   let pendingIndex = -1
+
+  // 选中待打的那张手牌，-1 表示还没选。
+  //
+  // 下标是给模板画选中框用的，selectedRef 记的是那张牌本身：
+  // 手牌一动（补牌、贴纸把牌挑走）下标就指到别的牌上去了，
+  // 真打之前拿牌对象对一次，对不上就当没选过 —— 宁可白点一下，
+  // 也不能让「打出」打的不是你看着的那张
+  const selectedHand = ref<number>(-1)
+  let selectedRef : Card | null = null
+
+  // ---------- 出牌方式 ----------
+  //
+  // 两种，底部那一格随时切，选了什么记在本地，下次进来还是它。
+  //
+  // 拖动：点牌只用来看效果，出牌得往牌堆那边拖。出牌是收不回来的，
+  //   那就让它需要一个明确的动作，而不是跟「看一眼」共用同一下点击。
+  // 点击：点一张就打出去。手快的人嫌拖麻烦，这条留给他们 ——
+  //   要看效果还有牌堆那边和底下的「贴纸」可以查
+  const MODE_DRAG : number = 0
+  const MODE_TAP : number = 1
+  const KEY_PLAY_MODE : string = 'bj-play-mode'
+  const playMode = ref<number>(MODE_DRAG)
+
+  // 牌堆在手牌正上方，所以不必算准落点，往上拖够远就算送到了
+  const dragIndex = ref<number>(-1)
+  // 拖过这么远就算要出牌。比半张牌高一点，轻轻蹭一下不会误出
+  const DRAG_OUT : number = -52
+  // 位移没超过这个数就还算点击，不算拖
+  const DRAG_SLOP : number = 8
+  // 牌跟手最多抬这么高。再高就顶出手牌区被裁了，
+  // 拖过头的反馈交给上面那条「松手打出」
+  const DRAG_LIFT : number = 22
+  // 标死成 number：不标的话 uts 照着 0 推成 Int，
+  // 再拿 screenX 赋进来就类型对不上
+  let dragFromX : number = 0
+  let dragFromY : number = 0
+  const dragDX = ref<number>(0)
+  const dragDY = ref<number>(0)
+  const dragging = ref<boolean>(false)
+  // 已经拖够远了，松手就出牌
+  const dragReady = ref<boolean>(false)
+  // 这一下判成了横滑手牌列表，让位给 scroll-view，松手也不当点击
+  let dragGave = false
 
   let dealerTimer = -1
 
@@ -552,6 +639,59 @@
   let lastHit = false
   let lastValues : number[] = [] as number[]
 
+  // ---------- 贴纸横幅 ----------
+  //
+  // 带贴纸的牌一落堆就把它的名字和效果亮出来。稀有度越高亮得越久、越大，
+  // 传说还把背景压暗，等于给它一个独占的画面。
+  //
+  // 这不只是好看：一串连出以前是每 640ms 翻一张，翻过去了才反应过来
+  // 那张贴的是什么。现在横幅亮多久，下一张就往后推多久 —— 节奏由牌本身定，
+  // 普通牌照样快，撞上传说就停一下让人看清
+  const flashOn = ref<boolean>(false)
+  // 入场态：先渲染成小而透明的，下一拍再切过来，transition 才有得过渡
+  const flashIn = ref<boolean>(false)
+  const flashName = ref<string>('')
+  const flashDesc = ref<string>('')
+  const flashBy = ref<string>('')
+  const flashRarity = ref<number>(0)
+  const flashColor = ref<string>('#ffffff')
+  // 暂停态要把牌本身放大摆在中间，牌面这几样得单独拿出来
+  const flashRank = ref<string>('')
+  const flashSuit = ref<string>('')
+  const flashRed = ref<boolean>(false)
+  // 闪边和炫光靠它来回翻。uvue 在 Android 上没有 @keyframes，
+  // 循环动画只能自己拿定时器翻开关，靠 transition 把两头接起来
+  const flashPulse = ref<boolean>(false)
+  let pulseTimer = -1
+  const PULSE_STEP : number = 520
+  // 放射炫光的角度。12 条，每条以自己中心转，转完就是一圈星芒
+  const RAY_ANGLES : number[] = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+  let flashTimer = -1
+  let flashOutTimer = -1
+  // 这一拍横幅要占掉多少时间，下一手出牌的延迟得算上它
+  let flashHold = 0
+
+  // 横幅正等你点，后面那一手挂着不走。
+  //
+  // 庄家每种贴纸头一次打出来都停在这儿 —— 对面的牌组你没见过，
+  // 一张没见过的贴纸一闪而过等于没给你看。见过一次之后就不再拦，
+  // 同一种贴纸打第二次还停，那是添堵
+  const flashWait = ref<boolean>(false)
+  let flashPaused = false
+  // 这一局里庄家已经亮过哪几种贴纸。每局重来 ——
+  // 换了关卡对面就是另一套牌组，上一局见过不算数
+  let seenFromDealer : string[] = [] as string[]
+  // 挂起时记下该往哪走
+  const GO_NONE : number = 0
+  const GO_DEALER : number = 1
+  const GO_RUN : number = 2
+  let pendingGo = GO_NONE
+
+  // 各稀有度亮多久。普通的只是一闪而过，传说值得让人停下来看完
+  const FLASH_HOLD : number[] = [420, 640, 880, 1200]
+  // 淡出走完要这么久，跟 .flash 的 transition-duration 对上
+  const FLASH_OUT : number = 180
+
 
   // 本局一度落后过多少分，用来判「逆风翻盘」
   let maxBehind = 0
@@ -614,6 +754,24 @@
     }
     lastHit = false
     lastValues = [] as number[]
+    // 上一局最后那张牌的横幅不能跟到新一局的开场
+    if (flashTimer != -1) {
+      clearTimeout(flashTimer)
+      flashTimer = -1
+    }
+    if (flashOutTimer != -1) {
+      clearTimeout(flashOutTimer)
+      flashOutTimer = -1
+    }
+    stopPulse()
+    flashOn.value = false
+    flashIn.value = false
+    flashWait.value = false
+    flashHold = 0
+    flashPaused = false
+    pendingGo = GO_NONE
+    // 换了关卡对面就是另一套牌组，上一局见过的不算数
+    seenFromDealer = [] as string[]
     // 平潮是模块级开关，开着不关会跟到下一局去
     refreshField()
     pickKind.value = PICK_NONE
@@ -633,7 +791,7 @@
       + level.value.turns + ' 个回合，钓得多的赢。'
 
     phase.value = 'dealer'
-    dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+    scheduleDealer()
   }
 
   // ---------- 摸牌 ----------
@@ -771,13 +929,167 @@
   // 于是每一手都在权衡三件事：现在钓得到几张、把牌留在堆里会不会被对方
   // 顺手捞走一大片、以及自己手上还有没有牌能在下一轮钓得更深。
 
-  // 手牌被点了。选牌阶段是在挑牌，别的时候才是打出去
+  // 手牌被点了 —— 点击只管看，不出牌。
+  //
+  // 点一下选中，把这张算几点、贴纸干什么摊到提示栏上；
+  // 再点一下取消。出牌走的是往上拖，或者选中后按「打出」。
+  // 以前是点牌面出牌、点牌面上那行小字看效果，两个落点差十来个像素，
+  // 想看一眼效果结果把牌打出去了
   function tapHand(index : number) {
     if (phase.value == 'pick') {
       pickFromHand(index)
       return
     }
+    if (phase.value != 'player') {
+      return
+    }
+    if (index >= playerHand.value.length) {
+      return
+    }
+    // 点击出牌：点一下就出去了，中间不停
+    if (playMode.value == MODE_TAP) {
+      clearSelected()
+      playCard(index)
+      return
+    }
+    // 点的就是已经选中的那张 —— 收起来
+    if (index == selectedHand.value) {
+      clearSelected()
+      return
+    }
+    selectedHand.value = index
+    selectedRef = playerHand.value[index]
+    message.value = handCardText(playerHand.value[index])
+  }
+
+  // 按住一张手牌。这里还分不清是点还是拖，先把起点记下来
+  function dragStart(index : number, e : TouchEvent) {
+    if (e.touches.length == 0) {
+      return
+    }
+    // 已经伸手去动牌了，那就是看完了 —— 横幅收起来，挂着的那一手放行。
+    // 大牌盖住的是上半屏，手牌够得着，不该逼人先点一下横幅再出牌
+    if (flashPaused) {
+      hideFlash()
+      resumeAfterFlash()
+    }
+    dragIndex.value = index
+    // 用 screen 坐标：只拿来算相对位移，各端口径一致
+    dragFromX = e.touches[0].screenX
+    dragFromY = e.touches[0].screenY
+    dragDX.value = 0
+    dragDY.value = 0
+    dragging.value = false
+    dragReady.value = false
+    dragGave = false
+  }
+
+  function dragMove(e : TouchEvent) {
+    if (dragIndex.value < 0 || dragGave || e.touches.length == 0) {
+      return
+    }
+    const dx = e.touches[0].screenX - dragFromX
+    const dy = e.touches[0].screenY - dragFromY
+    if (!dragging.value) {
+      // 手指总会抖一下，抖过阈值才算数
+      if (Math.abs(dx) + Math.abs(dy) <= DRAG_SLOP) {
+        return
+      }
+      // 横向占优：这一下是在滑手牌列表，不是在拽牌。
+      // 让位给 scroll-view，这一轮也不再当点击处理
+      if (Math.abs(dx) > Math.abs(dy)) {
+        dragGave = true
+        return
+      }
+      dragging.value = true
+    }
+    dragDX.value = dx
+    dragDY.value = dy
+    dragReady.value = dy <= DRAG_OUT && canDropNow()
+  }
+
+  function dragEnd() {
+    const index = dragIndex.value
+    const moved = dragging.value
+    const ready = dragReady.value
+    const gave = dragGave
+    dragIndex.value = -1
+    dragging.value = false
+    dragReady.value = false
+    dragGave = false
+    dragDX.value = 0
+    dragDY.value = 0
+    if (index < 0 || gave) {
+      return
+    }
+    // 几乎没动，那就是点了一下
+    if (!moved) {
+      tapHand(index)
+      return
+    }
+    if (ready) {
+      dropToPile(index)
+    }
+  }
+
+  // 现在是不是能往堆里扔牌。挑牌阶段手牌是拿来挑的，不是拿来打的
+  function canDropNow() : boolean {
+    return phase.value == 'player'
+  }
+
+  // 拖到位松手了，这张就打出去
+  function dropToPile(index : number) {
+    if (!canDropNow() || index >= playerHand.value.length) {
+      return
+    }
+    clearSelected()
     playCard(index)
+  }
+
+  // 拖动中的那张跟着手指走。抬升封了顶，不然牌会被手牌区裁掉
+  function dragStyleOf(index : number) : string {
+    if (index != dragIndex.value || !dragging.value) {
+      return ''
+    }
+    let lift = dragDY.value
+    if (lift < -DRAG_LIFT) {
+      lift = -DRAG_LIFT
+    }
+    if (lift > 0) {
+      lift = 0
+    }
+    return 'transform: translate(' + dragDX.value + 'px, ' + lift + 'px);'
+  }
+
+  // 选中的这张算几点、贴纸写着什么，一句话说完
+  function handCardText(card : Card) : string {
+    const face = card.suit + rankText(card)
+    if (card.stickerKey == S_NONE) {
+      return face + '：没贴纸，落堆就按牌面这个数当钓点。往上拖到牌堆就打出。'
+    }
+    const sticker = stickerAt(card.stickerKey)
+    return face + ' 【' + sticker.name + '】' + sticker.desc + '（往上拖到牌堆打出）'
+  }
+
+  function playSelected() {
+    const index = selectedHand.value
+    if (index < 0 || index >= playerHand.value.length || selectedRef == null) {
+      clearSelected()
+      return
+    }
+    // 下标还在，但那个位置上已经换成别的牌了 —— 不打，重选
+    if (playerHand.value[index] != (selectedRef as Card)) {
+      clearSelected()
+      message.value = '手牌动过了，重新点一张。'
+      return
+    }
+    clearSelected()
+    playCard(index)
+  }
+
+  function clearSelected() {
+    selectedHand.value = -1
+    selectedRef = null
   }
 
   function playCard(index : number) {
@@ -875,7 +1187,7 @@
     }
     runLeft = runLeft - 1
     phase.value = 'run'
-    runTimer = setTimeout(runNext, RUN_DELAY)
+    scheduleRun()
     return true
   }
 
@@ -883,6 +1195,36 @@
   function runNext() {
     runTimer = -1
     playFromDeck(runBy)
+  }
+
+  // 下一手什么时候来。
+  //
+  // 基础节奏之外再加上这一拍横幅要占的时间 —— 刚翻出一张传说，
+  // 就多等它亮完；翻出一张没贴纸的，还是原来的速度。
+  // flashHold 用掉就清，它只管紧接着的那一手
+  function nextDelay(base : number) : number {
+    const wait = base + flashHold
+    flashHold = 0
+    return wait
+  }
+
+  // 横幅正等着你点的时候，下一手先记在 pendingGo 上挂着，
+  // 等 resumeAfterFlash 放行。不挂的话定时器照走，
+  // 你还在看说明，对面已经又打了两张
+  function scheduleDealer() {
+    if (flashPaused) {
+      pendingGo = GO_DEALER
+      return
+    }
+    dealerTimer = setTimeout(dealerTurn, nextDelay(DEALER_DELAY))
+  }
+
+  function scheduleRun() {
+    if (flashPaused) {
+      pendingGo = GO_RUN
+      return
+    }
+    runTimer = setTimeout(runNext, nextDelay(RUN_DELAY))
   }
 
   // 空堆打 J 的确认：照打就认了，再等等就把牌放回手上
@@ -912,6 +1254,12 @@
     if (index >= hand.length) {
       return
     }
+    // 牌一落堆，后面的贴纸就可能往你手上塞牌、从你手上抽牌，
+    // 选中的下标撑不过这一段。统一在这儿清掉，不留给各个贴纸分头处理
+    clearSelected()
+    // 这一手要不要为横幅让路，从头算。上一手的余额不能带过来 ——
+    // 背面牌那条路根本不弹横幅，带过来就是白等一拍
+    flashHold = 0
     const card = hand[index]
     if (byDealer) {
       dealerHand.value = removeAt(hand, index)
@@ -998,6 +1346,10 @@
     const how = sameValues(lastValues, playOptions(card)) && card.stickerKey != S_PEAK
       ? '' : '（算 ' + listText(lastValues) + '）'
     message.value = who + '打出 ' + cardText(card) + how + '。'
+
+    // 贴纸牌一落堆先把效果亮出来。放在效果真正发动之前 ——
+    // 先看清是什么，再看它做了什么
+    flashSticker(card, who, byDealer)
 
     // 空位类：落堆就发动它自己的效果，不参与撞牌。
     // playCardRef 空着正是「这一手不判撞」的标记，挑牌那条路靠它分流
@@ -1514,7 +1866,7 @@
         dealerExtra = dealerExtra + 2
         message.value = head + '生效，庄家这一回合还能再打 2 张。'
         tidyDealerHand()
-        dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+        scheduleDealer()
       } else {
         playerExtra = playerExtra + 2
         message.value = head + '生效，你这一回合还能再打 2 张。'
@@ -2453,7 +2805,46 @@
 
   // ---------- 选牌：你点下去之后 ----------
 
-  // 点了牌堆里第 index 张
+  // 点了牌堆里第 index 张。
+  //
+  // 贴纸正等你挑牌的时候，这一下是「挑这张」；
+  // 平时则是「看这张」—— 堆里的牌决定了下一手能钩到哪儿，
+  // 它贴着什么、现在算几点，得随时查得到
+  function tapPile(index : number) {
+    if (phase.value == 'pick') {
+      pickFromPile(index)
+      return
+    }
+    if (index < 0 || index >= pile.value.length) {
+      return
+    }
+    showPileCard(pile.value[index], index)
+  }
+
+  // 堆里这张牌的底细：算几点、谁打的、贴纸干什么
+  function showPileCard(card : Card, index : number) {
+    // 沉在底下的暗牌谁都不该看见，包括自己盖的那张
+    if (card.faceDown) {
+      toast('这是张盖着的牌，翻开之前谁也看不到')
+      return
+    }
+    const from = index < pileFromDealer.value.length && pileFromDealer.value[index]
+      ? '庄家打的' : '你打的'
+    const values = valuesOf(card)
+    const worth = values.length == 0 ? '没有点数，钩不上也钩不着' : '算 ' + listText(values) + ' 点'
+    let body = from + '，' + worth + '。'
+    if (card.stickerKey != S_NONE) {
+      const sticker = stickerAt(card.stickerKey)
+      body = body + '\n\n【' + sticker.name + '】' + sticker.desc
+    }
+    uni.showModal({
+      title: cardText(card),
+      content: body,
+      showCancel: false,
+      confirmText: '知道了'
+    })
+  }
+
   function pickFromPile(index : number) {
     if (phase.value != 'pick') {
       return
@@ -3121,7 +3512,7 @@
       message.value = message.value + ' 【续钩】这张落堆算 0 点，'
         + (byDealer ? '庄家' : '你') + '接着再打一张。'
       if (byDealer) {
-        dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+        scheduleDealer()
       } else {
         phase.value = 'player'
       }
@@ -3134,7 +3525,7 @@
       + (byDealer ? dealerChoke : playerChoke)
     if (forced > 0 && phase.value != 'over') {
       if (byDealer) {
-        dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+        scheduleDealer()
       } else {
         phase.value = 'player'
       }
@@ -3145,7 +3536,7 @@
     if (extra > 0 && phase.value != 'over') {
       if (byDealer) {
         dealerExtra = extra - 1
-        dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+        scheduleDealer()
       } else {
         playerExtra = extra - 1
         phase.value = 'player'
@@ -3213,7 +3604,7 @@
 
     if (dealerGoes) {
       phase.value = 'dealer'
-      dealerTimer = setTimeout(dealerTurn, DEALER_DELAY)
+      scheduleDealer()
       return
     }
     // 轮到你。牌库和手牌都空了就只能干看着，这一回合算走过场
@@ -3267,7 +3658,9 @@
       }
     }
 
-    // 随机档：抓哪张打哪张，顺手能钓就钓
+    // 随机档：抓哪张打哪张，顺手能钓就钓。
+    // 目前没有关卡挂这一档 —— 随机出牌的庄家不管玩家带什么牌组都赢得下来，
+    // 等于让前几关跟构筑无关。留着是给调试和以后的教学关用
     if (level.value.ai == 1) {
       commitPlay(true, Math.floor(Math.random() * hand.length))
       return
@@ -3834,27 +4227,17 @@
     if (values.length == 0) {
       return ''
     }
-    if (values.length == 1) {
-      return numberText(card, values[0])
-    }
+    // 一律走 faceOf：11/12/13 写成 J/Q/K，1 写成 A。
+    // 认的是「现在算几点」而不是这张牌原来是什么 ——
+    // 被贴纸抬到 11 的牌也写 J，跟真正的 J 摆一起才看得出能互相钩
     let text = ''
     for (let i = 0; i < values.length; i++) {
       if (i > 0) {
         text = text + '/'
       }
-      text = text + values[i]
+      text = text + faceOf(values[i])
     }
     return text
-  }
-
-  // 牌面数字没被改就照旧写 A/J/Q/K，改过了才写数。
-  // 拼串别写成 value.toString() —— 它编译到 Kotlin 是 Number.toString(10)，
-  // Number 上没有这个带进制的重载，整个包会编译不过
-  function numberText(card : Card, value : number) : string {
-    if (value == card.value) {
-      return card.rank
-    }
-    return '' + value
   }
 
   // 牌面上要写几个数。写得下一个就用大字，数多了得缩字号
@@ -3921,13 +4304,14 @@
     return out
   }
 
+  // 提示里报点数也走 faceOf —— 牌面上写着 J，提示里说「算 11 点」就对不上了
   function listText(list : number[]) : string {
     let text = ''
     for (let i = 0; i < list.length; i++) {
       if (i > 0) {
         text = text + '、'
       }
-      text = text + list[i]
+      text = text + faceOf(list[i])
     }
     return text
   }
@@ -3944,7 +4328,7 @@
 
   const handTip = computed<string>(() : string => {
     if (phase.value == 'player') {
-      return '点一张手牌打出'
+      return playMode.value == MODE_TAP ? '点一张手牌打出' : '点牌看效果，往上拖打出'
     }
     if (phase.value == 'value') {
       return '挑一个点数落堆'
@@ -3961,40 +4345,177 @@
     return '等庄家出牌…'
   })
 
-  const phaseText = computed<string>(() : string => {
-    if (phase.value == 'dealer') {
-      return '庄家行动中'
-    }
-    if (phase.value == 'player') {
-      return '轮到你出牌'
-    }
-    if (phase.value == 'value') {
-      return '选落堆点数'
-    }
-    if (phase.value == 'confirm') {
-      return '确认是否打出'
-    }
-    if (phase.value == 'catch') {
-      return '收牌中'
-    }
-    if (phase.value == 'pick') {
-      return '选牌中'
-    }
-    if (phase.value == 'run') {
-      return '连着出牌中'
-    }
-    return '对局结束'
+  // 底部那一格写的是「现在是哪种出牌方式」，点一下换。
+  // 写当前模式而不是写「切到哪」—— 状态比动作更要紧，
+  // 想换的人点一下就知道另一头是什么
+  const playModeText = computed<string>(() : string => {
+    return playMode.value == MODE_TAP ? '点击出牌' : '拖动出牌'
   })
+
+  function togglePlayMode() {
+    playMode.value = playMode.value == MODE_TAP ? MODE_DRAG : MODE_TAP
+    clearSelected()
+    uni.setStorageSync(KEY_PLAY_MODE, '' + playMode.value)
+    toast(
+      playMode.value == MODE_TAP
+        ? '点一张手牌就直接打出去了'
+        : '点牌看效果，往上拖到牌堆才算打出'
+    )
+  }
+
+  // 庄家这一局还没亮过这种贴纸。
+  //
+  // 只问见没见过，不问稀有度 —— 一张普通贴纸你没见过，
+  // 照样看不懂它干了什么。见过一次就记下，之后同种不再拦
+  function firstFromDealer(key : string) : boolean {
+    for (let i = 0; i < seenFromDealer.length; i++) {
+      if (seenFromDealer[i] == key) {
+        return false
+      }
+    }
+    seenFromDealer.push(key)
+    return true
+  }
+
+  // 带贴纸的牌落堆，把这张贴纸的名字和效果亮出来，并返回要占多少时间。
+  //
+  // 谁打的也写上 —— 庄家出牌是自动走的，不写的话一张横幅弹出来
+  // 根本分不清是自己刚打的还是对面打的
+  function flashSticker(card : Card, who : string, byDealer : boolean) : number {
+    // 通吃不算贴纸，是 J 自带的、贴纸矩阵都管不着的固定效果 ——
+    // 双方每副牌里都有四张，谁都认得，不值得每次都拦一下画面
+    if (card.stickerKey == S_NONE || card.stickerKey == S_HAUL) {
+      return 0
+    }
+    const sticker = stickerAt(card.stickerKey)
+    const hold = FLASH_HOLD[sticker.rarity]
+    // 对面头一次亮这张：停下来，摆张大的等你看完
+    const wait = byDealer && firstFromDealer(card.stickerKey)
+
+    // 上一张还亮着就直接顶掉：连出时两张挨得近，排队等前一张淡出
+    // 会让横幅跟牌对不上
+    if (flashTimer != -1) {
+      clearTimeout(flashTimer)
+      flashTimer = -1
+    }
+    if (flashOutTimer != -1) {
+      clearTimeout(flashOutTimer)
+      flashOutTimer = -1
+    }
+
+    flashName.value = sticker.name
+    flashDesc.value = sticker.desc
+    flashBy.value = who + '打出 ' + cardText(card)
+    flashRarity.value = sticker.rarity
+    flashColor.value = rarityAt(sticker.rarity).color
+    flashRank.value = rankText(card)
+    flashSuit.value = card.suit
+    flashRed.value = isRed(card)
+    flashWait.value = wait
+    flashOn.value = true
+    flashIn.value = false
+    // 先挂上初始态，隔一拍再切到位，transition 才跑得起来 ——
+    // 一上来就是最终态的话没有过渡，横幅是「蹦」出来的
+    setTimeout(flashStep, 16)
+
+    if (wait) {
+      // 等你点。不设自动关闭的定时器，后面那一手也先挂着 ——
+      // 你没看完就往下走，跟没给你看是一回事
+      flashPaused = true
+      startPulse()
+      flashHold = 0
+      return 0
+    }
+
+    flashTimer = setTimeout(flashEnd, hold)
+    flashHold = hold
+    return hold
+  }
+
+  // 大牌的描边。闪边得走 :style 这条道 ——
+  // inline 样式压过 class，写成 .show-card-pulse 那样的类根本盖不住它。
+  // 普通档不闪：一张普通贴纸值不上这个排场
+  function flashCardStyle() : string {
+    const lit = flashRarity.value >= 1 && flashPulse.value
+    return 'border-color: ' + (lit ? '#ffffff' : flashColor.value)
+  }
+
+  // 闪边和炫光：定时翻一个开关，两头靠 transition 接上，看起来就是在呼吸
+  function startPulse() {
+    stopPulse()
+    flashPulse.value = false
+    pulseTimer = setTimeout(pulseStep, 40)
+  }
+
+  function pulseStep() {
+    flashPulse.value = !flashPulse.value
+    pulseTimer = setTimeout(pulseStep, PULSE_STEP)
+  }
+
+  function stopPulse() {
+    if (pulseTimer != -1) {
+      clearTimeout(pulseTimer)
+      pulseTimer = -1
+    }
+    flashPulse.value = false
+  }
+
+  // 下面这三个是 setTimeout 的回调。写成具名函数跟这一页其它定时器一致
+  function flashStep() {
+    flashIn.value = true
+  }
+
+  function flashEnd() {
+    flashTimer = -1
+    hideFlash()
+  }
+
+  function flashGone() {
+    flashOutTimer = -1
+    flashOn.value = false
+    flashWait.value = false
+  }
+
+  function hideFlash() {
+    if (!flashOn.value) {
+      return
+    }
+    stopPulse()
+    flashIn.value = false
+    flashOutTimer = setTimeout(flashGone, FLASH_OUT)
+  }
+
+  // 点一下收起横幅。挂着的那一手到这儿才放行 ——
+  // 暂停的意义就在于「你看完了再走」
+  function tapFlash() {
+    if (flashTimer != -1) {
+      clearTimeout(flashTimer)
+      flashTimer = -1
+    }
+    hideFlash()
+    resumeAfterFlash()
+  }
+
+  // 玩家一动手（点牌、拖牌）就当他看完了，把挂着的那一手放出去
+  function resumeAfterFlash() {
+    if (!flashPaused) {
+      return
+    }
+    flashPaused = false
+    const go = pendingGo
+    pendingGo = GO_NONE
+    if (go == GO_DEALER) {
+      scheduleDealer()
+    } else if (go == GO_RUN) {
+      scheduleRun()
+    }
+  }
 
   function toast(tip : string) {
     uni.showToast({
       icon: 'none',
       title: tip
     })
-  }
-
-  function toggleWaste() {
-    showWaste.value = !showWaste.value
   }
 
   // 点牌面上那行贴纸名，单看这一张的效果。
@@ -4105,8 +4626,26 @@
       clearTimeout(runTimer)
       runTimer = -1
     }
+    if (flashTimer != -1) {
+      clearTimeout(flashTimer)
+      flashTimer = -1
+    }
+    if (flashOutTimer != -1) {
+      clearTimeout(flashOutTimer)
+      flashOutTimer = -1
+    }
+    stopPulse()
   })
 
+  // 出牌方式是跟着人走的偏好，不是这一局的状态 —— 从本地读回上次选的
+  function loadPlayMode() {
+    const raw = uni.getStorageSync(KEY_PLAY_MODE)
+    if (raw != null && typeof raw == 'string' && (raw as string) == '' + MODE_TAP) {
+      playMode.value = MODE_TAP
+    }
+  }
+
+  loadPlayMode()
   setup()
 </script>
 
@@ -4173,6 +4712,7 @@
   /* 公共牌堆 */
   .pile-area {
     flex: 1;
+    flex-direction: column;
     min-height: 96px;
     margin-top: 6px;
     background-color: #0e6b45;
@@ -4194,13 +4734,35 @@
 
   .board {
     flex: 1;
-    height: 68px;
+    min-height: 68px;
     margin-top: 4px;
+  }
+
+  /* 牌拖到位了，把堆这一片点亮当落点 —— 手指还压在牌上，
+     光靠上面那行字不够，得让目标区自己应一声 */
+  .board-drop {
+    border-width: 1px;
+    border-style: dashed;
+    border-color: #e8b23a;
+    border-radius: 6px;
   }
 
   .board-row {
     flex-direction: row;
     align-items: center;
+  }
+
+  /* 牌堆张数一多就换行；行数再涨就在牌堆区里纵向滚 */
+  .pile-cards {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  /* 换行之后行与行会贴在一起，得给每张牌垫一点行距。
+     别写成 .pile-cards .card —— uvue 在 Android 上只认单个 class 选择器，
+     后代选择器一律不生效 */
+  .card-in-pile {
+    margin-bottom: 6px;
   }
 
   .played-tip {
@@ -4292,6 +4854,24 @@
     border-color: #7cc4ff;
   }
 
+  /* 选中的那张：抬起来、描金、压过上面所有描边。
+     选中只是「我在看这张」，出牌得另外拖或者按按钮 */
+  .card-picked {
+    background-color: #fffbe8;
+    border-color: #e8b23a;
+    transform: translateY(-8px);
+    transition-property: transform, background-color, border-color;
+    transition-duration: 140ms;
+  }
+
+  /* 正被拖着的那张不要过渡 —— 跟手就得是实时的，
+     加了 transition 牌会拖在手指后面晃 */
+  .card-dragging {
+    background-color: #fffbe8;
+    border-color: #e8b23a;
+    transition-duration: 0ms;
+  }
+
   /* 埋钩挑位置时堆顶后面那个落点 */
   .card-slot {
     background-color: #0a4a32;
@@ -4367,21 +4947,32 @@
   }
 
   /* 手牌区 */
+  /* 庄家那一区：牌不会抬起也不会被拖，按牌高算就够 */
   .hand-area {
-    height: 96px;
+    height: 100px;
     margin-top: 6px;
   }
 
-  /* 摊牌给你挑的时候，摊开的那排和手牌得同时在场，高度翻一倍。
-     牌堆区是 flex: 1，多出来的这点从它那儿匀 */
-  .hand-area-tall {
-    height: 174px;
+  /* 你这一区要多留一截给抬起和拖动 */
+  .hand-area-mine {
+    height: 124px;
   }
 
+  /* 摊牌给你挑的时候，摊开的那排和手牌得同时在场，高度翻一倍。
+     牌堆区是 flex: 1，多出来的这点从它那儿匀。
+     排在 hand-area-mine 后面才压得住它 */
+  .hand-area-tall {
+    height: 202px;
+  }
+
+  /* 高度写死。这一行的右半边要在「提示文字」和「打出／收起按钮」之间换，
+     按钮比文字高一截 —— 不定死的话选一张牌整块就被顶高，
+     手牌跟着往下退，底边直接被 hand-area 切掉 */
   .hand-head {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
+    height: 28px;
   }
 
   .hand-title {
@@ -4395,16 +4986,46 @@
     font-size: 11px;
   }
 
+  /* 拖到位了才亮这一行，颜色跟落点的描边对上 */
+  .hand-tip-drop {
+    color: #e8b23a;
+    font-weight: bold;
+  }
+
+  /* 选中一张之后，标题那行右边换成打出／取消两个按钮。
+     按钮比 46px 宽的牌好点得多，出牌这一下不该靠瞄准 */
+  .hand-acts {
+    flex-direction: row;
+    align-items: center;
+  }
+
   /* 手牌横着一排。张数可能多于 5，所以外层是能滑的 scroll-view，
      牌本身摆在里面这一行上 */
+  /* 比牌高出一截：选中的牌要抬起来、拖出去的牌要跟手往上走，
+     贴着牌顶切的话这两下都会被容器裁掉半张脸。
+     牌 64px + 抬升余量 24px + 上下各 2px */
   .hand {
-    height: 68px;
+    height: 92px;
     margin-top: 4px;
   }
 
+  /* 庄家那排不抬不拖，按牌高就行，不占玩家那份余量 */
+  .hand-top {
+    height: 68px;
+  }
+
+  /* 高度得写死成跟 .hand 一样。
+     不写的话这一行的高度由牌撑出来，正好 64px，
+     flex-end 就没有「底」可贴 —— 牌照样顶着排，抬起来还是被裁 */
   .hand-row {
     flex-direction: row;
-    align-items: center;
+    align-items: flex-end;
+    height: 92px;
+  }
+
+  /* 庄家那排同理，跟着 .hand-top 收回去 */
+  .hand-row-top {
+    height: 68px;
   }
 
   /* 点数候选条。贴了福星的 A 能凑出十来个数，得能横着滑 */
@@ -4504,97 +5125,216 @@
     margin-top: 8px;
   }
 
-  .toolbar-text {
-    color: #8fc7ab;
-    font-size: 11px;
-  }
-
   .toolbar-link {
     color: #e8b23a;
     font-size: 12px;
   }
 
-  /* 废牌堆浮层 */
-  .overlay {
+  /* ---------- 头一次见的贴纸：放大摆中间，等你点 ---------- */
+
+  .show-layer {
     position: fixed;
     left: 0;
     right: 0;
     top: 0;
     bottom: 0;
-    background-color: rgba(0, 0, 0, 0.55);
+    background-color: rgba(0, 0, 0, 0);
     align-items: center;
     justify-content: center;
-    padding: 16px;
+    padding: 20px;
+    transition-property: background-color;
+    transition-duration: 200ms;
   }
 
-  .overlay-panel {
-    width: 100%;
-    max-height: 70%;
-    background-color: #0e6b45;
-    border-radius: 10px;
-    padding: 10px 12px;
+  .show-layer-in {
+    background-color: rgba(3, 20, 13, 0.82);
   }
 
-  .overlay-header {
-    flex-direction: row;
-    justify-content: space-between;
+  /* 放射炫光。12 条细长块叠在牌后面，每条以自己中心转一个角度，
+     转完就是一圈星芒 —— uvue 画不了 radial-gradient，也没有伪元素，
+     这是纯 view 拼得出来、各端又都一个样的办法 */
+  .show-rays {
+    position: absolute;
+    width: 300px;
+    height: 300px;
     align-items: center;
+    justify-content: center;
   }
 
-  .overlay-title {
-    color: #ffffff;
-    font-size: 15px;
+  .ray {
+    position: absolute;
+    width: 3px;
+    height: 300px;
+    background-color: rgba(255, 214, 138, 0.12);
+    transition-property: background-color;
+    transition-duration: 520ms;
+  }
+
+  .ray-on {
+    background-color: rgba(255, 214, 138, 0.3);
+  }
+
+  /* 传说的光更粗更亮，隔着牌也看得出这张不一样 */
+  .ray-legend {
+    width: 5px;
+    background-color: rgba(255, 196, 92, 0.22);
+  }
+
+  /* 放大的牌。牌面照抄手牌那一张，尺寸翻三倍 */
+  .show-card {
+    width: 146px;
+    height: 202px;
+    background-color: #ffffff;
+    border-radius: 12px;
+    border-width: 3px;
+    border-style: solid;
+    border-color: #ffffff;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: scale(0.6) translateY(24px);
+    transition-property: opacity, transform, border-color;
+    transition-duration: 220ms;
+  }
+
+  .show-card-in {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+
+  .show-rank {
+    color: #1a1a1a;
+    font-size: 54px;
     font-weight: bold;
   }
 
-  .overlay-count {
-    color: #e8b23a;
-    font-size: 12px;
+  .show-suit {
+    color: #1a1a1a;
+    font-size: 30px;
   }
 
-  .overlay-close {
+  .show-sticker {
+    font-size: 19px;
+    font-weight: bold;
+    margin-top: 8px;
+  }
+
+  .show-desc {
     color: #ffffff;
     font-size: 13px;
+    line-height: 19px;
+    text-align: center;
+    margin-top: 14px;
   }
 
-  .overlay-body {
-    max-height: 340px;
-    margin-top: 6px;
-  }
-
-  .discard-label {
+  .show-by {
     color: #9fd9bd;
+    font-size: 11px;
+    margin-top: 8px;
+  }
+
+  .show-go {
+    color: #e8b23a;
     font-size: 12px;
-    margin-top: 6px;
+    font-weight: bold;
+    margin-top: 12px;
   }
 
-  .mini-cards {
-    flex-direction: row;
-    flex-wrap: wrap;
+  /* ---------- 贴纸横幅 ---------- */
+
+  /* 传说专属：整个画面压暗。别的档次不压 ——
+     每张普通贴纸都黑一次屏，一局下来看得人眼晕 */
+  .flash-dim {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0);
+    transition-property: background-color;
+    transition-duration: 180ms;
   }
 
-  .mini-card {
-    width: 28px;
-    height: 38px;
-    background-color: #ffffff;
-    border-radius: 4px;
-    margin-right: 5px;
-    margin-top: 5px;
+  .flash-dim-in {
+    background-color: rgba(0, 0, 0, 0.52);
+  }
+
+  /* 横幅浮在画面上半部：牌堆看得见，底下的手牌和工具栏不挡。
+     实在挡着了点一下就收 */
+  .flash-wrap {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 22%;
     align-items: center;
-    justify-content: center;
+  }
+
+  /* 入场态写在这儿（缩着、透明），加上 flash-in 才张开。
+     v-if 一出来就是最终态的话没有过渡，横幅是「蹦」出来的 */
+  .flash {
+    width: 64%;
+    background-color: #06301f;
+    border-radius: 12px;
     border-width: 1px;
     border-style: solid;
     border-color: #ffffff;
+    padding: 7px 12px;
+    align-items: center;
+    opacity: 0;
+    transform: scale(0.9) translateY(6px);
+    transition-property: opacity, transform;
+    transition-duration: 180ms;
   }
 
-  .mini-rank {
-    color: #1a1a1a;
-    font-size: 12px;
-    font-weight: bold;
+  /* 越往上越大、边越厚、入场的动静越大。
+     传说单独换个深金底，跟前面三档拉开 */
+  .flash-r1 {
+    width: 72%;
+    border-width: 2px;
   }
 
-  .mini-suit {
-    color: #1a1a1a;
+  .flash-r2 {
+    width: 82%;
+    border-width: 3px;
+    padding: 10px 14px;
+    transform: scale(0.74) translateY(12px);
+  }
+
+  .flash-r3 {
+    width: 90%;
+    border-width: 4px;
+    padding: 14px 16px;
+    background-color: #1c1405;
+    transform: scale(0.58) translateY(18px);
+  }
+
+  /* 必须排在所有 flash-rN 后面 —— 同级样式后写的压前面的，
+     不然史诗和传说的入场态会把张开后的位置盖掉 */
+  .flash-in {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+
+  .flash-by {
+    color: #9fd9bd;
     font-size: 10px;
+  }
+
+  .flash-name {
+    font-size: 18px;
+    font-weight: bold;
+    margin-top: 2px;
+  }
+
+  .flash-name-big {
+    font-size: 24px;
+  }
+
+  .flash-desc {
+    color: #e3f3ea;
+    font-size: 11px;
+    line-height: 15px;
+    text-align: center;
+    margin-top: 3px;
   }
 </style>

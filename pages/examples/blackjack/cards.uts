@@ -222,6 +222,30 @@ export function worthOf(card : Card) : number {
   return shownValue(card) + card.extra
 }
 
+// 一个点数写在牌面上是什么样子。
+//
+// 1/11/12/13 照扑克的规矩写 A/J/Q/K，别的直接写数。认的是「现在算几点」，
+// 不是这张牌原来是什么 —— 一张 3 被贴纸抬到 11，牌面上也写 J，
+// 这样它跟真正的 J 摆在一起时，一眼就看得出这俩能互相钩。
+//
+// 拼串别写成 value.toString()：编译到 Kotlin 是 Number.toString(10)，
+// Number 上没有这个带进制的重载，整个包会编译不过
+export function faceOf(value : number) : string {
+  if (value == 1) {
+    return 'A'
+  }
+  if (value == 11) {
+    return 'J'
+  }
+  if (value == 12) {
+    return 'Q'
+  }
+  if (value == 13) {
+    return 'K'
+  }
+  return '' + value
+}
+
 // 「没有点数」。空位牌和背面牌都是这个值。
 //
 // 它跟「点数是 0」在规则上是一回事 —— 两种都不能当钓点，撞不上别人也没人撞得上，

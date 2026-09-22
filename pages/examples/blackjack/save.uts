@@ -14,6 +14,7 @@ import {
   STICKERS,
   STICKER_COUNT,
   S_NONE,
+  S_LUCKY,
   RARITIES,
   RARITY_COMMON,
   ACHIEVEMENT_COUNT,
@@ -34,6 +35,10 @@ import {
   stickerAtSuit,
   countStuckOf
 } from '@/pages/examples/blackjack/cards.uts'
+import {
+  KIT_ITEMS,
+  kitIndexOf
+} from '@/pages/examples/blackjack/relay-levels.uts'
 
 export const SLOT_COUNT : number = 3
 
@@ -62,6 +67,47 @@ export type SaveData = {
   achieved : number[]
   // 牌组：13 × 4 的矩阵，一个格子一张牌，存「贴纸下标 + 1」，0 表示没贴
   stuck : number[]
+
+  // ---------- 排竿模式 ----------
+  //
+  // 排竿是一轮一轮的挑战：从第 1 关连打到第 10 关，金币、贴纸库、贴纸位
+  // 全是这一轮之内的家当，输一局就全清、从第 1 关重来。
+  // 跨轮留下来的只有两样 —— 最远打到过第几关，和解锁了哪些贴纸。
+  //
+  // 所以下面分成两截：relayBest 是永久的战绩，run 开头那几个是这一轮的现状
+
+  // 历史上最远打通过第几关。0 表示一关都没通过
+  relayBest : number
+  // 这一轮挑战打到第几关了。0 表示手头没有进行中的挑战，下次从第 1 关起
+  runLevel : number
+  // 手头的金币。输了清零
+  runCoins : number
+  // 有几个贴纸位。不花钱买，随关号白给，见 relay-levels 的 slotsAt
+  runSlots : number
+  // 贴纸库：这一轮攒下的贴纸各有几张，按贴纸 id 索引。
+  //
+  // 贴纸不是消耗品 —— 买来就一直在库里。局内贴到牌上只管那一关，
+  // 进商店时全撕下来回库，下一关重新配。
+  // 所以金币买贴纸是笔长久买卖，库越滚越厚，拿它去赛庄家那条写死的难度曲线。
+  // 同一种能攒几张按稀有度卡，跟主玩法那套上限是同一个口径
+  runOwned : number[]
+  // 贴纸位上装着的贴纸 key，开局就握在手里，空位存空串。
+  //
+  // 位子决定「这一关带几张进场」，不是「总共能有几张」——
+  // 库里十张、位子三个，就得挑三张带。挑哪三张是每关都要重想的事，
+  // 因为下一关的庄家不一样
+  runEquip : string[]
+  // 这一轮买到的道具。道具买了管到这一轮结束，改的是规矩本身
+  runItems : string[]
+  // 手里各种消耗道具各攒了几个，按 KIT_ITEMS 的 key 存。
+  // 一次性的，局内用掉就没
+  runKits : number[]
+  // 这一轮眼下停在商店里没有。
+  //
+  // 打赢一关就立起来，从商店进下一关才放下。
+  // 没有这个标记的话，在商店里退出去、下次点「继续」会直接被推进牌桌 ——
+  // 东西还没买完，贴纸位也还没配
+  runShop : boolean
 }
 
 // 存档格式版本。只在格式本身变化时才加，加贴纸种类不用动它
@@ -69,11 +115,22 @@ export type SaveData = {
 //     旧存档里的战绩和牌组配置对新玩法已经没有意义，v6 及以前一律当没有。
 // v8：多了一段随机兑换券，字段数从 11 变 12。幸运不再白送，改成隐藏贴纸。
 // v9：多了一段退换券，字段数 13
-const SAVE_VERSION : string = 'v10'
+// v10：cleared 从「打到第几关」改成一串通关编号，六个钓场各是一条并行的路
+// v11：关卡从 24 关重排成 21 关（入门 4、进阶 5、困难 6、传说 6），
+//      贴纸的解锁位置全部重新分配。旧档的 cleared 里存着 22-24 这些
+//      已经不存在的编号，留着会把通关数算多、门槛白送
+// v12：多了排竿模式的三段 —— 通关记录、贴纸库、贴纸位，字段数 13 变 16
+// v13：排竿改成一轮一轮的挑战（输了从头来），那三段换成七段：
+//      最远战绩 + 这一轮的关号、金币、贴纸位数、贴纸库、贴纸位、道具。
+//      字段数 16 变 20
+const SAVE_VERSION : string = 'v13'
 
 const KEY_PREFIX : string = 'bj_save_'
 const KEY_CURRENT : string = 'bj_current_slot'
 const KEY_LEVEL : string = 'bj_current_level'
+// 排竿的关卡另记一个，跟主玩法的当前关互不干扰 ——
+// 两边来回切的时候不该把对方的进度冲掉
+const KEY_RELAY_LEVEL : string = 'bj_relay_level'
 
 // ---------- 基础工具 ----------
 
@@ -298,6 +355,98 @@ function textToIds(text : string) : number[] {
   return ids
 }
 
+// 贴纸位上装的那几张，按 key 存。
+// 位子可以空着，空位存成 '-' 占个坑 —— 不占的话装了第三格却空着第二格
+// 就没法还原了
+function keysToText(keys : string[]) : string {
+  let text = ''
+  for (let i = 0; i < keys.length; i++) {
+    if (text != '') {
+      text = text + ','
+    }
+    text = text + (keys[i] == '' ? '-' : keys[i])
+  }
+  return text
+}
+
+// 消耗道具各有几个。按 key 存而不是按下标 ——
+// 往 KIT_ITEMS 里插一件，下标就整体位移了，老存档会读串
+function kitCountsToText(counts : number[]) : string {
+  let text = ''
+  for (let i = 0; i < KIT_ITEMS.length && i < counts.length; i++) {
+    if (counts[i] <= 0) {
+      continue
+    }
+    if (text != '') {
+      text = text + ','
+    }
+    text = text + KIT_ITEMS[i].key + ':' + counts[i]
+  }
+  return text
+}
+
+function textToKitCounts(text : string) : number[] {
+  const counts = zeroList(KIT_ITEMS.length)
+  if (text == '') {
+    return counts
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    const pair = parts[i].split(':')
+    if (pair.length != 2) {
+      continue
+    }
+    const at = kitIndexOf(pair[0])
+    const num = parseInt(pair[1])
+    if (at < 0 || isNaN(num) || num <= 0) {
+      continue
+    }
+    counts[at] = num
+  }
+  return counts
+}
+
+// 道具的 key 列表。跟贴纸位那套不一样：这里没有「空位」的概念，
+// 买到了就在，所以不用 '-' 占坑，也不用查贴纸表
+function plainKeysToText(keys : string[]) : string {
+  let text = ''
+  for (let i = 0; i < keys.length; i++) {
+    if (text != '') {
+      text = text + ','
+    }
+    text = text + keys[i]
+  }
+  return text
+}
+
+function textToPlainKeys(text : string) : string[] {
+  const keys : string[] = []
+  if (text == '') {
+    return keys
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] != '') {
+      keys.push(parts[i])
+    }
+  }
+  return keys
+}
+
+function textToKeys(text : string) : string[] {
+  const keys : string[] = []
+  if (text == '') {
+    return keys
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    const one = parts[i]
+    // 贴纸表里没有的 key 一律当空位：删过的贴纸不该把位子占着
+    keys.push(one == '-' || indexOfKey(one) < 0 ? '' : one)
+  }
+  return keys
+}
+
 // 这一关打通没有
 export function hasCleared(data : SaveData, index : number) : boolean {
   for (let i = 0; i < data.cleared.length; i++) {
@@ -370,7 +519,16 @@ export function emptySave() : SaveData {
     stickersOwned: zeroList(STICKER_COUNT),
     shopUnlocked: zeroList(STICKER_COUNT),
     achieved: zeroList(ACHIEVEMENT_COUNT),
-    stuck: emptyStickers()
+    stuck: emptyStickers(),
+    relayBest: 0,
+    runLevel: 0,
+    runCoins: 0,
+    runSlots: RELAY_START_SLOTS,
+    runOwned: zeroList(STICKER_COUNT),
+    runEquip: [] as string[],
+    runItems: [] as string[],
+    runKits: zeroList(KIT_ITEMS.length),
+    runShop: false
   }
   ensureFreeUnlocks(data)
   return data
@@ -389,6 +547,39 @@ export function newSave(label : string) : SaveData {
   return data
 }
 
+// 整份复制一遍。
+//
+// 改完数据要换个新对象才推得动视图，而各页面原先都是手抄一遍字段列表 ——
+// 加一个字段就得挨个补，漏一处那页存盘时就把那段数据清成空的。
+// 收口到这儿，以后加字段只改这一个地方
+export function cloneSave(data : SaveData) : SaveData {
+  const next : SaveData = {
+    exists: data.exists,
+    label: data.label,
+    tickets: data.tickets,
+    randomTickets: data.randomTickets,
+    refundTickets: data.refundTickets,
+    win: data.win,
+    lose: data.lose,
+    push: data.push,
+    cleared: data.cleared,
+    stickersOwned: data.stickersOwned,
+    shopUnlocked: data.shopUnlocked,
+    achieved: data.achieved,
+    stuck: data.stuck,
+    relayBest: data.relayBest,
+    runLevel: data.runLevel,
+    runCoins: data.runCoins,
+    runSlots: data.runSlots,
+    runOwned: data.runOwned,
+    runEquip: data.runEquip,
+    runItems: data.runItems,
+    runKits: data.runKits,
+    runShop: data.runShop
+  }
+  return next
+}
+
 export function loadSave(index : number) : SaveData {
   const raw = readString(KEY_PREFIX + index)
   if (raw == '') {
@@ -396,12 +587,15 @@ export function loadSave(index : number) : SaveData {
   }
   const parts = raw.split('|')
   // 版本对不上就当没有这个存档，重新开一个
-  if (parts.length < 13 || parts[0] != SAVE_VERSION) {
+  if (parts.length < 22 || parts[0] != SAVE_VERSION) {
     return emptySave()
   }
-  // 存档名里可能有 '|'，最后一段之后的全拼回去
-  let label = parts[12]
-  for (let i = 13; i < parts.length; i++) {
+  // 存档名里可能有 '|'，最后一段之后的全拼回去。
+  // 新字段一律插在 label 前面 —— label 必须留在最末，不然名字里的 '|'
+  // 会把后面的字段挤掉
+  // 下标要跟下面 relayBest 起的那几段对齐，加字段时记得一起挪
+  let label = parts[21]
+  for (let i = 22; i < parts.length; i++) {
     label = label + '|' + parts[i]
   }
   const data : SaveData = {
@@ -417,7 +611,16 @@ export function loadSave(index : number) : SaveData {
     stuck: textToStuck(parts[8]),
     achieved: idsToFlags(parts[9], ACHIEVEMENT_COUNT),
     randomTickets: textToCounts(parts[10], RARITIES.length),
-    refundTickets: textToCounts(parts[11], RARITIES.length)
+    refundTickets: textToCounts(parts[11], RARITIES.length),
+    relayBest: toInt(parts[12], 0),
+    runLevel: toInt(parts[13], 0),
+    runCoins: toInt(parts[14], 0),
+    runSlots: toInt(parts[15], RELAY_START_SLOTS),
+    runOwned: textToStickerCounts(parts[16]),
+    runEquip: textToKeys(parts[17]),
+    runItems: textToPlainKeys(parts[18]),
+    runKits: textToKitCounts(parts[19]),
+    runShop: toInt(parts[20], 0) == 1
   }
   ensureFreeUnlocks(data)
   return data
@@ -436,6 +639,15 @@ export function writeSave(index : number, data : SaveData) {
     + '|' + flagsToIds(data.achieved)
     + '|' + countsToText(data.randomTickets)
     + '|' + countsToText(data.refundTickets)
+    + '|' + data.relayBest
+    + '|' + data.runLevel
+    + '|' + data.runCoins
+    + '|' + data.runSlots
+    + '|' + stickerCountsToText(data.runOwned)
+    + '|' + keysToText(data.runEquip)
+    + '|' + plainKeysToText(data.runItems)
+    + '|' + kitCountsToText(data.runKits)
+    + '|' + (data.runShop ? '1' : '0')
     + '|' + data.label
   uni.setStorageSync(KEY_PREFIX + index, text)
 }
@@ -488,6 +700,206 @@ export function currentLevel() : number {
 
 export function setCurrentLevel(index : number) {
   uni.setStorageSync(KEY_LEVEL, '' + index)
+}
+
+export function currentRelayLevel() : number {
+  const raw = readString(KEY_RELAY_LEVEL)
+  if (raw == '') {
+    return 1
+  }
+  return toInt(raw, 1)
+}
+
+export function setCurrentRelayLevel(index : number) {
+  uni.setStorageSync(KEY_RELAY_LEVEL, '' + index)
+}
+
+// ---------- 排竿：一轮挑战的家当 ----------
+
+// 第一关有三个贴纸位。往后随关号涨，见 relay-levels 的 slotsAt ——
+// 位子不花钱买，所以商店里的金币只跟「买什么贴纸」较劲
+export const RELAY_START_SLOTS : number = 3
+
+// 从第 1 关重新开一轮。
+//
+// 输了、或者打通了十关，都走这儿 —— 金币、库存、装备、买到的位子全归零。
+// 留下的只有 relayBest 那个数字
+// 开局本钱：几张幸运，直接装进位子。
+//
+// 不给的话第一关是空着手上的 —— 五张牌里凑不出一对点数就只能干看着，
+// 输了还得从头来，那第一关就纯粹是在筛运气。
+// 给幸运是因为它「点数还可以按顺位 ±1 算」：一张 7 能当 6/7/8，
+// 三个候选，正好接上这个玩法的主策略 —— 把配得上对的排到相邻位。
+// 它是普通档（上限 4 张），发三张既装满默认的位子，也没顶到上限
+export const RELAY_START_KEY : string = S_LUCKY
+export const RELAY_START_STICKERS : number = 3
+
+// 开局的启动金。
+//
+// 给的不是难度，是第一次进商店的体验：打完第一关到手三四十金币，
+// 而店里最便宜的贴纸 15、盲盒 25、道具 60、贴纸位 100 ——
+// 只够买一张普通贴纸的话，第一次进店根本没有选择，
+// 也就体会不到「买战力还是攒钱扩位」这套取舍，而那是整个玩法的核心。
+// 添上这一笔，头一回进店手上五六十，正好得挑一挑。
+// 再多就没必要了 —— 前期拮据本身就是金币来之不易的体感来源
+export const RELAY_START_COINS : number = 25
+
+export function resetRun(data : SaveData) {
+  data.runLevel = 1
+  data.runCoins = RELAY_START_COINS
+  data.runSlots = RELAY_START_SLOTS
+  data.runOwned = zeroList(STICKER_COUNT)
+  data.runEquip = [] as string[]
+  data.runItems = [] as string[]
+  data.runKits = zeroList(KIT_ITEMS.length)
+  // 第一关前面没有商店，直接开打
+  data.runShop = false
+
+  // 发本钱。addRunSticker 自带稀有度上限，发多了会自己停
+  let got = 0
+  for (let i = 0; i < RELAY_START_STICKERS; i++) {
+    if (addRunSticker(data, RELAY_START_KEY)) {
+      got = got + 1
+    }
+  }
+  // 顺手装进位子，省得开局先跑一趟商店 —— 第一关前面根本没有商店
+  const equip : string[] = []
+  for (let i = 0; i < data.runSlots; i++) {
+    equip.push(i < got ? RELAY_START_KEY : '')
+  }
+  data.runEquip = equip
+}
+
+// ---------- 消耗道具 ----------
+
+export function kitCountOf(data : SaveData, key : string) : number {
+  const at = kitIndexOf(key)
+  return at < 0 || at >= data.runKits.length ? 0 : data.runKits[at]
+}
+
+export function addKit(data : SaveData, key : string) {
+  const at = kitIndexOf(key)
+  if (at >= 0 && at < data.runKits.length) {
+    data.runKits[at] = data.runKits[at] + 1
+  }
+}
+
+// 用掉一个。手上没有就返回 false，调用处照这个判断能不能发动
+export function useKit(data : SaveData, key : string) : boolean {
+  const at = kitIndexOf(key)
+  if (at < 0 || at >= data.runKits.length || data.runKits[at] <= 0) {
+    return false
+  }
+  data.runKits[at] = data.runKits[at] - 1
+  return true
+}
+
+// 手上一共攒着几个消耗道具。局内那个按钮上要显示
+export function kitTotal(data : SaveData) : number {
+  let n = 0
+  for (let i = 0; i < data.runKits.length; i++) {
+    n = n + data.runKits[i]
+  }
+  return n
+}
+
+// 手头有没有正打着的一轮
+export function runAlive(data : SaveData) : boolean {
+  return data.runLevel > 0
+}
+
+// 往这一轮的库存里塞一张
+// 同一种贴纸库里能攒几张，按稀有度卡。
+// 跟主玩法牌组那套上限一个口径：越强的越攒不了几张
+export function runOwnLimit(key : string) : number {
+  return rarityAt(stickerAt(key).rarity).own
+}
+
+export function runOwnedOf(data : SaveData, key : string) : number {
+  const at = indexOfKey(key)
+  return at < 0 ? 0 : data.runOwned[at]
+}
+
+// 往贴纸库里添一张。满了（到稀有度上限）就添不进去，返回 false ——
+// 商店那边靠这个把买不了的货灰掉
+export function addRunSticker(data : SaveData, key : string) : boolean {
+  const at = indexOfKey(key)
+  if (at < 0 || data.runOwned[at] >= runOwnLimit(key)) {
+    return false
+  }
+  data.runOwned[at] = data.runOwned[at] + 1
+  return true
+}
+
+export function firstFreeSlot(data : SaveData) : number {
+  for (let i = 0; i < data.runSlots; i++) {
+    if (i >= data.runEquip.length || data.runEquip[i] == '') {
+      return i
+    }
+  }
+  return -1
+}
+
+// 这张贴纸已经装在几个位子上了
+export function runEquipUsed(data : SaveData, key : string) : number {
+  let n = 0
+  for (let i = 0; i < data.runSlots && i < data.runEquip.length; i++) {
+    if (data.runEquip[i] == key) {
+      n = n + 1
+    }
+  }
+  return n
+}
+
+// 库里这张还有几张没装上位子。装满了就不能再往位子上放了 ——
+// 库里两张就只能同时带两张
+export function runSpare(data : SaveData, key : string) : number {
+  return runOwnedOf(data, key) - runEquipUsed(data, key)
+}
+
+// 把第 slot 个位子装上这张贴纸。传空串就是卸下来
+export function setRunEquip(data : SaveData, slot : number, key : string) {
+  if (slot < 0 || slot >= data.runSlots) {
+    return
+  }
+  const next : string[] = []
+  for (let i = 0; i < data.runSlots; i++) {
+    const old = i < data.runEquip.length ? data.runEquip[i] : ''
+    next.push(i == slot ? key : old)
+  }
+  data.runEquip = next
+}
+
+// 开局真正带得进去的那几张：位子数截一刀，空位和库存不够的都剔掉。
+// 库存一直在变（买进来、局内贴掉、局终收回），所以每次进局都照库存重算
+export function runCarry(data : SaveData) : string[] {
+  const out : string[] = []
+  for (let i = 0; i < data.runSlots && i < data.runEquip.length; i++) {
+    if (data.runEquip[i] != '') {
+      out.push(data.runEquip[i])
+    }
+  }
+  return out
+}
+
+// 位子上装的东西越界了就清掉。
+//
+// 卸位子（买位子之后又……其实位子只增不减）、或者库存被别处动过时兜个底：
+// 位子上装着库里已经没有的贴纸，带进局里就是凭空多一张
+export function trimEquip(data : SaveData) {
+  const next : string[] = []
+  const used : number[] = zeroList(STICKER_COUNT)
+  for (let i = 0; i < data.runSlots; i++) {
+    const key = i < data.runEquip.length ? data.runEquip[i] : ''
+    const at = key == '' ? -1 : indexOfKey(key)
+    if (at < 0 || used[at] + 1 > data.runOwned[at]) {
+      next.push('')
+      continue
+    }
+    used[at] = used[at] + 1
+    next.push(key)
+  }
+  data.runEquip = next
 }
 
 // ---------- 贴纸：解锁、购买、贴上、撕下 ----------

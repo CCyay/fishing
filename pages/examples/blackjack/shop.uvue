@@ -100,6 +100,7 @@
     emptySave,
     loadCurrentSave,
     saveCurrent,
+    cloneSave,
     redeemSticker,
     refundSticker,
     drawSticker,
@@ -323,22 +324,7 @@
   // 数据改完整体替换一次，保证视图刷新
   function commit(data : SaveData, tip : string) {
     saveCurrent(data)
-    const next : SaveData = {
-      exists: data.exists,
-      label: data.label,
-      tickets: data.tickets,
-      randomTickets: data.randomTickets,
-      refundTickets: data.refundTickets,
-      win: data.win,
-      lose: data.lose,
-      push: data.push,
-      cleared: data.cleared,
-      stickersOwned: data.stickersOwned,
-      shopUnlocked: data.shopUnlocked,
-      achieved: data.achieved,
-      stuck: data.stuck
-    }
-    save.value = next
+    save.value = cloneSave(data)
     uni.showToast({
       icon: 'none',
       title: tip
