@@ -1,0 +1,927 @@
+// 排竿的道具。
+//
+// 这套取代了原先的贴纸。换掉的理由不是道具更好，是贴纸本来就不是
+// 为排竿设计的：
+//
+//   · 那 80 种贴纸的四个流派（控制/混沌/奇偶/重量）全都建立在主玩法的
+//     机制上 —— 手牌上限、回合结束补牌、看对手手牌。排竿没有手牌、
+//     没有补牌、没有回合结束，它们在这儿不是弱，是结构性地无法存在。
+//     relayStickerPool 那套「拿张 7 当试纸看点数变没变」的动态筛选，
+//     不是筛选，是抢救：80 种捞出三十几种，其中二十种是空位类，
+//     而空位类在排竿里的效果压根没实现（playOne 只把它们的点数清空）。
+//     真正生效的十几种全是「点数 ±N」，同质得没有机制差异。
+//
+//   · 更根本的是决策形态。贴纸是「贴在某张牌上」，决策是「贴哪张」——
+//     而排竿排完序就自动演完，plan 之后插不上手，所以「贴哪张」
+//     始终是对未来的押注。道具是「改善这一轮的排序条件」，
+//     决策是「这一局的几次机会用在哪一轮」—— plan 阶段你看得见
+//     堆上有什么、队列里有什么、庄家下一张打什么，这个决策
+//     建立在完整信息上。
+//
+// stickers.uts 原样留给主玩法，两套系统并存互不干扰。
+
+// ---------- 两类 ----------
+//
+// 没有「一次性」那一类。一次性道具有个治不好的毛病：玩家舍不得用，
+// 攒着攒着就通关了 —— 原先的「翻箱」「清水」就是这个下场。
+// 限制类的「每局 N 次、下一局回满」正是它的解药：不用白不用，
+// 但也不能滥用。
+//
+// 两类怎么分，就看一件事：**用它的时候要不要挑目标**。
+//
+//   · 要挑 —— 限制类。「挑哪张」本身就是决策，而决策要值钱，
+//     次数就得有限。指定一张牌 +1，你得先算清楚它落堆时
+//     堆底摆着什么、庄家下一张会不会先把那个钩点端走 ——
+//     plan 阶段这些你都看得见，所以这是道算术题，不是押注。
+//
+//   · 不用挑 —— 永续类。它改的是这一局的规矩本身（队列多长、
+//     钩中能多收几张、金币怎么算），装上就在那儿，没有「什么时候用」
+//     可言，自然也就不必限次。
+//
+// 照这条线划下来，「你的牌点数统统 +1」这种就不该做成永续：
+// 它是全局平移，你自己牌之间的配对关系压根没变，变的只是跟庄家
+// 怎么对齐 —— 既难算明白，装上之后也再没有可想的了。
+// 改成「挑一张 +1」，它立刻就有了决策
+export const KIND_LASTING : number = 0
+export const KIND_LIMITED : number = 1
+
+// ---------- 四级 ----------
+//
+// 进阶就是升级 —— 稀有度在这儿是**等级**，不是稀缺度。
+//
+// 所以不按稀有度限制携带数量。那会让进阶把自己锁死：
+// 「传说只能带 1 个」的话，你花钱把第二件升到传说就等于钱白花，
+// 玩家很快会学会「只升一件到顶、其余卡在史诗」。
+// 携带数量只看道具栏格数，取舍落在「带满 6 件普通 还是 升 3 件到传说」。
+//
+// 商店只卖普通和稀有，后两级买不到 —— 进阶是拿到史诗、传说的唯一路子。
+// 货架上能直接刷出传说的话，一级级攒钱升的人就成了冤大头
+export const TIER_COMMON : number = 0
+export const TIER_RARE : number = 1
+export const TIER_EPIC : number = 2
+export const TIER_LEGEND : number = 3
+
+// ---------- 三条路子 ----------
+//
+// 开局白送的三件各代表一条，剩下的靠你自己往哪边加码：
+//
+//   点数 —— 改自己牌的点数去够钩点。最直接，也最吃「差几点」的算术。
+//   信息 —— 看得见庄家手里什么、堆里什么结构。不直接变强，
+//           但让每一步排序都算得出账。
+//   花色 —— 顺着花色走另一条钩线。基础规则只认点数，
+//           这一路是把花色也变成能用的东西。
+//
+// 还有一类不属于任何一路（秤钩、熟客这种只管钱的），归「通用」。
+// 分路只影响商店怎么陈列和你怎么规划，不影响结算
+export const WAY_NONE : number = 0
+export const WAY_VALUE : number = 1
+export const WAY_INFO : number = 2
+export const WAY_SUIT : number = 3
+
+export type RelayItem = {
+  key : string
+  name : string
+  kind : number
+  // 每一级的主数值。级数不齐的道具（比如长竿只有两级）
+  // 就只摆两个，最高级 = steps.length - 1
+  steps : number[]
+  // 每一级能一次指定几张牌。不挑目标的（清水、窥筒、压舱）摆空的 ——
+  // 压舱挑几张是当场由你圈的，不是道具定死的
+  counts : number[]
+  // 限制类每一级能用几次。永续类摆空的
+  uses : number[]
+  // 这件道具在普通档的牌面价。
+  //
+  // 价钱分两层：底价买的是「数值」—— 坠子家族 +1 到 +6 六件同构，
+  // 差别只在推得动多少，所以差别得由底价来背；
+  // 进阶费买的是「广度」—— 多点一张、多用一次，这份好处跟数值没关系，
+  // 所以各件同价（见 upgradePrice）。
+  //
+  // 两层分开之后，「买一件 +6 还是把手里的 +1 升到能点三张」
+  // 才是两笔算得清的账
+  basePrice : number
+  // 一次进阶往上跨几级。多数是 1，效果陡的给 2 ——
+  // 那几件每升一档都是成倍地强（钩中多收一张、每张牌多一个候选点数），
+  // 一级一级卖太便宜了，跨两级卖，价钱按落点那一级算。
+  //
+  // 跨过头会被 maxTierOf 截住，所以最后一跳可能不足 stride 级 ——
+  // 比如 [1,2,3,4] 配 stride 2：0 → 2 → 3，末一跳只走了一级
+  stride : number
+  // 描述拆成「前缀 + 数值 + 后缀」三段拼。
+  // 不用占位符替换：UTS 的 String.replace 在 Kotlin 那边是全替换、
+  // 在 JS 那边只换第一处，跨端行为对不上，拼接最省事也最稳
+  head : string
+  tail : string
+}
+
+// ---------- 道具表 ----------
+//
+// 22 件：永续 5、限制 17（其中坠子家族 6、提子家族 6）。
+//
+// 永续那 5 件全是「不用挑目标」的：队列多长、钩中怎么算、金币怎么算。
+// 要挑目标的一律进了限制类。
+//
+// 限制类的进阶只走一条路：**加张数、加次数**，数值一律钉死。
+// 想要更大的数值，是换一件买，不是把手里这件升上去 ——
+// 于是「买一件 +6，还是把手里的 +1 升到能点三张」成了两笔算得清的账：
+// 前者一次推得远，后者一轮里够得着的牌多。
+//
+// 坠子六件同构，差别只有数值，所以差别全由底价背（15 到 115）；
+// 进阶费买的是广度，跟数值无关，所以各件同价
+
+export const RELAY_ITEMS : RelayItem[] = [
+  // ----- 永续：改这一局的规矩，装上就在那儿，不用挑目标 -----
+  {
+    key: 'rod',
+    name: '长竿',
+    kind: KIND_LASTING,
+    // 多摆出来几张，但**每轮照样只打五张** —— 多出来的那几张
+    // 这一轮轮不到，留到下一轮接着用。
+    //
+    // 所以它买的不是「打得多」，是「看得远、挑得着」：
+    // 六张里挑五张打，拖动排序顺手就把不想打的那张挪到第六位去。
+    // 做成「打六张」就变成单纯的加量了，那既改局长又改节奏，
+    // 还得给庄家也补一张，不然一边倒。
+    //
+    // 只有两级。再多排序负担就过头了，一排七张已经是极限。
+    // 级数不齐的道具就摆这么多，maxTierOf 按 steps 的长度算
+    steps: [1, 2] as number[],
+    counts: [] as number[],
+    uses: [] as number[],
+    basePrice: 70,
+    stride: 1,
+    head: '多摆出 ',
+    tail: ' 张备选，每轮仍只打五张'
+  },
+  {
+    key: 'live',
+    name: '活钩',
+    kind: KIND_LASTING,
+    // 改的是「怎么算钩中」这条规矩本身，对手上每一张都一样管用，
+    // 没有挑不挑的问题 —— 所以是永续。
+    // 它是多给一条路，不是把原来那条换掉，比平移点数软。
+    //
+    // 跨两级：每升一档，手上每一张牌都多一个候选点数，
+    // 一级一级卖太便宜了
+    steps: [1, 2, 3] as number[],
+    counts: [] as number[],
+    uses: [] as number[],
+    basePrice: 50,
+    stride: 2,
+    head: '你的牌还可以按 ±',
+    tail: ' 的点数算'
+  },
+  {
+    key: 'murky',
+    name: '浑水',
+    kind: KIND_LASTING,
+    // 把水搅浑，庄家自己也看不清手里几张 —— 它**只看得见五张里的其中几张**，
+    // 剩下的对它是盲的。照样得排序，只是盲的那几张只能瞎插。
+    //
+    // 打的是它的**算计**，不是它的牌。庄家的厉害之处全在 sortDealer
+    // 那套「把配得上对的排到相邻位」，遮掉一张就够它配错一次；
+    // 遮到三张，它那套脑子基本就废了。
+    //
+    // 所以封顶三张（五张里遮三张），再多就不是削弱是抹掉了 ——
+    // 对手变成纯随机之后这游戏也没什么可算的了
+    steps: [1, 2, 3] as number[],
+    counts: [] as number[],
+    uses: [] as number[],
+    basePrice: 60,
+    stride: 1,
+    head: '庄家每轮有 ',
+    tail: ' 张牌自己也看不见，只能瞎插进出牌顺序'
+  },
+  {
+    key: 'along',
+    name: '顺钩',
+    kind: KIND_LASTING,
+    // 同样是改判定规矩：钩中之后多带走几张，不挑目标。
+    // 跨两级的道理跟活钩一样 —— 它加的是每一次钩中的收成
+    steps: [1, 2, 3, 4] as number[],
+    counts: [] as number[],
+    uses: [] as number[],
+    basePrice: 60,
+    stride: 2,
+    head: '钩中时多收堆底 ',
+    tail: ' 张'
+  },
+  {
+    key: 'sight',
+    name: '明竿',
+    kind: KIND_LASTING,
+    // 看庄家接下来几张要打的，**带顺序**。
+    //
+    // 这一件原本是写死的基础规则（每轮明示它第一张）。改成道具之后
+    // 地板没塌 —— 开局自带，第一关就在手上；但它占一个格子，
+    // 于是「留着这份情报 还是 换成顺钩多收两张」成了真取舍。
+    //
+    // 跟窥筒是两种形状，不是强弱关系：
+    // 明竿窄而精确（带顺序、每轮白给），窥筒宽而模糊（不给顺序、每关几次）。
+    // 顺序信息最贵，所以它撑得起永续的价钱和进阶
+    steps: [1, 2, 3, 4] as number[],
+    counts: [] as number[],
+    uses: [] as number[],
+    basePrice: 50,
+    stride: 1,
+    head: '每轮看庄家接下来 ',
+    tail: ' 张要打的牌（带顺序）'
+  },
+  {
+    key: 'scale',
+    name: '秤钩',
+    kind: KIND_LASTING,
+    steps: [20, 35, 50, 70] as number[],
+    counts: [] as number[],
+    uses: [] as number[],
+    basePrice: 40,
+    stride: 1,
+    head: '过关金币 +',
+    tail: '%'
+  },
+  {
+    key: 'regular',
+    name: '熟客',
+    kind: KIND_LASTING,
+    steps: [8, 7, 6, 5] as number[],
+    counts: [] as number[],
+    uses: [] as number[],
+    basePrice: 35,
+    stride: 1,
+    head: '商店 ',
+    tail: ' 折'
+  },
+
+  // ----- 限制：plan 阶段挑一张牌下手，每局 N 次，下一局回满 -----
+  // ----- 坠子家族：六件同构，数值钉死，差别全在底价 -----
+  //
+  // 每一件的进阶都只加张数和次数，数值一辈子不变。想推得更远
+  // 就去买更重的那件 —— 这才有「买一件 +6，还是把手里的 +1
+  // 升到能点三张」这个选择。
+  //
+  // 小数值不是弱，是另一种用法：+1 要求你找一张正好差 1 的牌，
+  // 逼着人盯堆底看；+6 是蛮力，够得着但费钱。
+  // 底价 15/25/40/60/85/115，涨幅比数值陡一点 ——
+  // 大数值省的是「找得准」这份功夫，那份功夫本来就值钱
+  {
+    key: 'sink1',
+    name: '轻坠',
+    kind: KIND_LIMITED,
+    steps: [1, 1, 1, 1] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 15,
+    stride: 1,
+    head: '这一轮点数 +',
+    tail: ''
+  },
+  {
+    key: 'sink2',
+    name: '小坠',
+    kind: KIND_LIMITED,
+    steps: [2, 2, 2, 2] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 25,
+    stride: 1,
+    head: '这一轮点数 +',
+    tail: ''
+  },
+  {
+    key: 'sink3',
+    name: '中坠',
+    kind: KIND_LIMITED,
+    steps: [3, 3, 3, 3] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 40,
+    stride: 1,
+    head: '这一轮点数 +',
+    tail: ''
+  },
+  {
+    key: 'sink4',
+    name: '重坠',
+    kind: KIND_LIMITED,
+    steps: [4, 4, 4, 4] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 60,
+    stride: 1,
+    head: '这一轮点数 +',
+    tail: ''
+  },
+  {
+    key: 'sink5',
+    name: '巨坠',
+    kind: KIND_LIMITED,
+    steps: [5, 5, 5, 5] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 85,
+    stride: 1,
+    head: '这一轮点数 +',
+    tail: ''
+  },
+  {
+    key: 'sink6',
+    name: '铁坠',
+    kind: KIND_LIMITED,
+    steps: [6, 6, 6, 6] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 115,
+    stride: 1,
+    head: '这一轮点数 +',
+    tail: ''
+  },
+
+  // ----- 提子家族：跟坠子完全对称，只是往下减 -----
+  //
+  // 减点数有两个用处：让大牌够得着堆上的小牌，
+  // 或者把牌压到 0 变成谁也钩不上的废牌。
+  // 底价跟坠子同档 —— 加和减一样难用，没道理分贵贱
+  {
+    key: 'lift1',
+    name: '轻提',
+    kind: KIND_LIMITED,
+    steps: [1, 1, 1, 1] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 15,
+    stride: 1,
+    head: '这一轮点数 −',
+    tail: ''
+  },
+  {
+    key: 'lift2',
+    name: '小提',
+    kind: KIND_LIMITED,
+    steps: [2, 2, 2, 2] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 25,
+    stride: 1,
+    head: '这一轮点数 −',
+    tail: ''
+  },
+  {
+    key: 'lift3',
+    name: '中提',
+    kind: KIND_LIMITED,
+    steps: [3, 3, 3, 3] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 40,
+    stride: 1,
+    head: '这一轮点数 −',
+    tail: ''
+  },
+  {
+    key: 'lift4',
+    name: '重提',
+    kind: KIND_LIMITED,
+    steps: [4, 4, 4, 4] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 60,
+    stride: 1,
+    head: '这一轮点数 −',
+    tail: ''
+  },
+  {
+    key: 'lift5',
+    name: '巨提',
+    kind: KIND_LIMITED,
+    steps: [5, 5, 5, 5] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 85,
+    stride: 1,
+    head: '这一轮点数 −',
+    tail: ''
+  },
+  {
+    key: 'lift6',
+    name: '铁提',
+    kind: KIND_LIMITED,
+    steps: [6, 6, 6, 6] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 115,
+    stride: 1,
+    head: '这一轮点数 −',
+    tail: ''
+  },
+  {
+    key: 'lucky',
+    name: '幸运',
+    kind: KIND_LIMITED,
+    // 挑一张，让它同时还能按 ±1 算 —— 一张 7 能当 6/7/8。
+    //
+    // 跟坠子提子的区别是「多一条路」而不是「换一条路」：
+    // 坠子把 7 推成 8，7 那条路就没了；幸运是三个数都留着。
+    // 所以它贵，而且升级涨的也是张数和次数，数值永远是 ±1。
+    //
+    // steps 摆 1 只是为了让说明里写得出那个 1，
+    // 实际效果是「±1」，在 fireItem 里烧成一张幸运贴纸
+    steps: [1, 1, 1, 1] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 35,
+    stride: 1,
+    head: '这一轮还可以按 ±',
+    tail: ' 算（三个点数都留着）'
+  },
+  {
+    key: 'gather',
+    name: '集花',
+    kind: KIND_LIMITED,
+    // 挑一张，把它的点数改成「堆里最前面那张同花色的牌」的点数。
+    //
+    // 堆底就是最前面 —— 钩中那儿等于把整堆一路端走。所以这件
+    // 不是「加几点」，是**指定一次深钩**：只要堆里还有同花色的牌，
+    // 用了就钩得中，而且钩的是最深那张。
+    //
+    // 代价是它挑不了目标点数，只能顺着花色走 ——
+    // 手里那张是红桃，堆底最前面的红桃是几点，它就变几点。
+    // 堆上没有同花色的就白用，所以什么时候用、用在哪张，
+    // 得看堆的成色，不是随手一点
+    steps: [0, 0, 0, 0] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 45,
+    stride: 1,
+    head: '点数变成堆里最前面那张同花色牌的点数',
+    tail: ''
+  },
+  {
+    key: 'bury',
+    name: '埋饵',
+    kind: KIND_LIMITED,
+    // 指定一张，它打出时**沉到堆底**，而且这一下不钩任何东西。
+    //
+    // 拿当下的钩机会，换一个堆最深处的钩点 —— 后面你自己再拿一张
+    // 同点数的来收，从堆底一路端到那张，整堆全归你。
+    //
+    // 所以它是一手**两张牌的活**：埋哪一张、隔多远再来接，
+    // 这正是排竿这个玩法要你想的事。埋得早收得多，但中间隔的轮次越长，
+    // 庄家把它钩走的机会也越多 —— 它埋在最底下，谁钩中它谁就端走整堆，
+    // 那把刀是双刃的。
+    //
+    // 「这一下不钩」是有意的：又埋又钩就没有代价了
+    steps: [0, 0, 0, 0] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 45,
+    stride: 1,
+    head: '它打出时沉到堆底，这一下不钩任何东西',
+    tail: ''
+  },
+  {
+    key: 'swallow',
+    name: '吞口',
+    kind: KIND_LIMITED,
+    // 指定一张，这一轮它**按大小吞**：落堆之后从紧挨着它的那张往回数，
+    // 一路吞掉比它小的，撞上比它大的（或者一样大的）就停。
+    //
+    // 这是第三条钩线 —— 基础规则认「等于」，收色认「同色」，这件认「大于」。
+    // 三条线各有各的脾气：
+    //   等于 —— 精确，要算差几点；
+    //   同色 —— 可靠，收得少；
+    //   大于 —— 看堆的形状。堆顶摞着一串小牌就能一口气全吞，
+    //           但堆顶压着张 K 就一张也吞不动。
+    //
+    // 所以它的强弱完全由堆的成色决定，得盯着堆打，不是随手一点。
+    // 顺带跟断口那两件有联动：被断掉的牌算 0 点，什么都比它大 ——
+    // 一整片哑掉的牌正好一口吞了
+    steps: [0, 0, 0, 0] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 50,
+    stride: 1,
+    head: '这一轮它往回一路吞掉比它小的，撞上不比它小的就停',
+    tail: ''
+  },
+  {
+    key: 'bysuit',
+    name: '收色',
+    kind: KIND_LIMITED,
+    // 指定一张，这一轮它的**点数按 0 算**，打出时把堆上**所有**
+    // 同花色的牌一并收走 —— 散在哪儿都算，不是钩一张再扫一段。
+    // 堆上一张同花色的都没有，它就留在堆里，什么也没发生。
+    //
+    // 这是花色流的骨架：基础规则只认点数，有了它花色才是一条
+    // 独立的收线，而不是集花那样借点数绕一下。
+    //
+    // 代价是那张牌在点数那条线上彻底作废：0 点钩不上人，也没人钩得上它。
+    // 所以用哪张是有讲究的 —— 拿一张本来就配不上对的废牌来收色最划算，
+    // 拿一张能配对的大牌去收，等于同时丢掉了另一条路。
+    //
+    // 跟断色是一对：断色把一半颜色的点数锁死，堆上对手钩不动，
+    // 而你这张照样按花色一把捞走
+    steps: [0, 0, 0, 0] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 50,
+    stride: 1,
+    head: '它点数按 0 算，打出时把堆上所有同花色的一并收走',
+    tail: ''
+  },
+  // ----- 断口两件：按轴分，不按类分 -----
+  //
+  // 奇/偶/红/黑 是四个**平行的 sidegrade**，不是坠子家族那种
+  // 从 +1 到 +6 的阶梯。拆成四件的话四件强度一样，
+  // 商店就只是在摇你要的那一个 —— 把临场判断变成了老虎机。
+  // 一件管四类又太万能。所以按轴拆两件，各自二选一。
+  //
+  // 两件的共同点：被断掉的牌**点数没了，花色还在**。
+  // 这是整个花色流的赢法 —— 点数死了花色没死，收色和集花照样够得着，
+  // 而对手只按点数钩，那一堆对它就是废的。
+  //
+  // 双刃是有意的：你自己的同类牌也一起哑火，所以得先摸清对面的成色。
+  // 探口那条线正好接这儿 —— 它说「庄家有三张奇数」，你就知道该断哪边
+  {
+    key: 'mutenum',
+    name: '断数',
+    kind: KIND_LIMITED,
+    steps: [0, 0, 0, 0] as number[],
+    counts: [] as number[],
+    uses: [1, 1, 2, 2] as number[],
+    basePrice: 40,
+    stride: 1,
+    head: '挑奇数或偶数，这一轮双方打出的这类牌都按 0 点算',
+    tail: ''
+  },
+  {
+    key: 'mutecolor',
+    name: '断色',
+    kind: KIND_LIMITED,
+    // 归花色流：掐死红色的点数，你的黑色收色照收 ——
+    // 这一件跟收色是同一套打法的两头
+    steps: [0, 0, 0, 0] as number[],
+    counts: [] as number[],
+    uses: [1, 1, 2, 2] as number[],
+    basePrice: 40,
+    stride: 1,
+    head: '挑红色或黑色，这一轮双方打出的这类牌都按 0 点算',
+    tail: ''
+  },
+  {
+    key: 'hint',
+    name: '探口',
+    kind: KIND_LIMITED,
+    // 不给你看牌，只给一条关于它这一轮手牌的实话 ——
+    // 「有两张大于 7」「有三张奇数」「手里有对子」这种。
+    //
+    // 比窥筒弱也比窥筒便宜，但弱得有意思：线索是**结构**，
+    // 看牌是**清单**。知道「它有对子」你就得防它把那对拆开夹你，
+    // 具体是哪一对还得自己盯着堆上推
+    steps: [1, 2, 3, 4] as number[],
+    counts: [] as number[],
+    uses: [1, 1, 2, 2] as number[],
+    basePrice: 30,
+    stride: 1,
+    head: '给 ',
+    tail: ' 条庄家手牌的线索'
+  },
+  {
+    key: 'bare',
+    name: '空钩',
+    kind: KIND_LIMITED,
+    // 没有数值可显示，只有张数和次数 —— steps 摆 0，descOf 会跳过数值那段。
+    //
+    // 保命用：钩不上人，也没人钩得上它。
+    // 拿来挡庄家那一手大的，或者把自己钩不上的废牌变成安全垫牌。
+    // 「它也钩不上人」这个代价是有意留的 —— 白送的保护没什么可想的
+    steps: [0, 0, 0, 0] as number[],
+    counts: [1, 1, 1, 1] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 30,
+    stride: 1,
+    head: '这一轮不算钩点',
+    tail: ''
+  },
+  {
+    key: 'clear',
+    name: '清水',
+    kind: KIND_LIMITED,
+    // 不挑目标：盖着的一次全翻开。counts 摆空的
+    steps: [0, 0, 0, 0] as number[],
+    counts: [] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 20,
+    stride: 1,
+    head: '翻开队列里所有盖着的牌',
+    tail: ''
+  },
+  {
+    key: 'peek',
+    name: '窥筒',
+    kind: KIND_LIMITED,
+    // 手牌区平时只明示庄家下一张，这件让你多看几张 ——
+    // 信息量本身成了可以花钱买的强度。
+    //
+    // 进阶加的是「看几张」而不是次数：它是信息道具，
+    // plan 阶段你要的是一次把局面看清楚好排序，
+    // 分四次每次看一张没有意义
+    steps: [1, 2, 3, 4] as number[],
+    counts: [] as number[],
+    uses: [1, 1, 1, 1] as number[],
+    basePrice: 25,
+    stride: 1,
+    head: '看庄家手牌 ',
+    tail: ' 张'
+  },
+  {
+    key: 'swap',
+    name: '换饵',
+    kind: KIND_LIMITED,
+    // 进阶加的是一次能换几张，次数保持一次
+    steps: [0, 0, 0, 0] as number[],
+    counts: [1, 2, 3, 4] as number[],
+    uses: [1, 1, 1, 1] as number[],
+    basePrice: 30,
+    stride: 1,
+    head: '换成牌库顶那张',
+    tail: ''
+  },
+  {
+    key: 'ballast',
+    name: '压舱',
+    kind: KIND_LIMITED,
+    // 挑几张是当场由你圈的，道具本身不定死 —— counts 摆空的。
+    //
+    // 唯一能让双方出牌数错开的道具。用了这一轮你少出几张，
+    // 终局就比庄家多出几轮 —— 那几轮没有对手插进来，
+    // 堆上全是你自己的牌加残留，能连着钩。
+    // 它把「清垃圾」变成了终局布局，也是 playStep 里那个
+    // 「一方出完、另一方接着打」的跳过逻辑唯一的触发器
+    steps: [0, 0, 0, 0] as number[],
+    counts: [] as number[],
+    uses: [1, 2, 3, 4] as number[],
+    basePrice: 35,
+    stride: 1,
+    head: '队列圈几张压回牌库底，不补牌',
+    tail: ''
+  }
+]
+
+// ---------- 查表 ----------
+
+export function itemAt(key : string) : RelayItem {
+  for (let i = 0; i < RELAY_ITEMS.length; i++) {
+    if (RELAY_ITEMS[i].key == key) {
+      return RELAY_ITEMS[i]
+    }
+  }
+  return RELAY_ITEMS[0]
+}
+
+export function itemIndexOf(key : string) : number {
+  for (let i = 0; i < RELAY_ITEMS.length; i++) {
+    if (RELAY_ITEMS[i].key == key) {
+      return i
+    }
+  }
+  return -1
+}
+
+// 这件道具最高能升到第几级。级数不齐，别拿 TIER_LEGEND 当上限
+export function maxTierOf(item : RelayItem) : number {
+  const last = item.steps.length - 1
+  return last < 0 ? 0 : last
+}
+
+function clampTier(item : RelayItem, tier : number) : number {
+  const top = maxTierOf(item)
+  if (tier < 0) {
+    return 0
+  }
+  return tier > top ? top : tier
+}
+
+// 这一级的主数值
+export function valueAt(item : RelayItem, tier : number) : number {
+  return item.steps[clampTier(item, tier)]
+}
+
+// 这一级每局能用几次。永续类返回 0
+export function usesAt(item : RelayItem, tier : number) : number {
+  if (item.kind != KIND_LIMITED || item.uses.length == 0) {
+    return 0
+  }
+  const at = clampTier(item, tier)
+  return at < item.uses.length ? item.uses[at] : item.uses[item.uses.length - 1]
+}
+
+// 这一级一次能点几张牌。不挑目标的返回 0 ——
+// 清水是全翻，窥筒是看对面，压舱挑几张由你当场圈
+export function countAt(item : RelayItem, tier : number) : number {
+  if (item.counts.length == 0) {
+    return 0
+  }
+  const at = clampTier(item, tier)
+  return at < item.counts.length ? item.counts[at] : item.counts[item.counts.length - 1]
+}
+
+// 拼这一级的说明。三段各自可有可无：
+//   「指定 N 张」—— counts 是空的就不摆（不挑目标的道具）
+//   数值 —— steps 是 0 就不摆（空钩、清水、压舱没有数值可言）
+//   「每局 N 次」—— 永续类不摆
+export function descOf(item : RelayItem, tier : number) : string {
+  const n = valueAt(item, tier)
+  const c = countAt(item, tier)
+  let out = n == 0 ? item.head + item.tail : item.head + n + item.tail
+  if (c > 0) {
+    out = '指定 ' + c + ' 张，' + out
+  }
+  if (item.kind == KIND_LIMITED) {
+    out = out + ' · 每局 ' + usesAt(item, tier) + ' 次'
+  }
+  return out
+}
+
+// ---------- 级别的名字和颜色 ----------
+
+export function tierName(tier : number) : string {
+  if (tier <= TIER_COMMON) {
+    return '普通'
+  }
+  if (tier == TIER_RARE) {
+    return '稀有'
+  }
+  if (tier == TIER_EPIC) {
+    return '史诗'
+  }
+  return '传说'
+}
+
+// 哪件走哪条路。
+//
+// 集中写一张表，而不是在每件道具里挂个字段：这个映射本身就是
+// 「三条路各有哪些货」这一件事，摊开摆在一处才看得出哪条路厚哪条路薄 ——
+// 散在二十多个字面量里，想数一数花色流有几件都得翻一遍
+export function wayOf(key : string) : number {
+  // 点数：改自己牌算几点，去够堆上的钩点
+  if (key.indexOf('sink') == 0 || key.indexOf('lift') == 0) {
+    return WAY_VALUE
+  }
+  // 吞口认的是「大于」，算在点数这一路 —— 它读的还是点数，
+  // 只是比大小而不是比相等。真要单开一条「大小」的路，
+  // 得再有几件跟它成套的（改堆的高低、把大牌压到堆顶之类）才撑得住
+  if (key == 'lucky' || key == 'live' || key == 'bare'
+    || key == 'mutenum' || key == 'swallow' || key == 'bury') {
+    return WAY_VALUE
+  }
+  // 情报：看得见对面和牌堆。浑水是反过来 —— 让它看不见，同样是情报这条路
+  if (key == 'sight' || key == 'peek' || key == 'hint'
+    || key == 'clear' || key == 'rod' || key == 'murky') {
+    return WAY_INFO
+  }
+  // 花色：基础规则只认点数，这一路把花色也变成能用的。
+  //
+  // 断色算在这一路，是因为它的用处不在「削弱」而在「立规矩」——
+  // 把一半颜色的点数锁死之后，只有按花色钩的人还捞得上来，
+  // 那正是这一路的赢法。断数走的是点数轴，归那一路
+  if (key == 'gather' || key == 'bysuit' || key == 'mutecolor') {
+    return WAY_SUIT
+  }
+  return WAY_NONE
+}
+
+export function wayName(way : number) : string {
+  if (way == WAY_VALUE) {
+    return '点数'
+  }
+  if (way == WAY_INFO) {
+    return '情报'
+  }
+  if (way == WAY_SUIT) {
+    return '花色'
+  }
+  return '通用'
+}
+
+export function wayColor(way : number) : string {
+  if (way == WAY_VALUE) {
+    return '#ff9e80'
+  }
+  if (way == WAY_INFO) {
+    return '#6fc3ff'
+  }
+  if (way == WAY_SUIT) {
+    return '#7ce0a3'
+  }
+  return '#9fd9bd'
+}
+
+export function tierColor(tier : number) : string {
+  if (tier <= TIER_COMMON) {
+    return '#cfeade'
+  }
+  if (tier == TIER_RARE) {
+    return '#6fc3ff'
+  }
+  if (tier == TIER_EPIC) {
+    return '#c58cff'
+  }
+  return '#e8b23a'
+}
+
+// ---------- 价钱 ----------
+//
+// 分两层，各管各的：
+//
+//   底价（basePrice，每件自己带）—— 买的是「数值」。
+//     坠子家族六件同构，差别只有推得动多少，所以差别全落在这儿：
+//     15 / 25 / 40 / 60 / 85 / 115。
+//
+//   进阶费（下面这个，各件同价）—— 买的是「广度」。
+//     多点一张、多用一次，这份好处跟数值多大没关系 ——
+//     给 +1 多一张，和给 +6 多一张，都是「多一张」。
+//     所以没道理按底价的比例收，那样铁坠升一级要上千，等于不许升。
+//
+// 两层分开之后，「买一件铁坠(115) 还是 把轻坠升到能点两张(15+70)」
+// 是两笔数量级相当、但买到不同东西的账 —— 这才叫取舍
+
+// 进阶到第 toTier 级要多少。跟是哪件道具无关
+//
+//   升到稀有 70、升到史诗 140、升到传说 260
+//
+// 翻倍递进而不是线性，是因为格子有限、广度有上限 ——
+// 不把后面几级定贵，后期就只剩「无脑升满」一条路了。
+//
+// 按落点那一级算，还顺手把跨级的账算对了：stride 2 的道具
+// 从普通直接跳史诗，收的就是史诗那一档的 140，
+// 比分两步走（70 + 140）便宜，但中间那级的效果你也没拿到 ——
+// 少花钱少拿货，账是平的
+export function upgradePrice(toTier : number) : number {
+  if (toTier <= TIER_RARE) {
+    return 70
+  }
+  if (toTier == TIER_EPIC) {
+    return 140
+  }
+  return 260
+}
+
+// 直接买一件第 tier 级的要多少 = 底价 + 一路升上来的进阶费。
+//
+// 定成这样，「买稀有档」和「买普通档再升一级」是同一个价 ——
+// 两条路花一样的钱拿到一样的东西，不留套利的空子。
+// 商店只卖普通和稀有两档，所以实际只会用到 tier 0 和 1
+export function buyPrice(item : RelayItem, tier : number) : number {
+  let sum = item.basePrice
+  const top = clampTier(item, tier)
+  for (let t = 1; t <= top; t++) {
+    sum = sum + upgradePrice(t)
+  }
+  return sum
+}
+
+// 这件现在升一级要花多少、升到第几级。升不动了返回 -1 的价。
+//
+// 跨级的道具（stride 2）一跳两级，跳过头就被自己的最高级截住 ——
+// 所以末一跳可能只走一级
+export function nextTierOf(item : RelayItem, now : number) : number {
+  const top = maxTierOf(item)
+  if (now >= top) {
+    return -1
+  }
+  const want = now + item.stride
+  return want > top ? top : want
+}
+
+export function upgradeCostOf(item : RelayItem, now : number) : number {
+  const to = nextTierOf(item, now)
+  return to < 0 ? -1 : upgradePrice(to)
+}
+
+// ---------- 秤钩 / 熟客：这两件的加成怎么算 ----------
+//
+// 数值表在这个文件里（steps），所以算钱的函数也放这儿 ——
+// 从前它们在 relay-levels.uts，那会儿加成是写死的三成和八折，
+// 现在随等级走，数值和算法分在两个文件里迟早对不上。
+//
+// 两个函数都收「这件现在在第几级」，没装就传 -1
+
+// 秤钩：过关金币加成，20% / 35% / 50% / 70%
+export function coinBonusOf(tier : number, coins : number) : number {
+  if (tier < 0) {
+    return coins
+  }
+  const pct = valueAt(itemAt('scale'), tier)
+  return Math.floor(coins * (100 + pct) / 100)
+}
+
+// 熟客：店里打折，八折 / 七折 / 六折 / 五折。
+// 算价的地方一律过这道，免得漏掉一处就有个不打折的角落
+export function discountOf(tier : number, price : number) : number {
+  if (tier < 0) {
+    return price
+  }
+  const off = valueAt(itemAt('regular'), tier)
+  const cut = Math.floor(price * off / 10)
+  return cut < 1 ? 1 : cut
+}

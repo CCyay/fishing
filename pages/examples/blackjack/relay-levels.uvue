@@ -22,8 +22,8 @@
 
     <view class="rule">
       <text class="rule-text"
-        >一轮挑战连打 {{ RELAY_COUNT }} 关。赢一关拿金币，进商店买贴纸、道具、贴纸位，
-        再进下一关。输一局这一轮就结束 —— 金币、贴纸、道具全清，从第一关重来。</text
+        >一轮挑战连打 {{ RELAY_COUNT }} 关。赢一关拿金币，进商店买道具、给道具进阶，
+        再进下一关。输一局这一轮就结束 —— 金币、道具全清，从第一关重来。</text
       >
     </view>
 
@@ -50,9 +50,6 @@
       <view v-if="alive" id="rv-restart" class="menu-btn menu-btn-warn" @click="askRestart">
         <text class="menu-btn-text menu-btn-text-warn">重新开始</text>
       </view>
-      <view id="rv-stickers" class="menu-btn" @click="openStickers">
-        <text class="menu-btn-text">贴纸信息</text>
-      </view>
       <view id="rv-items" class="menu-btn" @click="openItems">
         <text class="menu-btn-text">道具信息</text>
       </view>
@@ -61,65 +58,35 @@
       </view>
     </view>
 
-    <!-- 贴纸图鉴：这个模式认得的那些，带上这一轮攒了几张 -->
-    <view v-if="showStickers" class="layer" @click="closeAll">
-      <view class="panel" @click.stop="noop">
-        <view class="panel-head">
-          <text class="panel-title">贴纸信息</text>
-          <text class="panel-sub">{{ poolKeys.length }} 种能用</text>
-        </view>
-        <!-- 按稀有度分段，低的在前。同一档的挨在一起才看得出
-             「这一档有哪些可选」，混着排只能一条条找 -->
-        <scroll-view class="panel-body">
-          <view v-for="(grp, gi) in poolGroups" :key="'gp-' + gi">
-            <text class="group" :style="'color: ' + rarityColor(grp.rarity)"
-              >{{ rarityName(grp.rarity) }} · {{ grp.keys.length }} 种 · 最多攒
-              {{ rarityOwn(grp.rarity) }} 张</text
-            >
-            <view
-              v-for="(key, si) in grp.keys"
-              :key="'sk-' + gi + '-' + si"
-              :id="'rv-sk-' + key"
-              class="entry">
-              <view class="entry-top">
-                <text class="entry-name" :style="'color: ' + colorOf(key)">{{ nameOf(key) }}</text>
-                <!-- 中间这段撑开，把持有数顶到右边 -->
-                <text class="entry-tag"> </text>
-                <text v-if="alive" class="entry-own">{{ ownedOf(key) }}</text>
-              </view>
-              <text class="entry-desc">{{ descOf(key) }}</text>
-            </view>
-          </view>
-        </scroll-view>
-        <text class="panel-close" @click.stop="closeAll">收起来</text>
-      </view>
-    </view>
-
-    <!-- 道具图鉴：常驻的和一次性的分开列 -->
+    <!-- 道具图鉴：永续的和限制的分开列。
+         贴纸那一页取消了 —— 排竿这边整套换成了道具 -->
     <view v-if="showItems" class="layer" @click="closeAll">
       <view class="panel" @click.stop="noop">
         <view class="panel-head">
           <text class="panel-title">道具信息</text>
-          <text class="panel-sub">商店里买</text>
+          <text class="panel-sub">{{ ITEMS.length }} 件 · 商店里买</text>
         </view>
         <scroll-view class="panel-body">
-          <text class="group">常驻 · 买了这一轮一直管用</text>
-          <view v-for="(it, ii) in RELAY_ITEMS" :key="'it-' + ii" class="entry">
-            <view class="entry-top">
-              <text class="entry-name entry-name-plain">{{ it.name }}</text>
-              <text class="entry-tag">{{ it.price }} 金币</text>
-              <text v-if="alive && ownItem(it.key)" class="entry-own">已有</text>
+          <view v-for="(grp, gi) in itemGroups" :key="'ig-' + gi">
+            <text class="group">{{ grp.title }}</text>
+            <view
+              v-for="(it, ii) in grp.items"
+              :key="'it-' + gi + '-' + ii"
+              :id="'rv-it-' + it.key"
+              class="entry">
+              <view class="entry-top">
+                <text class="entry-name entry-name-plain">{{ it.name }}</text>
+                <text class="entry-tag">{{ it.basePrice }} 金币起</text>
+                <!-- 手头有这件就把当前等级标出来，没有就不占位 -->
+                <text
+                  v-if="alive && tierOf(it.key) >= 0"
+                  class="entry-own"
+                  :style="'color: ' + tierColor(tierOf(it.key))"
+                  >{{ tierName(tierOf(it.key)) }}</text
+                >
+              </view>
+              <text class="entry-desc">{{ itemDesc(it) }}</text>
             </view>
-            <text class="entry-desc">{{ it.desc }}</text>
-          </view>
-          <text class="group">消耗 · 局内用掉就没</text>
-          <view v-for="(kt, ki) in KIT_ITEMS" :key="'kt-' + ki" class="entry">
-            <view class="entry-top">
-              <text class="entry-name entry-name-plain">{{ kt.name }}</text>
-              <text class="entry-tag">{{ kt.price }} 金币</text>
-              <text v-if="alive" class="entry-own">{{ kitHave(kt.key) }}</text>
-            </view>
-            <text class="entry-desc">{{ kt.desc }}</text>
           </view>
         </scroll-view>
         <text class="panel-close" @click.stop="closeAll">收起来</text>
@@ -129,15 +96,10 @@
 </template>
 
 <script setup lang="uts">
-  // 排竿的入口页：看战绩、接着打、或者推倒重来，顺便查贴纸和道具。
+  // 排竿的入口页：看战绩、接着打、或者推倒重来，顺便查道具。
   //
   // 这里不列关卡 —— 十关是一条连着打的路，打到哪一关由这一轮的进度说了算，
   // 输一局就从头来。「挑关卡」这件事本身不存在，列出来只会让人以为能挑
-  import {
-    RARITIES,
-    stickerAt,
-    rarityAt
-  } from '@/pages/examples/blackjack/stickers.uts'
   import {
     SaveData,
     emptySave,
@@ -146,61 +108,60 @@
     cloneSave,
     resetRun,
     runAlive,
-    runOwnedOf,
-    kitCountOf,
+    itemTierOf,
     setCurrentRelayLevel
   } from '@/pages/examples/blackjack/save.uts'
   import {
-    RELAY_COUNT,
-    RELAY_ITEMS,
-    KIT_ITEMS,
-    hasItem,
-    relayStickerPool
+    RELAY_COUNT
   } from '@/pages/examples/blackjack/relay-levels.uts'
+  import {
+    RelayItem,
+    RELAY_ITEMS,
+    KIND_LASTING,
+    descOf as itemDescAt,
+    tierName,
+    tierColor
+  } from '@/pages/examples/blackjack/relay-items.uts'
 
-  // 一档贴纸：稀有度 + 这一档有哪些
-  type PoolGroup = {
-    rarity : number
-    keys : string[]
+  // 图鉴里的一段：永续一段、限制一段
+  type ItemGroup = {
+    title : string
+    items : RelayItem[]
   }
 
   const save = ref<SaveData>(emptySave())
-  const poolKeys = ref<string[]>(relayStickerPool())
-  const poolGroups = ref<PoolGroup[]>(buildGroups())
+  // 模板里要读 RELAY_ITEMS.length，得有个本地名字接一下
+  const ITEMS = RELAY_ITEMS
+  const itemGroups = ref<ItemGroup[]>(buildGroups())
 
-  // 按稀有度分组，低的在前。
-  //
-  // 显式分一遍而不是指望 STICKERS 表本来就是排好的 —— 那张表将来
-  // 增删挪动都可能，指望它的顺序等于把这页的显示押在别处的排版上
-  function buildGroups() : PoolGroup[] {
-    const raw = relayStickerPool()
-    const list : PoolGroup[] = []
-    for (let r = 0; r < RARITIES.length; r++) {
-      const keys : string[] = []
-      for (let i = 0; i < raw.length; i++) {
-        if (stickerAt(raw[i]).rarity == r) {
-          keys.push(raw[i])
-        }
-      }
-      if (keys.length > 0) {
-        list.push({ rarity: r, keys: keys } as PoolGroup)
+  // 按类分两段。显式分一遍而不是指望表本身就是排好的 ——
+  // 那张表将来增删挪动都可能，指望它的顺序等于把这页的显示押在别处的排版上
+  function buildGroups() : ItemGroup[] {
+    const lasting : RelayItem[] = []
+    const limited : RelayItem[] = []
+    for (let i = 0; i < RELAY_ITEMS.length; i++) {
+      if (RELAY_ITEMS[i].kind == KIND_LASTING) {
+        lasting.push(RELAY_ITEMS[i])
+      } else {
+        limited.push(RELAY_ITEMS[i])
       }
     }
+    const list : ItemGroup[] = []
+    list.push({ title: '永续 · 装上就一直管用', items: lasting } as ItemGroup)
+    list.push({ title: '限制 · 排竿时用，每局几次', items: limited } as ItemGroup)
     return list
   }
 
-  function rarityName(rarity : number) : string {
-    return rarityAt(rarity).name
+  // 图鉴里一律按普通档的说明展示 —— 那是你买到手时的样子。
+  // 手头已经升过的，等级另外标在右边
+  function itemDesc(item : RelayItem) : string {
+    return itemDescAt(item, 0)
   }
 
-  function rarityColor(rarity : number) : string {
-    return rarityAt(rarity).color
+  function tierOf(key : string) : number {
+    return itemTierOf(save.value, key)
   }
 
-  function rarityOwn(rarity : number) : number {
-    return rarityAt(rarity).own
-  }
-  const showStickers = ref<boolean>(false)
   const showItems = ref<boolean>(false)
 
   const alive = computed<boolean>(() : boolean => {
@@ -226,44 +187,19 @@
     return '继续第 ' + save.value.runLevel + ' 关'
   })
 
-  // 这一轮手头攒了些什么，一句话交代
+  // 这一轮手头攒了些什么，一句话交代。
+  // 同名道具只会有一件，所以数的是「有几件」，不是「几张」
   const carryText = computed<string>(() : string => {
     const data = save.value
     let owned = 0
-    for (let i = 0; i < data.runOwned.length; i++) {
-      owned = owned + data.runOwned[i]
+    for (let i = 0; i < data.runTiers.length; i++) {
+      if (data.runTiers[i] > 0) {
+        owned = owned + 1
+      }
     }
-    let kits = 0
-    for (let i = 0; i < data.runKits.length; i++) {
-      kits = kits + data.runKits[i]
-    }
-    return '贴纸 ' + owned + ' 张 · 贴纸位 ' + data.runSlots + ' 个 · 道具 '
-      + data.runItems.length + ' 件 · 消耗品 ' + kits + ' 个'
+    return '道具 ' + owned + ' 件 · 道具栏 ' + data.runSlots + ' 格 · 金币 '
+      + data.runCoins
   })
-
-  function nameOf(key : string) : string {
-    return stickerAt(key).name
-  }
-
-  function descOf(key : string) : string {
-    return stickerAt(key).desc
-  }
-
-  function colorOf(key : string) : string {
-    return rarityAt(stickerAt(key).rarity).color
-  }
-
-  function ownedOf(key : string) : number {
-    return runOwnedOf(save.value, key)
-  }
-
-  function ownItem(key : string) : boolean {
-    return hasItem(save.value.runItems, key)
-  }
-
-  function kitHave(key : string) : number {
-    return kitCountOf(save.value, key)
-  }
 
   // 接着上次那儿打。中途退出去的进度都存着。
   //
@@ -297,7 +233,7 @@
   function askRestart() {
     uni.showModal({
       title: '重新开始？',
-      content: '这一轮的金币、贴纸、道具全清，从第一关重打。',
+      content: '这一轮的金币和道具全清，从第一关重打。',
       confirmText: '重来',
       cancelText: '再想想',
       success: (res) => {
@@ -308,18 +244,11 @@
     })
   }
 
-  function openStickers() {
-    showItems.value = false
-    showStickers.value = true
-  }
-
   function openItems() {
-    showStickers.value = false
     showItems.value = true
   }
 
   function closeAll() {
-    showStickers.value = false
     showItems.value = false
   }
 
