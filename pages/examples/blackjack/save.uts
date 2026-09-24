@@ -30,6 +30,7 @@ import {
   RANKS,
   SUITS,
   emptyStickers,
+  buildDeck,
   stickerIndex,
   stickerAtSuit,
   countStuckOf
@@ -41,10 +42,14 @@ import {
   KIND_LIMITED,
   itemAt,
   itemIndexOf,
-  maxTierOf,
+  clampTier,
   nextTierOf,
-  usesAt
+  usesAt,
+  rollDealerRules
 } from '@/pages/examples/blackjack/relay-items.uts'
+import {
+  relayLevelAt
+} from '@/pages/examples/blackjack/relay-levels.uts'
 
 export const SLOT_COUNT : number = 3
 
@@ -109,6 +114,29 @@ export type SaveData = {
   //
   // 得进存档：不存的话，中途退出去再进来次数就刷回满的了
   runUsed : number[]
+  // 下一关那副牌，洗好的 52 张，格式「花色:点数」。
+  // **前 26 张是你的，后 26 张是庄家的。**
+  //
+  // 必须存，而且必须在**进商店之前**就洗好：商店要把你这 26 张摊出来，
+  // 你才谈得上照着牌买道具。等进了牌桌再洗的话，
+  // 商店给你看的和真正发到手的是两副牌。
+  //
+  // 跟 runShelf 一样也顺带堵了读档刷新 ——
+  // 不存的话出去再进来就换一副牌，直到洗出一手好的为止
+  runDeck : string[]
+  // 商店这一批货。第 0 段是「半价落在第几件」，第 1 段是「盲盒卖掉没有」，
+  // 之后每段一件货，格式「key:等级:卖掉没有」。
+  //
+  // 必须存 —— 不存的话回首页再进来货架就重摇了，
+  // 那颗花钱的「换一批」等于白送。出去一趟就换一批是最典型的
+  // 「读档刷新」漏洞，得从根上堵死
+  runShelf : string[]
+  // 下一关庄家挂着的那几条规矩，「key」或者「key=参数」。
+  //
+  // 必须存 —— 商店要提前把它们摊给你看（买道具之前先知道要面对什么，
+  // 这是这套经济能算得动的前提），那就得在进商店之前摇好。
+  // 等进了牌桌再摇的话，商店写的和牌桌跑的是两回事
+  runRules : string[]
   // 这一轮眼下停在商店里没有。
   //
   // 打赢一关就立起来，从商店进下一关才放下。
@@ -134,7 +162,21 @@ export type SaveData = {
 //      道具库（runTiers，按下标记等级），旧的 runItems / runKits 两栏取消 ——
 //      买断式道具和一次性消耗品都并进了道具系统。
 //      排竿那一轮的家当读不出来了，主玩法的战绩和牌组配置不受影响
-const SAVE_VERSION : string = 'v14'
+// v15：庄家的贴纸整套换成「规矩」，而且是开局摇的 ——
+//      摇出来的那几条得提前存下来（商店要先摊给玩家看），
+//      于是多了 runRules 一栏，段数 21 变 22
+// v16：商店这一批货也进档（runShelf）。不存的话回首页再进来货架就重摇，
+//      等于白嫖一次刷新 —— 出去一趟换一批是最典型的读档漏洞。
+//      段数 22 变 23
+// v17：那副牌也进档（runDeck，洗好的 52 张，前 26 张是你的）。
+//      商店要把你这一关的牌摊出来，牌就得在进商店之前洗好 ——
+//      否则商店给你看的和牌桌发的是两副。段数 23 变 24
+// v18：段数没变，但道具表整个动过一轮（删了熟客、活钩、换饵、压舱，
+//      添了定标、并色）。runTiers / runUsed 是按
+//      RELAY_ITEMS 的下标存的定长表，少一件就整体错位 ——
+//      v17 的存档读进来，每件道具的等级和剩余次数都会串到隔壁那件身上。
+//      段数对得上、内容全错，是最难查的一种坏档，所以必须靠版号挡掉
+const SAVE_VERSION : string = 'v18'
 
 const KEY_PREFIX : string = 'bj_save_'
 const KEY_CURRENT : string = 'bj_current_slot'
@@ -420,6 +462,36 @@ function textToItemNums(text : string) : number[] {
   return nums
 }
 
+// 一串纯字符串，逗号分隔。庄家规矩那一栏用它 ——
+// 存的是「key」或者「key=参数」，不用查任何表，原样存原样读
+function plainListToText(list : string[]) : string {
+  let text = ''
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] == '') {
+      continue
+    }
+    if (text != '') {
+      text = text + ','
+    }
+    text = text + list[i]
+  }
+  return text
+}
+
+function textToPlainList(text : string) : string[] {
+  const out : string[] = []
+  if (text == '') {
+    return out
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] != '') {
+      out.push(parts[i])
+    }
+  }
+  return out
+}
+
 function textToItemKeys(text : string) : string[] {
   const keys : string[] = []
   if (text == '') {
@@ -514,6 +586,9 @@ export function emptySave() : SaveData {
     runTiers: zeroList(RELAY_ITEMS.length),
     runEquip: [] as string[],
     runUsed: zeroList(RELAY_ITEMS.length),
+    runDeck: [] as string[],
+    runShelf: [] as string[],
+    runRules: [] as string[],
     runShop: false
   }
   ensureFreeUnlocks(data)
@@ -560,6 +635,9 @@ export function cloneSave(data : SaveData) : SaveData {
     runTiers: data.runTiers,
     runEquip: data.runEquip,
     runUsed: data.runUsed,
+    runDeck: data.runDeck,
+    runShelf: data.runShelf,
+    runRules: data.runRules,
     runShop: data.runShop
   }
   return next
@@ -572,17 +650,17 @@ export function loadSave(index : number) : SaveData {
   }
   const parts = raw.split('|')
   // 版本对不上就当没有这个存档，重新开一个。
-  // 段数 v14 起是 21 —— 排竿那边 runItems / runKits 两栏取消、
-  // 添了 runUsed 一栏，净少一段
-  if (parts.length < 21 || parts[0] != SAVE_VERSION) {
+  // 段数 v17 起是 24 —— 在 v16 那 23 段上添了 runDeck。
+  // v18 段数没变，只是道具表少了一件，靠版号挡住错位的旧档
+  if (parts.length < 24 || parts[0] != SAVE_VERSION) {
     return emptySave()
   }
   // 存档名里可能有 '|'，最后一段之后的全拼回去。
   // 新字段一律插在 label 前面 —— label 必须留在最末，不然名字里的 '|'
   // 会把后面的字段挤掉
   // 下标要跟下面 relayBest 起的那几段对齐，加字段时记得一起挪
-  let label = parts[20]
-  for (let i = 21; i < parts.length; i++) {
+  let label = parts[23]
+  for (let i = 24; i < parts.length; i++) {
     label = label + '|' + parts[i]
   }
   const data : SaveData = {
@@ -606,7 +684,10 @@ export function loadSave(index : number) : SaveData {
     runTiers: textToItemNums(parts[16]),
     runEquip: textToItemKeys(parts[17]),
     runUsed: textToItemNums(parts[18]),
-    runShop: toInt(parts[19], 0) == 1
+    runRules: textToPlainList(parts[19]),
+    runShelf: textToPlainList(parts[20]),
+    runDeck: textToPlainList(parts[21]),
+    runShop: toInt(parts[22], 0) == 1
   }
   ensureFreeUnlocks(data)
   return data
@@ -632,6 +713,9 @@ export function writeSave(index : number, data : SaveData) {
     + '|' + itemNumsToText(data.runTiers)
     + '|' + itemKeysToText(data.runEquip)
     + '|' + itemNumsToText(data.runUsed)
+    + '|' + plainListToText(data.runRules)
+    + '|' + plainListToText(data.runShelf)
+    + '|' + plainListToText(data.runDeck)
     + '|' + (data.runShop ? '1' : '0')
     + '|' + data.label
   uni.setStorageSync(KEY_PREFIX + index, text)
@@ -717,11 +801,28 @@ export const RELAY_START_SLOTS : number = 3
 //           「留着这份情报 还是 换成战力」于是成了真取舍；
 //   幸运 —— 让一张牌多两条路（±1 都留着），教人「多一条路」
 //           比「换一条路」值钱；
-//   集花 —— 顺着花色钩堆底最深那张，教人看堆的成色而不是只看自己手里。
+//   收色 —— 放弃一张牌的整个点数，换一次把堆上同花色全捞走，
+//           教人「花色是另一条独立的收线」，也教人「拿废牌去换」。
+//
+// 这一格原先是集花，换掉了。集花的实际收成是一次近乎全堆的清扫
+//（钩中堆里最深那张，一路端到堆顶），白送太重 ——
+// 它现在是货架上要 60 块的大件，认准花色这条路的人自己去买。
+// 收色同样教花色这条线，但收的是散在堆上的同花色，
+// 不是从最深处一路端走，量级小一档，正好当入门。
 //
 // 三件正好填满起手的三格 —— 第一次进商店买到东西就得先卸一件，
 // 这个取舍从第一关就开始问
-export const RELAY_START_KEYS : string[] = ['sight', 'lucky', 'gather']
+export const RELAY_START_KEYS : string[] = ['sight', 'lucky', 'bysuit']
+
+// 这三件各从第几级起手。
+//
+// 只有明竿不是 0：它起手就是**稀有**。这件道具只有两级
+// （稀有看 1 张，花 260 一跳传说看 2 张，理由写在 relay-items 的表里），
+// 起手挂个「普通」的牌子会让人低估卸掉它的代价 —— 它是这局的情报地板。
+//
+// 单独开一张表而不是给 addRunItem 写死 0：起手道具的**级别**
+// 和「起手带哪几件」是两件事，混在一起以后想给别的起手件调级就得改逻辑
+export const RELAY_START_TIERS : number[] = [1, 0, 0]
 
 // 开局的启动金。
 //
@@ -744,6 +845,13 @@ export function resetRun(data : SaveData) {
   data.runTiers = zeroList(RELAY_ITEMS.length)
   data.runEquip = [] as string[]
   data.runUsed = zeroList(RELAY_ITEMS.length)
+  // 第一关一条规矩都没有，摇出来也是空的
+  data.runRules = rollRulesFor(1)
+  // 货架空着，进商店那会儿再摆
+  data.runShelf = [] as string[]
+  // 第一关那副牌现在就洗好 —— 第一关前面没有商店，
+  // 但牌照样得是定死的，不然退出重进又换一副
+  data.runDeck = dealRunDeck()
   // 第一关前面没有商店，直接开打
   data.runShop = false
 
@@ -751,7 +859,9 @@ export function resetRun(data : SaveData) {
   // 表里要是哪件被改名删掉了，addRunItem 会返回 false，那一格就空着
   const equip : string[] = []
   for (let i = 0; i < RELAY_START_KEYS.length; i++) {
-    if (addRunItem(data, RELAY_START_KEYS[i], 0) && equip.length < data.runSlots) {
+    // 表短了就按 0 走 —— 两张表将来要是没对齐，宁可给个普通也不能越界
+    const tier = i < RELAY_START_TIERS.length ? RELAY_START_TIERS[i] : 0
+    if (addRunItem(data, RELAY_START_KEYS[i], tier) && equip.length < data.runSlots) {
       equip.push(RELAY_START_KEYS[i])
     }
   }
@@ -791,21 +901,15 @@ export function addRunItem(data : SaveData, key : string, tier : number) : boole
   if (at < 0 || at >= data.runTiers.length || data.runTiers[at] > 0) {
     return false
   }
-  const top = maxTierOf(itemAt(key))
-  let want = tier
-  if (want < 0) {
-    want = 0
-  }
-  if (want > top) {
-    want = top
-  }
-  data.runTiers[at] = want + 1
+  // 夹进这件道具真实存在的区间。走 clampTier 而不是自己比上限 ——
+  // 有的道具没有普通形态（并色只存在于稀有档），下限也得夹
+  data.runTiers[at] = clampTier(itemAt(key), tier) + 1
   return true
 }
 
 // 进阶。没有这件、或者已经到顶，都升不动。
 //
-// 跨几级由道具自己的 stride 说了算 —— 活钩、顺钩那种每升一档
+// 跨几级由道具自己的 stride 说了算 —— 顺钩、明竿那种每升一档
 // 全场受益的一跳两级。跳过头会被自己的最高级截住（长竿只有两级，
 // 别拿传说当统一上限），所以末一跳可能不足 stride 级
 export function upgradeRunItem(data : SaveData, key : string) : boolean {
@@ -856,6 +960,33 @@ export function spendUse(data : SaveData, key : string) : boolean {
 // 一整轮只给 N 次的话，前几关根本不敢用
 export function resetUses(data : SaveData) {
   data.runUsed = zeroList(RELAY_ITEMS.length)
+}
+
+// 洗一副牌、对半分，存成「花色:点数」的 52 段。前 26 张是你的。
+//
+// 放在存档层而不是牌桌上，是因为商店得先把你那 26 张摊出来 ——
+// 「照着自己的牌买道具」是这套经济真正有得算的地方，
+// 而那要求牌在进商店之前就定死
+export function dealRunDeck() : string[] {
+  const full = buildDeck(emptyStickers())
+  const out : string[] = []
+  for (let i = 0; i < full.length; i++) {
+    out.push(full[i].suit + ':' + full[i].rank)
+  }
+  return out
+}
+
+// 一半是多少张。26 —— 对半分的那个「半」
+export const HALF_DECK : number = 26
+
+// 摇第 level 关庄家挂哪几条规矩。
+//
+// 摇的时机是**进商店之前**（打赢一关、关号推进的那一下），
+// 这样商店才能提前把下一关的规矩摊出来。
+// 花色表从这儿传进去 —— relay-items 那个文件不该去认花色
+export function rollRulesFor(level : number) : string[] {
+  const lv = relayLevelAt(level)
+  return rollDealerRules(level, lv.dealerRules, SUITS)
 }
 
 export function firstFreeSlot(data : SaveData) : number {

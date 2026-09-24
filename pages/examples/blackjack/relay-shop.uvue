@@ -21,7 +21,40 @@
 
     <text v-if="gained != ''" class="gained">{{ gained }}</text>
 
+    <!-- 下一关庄家挂着的规矩。摆在买东西之前 ——
+         「买道具之前先知道要面对什么」是这套经济能算得动的前提，
+         买完才告诉你等于让你瞎买 -->
+    <view v-if="ruleList.length > 0" class="rules">
+      <text class="rules-head">下一关庄家挂着这几条规矩</text>
+      <!-- 效果直接摊开写，不用点开看 ——
+           这几条是你买道具的全部依据，藏一层等于没给 -->
+      <view v-for="(one, ri) in ruleList" :key="'sr-' + ri" class="rule-line">
+        <text class="rule-tag">{{ one.name }}</text>
+        <text class="rule-desc">{{ one.desc }}</text>
+      </view>
+    </view>
+
     <scroll-view class="body">
+      <!-- 你下一关那 26 张。
+           一副牌洗开对半分，所以**你有的它就没有** ——
+           这条是这个模式最要紧的信息，可它从来没摆出来过。
+           按点数排，成对的挨在一起：那正是你排竿时要凑的东西 -->
+      <text class="section"
+        >你下一关的牌 · 一副洗开对半分，你 26 张，剩下 26 张在庄家手里</text
+      >
+      <view class="deck-row">
+        <text v-if="myDeck.length == 0" class="dim">还没发牌</text>
+        <view
+          v-for="(one, di) in myDeck"
+          :key="'d-' + di"
+          class="mini"
+          :class="{ 'mini-pair': one.pair }">
+          <text class="mini-rank" :class="{ 'mini-red': one.red }">{{ one.rank }}</text>
+          <text class="mini-suit" :class="{ 'mini-red': one.red }">{{ one.suit }}</text>
+        </view>
+      </view>
+      <text class="deck-note">{{ deckNote }}</text>
+
       <!-- 道具栏：这一关带上场的就是这几件。
            格数随关卡白给，不花钱 —— 所以这一块只管配，不管买 -->
       <text class="section">道具栏 {{ save.runSlots }} 格 · 点一下卸掉不想带的</text>
@@ -51,16 +84,19 @@
           :key="'l-' + li"
           :id="'rs-lib-' + li"
           class="lib-item">
+          <!-- 左右结构：左边窄窄一栏放名字和等级，右边整块留给效果。
+               上下两行的话，说明一长就把行高顶起来、名字那行空一大片；
+               分成两栏，长说明在右边自己折行，左栏宽度始终一样 -->
           <view class="lib-main" :class="{ 'chip-out': !canEquip(key) }" @click="tapLib(key)">
-            <text class="chip-name" :style="'color: ' + tierColor(tierOf(key))">{{
-              nameOf(key)
-            }}</text>
-            <!-- 标一下它走哪条路，攒同一路的才看得出自己在走什么 -->
-            <text class="lib-way" :style="'color: ' + wayColor(wayOf(key))">{{
-              wayName(wayOf(key))
-            }}</text>
-            <text class="lib-tier">{{ tierName(tierOf(key)) }}</text>
-            <text v-if="equipped(key)" class="lib-on">已带</text>
+            <!-- 装上场的那几件在上面的道具栏里摆着，而且这儿会压暗，
+                 所以不用再标一次「已带」 -->
+            <view class="lib-head">
+              <text class="chip-name" :style="'color: ' + tierColor(tierOf(key))">{{
+                nameOf(key)
+              }}</text>
+              <text class="lib-tier">{{ tierName(tierOf(key)) }}</text>
+            </view>
+            <text class="lib-desc">{{ ownDesc(key) }}</text>
           </view>
           <text
             v-if="upCostOf(key) > 0"
@@ -82,41 +118,54 @@
         <text class="section">货架 · 第 {{ save.runLevel }} 关的行情</text>
         <text id="rs-reroll" class="reroll" @click="reroll">换一批 {{ rerollCost }}</text>
       </view>
-      <!-- 盲盒的概率摆在明面上。要赌总得先知道赌的是什么 -->
-      <text class="odds">盲盒 {{ blindOdds }}</text>
+      <!-- 选中那件的效果 + 买下按钮，就摆在货架正上方。
+           默认摆盲盒的信息 —— 这块地方不留空，而盲盒的概率本来就该
+           一直看得见（要赌总得先知道赌的是什么）。
+           摆在货架上方而不是页底：手点在货架上，眼睛不该往屏幕另一头找 -->
+      <view class="pick-row">
+        <text class="pick-text">{{ pickText }}</text>
+        <text v-if="pickBtn != ''" id="rs-do-buy" class="pick-btn" @click="doPickedBuy">{{
+          pickBtn
+        }}</text>
+      </view>
       <view class="lib-row">
+        <!-- 盲盒排头一个：它是兜底的那条路，货架上没中意的、
+             或者钱不够买那几件时，只剩它买得动 -->
+        <view
+          id="rs-blind"
+          class="goods goods-blind"
+          :class="{ 'goods-sold': blindSold, 'goods-on': pickAt == -1 }"
+          @click="tapBlind">
+          <view class="goods-inner">
+            <text class="goods-name goods-blind-name">盲盒</text>
+            <text v-if="blindSold" class="goods-sold-text">售罄</text>
+            <text v-else class="goods-price">{{ blindCost }}</text>
+          </view>
+        </view>
         <view
           v-for="(one, gi) in shelf"
           :key="'g-' + gi"
           :id="'rs-buy-' + gi"
           class="goods"
-          :class="{ 'goods-sold': one.key == '', 'goods-sale': one.key != '' && gi == saleAt }"
-          @click="buyItem(gi)">
-          <text v-if="one.key == ''" class="goods-sold-text">已售</text>
-          <view v-else class="goods-inner">
+          :class="{
+            'goods-sold': one.sold,
+            'goods-sale': !one.sold && gi == saleAt,
+            'goods-on': gi == pickAt
+          }"
+          @click="tapGoods(gi)">
+          <view class="goods-inner">
             <text class="goods-name" :style="'color: ' + tierColor(one.tier)">{{
               nameOf(one.key)
             }}</text>
-            <text class="goods-way" :style="'color: ' + wayColor(wayOf(one.key))">{{
-              wayName(wayOf(one.key))
-            }}</text>
-            <text class="goods-price" :class="{ 'goods-price-sale': gi == saleAt }">{{
+            <!-- 卖掉了只换价格这一栏，名字留着 -->
+            <text v-if="one.sold" class="goods-sold-text">售罄</text>
+            <text v-else class="goods-price" :class="{ 'goods-price-sale': gi == saleAt }">{{
               priceAt(gi)
             }}</text>
-            <text v-if="gi == saleAt" class="goods-tag">半价</text>
           </view>
-        </view>
-        <!-- 盲盒：这一批就这一个，买完等换批 -->
-        <view
-          id="rs-blind"
-          class="goods goods-blind"
-          :class="{ 'goods-sold': blindSold }"
-          @click="buyBlind">
-          <text v-if="blindSold" class="goods-sold-text">已售</text>
-          <view v-else class="goods-inner">
-            <text class="goods-name goods-blind-name">盲盒</text>
-            <text class="goods-price">{{ blindCost }}</text>
-          </view>
+          <!-- 半价做成右上角的角标：它是挑货时第一眼要扫的，
+               排在名字价格里就得先读完才发现 -->
+          <text v-if="!one.sold && gi == saleAt" class="goods-ribbon">半价</text>
         </view>
       </view>
 
@@ -158,8 +207,8 @@
     addRunItem,
     upgradeRunItem,
     runSpare,
-    runEquipped,
     trimEquip,
+    HALF_DECK,
     setCurrentRelayLevel
   } from '@/pages/examples/blackjack/save.uts'
   import {
@@ -176,24 +225,28 @@
     RELAY_ITEMS,
     itemAt,
     itemIndexOf,
-    maxTierOf,
+    clampTier,
     nextTierOf,
-    upgradePrice,
+    upgradeCostOf,
     buyPrice,
     descOf as itemDescAt,
     tierName,
     tierColor,
-    wayOf,
-    wayName,
-    wayColor,
-    discountOf
+    dealerRuleAt,
+    ruleKeyOf,
+    ruleArgOf
   } from '@/pages/examples/blackjack/relay-items.uts'
+  import { faceOf, RANKS, RANK_VALUES } from '@/pages/examples/blackjack/cards.uts'
 
-  // 货架上的一件：卖哪件、卖第几级。
-  // 同一件道具在普通档和稀有档是两个价、两种货
+  // 货架上的一件：卖哪件、卖第几级、卖掉没有。
+  // 同一件道具在普通档和稀有档是两个价、两种货。
+  //
+  // 卖掉了留着 key 不清空 —— 名字要继续摆在那儿，只有价格那一栏
+  // 换成「售罄」。整张卡抹成空白的话，这一批摆过什么就看不出来了
   type Goods = {
     key : string
     tier : number
+    sold : boolean
   }
 
   const save = ref<SaveData>(emptySave())
@@ -204,9 +257,139 @@
   const blindSold = ref<boolean>(false)
   // 这一批哪一件半价。-1 表示没有
   const saleAt = ref<number>(-1)
+  // 选中的是货架第几件。**-1 表示选中的是盲盒**，也是默认值 ——
+  // 货架上方那块地方不留空，没点东西的时候就摆盲盒的概率。
+  //
+  // 选中一律只是摊开看效果，掏钱是那颗按钮的事。
+  // 进阶不走这条路，它有自己的弹窗
+  const pickAt = ref<number>(-1)
   const tip = ref<string>('')
   // 刚打完那一关赚了多少，进店时在顶上说一句
   const gained = ref<string>('')
+
+  // 牌面上的一张：点数、花色、红不红、有没有同点数的搭子
+  type MiniCard = {
+    rank : string
+    suit : string
+    red : boolean
+    pair : boolean
+  }
+
+  // 你下一关那 26 张，按点数从小到大排。
+  //
+  // 排序是关键：排竿要凑的就是「两张点数对得上的」，
+  // 按牌库顺序摊出来根本看不出手里有几对 —— 那样摆等于没摆。
+  // 成对的还描一道金边，一眼就数得清
+  const myDeck = computed<MiniCard[]>(() : MiniCard[] => {
+    const raw = save.value.runDeck
+    const mine : MiniCard[] = []
+    const vals : number[] = []
+    for (let i = 0; i < raw.length && i < HALF_DECK; i++) {
+      const seg = raw[i].split(':')
+      if (seg.length != 2) {
+        continue
+      }
+      mine.push({
+        rank: seg[1],
+        suit: seg[0],
+        red: seg[0] == '♥' || seg[0] == '♦',
+        pair: false
+      } as MiniCard)
+      vals.push(valueOfRank(seg[1]))
+    }
+    // 按点数插入排序，两个数组一起搬
+    for (let i = 1; i < mine.length; i++) {
+      const card = mine[i]
+      const v = vals[i]
+      let k = i - 1
+      while (k >= 0 && vals[k] > v) {
+        mine[k + 1] = mine[k]
+        vals[k + 1] = vals[k]
+        k = k - 1
+      }
+      mine[k + 1] = card
+      vals[k + 1] = v
+    }
+    // 排完再标搭子：同点数的挨在一起了，比一比左右就行
+    for (let i = 0; i < mine.length; i++) {
+      const left = i > 0 && vals[i - 1] == vals[i]
+      const right = i + 1 < mine.length && vals[i + 1] == vals[i]
+      mine[i].pair = left || right
+    }
+    return mine
+  })
+
+  function valueOfRank(rank : string) : number {
+    for (let i = 0; i < RANKS.length; i++) {
+      if (RANKS[i] == rank) {
+        return RANK_VALUES[i]
+      }
+    }
+    return 0
+  }
+
+  // 数一句给人听：手里有几对、几张单的。
+  // 「有几对」直接决定这一关你钩得动几次，是买道具时最该看的那个数
+  const deckNote = computed<string>(() : string => {
+    let paired = 0
+    for (let i = 0; i < myDeck.value.length; i++) {
+      if (myDeck.value[i].pair) {
+        paired = paired + 1
+      }
+    }
+    if (myDeck.value.length == 0) {
+      return ''
+    }
+    return '金边的是手里有同点数搭子的，共 ' + paired + ' 张 —— '
+      + '配得上对的越多，钩中的机会越多'
+  })
+
+  // 摊在页面上的一条规矩：名字 + 已经把参数填进去的效果
+  type RuleLine = {
+    name : string
+    desc : string
+  }
+
+  // 下一关庄家挂着的那几条。上一关打赢时就摇好存进档了 ——
+  // 所以这儿读的和牌桌上跑的是同一份。
+  //
+  // 效果直接展开，不做成点开才看的标签：这几条是你买道具的全部依据，
+  // 藏一层就等于没给
+  const ruleList = computed<RuleLine[]>(() : RuleLine[] => {
+    const out : RuleLine[] = []
+    const list = save.value.runRules
+    for (let i = 0; i < list.length; i++) {
+      const key = ruleKeyOf(list[i])
+      const arg = ruleArgOf(list[i])
+      const one = dealerRuleAt(key)
+      out.push({ name: one.name, desc: ruleDesc(key, arg, one.desc) } as RuleLine)
+    }
+    return out
+  })
+
+  // 带参数的四条要把摇出来的值填进去 ——
+  // 只写「百搭」而不写是哪个点数，等于没告诉你。
+  // 长手更要紧：±1 和 ±2 是两种难度，写错一个数，
+  // 你照着买的那几件道具就全按错的前提买的
+  function ruleDesc(key : string, arg : string, fallback : string) : string {
+    if (key == 'reach' && arg != '') {
+      return '庄家的牌还可以按 ±' + arg + ' 的点数算'
+    }
+    if (key == 'wild' && arg != '') {
+      return '庄家的 ' + faceOf(parseInt(arg)) + ' 可以当任意点数用'
+    }
+    if (key == 'crown' && arg != '') {
+      const pair = arg.split(',')
+      if (pair.length == 2) {
+        return '你的 ' + faceOf(parseInt(pair[0])) + '、' + faceOf(parseInt(pair[1]))
+          + ' 一律失去点数'
+      }
+    }
+    if (key == 'lock' && arg != '') {
+      return '你的 ' + arg + ' 一律失去点数'
+    }
+    return fallback
+  }
 
   const nextText = computed<string>(() : string => {
     const lv = save.value.runLevel
@@ -266,7 +449,7 @@
   })
 
   const rerollCost = computed<number>(() : number => {
-    return discountOf(regularTier(), REROLL_PRICE)
+    return REROLL_PRICE
   })
 
   // ---------- 上货 ----------
@@ -279,18 +462,76 @@
 
   function restock() {
     const list : Goods[] = []
+    // 这一批已经摆上的 key，挑下一件时得看着它。
+    //
+    // 原先这儿不记，靠 onShelf 查 shelf.value ——
+    // 可 shelf.value 要到循环跑完才赋值，整个上货过程查的都是**上一批**货，
+    // 这一批自己摆了什么完全不知道，于是同一件能连摆三格。
+    // 去重认 key 不认等级：坠子·普通 和 坠子·稀有 摆在一排也是重复，
+    // 买了一件另一件立刻作废，照样白占格子
+    const taken : string[] = []
     for (let i = 0; i < SHOP_SIZE; i++) {
-      const one = pickGoods()
+      const one = pickGoods(taken)
       if (one.key == '') {
         break
       }
       list.push(one)
+      taken.push(one.key)
     }
     shelf.value = list
     blindSold.value = false
     // 这一批挑一件半价。摆完货才挑 —— 挑的是位置不是道具，
     // 于是特价落在哪一件全看运气，有时是件便宜的，有时是件贵的
     saleAt.value = list.length > 0 ? Math.floor(Math.random() * list.length) : -1
+    saveShelf()
+  }
+
+  // ---------- 这一批货进存档 ----------
+  //
+  // 不存的话，回首页再进来货架就重摇了 —— 那颗花钱的「换一批」
+  // 等于白送。「出去一趟换一批」是最典型的读档刷新漏洞，得从根上堵。
+  //
+  // 存成一串：第 0 段半价落在第几件，第 1 段盲盒卖掉没有，
+  // 之后每段一件「key:等级:卖掉没有」。段内用冒号，段间用逗号 ——
+  // 存档本身是竖线分隔的，这两个符号都不会撞上
+  function saveShelf() {
+    const list : string[] = []
+    list.push('' + saleAt.value)
+    list.push(blindSold.value ? '1' : '0')
+    for (let i = 0; i < shelf.value.length; i++) {
+      const one = shelf.value[i]
+      list.push(one.key + ':' + one.tier + ':' + (one.sold ? '1' : '0'))
+    }
+    const data = save.value
+    data.runShelf = list
+    saveCurrent(data)
+    save.value = cloneSave(data)
+  }
+
+  // 读回来。读不出东西就返回 false，交给调用处去摆新的一批
+  function loadShelf() : boolean {
+    const list = save.value.runShelf
+    if (list.length < 2) {
+      return false
+    }
+    const at = parseInt(list[0])
+    saleAt.value = isNaN(at) ? -1 : at
+    blindSold.value = list[1] == '1'
+    const goods : Goods[] = []
+    for (let i = 2; i < list.length; i++) {
+      const seg = list[i].split(':')
+      if (seg.length != 3) {
+        continue
+      }
+      const tier = parseInt(seg[1])
+      goods.push({
+        key: seg[0],
+        tier: isNaN(tier) ? 0 : tier,
+        sold: seg[2] == '1'
+      } as Goods)
+    }
+    shelf.value = goods
+    return true
   }
 
   // 上一件货，分两层抽。
@@ -300,48 +541,67 @@
   // 打到第九关还全是最便宜那档，又等于没货可买。
   //
   // 第二层在还没买过的里头随便挑一件
-  function pickGoods() : Goods {
-    const tier = rollRarity(shelfWeights(save.value.runLevel), tierHasStock(), Math.random())
-    if (tier < 0) {
-      return { key: '', tier: 0 } as Goods
-    }
-    const list = freshKeys()
+  function pickGoods(taken : string[]) : Goods {
+    // 先看还有没有货可摆，再摇档位 ——
+    // 反过来的话，没货时摇出来的那个档位就白摇了
+    const list = freshKeys(taken)
     if (list.length == 0) {
-      return { key: '', tier: 0 } as Goods
+      return { key: '', tier: 0, sold: false } as Goods
+    }
+    const tier = rollRarity(shelfWeights(save.value.runLevel), [true, true] as boolean[], Math.random())
+    if (tier < 0) {
+      return { key: '', tier: 0, sold: false } as Goods
     }
     const key = list[Math.floor(Math.random() * list.length)]
-    // 摇中稀有档、但这件只有一级（长竿那种）的话，就还按普通档卖
-    const top = maxTierOf(itemAt(key))
-    return { key: key, tier: tier > top ? top : tier } as Goods
+    // 夹进这件真实存在的区间：摇中稀有档但只有一级的（长竿那种）按普通卖，
+    // 摇中普通档但没有普通形态的（并色只存在于稀有档）按稀有卖
+    return { key: key, tier: clampTier(itemAt(key), tier), sold: false } as Goods
   }
 
-  // 还没买过、而且这一批货架上也还没摆着的那些。
-  // 摆两件同名的在一排，买了一件另一件就作废，那是白占格子
-  function freshKeys() : string[] {
-    const list : string[] = []
+  // 这一批还能摆哪些。
+  //
+  // 硬排除两类：手里已经有的（同名只有一件，手上那件该走进阶），
+  // 和这一批已经摆上的 taken。
+  //
+  // 上一批那几件是**软**排除：花钱「换一批」换出一模一样的三件，
+  // 那钱等于打水漂。但货源见底时宁可跟上一批重样也不能让货架空着，
+  // 所以挑不出新面孔就退回去只按前两条排
+  function freshKeys(taken : string[]) : string[] {
+    const all : string[] = []
+    const fresh : string[] = []
     for (let i = 0; i < RELAY_ITEMS.length; i++) {
       const key = RELAY_ITEMS[i].key
-      if (ownsRunItem(save.value, key) || onShelf(key)) {
+      if (ownsRunItem(save.value, key) || listHas(taken, key)) {
         continue
       }
-      list.push(key)
+      all.push(key)
+      if (!onShelf(key)) {
+        fresh.push(key)
+      }
+    }
+    return fresh.length > 0 ? fresh : all
+  }
+
+  // 上一批货里有没有这件。restock 期间 shelf.value 还没换，查的正是上一批
+  function onShelf(key : string) : boolean {
+    return listHas(shelfKeys(), key)
+  }
+
+  function shelfKeys() : string[] {
+    const list : string[] = []
+    for (let i = 0; i < shelf.value.length; i++) {
+      list.push(shelf.value[i].key)
     }
     return list
   }
 
-  function onShelf(key : string) : boolean {
-    for (let i = 0; i < shelf.value.length; i++) {
-      if (shelf.value[i].key == key) {
+  function listHas(list : string[], key : string) : boolean {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i] == key) {
         return true
       }
     }
     return false
-  }
-
-  // 两档各还有没有货。没有还没买过的道具了就整个不摇了
-  function tierHasStock() : boolean[] {
-    const any = freshKeys().length > 0
-    return [any, any] as boolean[]
   }
 
   function reroll() {
@@ -355,7 +615,8 @@
       data.runCoins = data.runCoins - cost
       commit(data, '')
       restock()
-      tip.value = '换了一批新货'
+      // 不播报：整排货当场就换了，看得见
+      tip.value = ''
     })
   }
 
@@ -366,10 +627,11 @@
   // 它的用处是把「按计划买」和「捡便宜」摆在一起为难人：
   // 特价那张未必是你要的路子，但半价的史诗跟原价的稀有摆在一排，
   // 这一笔钱花在哪儿就不是显然的了。
-  // 熟客的八折照样叠在半价上面 —— 两样都是折扣，没有互斥的道理
+  // 半价是店里唯一的折扣 —— 熟客那件取消了，它打的折连自己的进阶费
+  // 一起打，是个自加速环
   function priceAt(index : number) : number {
     const one = shelf.value[index]
-    if (one.key == '') {
+    if (one.key == '' || one.sold) {
       return 0
     }
     // 底价买数值、进阶费买广度，买一件第 N 级的就是两样加起来
@@ -380,12 +642,53 @@
         base = 1
       }
     }
-    return discountOf(regularTier(), base)
+    return base
   }
 
-  function buyItem(index : number) {
+  // 点货架上的一件 —— **只是选中，不掏钱**。
+  // 效果摆到货架上方那行，要买再按那行的按钮
+  function tapGoods(index : number) {
+    pickAt.value = index
+  }
+
+  // 点盲盒也一样：选中而已，开不开是按钮的事
+  function tapBlind() {
+    pickAt.value = -1
+  }
+
+  // 货架上方那行写什么。没选东西（或者选的是盲盒）就摆盲盒的信息
+  const pickText = computed<string>(() : string => {
+    if (pickAt.value < 0 || pickAt.value >= shelf.value.length) {
+      return blindSold.value
+        ? '盲盒这一批卖完了，换一批才有'
+        : '盲盒 · ' + blindOdds.value + ' · 只从你还没有的道具里摇'
+    }
+    const one = shelf.value[pickAt.value]
+    if (one.sold) {
+      return '【' + nameOf(one.key) + '】卖掉了'
+    }
+    return '【' + nameOf(one.key) + '·' + tierName(one.tier) + '】'
+      + itemDescAt(itemAt(one.key), one.tier)
+      + (pickAt.value == saleAt.value ? ' —— 半价' : '')
+  })
+
+  // 那颗按钮上写什么。卖完了、或者钱的事另说 —— 按了会告诉你差多少
+  const pickBtn = computed<string>(() : string => {
+    if (pickAt.value < 0 || pickAt.value >= shelf.value.length) {
+      return blindSold.value ? '' : '开 ' + blindCost.value
+    }
+    const one = shelf.value[pickAt.value]
+    return one.sold ? '' : '买下 ' + priceAt(pickAt.value)
+  })
+
+  function doPickedBuy() {
+    if (pickAt.value < 0 || pickAt.value >= shelf.value.length) {
+      buyBlind()
+      return
+    }
+    const index = pickAt.value
     const one = shelf.value[index]
-    if (one.key == '') {
+    if (one.sold) {
       return
     }
     const cost = priceAt(index)
@@ -400,10 +703,10 @@
       warn('【' + nameOf(one.key) + '】已经有了，手上那件去点「升」')
       return
     }
-    const head = index == saleAt.value ? '半价买下【' : '买下【'
-    confirmBuy(head + nameOf(one.key) + '·' + tierName(one.tier) + '】？', cost, () => {
-      doBuyItem(index, one, cost)
-    })
+    doBuyItem(index, one, cost)
+    // 买完把焦点放回盲盒 —— 那张卡刚变成「售罄」，
+    // 继续选着它没有意义
+    pickAt.value = -1
   }
 
   function doBuyItem(index : number, one : Goods, cost : number) {
@@ -417,16 +720,24 @@
     if (slot >= 0) {
       setRunEquip(data, slot, one.key)
     }
-    // 买走的留个空位，不把后面的挪上来 —— 一买就整排往左跳，手会点错
+    // 买走的原地翻成售罄，名字留着、也不把后面的挪上来 ——
+    // 一买就整排往左跳，手会点错
     const next : Goods[] = []
     for (let i = 0; i < shelf.value.length; i++) {
-      next.push(i == index ? ({ key: '', tier: 0 } as Goods) : shelf.value[i])
+      const src = shelf.value[i]
+      next.push(i == index
+        ? ({ key: src.key, tier: src.tier, sold: true } as Goods)
+        : src)
     }
     shelf.value = next
     commit(data, '')
-    tip.value = slot >= 0
-      ? '买下【' + nameOf(one.key) + '】，装进第 ' + (slot + 1) + ' 格'
-      : '买下【' + nameOf(one.key) + '】，道具栏满了，先在库里躺着'
+    // 卖掉这件要落档，不然出去再进来它又摆回货架上了
+    saveShelf()
+    // 买成了不播报：卡片变「售罄」、金币掉了、库里多了一件，都看得见。
+    // 只有「没装上场」这件事看不出来 —— 那才值得说一句
+    if (slot < 0) {
+      tip.value = '道具栏满了，【' + nameOf(one.key) + '】先在库里躺着'
+    }
   }
 
   // ---------- 进阶 ----------
@@ -434,22 +745,26 @@
   // 不绑货架：手里的道具随时能升，只要钱够。
   // 升级要是也得靠刷新运气，攒钱这件事就没法计划了
 
-  // 这件升一级要多少。已经满级返回 0
+  // 这件升一级要多少。已经满级返回 0。
+  //
+  // 走 upgradeCostOf 而不是自己 upgradePrice(to) —— 跨级道具要把
+  // 走过的每一级都算上，那笔账在 relay-items 那边，别在这儿抄第二份
   function upCostOf(key : string) : number {
     const now = itemTierOf(save.value, key)
     if (now < 0) {
       return 0
     }
-    const to = nextTierOf(itemAt(key), now)
-    if (to < 0) {
-      return 0
-    }
-    return discountOf(regularTier(), upgradePrice(to))
+    const cost = upgradeCostOf(itemAt(key), now)
+    return cost < 0 ? 0 : cost
   }
 
+  // 点「升」—— 弹窗把升完是什么样摊出来，确认了才掏钱。
+  //
+  // 走弹窗而不是写到页底那行：库里道具多的时候，那颗「升」按钮
+  // 可能在屏幕中段，说明却蹦到最底下 —— 手在这儿眼睛得往那儿找。
+  // 升级又贵、跨级的还一跳两级，这种要紧的确认该当面问
   function tapUpgrade(key : string) {
-    const data = save.value
-    const now = itemTierOf(data, key)
+    const now = itemTierOf(save.value, key)
     const item = itemAt(key)
     const to = nextTierOf(item, now)
     if (to < 0) {
@@ -457,31 +772,45 @@
       return
     }
     const cost = upCostOf(key)
-    if (data.runCoins < cost) {
-      warn('金币不够，差 ' + (data.runCoins < cost ? cost - data.runCoins : 0))
+    // 跨级的一跳两级，落点要说清楚 ——
+    // 不然玩家以为花了两级的钱只升了一级
+    const jump = to - now > 1 ? '（跨级，直接跳到' + tierName(to) + '）' : ''
+    uni.showModal({
+      title: nameOf(key) + '：' + tierName(now) + ' → ' + tierName(to) + jump,
+      content: itemDescAt(item, to) + '\n\n花 ' + cost + ' 金币，还剩 '
+        + (save.value.runCoins - cost),
+      confirmText: '进阶',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doUpgrade(key)
+        }
+      }
+    })
+  }
+
+  function doUpgrade(key : string) {
+    const data = save.value
+    const cost = upCostOf(key)
+    if (cost <= 0) {
+      warn('【' + nameOf(key) + '】已经满级了')
       return
     }
-    // 跨级的道具一跳两级，确认框里要把落点说清楚，
-    // 不然玩家以为花了两级的钱只升了一级
-    const jump = to - now > 1 ? '（直接跳到 ' + tierName(to) + '）' : ''
-    confirmBuy(
-      '把【' + nameOf(key) + '】升到 ' + tierName(to) + jump + '？\n\n'
-        + itemDescAt(item, to),
-      cost,
-      () => {
-        const d = save.value
-        if (!upgradeRunItem(d, key)) {
-          return
-        }
-        d.runCoins = d.runCoins - cost
-        commit(d, '')
-        tip.value = '【' + nameOf(key) + '】升到 ' + tierName(itemTierOf(d, key))
-      }
-    )
+    if (data.runCoins < cost) {
+      warn('金币不够，差 ' + (cost - data.runCoins))
+      return
+    }
+    if (!upgradeRunItem(data, key)) {
+      return
+    }
+    data.runCoins = data.runCoins - cost
+    commit(data, '')
+    // 不播报：库里那一行的等级和效果当场就变了
+    tip.value = ''
   }
 
   const blindCost = computed<number>(() : number => {
-    return discountOf(regularTier(), blindPrice(save.value.runLevel))
+    return blindPrice(save.value.runLevel)
   })
 
   // 开出各档的概率，摊开写给人看。
@@ -509,6 +838,8 @@
   // 稀有度跟货架用同一张随关号走的权重表，所以早期开不出传说。
   // 但挑具体哪张时不偏向「库里已经有的」—— 盲盒本来就是赌，
   // 偏向了就成了另一个货架
+  // 不弹确认框了 —— 概率和价钱在货架上方那行一直摆着，
+  // 按「开」之前就看得见，再弹一道等于问两遍
   function buyBlind() {
     const cost = blindCost.value
     const data = save.value
@@ -519,19 +850,7 @@
       warn('金币不够，差 ' + (cost - data.runCoins))
       return
     }
-    // 概率写在确认框里 —— 掏钱那一下才是真正需要看见它的时候
-    uni.showModal({
-      title: '开一个盲盒？',
-      content: '花 ' + cost + ' 金币，还剩 ' + (data.runCoins - cost)
-        + '\n\n开出的概率：' + blindOdds.value,
-      confirmText: '开',
-      cancelText: '算了',
-      success: (res) => {
-        if (res.confirm) {
-          doBuyBlind(cost)
-        }
-      }
-    })
+    doBuyBlind(cost)
   }
 
   // 盲盒：从你还没有的那些里摇一件出来。
@@ -548,11 +867,8 @@
     }
     const tier = rollRarity(shelfWeights(data.runLevel), [true, true] as boolean[], Math.random())
     const key = list[Math.floor(Math.random() * list.length)]
-    const top = maxTierOf(itemAt(key))
-    let got = tier < 0 ? 0 : tier
-    if (got > top) {
-      got = top
-    }
+    // 跟货架同一道夹法 —— 盒子开出的档位也得是这件真有的那几档
+    const got = clampTier(itemAt(key), tier < 0 ? 0 : tier)
     if (!addRunItem(data, key, got)) {
       return
     }
@@ -562,9 +878,25 @@
       setRunEquip(data, slot, key)
     }
     blindSold.value = true
+    // 盒子开出的正好是货架上摆着的那件，就把货架那件一并下架。
+    //
+    // 不下架的话，货架上会一直摆着一件你已经有了的东西 —— 点它、
+    // 按「买下」，才被 doPickedBuy 那道兜底拦下来告诉你「已经有了」。
+    // 那是让人白高兴一场；重复的东西压根就不该还摆在那儿
+    const next : Goods[] = []
+    for (let i = 0; i < shelf.value.length; i++) {
+      const src = shelf.value[i]
+      next.push(src.key == key
+        ? ({ key: src.key, tier: src.tier, sold: true } as Goods)
+        : src)
+    }
+    shelf.value = next
     commit(data, '')
-    tip.value = '盲盒开出【' + nameOf(key) + '】（' + tierName(got) + '）'
-      + (slot >= 0 ? '，装进第 ' + (slot + 1) + ' 格' : '，道具栏满了先躺库里')
+    saveShelf()
+    // 这一条要播：开出的是什么是随机的，不说没人知道。
+    // 装进第几格照样不提 —— 格子里看得见
+    tip.value = '盲盒开出【' + nameOf(key) + '·' + tierName(got) + '】'
+      + (slot < 0 ? '，道具栏满了，先在库里躺着' : '')
   }
 
   // 盲盒不看货架上摆着什么 —— 它是另一条路，
@@ -589,8 +921,10 @@
     return itemTierOf(save.value, key)
   }
 
-  function equipped(key : string) : boolean {
-    return runEquipped(save.value, key)
+  // 库里这件**现在这一级**是什么效果。不是普通档的说明 ——
+  // 升过的看到的得是升完的样子
+  function ownDesc(key : string) : string {
+    return itemDescAt(itemAt(key), tierOf(key))
   }
 
   // 这件现在能不能往格子上放：库里有、而且还没装上场
@@ -598,28 +932,24 @@
     return runSpare(save.value, key)
   }
 
-  // 熟客现在是一件永续道具，折扣随它的等级走。
-  // 只认「带上场没有」—— 躺在库里的不算数，跟别的永续道具一个规矩
-  function regularTier() : number {
-    return runEquipped(save.value, 'regular') ? itemTierOf(save.value, 'regular') : -1
-  }
-
   // 点库里的道具：装进第一个空格。
-  // 卸下来不会丢 —— 道具一直在库里，格子只是「这一关带哪几件」
+  // 卸下来不会丢 —— 道具一直在库里，格子只是「这一关带哪几件」。
+  //
+  // 装上卸下都不播报：格子里当场就多了一张、少了一张，
+  // 再用一行字复述一遍是噪音。做不成的才提示，那个看不见
   function tapLib(key : string) {
     const data = save.value
     if (!canEquip(key)) {
-      tip.value = '这件已经带上场了'
+      warn('这件已经带上场了')
       return
     }
     const slot = firstFreeSlot(data)
     if (slot < 0) {
-      tip.value = '道具栏满了，先点一格把它卸下来'
+      warn('道具栏满了，先点一格把它卸下来')
       return
     }
     setRunEquip(data, slot, key)
     commit(data, '')
-    tip.value = '第 ' + (slot + 1) + ' 格装上【' + nameOf(key) + '】'
   }
 
   // 点格子上的道具：卸回库里。库存不变，只是这一关不带它
@@ -627,11 +957,9 @@
     if (index >= slotKeys.value.length || slotKeys.value[index] == '') {
       return
     }
-    const key = slotKeys.value[index]
     const data = save.value
     setRunEquip(data, index, '')
     commit(data, '')
-    tip.value = '【' + nameOf(key) + '】放回库里了'
   }
 
   // ---------- 出门 ----------
@@ -714,15 +1042,18 @@
     // 格子上装着库里已经没有的、或者同一件占了两格的，清掉兜个底
     trimEquip(data)
     save.value = data
-    // 这一批货只上一次。每次回到这页都重抽的话，
-    // 出去看一眼再回来就换了一批，等于白送刷新
-    if (shelf.value.length == 0) {
+    // 先从存档里读这一批货。读不出来（新的一关）才摆新的 ——
+    // 每次回到这页都重抽的话，出去看一眼再回来就换了一批，
+    // 等于白送刷新
+    if (!loadShelf()) {
       restock()
     }
   })
 
   save.value = loadCurrentSave()
-  restock()
+  if (!loadShelf()) {
+    restock()
+  }
 </script>
 
 <style>
@@ -870,6 +1201,55 @@
 
   /* 道具库一件一行：左边点了装上场，右边那颗点了进阶。
      两件事分开点 —— 挤成一块的话，想装上场结果花了钱 */
+  /* 你那 26 张：按点数排开的一小片牌 */
+  .deck-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .mini {
+    width: 24px;
+    height: 32px;
+    margin-right: 3px;
+    margin-bottom: 3px;
+    border-radius: 3px;
+    background-color: #ffffff;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #ffffff;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 有同点数搭子的描金边 —— 这一关钩得动几次，看的就是这个 */
+  .mini-pair {
+    border-color: #e8b23a;
+    background-color: #fffbe8;
+  }
+
+  .mini-rank {
+    color: #1a1a1a;
+    font-size: 11px;
+    font-weight: bold;
+  }
+
+  .mini-suit {
+    color: #1a1a1a;
+    font-size: 8px;
+  }
+
+  .mini-red {
+    color: #d33b3b;
+  }
+
+  .deck-note {
+    color: #8fc7ab;
+    font-size: 10px;
+    line-height: 14px;
+    margin-top: 2px;
+  }
+
   .lib-list {
     margin-top: 4px;
   }
@@ -877,18 +1257,31 @@
   .lib-item {
     flex-direction: row;
     align-items: center;
-    height: 36px;
     margin-bottom: 5px;
   }
 
+  /* 左右两栏：左边名字等级，右边效果 */
   .lib-main {
     flex: 1;
     flex-direction: row;
     align-items: center;
-    height: 34px;
-    padding: 0 9px;
+    padding: 6px 9px;
     border-radius: 8px;
     background-color: #0e6b45;
+  }
+
+  /* 左栏宽度写死 —— 不写死的话名字长短不一，右边那栏起始位置
+     就会一行一个样，整列读起来是歪的 */
+  .lib-head {
+    width: 62px;
+    margin-right: 8px;
+  }
+
+  .lib-desc {
+    flex: 1;
+    color: #9fd9bd;
+    font-size: 10px;
+    line-height: 14px;
   }
 
   .lib-tier {
@@ -898,22 +1291,43 @@
   }
 
   /* 走哪条路的标签。攒同一路的才看得出自己在走什么 */
-  .lib-way {
-    font-size: 10px;
-    font-weight: bold;
-    margin-left: 6px;
+  /* 下一关庄家的规矩。摆在货架上头，买之前就看得见 */
+  .rules {
+    margin-top: 6px;
+    padding: 6px 8px;
+    background-color: #08301f;
+    border-radius: 6px;
   }
 
-  .goods-way {
-    font-size: 9px;
-    font-weight: bold;
+  .rules-head {
+    color: #8fc7ab;
+    font-size: 11px;
+    margin-bottom: 4px;
   }
 
-  .lib-on {
-    color: #e8b23a;
+  /* 一条规矩一行：名字在左，效果摊在右边。
+     效果直接写出来，不做成点开才看的 —— 这几条是买道具的全部依据 */
+  .rule-line {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 3px;
+  }
+
+  .rule-tag {
+    color: #ff9e80;
+    background-color: #0e3a28;
     font-size: 10px;
     font-weight: bold;
-    margin-left: 6px;
+    border-radius: 8px;
+    padding: 3px 7px;
+    margin-right: 6px;
+  }
+
+  .rule-desc {
+    flex: 1;
+    color: #9fd9bd;
+    font-size: 10px;
+    line-height: 14px;
   }
 
   .lib-up {
@@ -999,17 +1413,53 @@
     color: #ff9e80;
   }
 
-  .goods-tag {
-    color: #ff7a59;
+  /* 半价的角标：贴在卡片右上角。
+     外侧那个角跟卡片同半径，内侧那个角切一刀，看着像条压角的带子 */
+  .goods-ribbon {
+    position: absolute;
+    top: 0;
+    right: 0;
+    color: #3b2a00;
+    background-color: #e8b23a;
     font-size: 9px;
     font-weight: bold;
+    padding: 1px 5px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
   }
 
-  /* 盲盒的概率，摆在货架上面那行 */
-  .odds {
-    color: #d59bff;
-    font-size: 10px;
-    margin-top: 2px;
+  /* 选中的那件：描白一圈，跟没选的分开 */
+  .goods-on {
+    border-color: #ffffff;
+  }
+
+  /* 选中那件的效果 + 买下按钮，摆在货架正上方。
+     没选东西的时候摆盲盒的概率，所以这块地方一直有内容、高度不跳 */
+  .pick-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 34px;
+    margin-top: 4px;
+    padding: 5px 8px;
+    background-color: #08301f;
+    border-radius: 6px;
+  }
+
+  .pick-text {
+    flex: 1;
+    color: #e8b23a;
+    font-size: 11px;
+    line-height: 15px;
+  }
+
+  .pick-btn {
+    color: #3b2a00;
+    background-color: #e8b23a;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin-left: 8px;
   }
 
   /* 盲盒跟贴纸摆一排，描紫分开 —— 那几件是看着买的，这个是赌的 */
@@ -1071,9 +1521,11 @@
     margin-top: 2px;
   }
 
+  /* 买完升完的结果播一句。挑货看效果那块在货架上方，不在这儿 */
   .tip {
-    color: #e8b23a;
+    color: #8fc7ab;
     font-size: 11px;
+    line-height: 15px;
     margin-top: 8px;
   }
 

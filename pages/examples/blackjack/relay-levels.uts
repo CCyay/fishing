@@ -22,8 +22,8 @@ import {
 // 玩家这边的贴纸整套取消了，换成了 relay-items.uts 那套道具，
 // 所以原先那个「拿张 7 当试纸筛出排竿认得的贴纸」的 relayStickerPool 没用了。
 //
-// 庄家那半副牌还在用贴纸（见下面的 dealerKinds 和 stickDealerHalf）——
-// 它要的只是「改点数」，贴纸表现成，没必要为它再造一套。
+// 庄家那半副牌也是素牌了 —— 它的难度全在 dealerRules 那排规矩上。
+// 贴纸这套在排竿两边都取消了，只剩主玩法还在用。
 
 // 庄家排队的脑子：
 //   0 不排 —— 照牌库顺序打，你占大便宜；
@@ -40,13 +40,13 @@ export type RelayLevel = {
   // 牌打完才算完（五轮整，加最后一张单挑）。
   // 字段先留着，等难度曲线补新维度的时候改作他用
   rounds : number
-  // 庄家分到的那 26 张里贴几张。
-  // 从前是摊在整副 52 张上的，对半分之后基数减半，
-  // 数值也跟着减半才是同一个密度
-  dealerStickers : number
-  // 庄家用哪几种。只挑改点数的 —— 这个模式认的就是点数，
-  // 给它挂一堆要挑牌的贴纸，它一张也发动不了
-  dealerKinds : string[]
+  // 这一关庄家挂几条规矩。**具体哪几条是摇出来的**，不写死 ——
+  // 同一关重打面对的是不同组合，照抄上一把的配装就不管用了。
+  //
+  // 能摇到哪些由每条规矩自己的 since 门槛决定（见 relay-items）。
+  // 从前这儿是「牌组上贴几张贴纸、贴哪几种」，难度藏在一个玩家查不到的
+  // 矩阵里；现在换成一排写着字的规矩，进关就看得见被改成了什么样
+  dealerRules : number
   // 庄家排队的脑子，见上面三个常量
   dealerSmart : number
 }
@@ -217,22 +217,30 @@ export function blindPrice(level : number) : number {
 export const SHOP_SIZE : number = 5
 export const REROLL_PRICE : number = 10
 
+// 难度两条线：庄家挂几条规矩、它排队有多会算。
+//
+// 条数一关关往上加，**具体哪几条每次开局摇**。所以难度是「又多压了
+// 一条」这种看得见的累积，但不是同一道题重复十遍 ——
+// 上一把靠集花破了压冠，这一把摇出来的可能是浑底，配装得重想。
+//
+// 头一关不给规矩：先让人把「排序」这件事本身摸明白
 const LEVELS : RelayLevel[] = [
   {
     index: 1,
     name: '试竿',
     rounds: 3,
-    // 素牌。先把顺序这件事摸明白
-    dealerStickers: 0,
-    dealerKinds: [] as string[],
+    // 干干净净。先把顺序这件事摸明白
+    dealerRules: 0,
     dealerSmart: DEAL_PLAIN,
   },
   {
     index: 2,
     name: '顺水',
     rounds: 3,
-    dealerStickers: 2,
-    dealerKinds: ['sinker1'],
+    // 第一条。第 2 关摇得到的只有「深钩」那一档最温和的 ——
+    // 开场那条必须一眼看得见，隐蔽的规矩当开场，
+    // 玩家根本意识不到「规矩会变」这件事
+    dealerRules: 1,
     dealerSmart: DEAL_PLAIN,
   },
   {
@@ -240,64 +248,62 @@ const LEVELS : RelayLevel[] = [
     name: '逆流',
     rounds: 4,
     // 从这一关起庄家会排队了 —— 它开始主动凑对，自己钩自己刚打的那张
-    dealerStickers: 4,
-    dealerKinds: ['sinker1', 'minus1'],
+    dealerRules: 1,
     dealerSmart: DEAL_PAIR,
   },
   {
     index: 4,
     name: '暗涌',
     rounds: 4,
-    dealerStickers: 5,
-    dealerKinds: ['sinker2', 'minus1'],
+    // 两条。这一关起「哪两条」就有得摇了
+    dealerRules: 2,
     dealerSmart: DEAL_PAIR,
   },
   {
     index: 5,
     name: '深槽',
     rounds: 4,
-    dealerStickers: 7,
-    dealerKinds: ['sinker2', 'minus2', 'drift'],
+    dealerRules: 2,
     dealerSmart: DEAL_PAIR,
   },
   {
     index: 6,
     name: '乱石',
     rounds: 5,
-    dealerStickers: 8,
-    dealerKinds: ['sinker3', 'minus2', 'drift'],
+    dealerRules: 3,
     dealerSmart: DEAL_TUNED,
   },
   {
     index: 7,
     name: '回漩',
     rounds: 5,
-    dealerStickers: 10,
-    dealerKinds: ['sinker3', 'minus3', 'drift'],
+    // 从这一关起「百搭」进池子 —— 它某个点数成了万能钩子
+    dealerRules: 4,
     dealerSmart: DEAL_TUNED,
   },
   {
     index: 8,
     name: '断流',
     rounds: 5,
-    dealerStickers: 12,
-    dealerKinds: ['sinker4', 'minus3', 'sinker1'],
+    // 压冠、锁花进池子。到这一关「带什么道具」就得认真想了，
+    // 而且不能照抄上一把 —— 摇出来的组合每次都不一样
+    dealerRules: 5,
     dealerSmart: DEAL_TUNED,
   },
   {
     index: 9,
     name: '死水',
     rounds: 6,
-    dealerStickers: 14,
-    dealerKinds: ['sinker4', 'minus4', 'drift'],
+    dealerRules: 6,
     dealerSmart: DEAL_TUNED,
   },
   {
     index: 10,
     name: '长夜',
     rounds: 6,
-    dealerStickers: 16,
-    dealerKinds: ['sinker5', 'minus4', 'drift', 'sinker1'],
+    // 七条。池子里一共十二条，所以最后一关也不是全压上来 ——
+    // 留着那几条没摇到的，下一轮挑战才有新东西
+    dealerRules: 7,
     dealerSmart: DEAL_TUNED,
   }
 ]
@@ -324,60 +330,18 @@ export function relayLevelAt(index : number) : RelayLevel {
 // 「竿架」（贴纸位 +1）那一件顺带取消了：它自己也要占一个格子，
 // 占一个给一个等于白占
 
-// 秤钩和熟客现在是道具表里的两件永续道具，加成随等级走 ——
-// 算钱的两个函数跟着搬去了 relay-items.uts（coinBonusOf / discountOf），
+// 秤钩现在是道具表里的一件永续道具，加成随等级走 ——
+// 算钱的函数跟着搬去了 relay-items.uts（coinBonusOf），
 // 数值表在那边，函数也该在那边。
+//
+// 原先还有一件熟客（店里打折），整件取消了：
+// 它的折扣连自己的进阶费一起打，是个自加速环
 //
 // 道具格数直接用 slotsAt(level)：竿架取消之后没有别的东西能加格子了
 
-// 给庄家分到的那半副贴贴纸。
+// 庄家的牌现在是干净的素牌 —— 原先那个 stickDealerHalf（按间隔往它
+// 那半副上贴贴纸）整个取消了。
 //
-// 从前是按「数字×花色」的矩阵预先铺好再造牌 —— 那会儿双方各用一副
-// 完整的 52 张，哪张牌归谁是定死的，矩阵对得上号。
-// 现在一副牌洗开对半分，哪 26 张归它是洗出来的，事先不知道，
-// 只能拿到手再一张张贴。
-//
-// 贴纸要摊匀，不能按数组顺序挤在前头 —— 牌库顺序就是出牌顺序，
-// 挤在顶上的话它前两轮火力全开、后面全是素牌
-export function stickDealerHalf(cards : Card[], level : RelayLevel) : Card[] {
-  const kinds = level.dealerKinds
-  let left = level.dealerStickers
-  if (kinds.length == 0 || left <= 0) {
-    return cards
-  }
-  // J 焊着【通吃】，贴纸分不到它头上 —— 先数清楚有几张贴得上。
-  // 标死成 number：下面要拿它给 left 兜底，
-  // 不标的话 uts 照着 0 推成 Int，赋给 number 就对不上了
-  let room : number = 0
-  for (let i = 0; i < cards.length; i++) {
-    if (!isFixedRank(cards[i].rank)) {
-      room = room + 1
-    }
-  }
-  if (left > room) {
-    left = room
-  }
-  if (left <= 0) {
-    return cards
-  }
-  // 每隔这么多张贴一张。第 n 张贴纸该落在第 gap*n 张能贴的牌上
-  const gap = room / left
-  let seen = 0
-  let done = 0
-  let turn = 0
-  for (let i = 0; i < cards.length; i++) {
-    if (isFixedRank(cards[i].rank)) {
-      continue
-    }
-    if (done < left && seen >= gap * done) {
-      const key = kinds[turn % kinds.length]
-      if (indexOfKey(key) >= 0) {
-        cards[i].stickerKey = key
-        done = done + 1
-      }
-      turn = turn + 1
-    }
-    seen = seen + 1
-  }
-  return cards
-}
+// 难度改由 dealerRules 那排规矩承担：一来它看得见（玩家进关就知道
+// 这一关的规矩被改成什么样），二来它不挑牌 —— 贴纸得摊匀，
+// 摊不匀它就前两轮火力全开、后面全是素牌，那种忽强忽弱是调不出手感的

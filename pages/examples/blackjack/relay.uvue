@@ -35,8 +35,22 @@
          摆在牌堆上头：庄家在上、牌堆居中、你的排竿区在下，跟牌桌一个方向 -->
     <view class="dealer-area">
       <view class="dealer-head">
-        <text class="dealer-title">庄家手牌</text>
+        <!-- 把「对半分」写在标题上。这条机制从来没在界面上出现过，
+             可它是整个推断的地基：你有的牌它就没有 -->
+        <text class="dealer-title">庄家 · 同一副牌的另一半</text>
         <text class="dealer-tip">{{ dealerTip }}</text>
+      </view>
+      <!-- 它挂着的规矩。摆出来是有意的 —— 难度该看得见，
+           藏着的话「我怎么突然钩不上了」就成了坑人 -->
+      <view v-if="ruleTags.length > 0" class="rule-row">
+        <text
+          v-for="(one, ri) in ruleTags"
+          :key="'rr-' + ri"
+          :id="'rl-rule-' + ri"
+          class="rule-tag"
+          @click="showRule(ri)"
+          >{{ one }}</text
+        >
       </view>
       <view class="dealer-row">
         <text v-if="dealerLeft == 0" class="dim-tip">它这一轮打完了</text>
@@ -45,22 +59,31 @@
           :key="'dh-' + di"
           :id="'rl-dealer-' + di"
           class="card card-dealer"
-          :class="{ 'card-next': di == 0 && di < dealerOpen }">
-          <!-- 明竿看得见的那几张翻开，其余背面。
-               描金边只给最靠前那一张 —— 那是马上要打的 -->
+          :class="{
+            'card-next': di == 0 && foeOpen(di, card),
+            'card-aim': isFoeAimed(di)
+          }"
+          @click="pickFoe(di)">
+          <!-- 明竿看得见的那几张、加上窥筒照亮的那几张，翻开；其余背面。
+               描金边只给最靠前那一张 —— 那是马上要打的。
+               整排都点得中：窥筒和停口挑的就是它这几张，
+               背面也点得中（按「它第几张打」来挑，不是按牌面挑） -->
           <text
-            v-if="di < dealerOpen"
+            v-if="foeOpen(di, card)"
             class="card-rank card-rank-small"
             :class="{ 'card-red': isRed(card) }">
             {{ rankText(card) }}
           </text>
-          <text v-if="di < dealerOpen" class="card-suit" :class="{ 'card-red': isRed(card) }">
+          <text v-if="foeOpen(di, card)" class="card-suit" :class="{ 'card-red': isRed(card) }">
             {{ card.suit }}
           </text>
-          <text v-if="di < dealerOpen && card.stickerKey != S_NONE" class="card-sticker">{{
-            stickerName(card)
-          }}</text>
-          <view v-if="di >= dealerOpen" class="card-back-art dealer-art">
+          <!-- 被停口废过的挂个小标。背面牌看不见点数，
+               不标一下你就记不住刚才废的是哪几张 -->
+          <text v-if="foeMark(di) != ''" class="card-sticker">{{ foeMark(di) }}</text>
+          <text
+            v-else-if="foeOpen(di, card) && card.stickerKey != S_NONE"
+            class="card-sticker">{{ stickerName(card) }}</text>
+          <view v-if="!foeOpen(di, card)" class="card-back-art dealer-art">
             <view class="card-back-gem dealer-gem"></view>
           </view>
         </view>
@@ -99,8 +122,11 @@
       </scroll-view>
     </view>
 
+    <!-- 说明框。平时播战况，点了道具就改播那件道具的效果，
+         右边跟着冒出一颗按钮 —— 不再另弹窗 -->
     <view class="message-box">
       <text id="rl-message" class="message-text">{{ message }}</text>
+      <text v-if="useText != ''" id="rl-use" class="msg-btn" @click="tapUse">{{ useText }}</text>
     </view>
 
     <!-- 道具栏：道具栏上装着的那几件都摆在这儿。
@@ -120,10 +146,6 @@
         <text v-if="one.limited" class="gift-left">{{ one.left }}</text>
       </view>
       <text v-if="bar.length == 0" class="gift-none">这一关没带道具</text>
-      <!-- 只在挑目标的时候占这一行。平时点道具会弹说明，不用这儿再提示 -->
-      <text v-if="needLeft > 0" id="rl-item-desc" class="gift-desc" @click="clearPick"
-        >{{ pickTip }}</text
-      >
     </view>
 
     <!-- 排竿区：本轮要打的五张，排好顺序再开始 -->
@@ -155,6 +177,7 @@
               'card-stickered': !queueHidden[index] && card.stickerKey != S_NONE,
               'card-back': queueHidden[index],
               'card-sink': phase == 'plan' && sinkPicked[index],
+              'card-aim': phase == 'plan' && isAimed(index),
               'card-dragging': index == dragAt && dragging,
               'card-settling': settling,
               'card-spare': index >= playCap,
@@ -226,29 +249,6 @@
       </view>
     </view>
 
-    <!-- 窥筒看到的庄家手牌。看完点掉，不占常驻位置 -->
-    <view v-if="peekOpen" class="kit-layer" @click="closePeek">
-      <view class="kit-panel">
-        <text class="kit-title">窥筒</text>
-        <text class="kit-sub">它这一轮手里的牌，顺序仍然不给</text>
-        <scroll-view class="kit-body">
-          <view class="kit-row">
-            <text v-if="peekCards.length == 0" class="kit-none">它手里没牌了</text>
-            <view
-              v-for="(card, pi) in peekCards"
-              :key="'pk-' + pi"
-              class="card card-dealer card-next">
-              <text class="card-rank card-rank-small" :class="{ 'card-red': isRed(card) }">
-                {{ rankText(card) }}
-              </text>
-              <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
-            </view>
-          </view>
-        </scroll-view>
-        <text class="kit-close" @click.stop="closePeek">看完了</text>
-      </view>
-    </view>
-
     <!-- 收牌的飞行层。挂在页面根上，不在牌堆那个 scroll-view 里面 ——
          滚动容器会裁剪，牌刚飞到边上就被切掉了 -->
     <view v-if="flyCards.length > 0" class="fly-layer">
@@ -293,22 +293,22 @@
   // 于是决策从「当下哪张收得多」挪到了「这五张按什么顺序走」。排的时候
   // 你不知道对手会把堆变成什么样，所以每一次排序都是下注。
   //
-  // 核心在于牌堆的形状：一张牌打下去没钩上，这一轮打出的那些就按点数
-  // 从大到小重排一次 —— 大的沉底，小的浮顶。于是堆是一道梯子，
-  // 而钩中一张就把它**上面所有更小的**一并收走。
+  // 核心在于：队列里相邻的两张之间，必然夹着对手的一张牌（双方交替出）。
+  // 把两张点数对得上的牌排在相邻位，后一张就会钩中前一张，
+  // 把夹在当中的那张对手的牌一并收走。整个模式的算计都是围着这件事转的 ——
+  // 手上凑不出这样的一对，就压牌换，赌补上来的盲牌能配上。
   //
-  // 一条规矩：**匹配得越大，扫得越多**。钩中沉在下面的大牌是一票大的，
-  // 钩顶上的小牌只刮到几张。所以排序排的是「我这五张什么时候去够什么」——
-  // 早一点堆浅收得少但稳，晚一点堆厚收得多但庄家可能先动手。
-  //
-  // 重排只动本轮打出的。上几轮没被收走的沉在底下不参与，
-  // 那是跨轮的记忆 —— 轮数越多越吃记牌，来源就在这儿。
+  // 堆就是出牌顺序，不重排 —— 「夹了谁」全靠这个顺序。
+  // 想换成「按点数排成梯子、钩深的收得多」那套打法的，
+  // 去商店买【拢堆】：那是一件改地基的道具，不是默认规则。
   //
   // 贴纸这一版只认「点数类」和「空位类」：它们在 cards.uts 里就算完了，
   // 落堆算几点、算不算钓点跟主玩法完全一致。要你当场挑牌的那些不发动 ——
   // 一轮十张连着自动演完，中间根本没有让人插手的地方
   import {
     Card,
+    RANKS,
+    RANK_VALUES,
     buildDeck,
     cloneCard,
     emptyStickers,
@@ -327,6 +327,7 @@
     S_HAUL,
     S_LUCKY,
     stickerAt,
+    isFixedRank,
     isBlankSticker
   } from '@/pages/examples/blackjack/stickers.uts'
   import {
@@ -337,6 +338,8 @@
     cloneSave,
     currentRelayLevel,
     runCarry,
+    rollRulesFor,
+    dealRunDeck,
     itemTierOf,
     usesLeft,
     spendUse,
@@ -350,8 +353,7 @@
     DEAL_TUNED,
     baseCoins,
     gapCoins,
-    relayLevelAt,
-    stickDealerHalf
+    relayLevelAt
   } from '@/pages/examples/blackjack/relay-levels.uts'
   import {
     KIND_LIMITED,
@@ -359,8 +361,12 @@
     valueAt,
     countAt,
     descOf as itemDescAt,
+    tierName,
     tierColor,
-    coinBonusOf
+    coinBonusOf,
+    dealerRuleAt,
+    ruleKeyOf,
+    ruleArgOf
   } from '@/pages/examples/blackjack/relay-items.uts'
 
   // 飞在半空的一张替身：牌本身，加上它从哪儿起飞
@@ -377,6 +383,15 @@
   // 五轮整，外加最后一张单挑。
   // 局长因此是固定的，不再由关卡的 rounds 说了算
   const HALF_DECK : number = 26
+  // 「大数」的门槛：点数大于这个数就算大牌（J、Q、K）。
+  // 挡口（大数穿透）和归标（大数多一个 11）都认它。
+  //
+  // 巨口说的大数是同一个意思，只是那件的门槛随进阶往下走（10/9/8/7），
+  // 所以它读自己的 steps，不读这个常量 —— 两边不耦合。
+  //
+  // 摆在最上头是因为 valuesOf2 用得到，而它在文件里靠前 ——
+  // uts 编译到 Kotlin 之后，顶层常量的先后顺序比 JS 那边计较
+  const BIG_VALUE : number = 10
   // 自动演的节奏。
   //
   // 钩中那一下要分三拍走完，一拍都不能省：先把要收的那一段亮起来
@@ -485,13 +500,25 @@
   // 选着道具的时候点牌是「对这张下手」，没选的时候点牌才是「选中待压」
   const barAt = ref<number>(-1)
   // 这一下还差几张没点。多张的道具（升过级的坠子能点两三张）靠它数
-  const needLeft = ref<number>(0)
+  // 选中的这件道具最多能点几张牌。0 表示它不挑目标
+  const needMax = ref<number>(0)
   // 已经点中的那几张，凑够 need 才一起结算 ——
   // 一张一张立刻生效的话，点错了没法反悔
   const picked = ref<number[]>([] as number[])
-  // 窥筒看到的那几张，摊在面板上
-  const peekOpen = ref<boolean>(false)
-  const peekCards = ref<Card[]>([] as Card[])
+  // 点中的**庄家**手牌是第几张（下标对着 dealerHand，也就是从
+  // dealerStep 往后数）。窥筒和停口挑的是它那排，不是你自己那排，
+  // 所以另开一份 —— 混用一份的话「这个 2 指的是谁的第 2 张」说不清
+  const foePicked = ref<number[]>([] as number[])
+  // 窥筒照亮的那几张：整轮明示，不是看一眼就没。
+  // 名单按轮清（在 clearTweaks 里），下一轮它换一手牌，照亮的自然作废。
+  //
+  // 叫 lit 不叫 seen 是为了避开 sortDealer 里那个同名局部量 ——
+  // 那儿的 seen 指的是「浑水没遮住、庄家自己看得见的那几张」，
+  // 两个东西撞名字，读代码的人迟早要栽一跤
+  let lit : Card[] = [] as Card[]
+  // 停口把庄家那几张废掉了：变 0 点的进 zeroCards，
+  // 失去点数的进 noValue（跟收色那几件共用一份名单）
+  let zeroCards : Card[] = [] as Card[]
   // 长竿多摆出来、这一轮没轮到打的那几张。留到下一轮排在队列最前面 ——
   // 不留着的话「多摆一张」就成了「每轮白扔一张」
   let keepCards : Card[] = [] as Card[]
@@ -507,13 +534,173 @@
   let suitHook : Card[] = [] as Card[]
   // 吞口：这几张这一轮按大小吞，从紧挨着的那张往回一路吞比它小的
   let bigHook : Card[] = [] as Card[]
+  // 这一轮被你**主动**废掉点数的那几张。收色、缠线、染水共用这一张名单。
+  //
+  // 抽出来是因为这三件的共同点就是「拿整个点数换一件别的事」——
+  // 换一次按花色的散收、换掉邻座那张、换一池子同花色。
+  // 各记各的名单的话，valuesOf2 和 playOne 那两处判断就得列三个函数，
+  // 以后再添一件又得回来改两个地方
+  let noValue : Card[] = [] as Card[]
+  // 缠线：这几张打出时，把紧挨着它左边那张也废成没点数
+  let tangle : Card[] = [] as Card[]
+  // 染水：这几张打出时，把堆上所有牌染成它的花色
+  let dye : Card[] = [] as Card[]
+  // 挡口：这几张站在堆里当岗哨 —— 庄家钩它左边那张、而那张点数
+  // 又没它大的时候，这一钩只收到它右边为止。
+  //
+  // **这张名单跟着堆走，不跟着轮清**（清的地方在开局那儿，挨着 pile）。
+  // 别的效果都是「这一轮打出去的时候怎么算」，用完就过期；
+  // 挡口不是 —— 它是一张躺在堆里的牌的常驻属性，
+  // 护的又是埋在堆底、要跨好几轮才收的桩。按轮清等于站一轮岗就撤
+  let guards : Card[] = [] as Card[]
+  // 落潮：这几张打出时，把左边那几张压成 0 点（没点数的也算）。
+  // 注意它**不进 noValue** —— 落潮压的是别人，自己那张点数照旧，
+  // 压完还得靠它一口吞回来
+  let ebb : Card[] = [] as Card[]
   // 埋饵：这几张打出时沉到堆底，而且那一下不钩
   let buried : Card[] = [] as Card[]
   // 这一轮打出去的那些。重排只动它们 ——
   // 上几轮留在堆里没被收走的沉在底下不参与，那是跨轮的记忆，
   // 排掉就等于每轮开局都把堆抹平了
   let roundCards : Card[] = [] as Card[]
-  // 断口：这一轮哪一类牌按 0 点算。-1 表示没断
+  // 这一轮你已经打出去几张。封位那条规矩掐的是每轮你的第一张
+  let playedMine : number = 0
+  // 拢堆这一轮开着没有。开着的话没钩上就重排本轮的牌
+  const tidyRound = ref<boolean>(false)
+  // 探口这一轮探到的那几条。存着是因为线索是你排这一轮的依据 ——
+  // 弹一次就没了的话，忘了就再也看不到，等于白用
+  const hintLines = ref<string[]>([] as string[])
+
+  // ---------- 庄家挂着的规矩 ----------
+  //
+  // 四条带随机参数，每次开这一关重摇 —— 同一关重打不是同一道题。
+  // 摇出来的值要摊给玩家看（庄家那排道具上写着），
+  // 藏着不写就成了「我怎么突然钩不上了」，那是坑人不是难度
+  const reachSpan = ref<number>(0)
+  const wildRank = ref<number>(0)
+  const crownA = ref<number>(0)
+  const crownB = ref<number>(0)
+  const lockSuit = ref<string>('')
+  // 这一关挂着的那几条，从存档读 —— 不在这儿摇。
+  //
+  // 摇的时机是上一关打赢、关号推进的那一下（见 finishGame），
+  // 因为商店得提前把它们摊出来。在牌桌上摇的话，
+  // 商店写的和这儿跑的就是两回事了
+  const rules = ref<string[]>([] as string[])
+
+  function hasRule(key : string) : boolean {
+    for (let i = 0; i < rules.value.length; i++) {
+      if (ruleKeyOf(rules.value[i]) == key) {
+        return true
+      }
+    }
+    return false
+  }
+
+  function ruleArg(key : string) : string {
+    for (let i = 0; i < rules.value.length; i++) {
+      if (ruleKeyOf(rules.value[i]) == key) {
+        return ruleArgOf(rules.value[i])
+      }
+    }
+    return ''
+  }
+
+  // 把存档里那几条摊开成本地状态。带参数的顺手解出来
+  function loadRules(data : SaveData) {
+    const list : string[] = []
+    for (let i = 0; i < data.runRules.length; i++) {
+      list.push(data.runRules[i])
+    }
+    rules.value = list
+    reachSpan.value = 0
+    wildRank.value = 0
+    crownA.value = 0
+    crownB.value = 0
+    lockSuit.value = ''
+    // 长手：摇出来的是 1 还是 2。没摇出参数（旧档）就按 ±1 兜底 ——
+    // 规矩在、参数没了的话，当作最轻的那一版，宁可放水也不能凭空变凶
+    if (hasRule('reach')) {
+      const r = parseInt(ruleArg('reach'))
+      reachSpan.value = isNaN(r) || r < 1 ? 1 : r
+    }
+    const w = ruleArg('wild')
+    if (w != '') {
+      const n = parseInt(w)
+      wildRank.value = isNaN(n) ? 0 : n
+    }
+    const c = ruleArg('crown')
+    if (c != '') {
+      const pair = c.split(',')
+      if (pair.length == 2) {
+        const a = parseInt(pair[0])
+        const b = parseInt(pair[1])
+        crownA.value = isNaN(a) ? 0 : a
+        crownB.value = isNaN(b) ? 0 : b
+      }
+    }
+    lockSuit.value = ruleArg('lock')
+  }
+
+  // 规矩标签上写的字。带参数的那四条要把摇出来的值写进去 ——
+  // 只写「百搭」而不写是哪个点数，等于没告诉你
+  const ruleTags = computed<string[]>(() : string[] => {
+    const out : string[] = []
+    for (let i = 0; i < rules.value.length; i++) {
+      out.push(ruleLabel(rules.value[i]))
+    }
+    return out
+  })
+
+  function ruleLabel(entry : string) : string {
+    const key = ruleKeyOf(entry)
+    const one = dealerRuleAt(key)
+    if (key == 'reach' && reachSpan.value > 0) {
+      return one.name + ' ±' + reachSpan.value
+    }
+    if (key == 'wild' && wildRank.value > 0) {
+      return one.name + ' ' + faceOf(wildRank.value)
+    }
+    if (key == 'crown' && crownA.value > 0) {
+      return one.name + ' ' + faceOf(crownA.value) + faceOf(crownB.value)
+    }
+    if (key == 'lock' && lockSuit.value != '') {
+      return one.name + ' ' + lockSuit.value
+    }
+    return one.name
+  }
+
+  function showRule(index : number) {
+    if (index < 0 || index >= rules.value.length) {
+      return
+    }
+    const key = ruleKeyOf(rules.value[index])
+    const one = dealerRuleAt(key)
+    let body = one.desc
+    if (key == 'reach' && reachSpan.value > 0) {
+      body = '庄家的牌还可以按 ±' + reachSpan.value + ' 的点数算'
+    } else if (key == 'wild' && wildRank.value > 0) {
+      body = '庄家的 ' + faceOf(wildRank.value) + ' 可以当任意点数用'
+    } else if (key == 'crown' && crownA.value > 0) {
+      body = '你的 ' + faceOf(crownA.value) + '、' + faceOf(crownB.value)
+        + ' 一律失去点数 —— 钩不上人，也没人钩得上，吞口也吞不动'
+    } else if (key == 'lock' && lockSuit.value != '') {
+      body = '你的 ' + lockSuit.value + ' 一律失去点数 —— 钩不上人，也没人钩得上'
+    }
+    message.value = '〔庄家规矩·' + one.name + '〕' + body
+  }
+
+  // 这张牌被庄家的规矩废成 0 点了吗。只管你的牌 ——
+  // 压冠和锁花都是单方面压你的
+  function ruledDead(card : Card) : boolean {
+    if (crownA.value > 0 && (card.value == crownA.value || card.value == crownB.value)) {
+      return true
+    }
+    return lockSuit.value != '' && card.suit == lockSuit.value
+  }
+  // 断口：这一轮哪一类牌被废掉。-1 表示没断。
+  // 断数废成 **0 点**（什么都比它大），断色废成**没有点数**
+  // （什么都不比它大）—— 两回事，见 sizeOf 和 isNumMuted
   const MUTE_NONE : number = -1
   const MUTE_ODD : number = 0
   const MUTE_EVEN : number = 1
@@ -612,7 +799,13 @@
       return '全是背面 · 带上明竿才看得见'
     }
     const n = dealerOpen.value < dealerLeft.value ? dealerOpen.value : dealerLeft.value
-    return '亮着的 ' + n + ' 张是它接下来要打的 · 还剩 ' + dealerLeft.value + ' 张'
+    // 排竿阶段后面那几张的位置是不作数的 —— 它要等你排完才排自己的顺序。
+    // 不说清楚的话，窥筒照亮一张摆在第三位，玩家会当成「它第三手打这张」
+    const tail = phase.value == 'plan' && dealerLeft.value > n
+      ? ' · 后面那几张的位置还没定，它等你排完才排'
+      : ''
+    return '亮着的前 ' + n + ' 张是它接下来要打的 · 还剩 '
+      + dealerLeft.value + ' 张' + tail
   })
 
   const stepText = computed<string>(() : string => {
@@ -660,8 +853,8 @@
     if (phase.value != 'plan') {
       return '排定了，照这个顺序打完'
     }
-    if (needLeft.value > 0) {
-      return '点 ' + needLeft.value + ' 张牌下手'
+    if (needMax.value > 0) {
+      return '点牌选目标 ' + picked.value.length + '/' + needMax.value + ' · 选好按使用'
     }
     return '拖动排序 · 点牌选中再压底'
   })
@@ -768,6 +961,52 @@
     })
   }
 
+  // 把存档里那 52 段「花色:点数」还原成牌。
+  //
+  // 顺序原样保留 —— 那就是洗好的顺序，前 26 张你的、后 26 张它的。
+  // 读不出来（老档、或者哪儿漏存了）就当场洗一副兜底，
+  // 总比空着手进牌桌强
+  function decodeDeck(list : string[]) : Card[] {
+    if (list.length < HALF_DECK * 2) {
+      return buildDeck(emptyStickers())
+    }
+    const out : Card[] = []
+    for (let i = 0; i < list.length; i++) {
+      const seg = list[i].split(':')
+      if (seg.length != 2) {
+        continue
+      }
+      out.push(makeCard(seg[0], seg[1]))
+    }
+    return out.length < HALF_DECK * 2 ? buildDeck(emptyStickers()) : out
+  }
+
+  // 照花色点数造一张干净的牌。排竿两边都是素牌，所以不带贴纸
+  function makeCard(suit : string, rank : string) : Card {
+    let value = 1
+    for (let i = 0; i < RANKS.length; i++) {
+      if (RANKS[i] == rank) {
+        value = RANK_VALUES[i]
+        break
+      }
+    }
+    return {
+      suit: suit,
+      rank: rank,
+      value: value,
+      // J 焊着【通吃】，这一条在两边都认 —— 跟 buildDeck 一个规矩
+      stickerKey: isFixedRank(rank) ? S_HAUL : S_NONE,
+      tapped: false,
+      forced: -1,
+      faceDown: false,
+      negated: false,
+      extra: 0,
+      altValue: -1,
+      pileValue: -1,
+      pileValues: [] as number[]
+    } as Card
+  }
+
   // ---------- 开局 ----------
 
   function setup() {
@@ -781,11 +1020,14 @@
     // 这是这个模式能「算」而不是「赌」的地基：每个点数统共四张，
     // 打出去的累起来，剩下的在谁手上推得出来。
     // 从前双方各用一副独立的 52 张，它有几张 K 你永远不知道，
-    // 排序就只剩「照着堆的深浅赌一把」，赌得中赌不中全看运气。
+    // 排序就只剩「拆自己的对子夹住它」这一条，夹得住夹不住全看运气。
     //
     // 你的牌是素的 —— 排竿不吃主玩法那套牌组构筑，你的贴纸全靠贴纸位
     // 带进来、靠每轮白送的攒。庄家那半副发完再贴
-    const full = buildDeck(emptyStickers())
+    // 牌不在这儿洗 —— 上一关打赢、关号推进那一下就洗好存档了，
+    // 因为商店要先把你这 26 张摊出来。在这儿洗的话，
+    // 商店给你看的和你真正拿到的是两副
+    const full = decodeDeck(data.runDeck)
     const mine : Card[] = []
     const theirs : Card[] = []
     for (let i = 0; i < full.length; i++) {
@@ -796,7 +1038,8 @@
       }
     }
     playerDeck.value = mine
-    dealerDeck.value = stickDealerHalf(theirs, level.value)
+    // 庄家的牌现在也是干净素牌 —— 它的难度全在那排规矩上，不在牌面上
+    dealerDeck.value = theirs
     playerCursor.value = 0
     dealerCursor = 0
     measureSlots()
@@ -804,6 +1047,8 @@
     resetUses(data)
     saveCurrent(data)
     save.value = cloneSave(data)
+    // 这一关庄家挂着的规矩，上一关进商店前就摇好存下了
+    loadRules(data)
     // 道具栏上装着的，开局就摆出来
     buildBar()
     clearTweaks()
@@ -813,23 +1058,25 @@
     gotText.value = ''
     round.value = 1
     pile.value = [] as Card[]
+    // 挡口跟着堆清，不跟着轮清 —— 它护的桩要跨好几轮才收
+    guards = [] as Card[]
     pileFromDealer.value = [] as boolean[]
     playerPoints.value = [] as Card[]
     dealerPoints.value = [] as Card[]
     catchMarks.value = [] as boolean[]
     sinkPicked.value = [] as boolean[]
     message.value = '第 ' + level.value.index + ' 关「' + level.value.name + '」。'
-      + '一副牌洗开对半分，你和庄家各 26 张 —— 你手里有的，它就没有。'
-      + '把牌库顶这五张排成一串。牌打下去没钩上，本轮的牌就按点数'
-      + '从大到小重排 —— 堆是道梯子，钩中一张就收走它上面所有更小的。'
-      + '匹配得越大，扫得越多。'
+      + '一副牌洗开对半分：你 26 张，剩下 26 张全在庄家手里 —— '
+      + '**你有的它就没有**，打出去的牌累起来，它还剩什么推得出来。'
+      + '把牌库顶这五张排成一串，相邻两张之间会夹进它一张，'
+      + '点数对得上的排在一起，就把夹着的那张一并收走。'
     startRound()
   }
 
   // 开一轮：双方各从牌库顶取五张，然后你排序。
   //
-  // 庄家仍然先手，顺序是 庄、你、庄、你…… 你每打一张，
-  // 它都已经先往堆上添过一张了。
+  // 庄家仍然先手，顺序是 庄、你、庄、你…… 你相邻的两张之间夹着它一张，
+  // 配对收走中间那段这条核心机制原样不动。
   //
   // 但它那第一张不再提前拍到堆上了 —— 手牌区把它明着亮出来就够了。
   // 从前先打进堆，是因为它那五张你一张也看不见，不给个参照的话
@@ -846,6 +1093,11 @@
     // 上一轮打出去还留在堆上的，从这一轮起算「上几轮剩的」，
     // 不再参与重排 —— 它们沉在底下就是跨轮的那层记忆
     roundCards = [] as Card[]
+    playedMine = 0
+    // 拢堆只管发动的那一轮，换轮就关掉
+    tidyRound.value = false
+    // 探口的线索说的是上一轮那副手牌，换轮就过期了，不能留着骗人
+    hintLines.value = [] as string[]
     // 长竿多摆的那几张上一轮轮不到打，留着接着用 ——
     // 它们排在队列最前面，因为你上一轮就是把它们往后挪才没打的，
     // 这一轮该轮到了
@@ -871,8 +1123,13 @@
     playerQueue.value = cards
     queueHidden.value = hidden
     sinkPicked.value = allFalse(cards.length)
-    // 庄家始终摆五张 —— 长竿是你花钱买的，没道理连它一起长
-    dealerQueue.value = sortDealer(drawFor(true, QUEUE_SIZE))
+    // 庄家始终摆五张 —— 长竿是你花钱买的，没道理连它一起长。
+    //
+    // **这儿不排序**，照牌库顺序摆着，等你按「开始出牌」它才排
+    //（见 settleDealer）。理由是窥筒：那件让你点位置照亮它的牌，
+    // 要是开局就排好了，「第三张是什么」就等于「它第三手打什么」——
+    // 窥筒会连出牌顺序一起泄露，而顺序是明竿独家卖的东西
+    dealerQueue.value = drawFor(true, QUEUE_SIZE)
     toPlan()
   }
 
@@ -881,7 +1138,7 @@
     stepTimer = -1
     phase.value = 'plan'
     message.value = '庄家先打的是亮出来那张。照着它排你这五张 ——'
-      + '钩中沉得越深的牌，扫走的越多。'
+      + '你相邻的两张之间会夹进它一张。'
   }
 
   function drawFor(byDealer : boolean, want : number) : Card[] {
@@ -990,6 +1247,11 @@
     if (sinking.value.length > 0 || dealing.value.length > 0) {
       return
     }
+    // 定桩：最后一张钉死，拖不动。削的是排序自由度本身，不碰牌数
+    if (hasRule('pin') && index == playerQueue.value.length - 1) {
+      toast('【定桩】最后一张钉死了，拖不动')
+      return
+    }
     // 上一把落子的收尾还没走完又按下来了，先收干净
     resetDrag()
     fitSlotWidth()
@@ -1029,7 +1291,16 @@
     dragDX.value = dx
     // 划过半格就算越了一格。数据这会儿一点没动，
     // 越位只是改了「松手会落在哪」，让位全靠 transform 演
-    dragTo.value = clampSlot(dragAt.value + Math.round(dx / slotWidth))
+    let to = clampSlot(dragAt.value + Math.round(dx / slotWidth))
+    // 定桩钉死的是最后那一格：别的牌也不许挪进去占它的位置，
+    // 不然把它挤走就等于绕开了这条规矩
+    if (hasRule('pin') && to >= playerQueue.value.length - 1) {
+      to = playerQueue.value.length - 2
+      if (to < 0) {
+        to = 0
+      }
+    }
+    dragTo.value = to
   }
 
   function dragEnd() {
@@ -1061,8 +1332,8 @@
       return
     }
     // 按下去没怎么动，那是点了一下。
-    // 正攥着一件要挑目标的道具就是「对这张下手」，没攥着才是「选中待压」
-    if (needLeft.value > 0) {
+    // 正攥着一件要挑目标的道具就是「瞄这张」，没攥着才是「选中待压」
+    if (needMax.value > 0) {
       pickForItem(index)
     } else {
       togglePick(index)
@@ -1379,6 +1650,39 @@
   // 跟你用同一套算计：把点数对得上的两张排到相邻位，后一张钩中前一张，
   // 顺带把堆上比它小的一并扫走。配不上对的按点数大小垫在后面 ——
   // 大数落堆晚一点，被钩中的机会少些
+  // 你按下「开始出牌」那一刻，庄家才排它这一轮的出牌顺序。
+  //
+  // 为什么拖到这时候：窥筒让你点位置照亮它的牌。要是开局就排好，
+  // 「第三张是什么」就等于「它第三手打什么」—— 窥筒会连顺序一起泄露，
+  // 而顺序是明竿独家卖的东西。拖到排完再排，你就只知道它**有什么**，
+  // 不知道**什么时候打**，两件情报道具各卖各的。
+  //
+  // **明竿看过的那几张冻住不动**。不冻的话明竿就成了假话：
+  // 它承诺的是「接下来 N 张要打的牌，带顺序」，排完一动就全错了。
+  // 代价是庄家那几张失去了参与算计的机会 —— 盯得越紧它越不好换手，
+  // 这笔买卖正好是明竿该有的分量
+  function settleDealer() {
+    const keep = dealerOpen.value
+    const head : Card[] = []
+    const rest : Card[] = []
+    for (let i = 0; i < dealerQueue.value.length; i++) {
+      if (i < keep) {
+        head.push(dealerQueue.value[i])
+      } else {
+        rest.push(dealerQueue.value[i])
+      }
+    }
+    const sorted = sortDealer(rest)
+    const out : Card[] = []
+    for (let i = 0; i < head.length; i++) {
+      out.push(head[i])
+    }
+    for (let i = 0; i < sorted.length; i++) {
+      out.push(sorted[i])
+    }
+    dealerQueue.value = out
+  }
+
   function sortDealer(cards : Card[]) : Card[] {
     // 头两关的庄家不排队，照牌库顺序打 —— 让人先把这套算计摸明白
     if (level.value.dealerSmart == DEAL_PLAIN) {
@@ -1517,23 +1821,68 @@
 
   // 还没落堆的牌算哪几个数。valuesOf 读的是落堆之后的结果，
   // 排序时牌还在队列里，得按 playOptions 预判
+  // 点数减到 0 就停，不许变成负数。**全局规则，不是某件道具的特例。**
+  //
+  // 摆成一道闸而不是让每件减法道具自己夹：提子六件、落水、以后再加的
+  // 什么，全从算候选点数的出口过这一道，漏不掉也不用各写一遍。
+  //
+  // 立这条的理由见 relay-items 文件头那段。一句话：负数跟 0 在规则里
+  // 是一个待遇（shareValue 跳过 ≤0），留着它只会让牌面冒出「-3」，
+  // 还会让「0 点牌」这个状态不好数 —— 而落水正要数它
+  function noNegative(vals : number[]) : number[] {
+    let low = false
+    for (let i = 0; i < vals.length; i++) {
+      if (vals[i] < 0) {
+        low = true
+      }
+    }
+    if (!low) {
+      return vals
+    }
+    const out : number[] = []
+    for (let i = 0; i < vals.length; i++) {
+      out.push(vals[i] < 0 ? 0 : vals[i])
+    }
+    return out
+  }
+
+  // 这张牌正好是 0 点吗。
+  //
+  // **没点数的不算**：它压根没有这个属性，比大小时还算最大（见 sizeOf）。
+  // 落水数 X、判自己触不触发，都认这一条
+  function isZeroPoint(card : Card) : boolean {
+    const vals = valuesOf(card)
+    return vals.length > 0 && topOf(card) == 0
+  }
+
   function valuesOf2(card : Card) : number[] {
     if (isBlankSticker(card.stickerKey)) {
       return [] as number[]
     }
-    return playOptions(card)
+    // 主动废掉点数的那几张（收色、缠线、染水）还没落堆就已经没点数了 ——
+    // 牌面上得当场看出来。不认这一条的话，plan 阶段它还写着原来的点数，
+    // 你排到一半忘了哪张标过，这道题就白算了。
+    // rankText 拿到空数组会渲染成空字符串，于是牌上只剩一个花色，
+    // 「没有点数，只剩花色」这件事本身就是最好的标记
+    if (isNoValue(card)) {
+      return [] as number[]
+    }
+    // 归标多出来的那个 11 也要算进来 —— 牌面上直接写成 13/11，
+    // plan 阶段就看得见。不然你得自己记着「我带了归标所以 K 也能收桩」。
+    // 最后过一道 noNegative：提子压下去的牌，牌面上写 0 不写负数
+    return noNegative(tollValues(card, playOptions(card)))
   }
 
-  // 牌面上不摊开活钩那几档 —— ±3 就是七个候选数，
-  // 46 像素宽的牌面摆不下，摆下了也没法看。
-  // 活钩的效果在判定里生效（playOne），牌面只写本来的点数
+  // 牌面上不摊开多出来的候选点数（幸运的 ±1、庄家长手的 ±2）——
+  // 46 像素宽的牌面摆不下三五个数，摆下了也没法看。
+  // 这些效果在判定里生效（playOne），牌面只写本来的点数
 
   // ---------- 道具栏 ----------
 
   // 开局把道具栏上那几件读成一排。
   //
   // 永续的在这儿只是列着 —— 它的效果在发牌和判定的时候就生效了
-  // （见 lastingTier / liveSpan / alongBonus），没有「用」这个动作。
+  // （见 lastingTier / sightOpen / alongBonus），没有「用」这个动作。
   // 限制的才有次数，点它才有反应
   function buildBar() {
     const keys = runCarry(save.value)
@@ -1551,14 +1900,24 @@
         name: item.name,
         tier: tier,
         limited: limited,
-        left: limited ? usesLeft(save.value, key) : 0,
+        // 寒流：每件限制类少用一次，但至少还剩一次 ——
+        // 扣到 0 就等于这一关白带了，那不是难度是没收
+        left: limited ? chilled(usesLeft(save.value, key)) : 0,
         need: countAt(item, tier)
       } as BarItem)
     }
     bar.value = list
     barAt.value = -1
-    needLeft.value = 0
+    needMax.value = 0
     picked.value = [] as number[]
+  }
+
+  // 寒流：限制类每件少用一次，最少还剩一次
+  function chilled(n : number) : number {
+    if (!hasRule('chill') || n <= 1) {
+      return n
+    }
+    return n - 1
   }
 
   // 手上这件永续道具在第几级，没带上场就是 -1。
@@ -1572,11 +1931,81 @@
     return -1
   }
 
-  // 活钩：你的牌还可以按 ±N 算。
+  // 并色：方块当红心、梅花当黑桃，四门并成两门。
+  //
+  // 只管**你自己**那两条按花色收的线（收色、集花）。
+  // 庄家的同源（跟堆顶同花色就白送点数）和锁花（锁死你一个花色）
+  // 一律不并 —— 那是它的规矩，没道理让你花钱买的道具反过来
+  // 去喂它一次白送的钩，或者把锁掉一门变成锁掉两门
+  function foldSuit(suit : string) : string {
+    if (lastingTier('fold') < 0) {
+      return suit
+    }
+    if (suit == '♦') {
+      return '♥'
+    }
+    if (suit == '♣') {
+      return '♠'
+    }
+    return suit
+  }
+
+  // 这两张按花色算不算一路。空串是背面牌，没有花色，谁也配不上 ——
+  // 这一条得留着，不然两张背面牌会因为「都是空串」而互相认亲
+  function suitAlike(a : string, b : string) : boolean {
+    if (a == '' || b == '') {
+      return false
+    }
+    return foldSuit(a) == foldSuit(b)
+  }
+
+  // 巨口：你打出的牌点数大于这个数的，改按比大小收。
   // 0 表示没带这件
-  function liveSpan() : number {
-    const tier = lastingTier('live')
-    return tier < 0 ? 0 : valueAt(itemAt('live'), tier)
+  function mawLine() : number {
+    const tier = lastingTier('maw')
+    return tier < 0 ? 0 : valueAt(itemAt('maw'), tier)
+  }
+
+  // 这一张走不走大小那条线。
+  //
+  // 只管你这边 —— 它是你花钱买的，没道理连庄家一起照顾。
+  // 看的是 topOf（落堆时算出来的最大那个候选），不是牌面原来的点数：
+  // 坠子推上去的、定标钉成 11 的都该算数。
+  // 没点数的牌 topOf 是 0，自然够不着门槛
+  function isMaw(byDealer : boolean, card : Card) : boolean {
+    if (byDealer) {
+      return false
+    }
+    const line = mawLine()
+    return line > 0 && topOf(card) > line
+  }
+
+  // 归标：你的大数牌（大于 BIG_VALUE，也就是 J、Q、K）同时可视为 11。
+  //
+  // **加一个候选，不是换掉本来那个** —— 一张 K 同时是 13 和 11。
+  //
+  // 代价不用另写，它自己长出来：这份候选表会原样存进 pileValues，
+  // 所以你那张 K 落堆之后，庄家拿一张 J 来撞也撞得上（shareValue 认交集）。
+  // 你伸手够桩的同时，也把自己六张大牌摆上了它四张 J 的餐桌。
+  //
+  // 跟巨口**不能同走**：那件让大数牌改走比大小线、不再按等点数钩，
+  // 于是这多出来的 11 你自己用不上，而标记照样留在牌上给庄家钩。
+  // 两件都挂着是纯亏 —— 这条张力是有意留的，说明里写清楚就行
+  function tollValues(card : Card, vals : number[]) : number[] {
+    if (lastingTier('toll') < 0 || card.value <= BIG_VALUE) {
+      return vals
+    }
+    for (let i = 0; i < vals.length; i++) {
+      if (vals[i] == 11) {
+        return vals
+      }
+    }
+    const out : number[] = []
+    for (let i = 0; i < vals.length; i++) {
+      out.push(vals[i])
+    }
+    out.push(11)
+    return out
   }
 
   // 明竿：每轮看得见庄家接下来几张（带顺序）。
@@ -1584,6 +2013,12 @@
   function sightOpen() : number {
     const tier = lastingTier('sight')
     return tier < 0 ? 0 : valueAt(itemAt('sight'), tier)
+  }
+
+  // 拢堆这一轮开着没有。按轮发动，不是挂着一直生效 ——
+  // 「哪一轮翻地基」本身就是决策
+  function tidyOn() : boolean {
+    return tidyRound.value
   }
 
   // 顺钩：钩中时多往堆底收几张
@@ -1606,7 +2041,7 @@
   // 这一轮这一方实际打几张。
   //
   // 你那边封顶五张 —— 长竿多摆的是备选，不是多打。
-  // 队列被压舱压短了就按实际的来
+  // 牌库见底补不满五张时就按实际的来
   function capOf(byDealer : boolean) : number {
     if (byDealer) {
       return dealerQueue.value.length
@@ -1638,63 +2073,76 @@
     return out
   }
 
-  const pickTip = computed<string>(() : string => {
-    if (needLeft.value <= 0) {
-      return ''
-    }
-    return '再点 ' + needLeft.value + ' 张牌 · 点这儿取消'
-  })
-
-  // 点道具栏上的一件 —— **只摊开说明，不当场用掉**。
+  // 点道具栏上的一件 —— **只选中并摊开说明，不当场用掉**。
   //
-  // 道具一关就那么几次，点一下就发动的话，想看看它是干嘛的
-  // 都得搭上一次。所以点开先讲清楚效果和还剩几次，
-  // 要用再按弹窗里那颗「用它」
+  // 选道具、选牌、按「使用」是三步分开的：点够张数就自动生效的话，
+  // 点错一张没法反悔，只能把这一次用掉重来。
+  // 分开之后选中的牌可以再点一下取消，全部选定了才按按钮
   function tapItem(index : number) {
     if (index < 0 || index >= bar.value.length) {
       return
     }
-    // 正在选目标的时候再点一下道具 = 取消这一次
-    if (barAt.value == index && needLeft.value > 0) {
+    // 再点一下同一件 = 收回这次选择
+    if (barAt.value == index) {
       clearPick()
-      toast('取消了')
+      message.value = '取消了。'
       return
     }
     const one = bar.value[index]
     barAt.value = index
-    needLeft.value = 0
     picked.value = [] as number[]
-    const item = itemAt(one.key)
-    const body = itemDescAt(item, one.tier)
+    foePicked.value = [] as number[]
+    needMax.value = one.limited ? one.need : 0
+    // 选道具和选待压是两码事，别让上一次的选中留着碍事
+    if (one.limited) {
+      sinkPicked.value = allFalse(playerQueue.value.length)
+    }
+    const body = itemDescAt(itemAt(one.key), one.tier)
     if (!one.limited) {
-      uni.showModal({
-        title: one.name + ' · ' + tierName(one.tier),
-        content: body + '\n\n永续：带着就一直生效，不用你动手。',
-        showCancel: false,
-        confirmText: '知道了'
-      })
+      message.value = '【' + one.name + '·' + tierName(one.tier) + '】'
+        + body + ' —— 永续，带着就一直生效。'
       return
     }
-    const usable = phase.value == 'plan' && one.left > 0
-    uni.showModal({
-      title: one.name + ' · ' + tierName(one.tier),
-      content: body + '\n\n这一关还能用 ' + one.left + ' 次。'
-        + (phase.value != 'plan' ? '\n（排竿的时候才用得上）' : ''),
-      showCancel: usable,
-      confirmText: usable ? '用它' : '知道了',
-      cancelText: '看看就好',
-      success: (res) => {
-        if (!usable || !res.confirm) {
-          clearPick()
-          return
-        }
-        beginUse(index)
-      }
-    })
+    // 探口探过的那几条随时翻得出来 —— 那是你排这一轮的依据，
+    // 不该用一次就找不回来
+    if (one.key == 'hint' && hintLines.value.length > 0) {
+      message.value = '【探口·这一轮探到的】' + joinHints(hintLines.value)
+        + '（还能用 ' + one.left + ' 次）'
+      return
+    }
+    let tip = '【' + one.name + '·' + tierName(one.tier) + '】'
+      + body + ' —— 这一关还能用 ' + one.left + ' 次。'
+    if (phase.value != 'plan') {
+      tip = tip + '（排竿的时候才用得上）'
+    } else if (one.left <= 0) {
+      tip = tip + '（这一关用完了）'
+    } else if (needMax.value > 0 && aimsFoe()) {
+      tip = tip + '点**庄家那排**选目标，最多 ' + needMax.value
+        + ' 张（背面也点得中，按它第几张打来挑），选好按「使用」。'
+    } else if (needMax.value > 0) {
+      tip = tip + '点牌选目标，最多 ' + needMax.value + ' 张，选好按「使用」。'
+    } else {
+      tip = tip + '按「使用」发动。'
+    }
+    message.value = tip
   }
 
-  // 确认要用了：不挑目标的当场发动，挑目标的进选择态等你点牌
-  function beginUse(index : number) {
+  // 说明框右边那颗按钮上写什么。空串就不显示这颗
+  const useText = computed<string>(() : string => {
+    if (barAt.value < 0 || barAt.value >= bar.value.length) {
+      return ''
+    }
+    const one = bar.value[barAt.value]
+    if (!one.limited || phase.value != 'plan' || one.left <= 0) {
+      return ''
+    }
+    return '使用'
+  })
+
+  // 按下「使用」才真的发动。
+  // 要挑目标的那些，这会儿才把选中的那几张交出去
+  function tapUse() {
+    const index = barAt.value
     if (index < 0 || index >= bar.value.length) {
       return
     }
@@ -1703,42 +2151,152 @@
       clearPick()
       return
     }
-    barAt.value = index
-    // 选中道具和选中待压是两码事，别让上一次的选中留着碍事。
-    // 压舱是例外 —— 它就是拿「选中待压」当选择的
-    if (one.key != 'ballast') {
-      sinkPicked.value = allFalse(playerQueue.value.length)
-    }
-    if (one.need > 0) {
-      needLeft.value = one.need
-      message.value = '【' + one.name + '】点 ' + one.need + ' 张牌下手。'
+    // 挑庄家那排的走另一份名单
+    if (aimsFoe()) {
+      if (foePicked.value.length == 0) {
+        toast('先点庄家那排选目标，最多 ' + needMax.value + ' 张')
+        return
+      }
+      fireItem(one, foePicked.value)
       return
     }
-    fireItem(one, [] as number[])
+    if (needMax.value > 0 && picked.value.length == 0) {
+      toast('先点牌选目标，最多 ' + needMax.value + ' 张')
+      return
+    }
+    fireItem(one, picked.value)
   }
 
-  // 选择态下点中了队列第 index 张。凑够张数才一起结算 ——
-  // 一张一张立刻生效的话，点错了没法反悔
+  // 选择态下点中了队列第 index 张：没选过就选上，选过了就取消。
+  // 到上限之后再点新的会被挡住 —— 挡住比默默顶掉一张清楚
   function pickForItem(index : number) {
-    if (barAt.value < 0 || needLeft.value <= 0) {
+    if (barAt.value < 0 || needMax.value <= 0) {
       return
+    }
+    const next : number[] = []
+    let had = false
+    for (let i = 0; i < picked.value.length; i++) {
+      if (picked.value[i] == index) {
+        had = true
+        continue
+      }
+      next.push(picked.value[i])
+    }
+    if (!had) {
+      if (picked.value.length >= needMax.value) {
+        toast('最多点 ' + needMax.value + ' 张，先取消一张')
+        return
+      }
+      next.push(index)
+    }
+    picked.value = next
+    const one = bar.value[barAt.value]
+    message.value = '【' + one.name + '】已选 ' + next.length + '/' + needMax.value
+      + ' 张' + (next.length > 0 ? '，按「使用」发动。' : '。点牌选目标。')
+  }
+
+  // 这一格是不是被道具瞄上了
+  function isAimed(index : number) : boolean {
+    if (needMax.value <= 0 || aimsFoe()) {
+      return false
     }
     for (let i = 0; i < picked.value.length; i++) {
       if (picked.value[i] == index) {
-        return
+        return true
       }
     }
-    const next : number[] = []
-    for (let i = 0; i < picked.value.length; i++) {
-      next.push(picked.value[i])
+    return false
+  }
+
+  // 这件道具挑的是庄家那排，不是你自己那排
+  function aimsFoe() : boolean {
+    if (barAt.value < 0 || barAt.value >= bar.value.length) {
+      return false
     }
-    next.push(index)
-    picked.value = next
-    needLeft.value = needLeft.value - 1
-    if (needLeft.value > 0) {
+    const key = bar.value[barAt.value].key
+    return key == 'peek' || key == 'still'
+  }
+
+  // 点中庄家手里第 index 张。跟 pickForItem 同一套开关逻辑，
+  // 只是记在另一份名单上
+  function pickFoe(index : number) {
+    if (!aimsFoe() || needMax.value <= 0 || phase.value != 'plan') {
       return
     }
-    fireItem(bar.value[barAt.value], next)
+    if (index >= dealerHand.value.length) {
+      return
+    }
+    const next : number[] = []
+    let had = false
+    for (let i = 0; i < foePicked.value.length; i++) {
+      if (foePicked.value[i] == index) {
+        had = true
+        continue
+      }
+      next.push(foePicked.value[i])
+    }
+    if (!had) {
+      if (foePicked.value.length >= needMax.value) {
+        toast('最多点 ' + needMax.value + ' 张，先取消一张')
+        return
+      }
+      next.push(index)
+    }
+    foePicked.value = next
+    const one = bar.value[barAt.value]
+    message.value = '【' + one.name + '】已选庄家第 '
+      + foeOrder(next) + ' 张（共 ' + next.length + '/' + needMax.value + '）'
+      + (next.length > 0 ? '，按「使用」发动。' : '。')
+  }
+
+  // 把选中的下标写成「1、3」这种人话。庄家那排是按出牌顺序摆的，
+  // 所以下标加一就是「它第几张打」
+  function foeOrder(list : number[]) : string {
+    let text = ''
+    for (let i = 0; i < list.length; i++) {
+      text = text + (i > 0 ? '、' : '') + (list[i] + 1)
+    }
+    return text
+  }
+
+  function isFoeAimed(index : number) : boolean {
+    if (needMax.value <= 0 || !aimsFoe()) {
+      return false
+    }
+    for (let i = 0; i < foePicked.value.length; i++) {
+      if (foePicked.value[i] == index) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 窥筒照亮的那几张：整轮都翻着
+  function isSeen(card : Card) : boolean {
+    return inList(lit, card)
+  }
+
+  // 庄家第 index 张这会儿看不看得见：明竿开的前几张，
+  // 或者窥筒单独照亮的那几张
+  function foeOpen(index : number, card : Card) : boolean {
+    return index < dealerOpen.value || isSeen(card)
+  }
+
+  function isZeroed(card : Card) : boolean {
+    return inList(zeroCards, card)
+  }
+
+  // 庄家那张牌上挂的小标。被停口废过的要看得出来 ——
+  // 背面牌看不见点数，不标一下你就记不住刚才废的是哪几张
+  function foeMark(index : number) : string {
+    if (index >= dealerHand.value.length) {
+      return ''
+    }
+    const card = dealerHand.value[index]
+    if (isZeroed(card)) {
+      return '0 点'
+    }
+    return isNoValue(card) ? '无点数' : ''
   }
 
   // 真的发动。扣次数、改牌、刷新道具栏
@@ -1764,38 +2322,44 @@
       done = true
       text = '【清水】照亮了 ' + blind + ' 张盖着的牌。'
     } else if (one.key == 'peek') {
-      const list : Card[] = []
-      for (let i = dealerStep.value; i < dealerQueue.value.length && list.length < n; i++) {
-        list.push(dealerQueue.value[i])
-      }
-      if (list.length == 0) {
+      // 你点哪几张就照亮哪几张，而且**整轮都翻着** ——
+      // 不再是弹一次窗看完就没。
+      //
+      // 挑的时候它们还盖着，所以你挑的是**位置**（它第几张打），
+      // 不是牌面。于是这件道具的决策从「看不看」变成了「看哪几手」：
+      // 明竿已经把最前面那张给你了，你要不要花一次窥筒去看第三、第四张？
+      const got = foeCards(targets)
+      if (got.length == 0) {
         toast('它手里没牌了')
         clearPick()
         return
       }
-      // **按点数重排再摊出来**。
-      //
-      // dealerQueue 本身就是排好的出牌顺序，原样显示等于连顺序一起泄露 ——
-      // 那这一轮就成了一道能一次算完的题，排序不再是决策。
-      // 窥筒卖的是「它手里有什么」，不是「它什么时候打」
-      peekCards.value = sortByValue(list)
-      peekOpen.value = true
+      for (let i = 0; i < got.length; i++) {
+        lit.push(got[i])
+      }
       done = true
-      text = '【窥筒】看了它 ' + list.length + ' 张（只给牌面，不给顺序）。'
-    } else if (one.key == 'ballast') {
-      done = fireBallast()
-      if (!done) {
+      text = '【窥筒】照亮了 ' + got.length + ' 张，这一轮一直翻着。'
+        + '出牌顺序要等你按「开始出牌」它才排 —— 所以你知道它手里有什么，'
+        + '不知道什么时候打。'
+    } else if (one.key == 'still') {
+      const got = foeCards(targets)
+      if (got.length == 0) {
+        toast('它手里没牌了')
         clearPick()
         return
       }
-      text = '【压舱】把选中的几张压回牌库底，这一轮少出几张。'
-    } else if (one.key == 'swap') {
-      done = fireSwap(targets)
-      if (!done) {
+      // 废成 0 点还是废成没点数，当场问 —— 这两样在这套规则里是反的，
+      // 得让你按局面挑。问完才扣次数，弹窗按了取消不该白费一次
+      askStill(one, got, targets)
+      return
+    } else if (one.key == 'steal') {
+      const got = fireSteal(n)
+      if (got == '') {
         clearPick()
         return
       }
-      text = '【换饵】换上了牌库顶的牌。'
+      done = true
+      text = '【摸底】从庄家牌组底抽走 ' + got + '，插在你牌组顶上。'
     } else if (one.key == 'lucky') {
       // 直接烧成一张幸运贴纸 —— 那张贴纸的效果就是「点数还可以按顺位 ±1 算」，
       // playOptions 现成就认，不用另写一套。
@@ -1808,24 +2372,30 @@
       done = true
       text = '【幸运】这一轮它 ±1 都算数 —— 三个点数都留着。'
     } else if (one.key == 'hint') {
-      const lines = buildHints(n)
+      const lines = buildHints(one.tier, n)
       if (lines.length == 0) {
         toast('它这一轮没牌了')
         clearPick()
         return
       }
-      let body = ''
+      // 存住，之后点这件道具随时翻得出来。不弹窗 ——
+      // 线索是你排这一轮的依据，看一眼就消失的情报没法拿来排牌
+      const keep : string[] = []
       for (let i = 0; i < lines.length; i++) {
-        body = body + (i > 0 ? '\n' : '') + '· ' + lines[i]
+        keep.push(lines[i])
       }
-      uni.showModal({
-        title: '探口',
-        content: body,
-        showCancel: false,
-        confirmText: '记下了'
-      })
+      hintLines.value = keep
       done = true
-      text = '【探口】探到 ' + lines.length + ' 条线索。'
+      text = '【探口】' + joinHints(keep)
+    } else if (one.key == 'tidy') {
+      if (tidyRound.value) {
+        toast('这一轮已经开着了')
+        clearPick()
+        return
+      }
+      tidyRound.value = true
+      done = true
+      text = '【拢堆】这一轮没钩上的牌会按点数重排 —— 堆成梯子，钩得越深收得越多。'
     } else if (one.key == 'bury') {
       for (let i = 0; i < targets.length; i++) {
         buried.push(playerQueue.value[targets[i]])
@@ -1839,16 +2409,55 @@
       done = true
       text = '【吞口】这一轮它往回一路吞比它小的 —— 撞上不比它小的才停。'
     } else if (one.key == 'bysuit') {
+      // 只记进名单，不动 forced —— 它的代价是**没有点数**，不是 0 点。
+      // 「没点数」这件事由 valuesOf2 和 playOne 一起认（都查 noValue），
+      // 借 forced = 0 的话它就成了 0 点，会被吞口一口吞了
       for (let i = 0; i < targets.length; i++) {
         const card = playerQueue.value[targets[i]]
         suitHook.push(card)
-        // 点数按 0 算：这是它的代价 —— 放弃这张牌在点数那条线上的一切，
-        // 换一次按花色的散收。0 点钩不上人，也没人钩得上它
-        card.forced = 0
-        tweaked.push(card)
+        noValue.push(card)
       }
       done = true
-      text = '【收色】它点数按 0 算，打出时把堆上所有同花色的一并收走。'
+      text = '【收色】它这一轮没有点数了，只剩花色 —— '
+        + '打出时把堆上所有同花色的一并收走。'
+    } else if (one.key == 'tangle') {
+      for (let i = 0; i < targets.length; i++) {
+        const card = playerQueue.value[targets[i]]
+        tangle.push(card)
+        noValue.push(card)
+      }
+      done = true
+      text = '【缠线】它这一轮没有点数了 —— 打出时把它左边那张也一起缠废，'
+        + '连着两张谁也钩不动。记得让庄家那张落在它左边。'
+    } else if (one.key == 'guard') {
+      // 点数照旧不动 —— 挡不挡得住全看它自己多大，废了它就没法挡了
+      let low = ''
+      for (let i = 0; i < targets.length; i++) {
+        const card = playerQueue.value[targets[i]]
+        guards.push(card)
+        low = low + (low == '' ? '' : '、') + faceOf(topOf(card))
+      }
+      done = true
+      text = '【挡口】它站岗了 —— 庄家钩它左边那张时，'
+        + '只要那张点数没到 ' + low + '，这一钩就收到它右边为止。'
+        + '但撞的是大数（大于 ' + BIG_VALUE + '）就拦不住，一律穿过去。'
+    } else if (one.key == 'ebb') {
+      // 不进 noValue —— 它压的是别人，自己那张点数照旧
+      for (let i = 0; i < targets.length; i++) {
+        ebb.push(playerQueue.value[targets[i]])
+      }
+      done = true
+      text = '【落潮】打出时把它左边 ' + n + ' 张全压成 0 点（没点数的也算）——'
+        + '那几张从最大翻成最小，接着就靠它自己一口吞回来。'
+    } else if (one.key == 'dye') {
+      for (let i = 0; i < targets.length; i++) {
+        const card = playerQueue.value[targets[i]]
+        dye.push(card)
+        noValue.push(card)
+      }
+      done = true
+      text = '【染水】它这一轮没有点数了 —— 打出时整堆都染成它的花色。'
+        + '染完再用收色，一把端走整堆；但庄家的同源也认染完的花色。'
     } else if (one.key == 'mutenum' || one.key == 'mutecolor') {
       // 挑哪一边得当场问。问完才扣次数 —— 弹窗按了取消不该白费一次
       askMute(one)
@@ -1860,14 +2469,34 @@
         return
       }
       text = '【集花】顺着花色对上了堆里最前面那张。'
+    } else if (one.key == 'mark') {
+      for (let i = 0; i < targets.length; i++) {
+        const card = playerQueue.value[targets[i]]
+        // forced 是「基础点数被改写成几点」，直接钉死 —— 不走 extra。
+        // extra 是加在最终点数上的，那是坠子的路子；
+        // 定标要的是「本来几点不算数」，所以必须改基础值。
+        // 两件一起用就是 11 + 坠子那几点，各管各的层，不打架
+        card.forced = n
+        tweaked.push(card)
+        // 借埋饵那套沉底：打出时进堆底、这一下不钩。
+        // 定标现在不是一手收成，是往堆最深处钉一个你知道点数的钩点
+        buried.push(card)
+      }
+      done = true
+      text = '【定标】它变成 ' + n + ' 点（牌面 ' + faceOf(n) + '），打出时沉到堆底当钩点。'
+        + '沉下去照样判撞 —— 堆上有对得上的就照收。'
+        + '桩谁都能钩，庄家手里也有四张 ' + faceOf(n) + '，埋完记得护。'
     } else if (one.key == 'bare') {
       for (let i = 0; i < targets.length; i++) {
         const card = playerQueue.value[targets[i]]
+        // 变成 0 点，不是「没有点数」—— 0 当不了钩点，
+        // 但吞口那条「大于」的线照样吃得动它
         card.forced = 0
         tweaked.push(card)
       }
       done = true
-      text = '【空钩】这一轮它不算钩点了 —— 钩不上人，也没人钩得上它。'
+      text = '【空钩】这一轮它点数变成 0 —— 钩不上人，按点数也没人钩得上它。'
+        + '（吞口那条线除外，0 点是最好吞的）'
     } else if (one.key.indexOf('sink') == 0) {
       // 坠子家族六件共用这一支。indexOf == 0 而不是 substring ——
       // 后者在 Kotlin 那边的重载跟 JS 对不齐，前者两边都一个意思
@@ -1906,8 +2535,66 @@
 
   function clearPick() {
     barAt.value = -1
-    needLeft.value = 0
+    needMax.value = 0
     picked.value = [] as number[]
+    foePicked.value = [] as number[]
+  }
+
+  // 把「庄家手里第几张」这组下标换成真正的牌。
+  // dealerHand 是从 dealerStep 往后数的，所以下标要加上这个偏移
+  function foeCards(targets : number[]) : Card[] {
+    const out : Card[] = []
+    for (let i = 0; i < targets.length; i++) {
+      const at = dealerStep.value + targets[i]
+      if (at >= 0 && at < dealerQueue.value.length) {
+        out.push(dealerQueue.value[at])
+      }
+    }
+    return out
+  }
+
+  // 停口：废成 0 点还是废成没点数，当场问。
+  //
+  // 这两样在这套规则里是**反的**，所以不能替玩家定：
+  //   0 点 —— 什么都比它大，是你吞口、巨口的口粮；
+  //   没点数 —— 什么都不比它大，是一道谁也动不了的墙。
+  // 走大数那一路的要粮，想封路的要墙，同一件道具两种用法
+  function askStill(one : BarItem, cards : Card[], targets : number[]) {
+    uni.showModal({
+      title: one.name,
+      content: '把庄家第 ' + foeOrder(targets) + ' 张废成哪一种？\n\n'
+        + '【变 0 点】什么都比它大 —— 它钩不上人，而且是你吞口、巨口的口粮。\n'
+        + '【失去点数】什么都不比它大 —— 它钩不上人，也没人钩得动它，堆上立一道墙。',
+      confirmText: '变 0 点',
+      cancelText: '失去点数',
+      success: (res) => {
+        fireStill(one, cards, targets, res.confirm)
+      }
+    })
+  }
+
+  function fireStill(one : BarItem, cards : Card[], targets : number[], zero : boolean) {
+    const data = save.value
+    if (!spendUse(data, one.key)) {
+      clearPick()
+      return
+    }
+    for (let i = 0; i < cards.length; i++) {
+      if (zero) {
+        zeroCards.push(cards[i])
+      } else {
+        noValue.push(cards[i])
+      }
+    }
+    saveCurrent(data)
+    save.value = cloneSave(data)
+    pushQueue()
+    buildBar()
+    clearPick()
+    message.value = '【停口】庄家第 ' + foeOrder(targets) + ' 张'
+      + (zero
+        ? '变成 0 点 —— 它钩不上人，落堆之后是你吞口的口粮。'
+        : '失去点数 —— 它钩不上人，也没人钩得动，落堆就是一道墙。')
   }
 
   // 断数 / 断色：先问断哪一边，选完才真的发动。
@@ -1918,10 +2605,19 @@
     const isColor = one.key == 'mutecolor'
     const first = isColor ? MUTE_RED : MUTE_ODD
     const second = isColor ? MUTE_BLACK : MUTE_EVEN
+    // 两件的措辞不能共用 —— 它们不是同一个效果：
+    // 断数变成 0 点（什么都比它大，吞口一口吞一片），
+    // 断色失去点数（什么都不比它大，吞口撞上就停）
+    const body = isColor
+      ? '这一轮双方打出的哪一类**失去点数**？\n\n'
+        + '（不是 0 点，是压根没有点数 —— 比大小时当最大，吞口吞不动。'
+        + '花色还在，收色、集花照样够得着）'
+      : '这一轮双方打出的哪一类**变成 0 点**？\n\n'
+        + '（什么都比它大 —— 吞口能一口吞一整片。'
+        + '花色还在，收色、集花照样够得着）'
     uni.showModal({
       title: one.name,
-      content: '这一轮双方打出的哪一类按 0 点算？\n\n'
-        + '（点数没了，花色还在 —— 收色、集花照样够得着）',
+      content: body,
       confirmText: muteName(first),
       cancelText: muteName(second),
       success: (res) => {
@@ -1942,8 +2638,11 @@
     pushQueue()
     buildBar()
     clearPick()
-    message.value = '【' + one.name + '】这一轮' + muteName(kind)
-      + '牌一律按 0 点算 —— 点数没了，花色还在。'
+    message.value = kind == MUTE_RED || kind == MUTE_BLACK
+      ? '【' + one.name + '】这一轮' + muteName(kind)
+        + '牌一律失去点数 —— 不是 0 点，是没有点数，比大小时最大，吞口吞不动。花色还在。'
+      : '【' + one.name + '】这一轮' + muteName(kind)
+        + '牌一律变成 0 点 —— 什么都比它大，吞口一口能吞一片。花色还在。'
   }
 
   // 探口：攒一把关于庄家这一轮手牌的实话，随机挑几条给出去。
@@ -1952,7 +2651,20 @@
   // 拆开夹你；具体哪一对还得自己盯着堆上推。
   // 全是真话，没有误导项：这游戏的信息已经够少了，
   // 再掺假话就不是「算」而是「猜」了
-  function buildHints(want : number) : string[] {
+  // 线索按档分池：**升级换来的不只是条数，更是质量**。
+  //
+  // 四条「有几张红牌」堆在一起还是四条废话 —— 粗线索再多也推不出东西。
+  // 所以低档给的是笼统的计数，高档给的是能直接改排法的实话：
+  //
+  //   普通 —— 大于 7 几张、奇数几张、红牌几张。只够估个成色。
+  //   稀有 —— 有没有对子、最大的一张是几点。开始有结构了：
+  //           知道它有对子，你就得防它把那对拆开夹你。
+  //   史诗 —— 最小的一张、**跟你队列配得上对的有几张**。
+  //           最后这条最狠：它直接告诉你，你排的那几手会不会被截。
+  //   传说 —— 它手里某个具体点数有几张。接近点名了。
+  //
+  // 一律真话，没有误导项 —— 这游戏信息本来就少，掺假就不是算是猜了
+  function buildHints(tier : number, want : number) : string[] {
     const hand : Card[] = []
     for (let i = dealerStep.value; i < dealerQueue.value.length; i++) {
       hand.push(dealerQueue.value[i])
@@ -1965,8 +2677,7 @@
     let odd = 0
     let red = 0
     for (let i = 0; i < hand.length; i++) {
-      const vals = valuesOf2(hand[i])
-      const v = vals.length > 0 ? vals[0] : 0
+      const v = firstValue(hand[i])
       if (v > 7) {
         big = big + 1
       }
@@ -1977,13 +2688,24 @@
         red = red + 1
       }
     }
-    pool.push('手里有 ' + big + ' 张大于 7 的牌')
+    pool.push('手里有 ' + big + ' 张大于 7 的')
     pool.push('手里有 ' + odd + ' 张奇数牌')
     pool.push('手里有 ' + red + ' 张红牌')
-    pool.push(hasPair(hand) ? '手里有对子' : '手里没有对子')
-    const top = topValue(hand)
-    pool.push('最大的一张是 ' + faceOf(top) + ' 点')
-    // 随机抽 want 条，抽过的不再抽
+    if (tier >= 1) {
+      pool.push(hasPair(hand) ? '手里有对子' : '手里没有对子')
+      pool.push('最大的一张是 ' + faceOf(topValue(hand)) + ' 点')
+    }
+    if (tier >= 2) {
+      pool.push('最小的一张是 ' + faceOf(lowestValue(hand)) + ' 点')
+      pool.push('有 ' + matchCount(hand) + ' 张跟你现在排的这几手配得上对')
+    }
+    if (tier >= 3) {
+      const pick = hand[Math.floor(Math.random() * hand.length)]
+      const v = firstValue(pick)
+      pool.push('手里的 ' + faceOf(v) + ' 有 ' + countOfValue(hand, v) + ' 张')
+    }
+    // 随机抽 want 条，抽过的不再抽。
+    // 高档池子大，所以抽到好线索的机会本身也高了一截
     const out : string[] = []
     const used : boolean[] = []
     for (let i = 0; i < pool.length; i++) {
@@ -1993,7 +2715,9 @@
     if (left > pool.length) {
       left = pool.length
     }
-    while (out.length < left) {
+    let guard = 0
+    while (out.length < left && guard < 200) {
+      guard = guard + 1
       const at = Math.floor(Math.random() * pool.length)
       if (used[at]) {
         continue
@@ -2004,27 +2728,61 @@
     return out
   }
 
-  // 按点数从小到大排一份新的，用来摊给玩家看。
-  //
-  // 凡是要把庄家的牌摊出来的地方都得过这一道 —— 它那个数组本身
-  // 就是出牌顺序，照原样显示等于把顺序一起送出去。
-  // 插入排序够用了，一轮最多五张
-  function sortByValue(list : Card[]) : Card[] {
-    const out : Card[] = []
-    for (let i = 0; i < list.length; i++) {
-      out.push(list[i])
-    }
-    for (let i = 1; i < out.length; i++) {
-      const one = out[i]
-      const key = lowValue(one)
-      let k = i - 1
-      while (k >= 0 && lowValue(out[k]) > key) {
-        out[k + 1] = out[k]
-        k = k - 1
+  function firstValue(card : Card) : number {
+    const vals = valuesOf2(card)
+    return vals.length > 0 ? vals[0] : 0
+  }
+
+  function lowestValue(hand : Card[]) : number {
+    let low = 99
+    for (let i = 0; i < hand.length; i++) {
+      const v = firstValue(hand[i])
+      if (v > 0 && v < low) {
+        low = v
       }
-      out[k + 1] = one
     }
-    return out
+    return low == 99 ? 0 : low
+  }
+
+  function countOfValue(hand : Card[], worth : number) : number {
+    let n = 0
+    for (let i = 0; i < hand.length; i++) {
+      if (firstValue(hand[i]) == worth) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  // 它手里有几张能跟你队列里的牌配上对。
+  //
+  // 这条是史诗档最值钱的一句：它直接回答「我排的这几手会不会被截」——
+  // 你靠一对 8 去钩，它手里正好也有 8，那一对多半保不住
+  function matchCount(hand : Card[]) : number {
+    let n = 0
+    for (let i = 0; i < hand.length; i++) {
+      const theirs = valuesOf2(hand[i])
+      for (let k = 0; k < playerQueue.value.length; k++) {
+        if (shareValue(theirs, valuesOf2(playerQueue.value[k]))) {
+          n = n + 1
+          break
+        }
+      }
+    }
+    return n
+  }
+
+  // 原先这儿有个 sortByValue：把庄家的牌按点数重排再摊给玩家看，
+  // 免得连出牌顺序一起泄露。窥筒改成「点哪张照亮哪张、就地翻开」之后
+  // 没人调它了 —— 新的窥筒本来就是按位置挑的，顺序是它卖的东西之一。
+
+  // 几条线索拼成一句。说明框就一行，用顿号接比换行省地方
+  function joinHints(lines : string[]) : string {
+    let text = ''
+    for (let i = 0; i < lines.length; i++) {
+      text = text + (i > 0 ? '；' : '') + lines[i]
+    }
+    return text + '。'
   }
 
   function hasPair(hand : Card[]) : boolean {
@@ -2085,7 +2843,9 @@
   // 堆里最前面那张这个花色的牌算几点。没有就返回 -1
   function frontSuitValue(suit : string) : number {
     for (let i = 0; i < pile.value.length; i++) {
-      if (pileSuitOf(pile.value[i]) != suit) {
+      // 并色之后方块也对得上红心 —— 堆上能对的牌翻倍，
+      // 集花从「看堆里有没有」变成「基本对得上」
+      if (!suitAlike(pileSuitOf(pile.value[i]), suit)) {
         continue
       }
       const vals = valuesOf(pile.value[i])
@@ -2098,90 +2858,78 @@
     return -1
   }
 
-  // 换饵：选中的几张换成牌库顶那几张。
-  // 换下来的压回牌库底，总张数不变
-  function fireSwap(targets : number[]) : boolean {
-    const deck = playerDeck.value
-    let cursor = playerCursor.value
-    if (cursor + targets.length > deck.length) {
-      toast('牌库剩下的不够换')
-      return false
-    }
-    const cards : Card[] = []
-    for (let i = 0; i < playerQueue.value.length; i++) {
-      cards.push(playerQueue.value[i])
-    }
-    const out : Card[] = []
-    const hidden : boolean[] = []
-    for (let i = 0; i < queueHidden.value.length; i++) {
-      hidden.push(queueHidden.value[i])
-    }
-    for (let i = 0; i < targets.length; i++) {
-      const at = targets[i]
-      out.push(cards[at])
-      cards[at] = deck[cursor]
-      // 换上来的是明牌 —— 你是照着牌库顶换的，没道理换完看不见
-      hidden[at] = false
-      cursor = cursor + 1
-    }
-    const nextDeck : Card[] = []
-    for (let i = 0; i < deck.length; i++) {
-      nextDeck.push(deck[i])
-    }
-    for (let i = 0; i < out.length; i++) {
-      nextDeck.push(cloneCard(out[i]))
-    }
-    playerDeck.value = nextDeck
-    playerCursor.value = cursor
-    playerQueue.value = cards
-    queueHidden.value = hidden
-    return true
+  // 摸底：从庄家牌组底抽 want 张，插进自己牌组顶（playerCursor 那个位置，
+  // 下一次抽牌就是它们）。返回抽到的牌面，抽不着返回空串。
+  //
+  // 「底」是数组末尾。只能抽它还没打出去的那一段（下标 >= dealerCursor）——
+  // 已经打过的那些在堆上或者收获里，不在牌组里了
+  // 拷一张干净的：贴纸撕掉，点数派生的那几个字段也一并归位 ——
+  // 庄家那张可能被它自己的贴纸改过点数，不清的话偷过来还带着
+  function stripSticker(origin : Card) : Card {
+    const one = cloneCard(origin)
+    one.stickerKey = S_NONE
+    one.forced = -1
+    one.extra = 0
+    one.altValue = -1
+    one.negated = false
+    one.faceDown = false
+    one.pileValue = -1
+    one.pileValues = [] as number[]
+    return one
   }
 
-  // 压舱：选中待压的那几张压回牌库底，**不补牌**。
-  //
-  // 队列因此变短，这一轮你就比庄家少出几张 —— 终局那几轮它没牌了，
-  // 你自己接着打，堆上全是你的牌加残留，能连着钩。
-  // 复用「选中待压」那套选择，不再另起一套点选
-  function fireBallast() : boolean {
-    let want = 0
-    for (let i = 0; i < sinkPicked.value.length; i++) {
-      if (sinkPicked.value[i]) {
-        want = want + 1
+  function fireSteal(want : number) : string {
+    const deck = dealerDeck.value
+    const left = deck.length - dealerCursor
+    if (left <= 0) {
+      toast('庄家牌组空了，没得摸')
+      return ''
+    }
+    let take = want
+    if (take > left) {
+      take = left
+    }
+    const got : Card[] = []
+    const rest : Card[] = []
+    for (let i = 0; i < deck.length - take; i++) {
+      rest.push(deck[i])
+    }
+    for (let i = deck.length - take; i < deck.length; i++) {
+      got.push(deck[i])
+    }
+    dealerDeck.value = rest
+    // 插在自己牌组顶：cursor 指的就是「下一张要摸的」，插在那儿最快见效。
+    //
+    // 贴纸要撕掉：庄家那半副是按关卡配置贴过的，连贴纸一起偷过来
+    // 等于白捡一份战力，而你这边的牌一律是素牌 —— 破了那条规矩，
+    // 后面「你的牌是干净的」这个前提就不成立了
+    const mine = playerDeck.value
+    const next : Card[] = []
+    for (let i = 0; i < mine.length; i++) {
+      if (i == playerCursor.value) {
+        for (let k = 0; k < got.length; k++) {
+          next.push(stripSticker(got[k]))
+        }
+      }
+      next.push(mine[i])
+    }
+    // cursor 已经走到末尾的话上面那个循环插不进去，补在后面
+    if (playerCursor.value >= mine.length) {
+      for (let k = 0; k < got.length; k++) {
+        next.push(stripSticker(got[k]))
       }
     }
-    if (want == 0) {
-      toast('先点几张要压的牌')
-      return false
-    }
-    if (want >= playerQueue.value.length) {
-      toast('总得留一张打出去')
-      return false
-    }
-    const cards : Card[] = []
-    const hidden : boolean[] = []
-    const out : Card[] = []
-    for (let i = 0; i < playerQueue.value.length; i++) {
-      if (i < sinkPicked.value.length && sinkPicked.value[i]) {
-        out.push(playerQueue.value[i])
-        continue
+    playerDeck.value = next
+    let names = ''
+    for (let i = 0; i < got.length; i++) {
+      if (i > 0) {
+        names = names + '、'
       }
-      cards.push(playerQueue.value[i])
-      hidden.push(queueHidden.value[i])
+      names = names + got[i].suit + rankText(got[i])
     }
-    const nextDeck : Card[] = []
-    for (let i = 0; i < playerDeck.value.length; i++) {
-      nextDeck.push(playerDeck.value[i])
-    }
-    for (let i = 0; i < out.length; i++) {
-      nextDeck.push(cloneCard(out[i]))
-    }
-    playerDeck.value = nextDeck
-    playerQueue.value = cards
-    queueHidden.value = hidden
-    sinkPicked.value = allFalse(cards.length)
-    return true
+    return names
   }
+
 
   // 把队列换个新数组推一下视图。
   // 道具改的是数组里的牌对象，引用没变，不换数组牌面不会更新
@@ -2205,24 +2953,32 @@
     tweaked = [] as Card[]
     suitHook = [] as Card[]
     bigHook = [] as Card[]
+    noValue = [] as Card[]
+    // 窥筒照亮的、停口废掉的都只管这一轮 ——
+    // 下一轮庄家换一手牌，这两份名单里的牌早打出去了
+    lit = [] as Card[]
+    zeroCards = [] as Card[]
+    tangle = [] as Card[]
+    dye = [] as Card[]
+    ebb = [] as Card[]
     buried = [] as Card[]
     muteKind = MUTE_NONE
   }
 
-  // 没钩上就把**这一轮打出的**那些按点数从大到小重排 ——
-  // 大的沉底，小的浮在顶上。
+  // 拢堆：没钩上的时候把堆按点数从大到小重排 —— 大的沉底，小的浮顶。
   //
-  // 这条规则换掉了原先「收走两张之间夹着的那一段」：堆一旦重排，
-  // 「中间夹了谁」就跟出牌顺序无关了，改由点数大小决定。
-  // 换来的是一条极好读的规矩：**匹配得越大，扫得越多** ——
-  // 钩中下面那张大牌，它上面所有更小的一并归你；钩中顶上的小牌，
-  // 就只刮到那么几张。
+  // **这是道具效果，不是基础规则。** 基础规则里堆就是出牌顺序，
+  // 「你相邻两张之间夹着它一张、配对就把中间那张一并收走」全靠这个顺序。
+  // 无条件重排会把那条机制整个废掉，所以它得是你花钱买来的一条新规矩。
   //
-  // 只排本轮的，是为了留住跨轮的记忆：上几轮没被收走的沉在底下不动。
-  // 全堆一起排的话，每轮开局都等于把堆抹平重来，
-  // 「堆底埋着什么」这条线就没了 —— 而那正是轮数越多越吃记牌的来源。
+  // 带上之后堆变成一道梯子：钩中下面那张大牌，它上面所有更小的一并归你。
+  // 于是玩法从「算夹了谁」变成「算深浅」—— 这是另一种打法，
+  // 愿意换的人自己换。
   //
-  // 埋饵埋下去的也不参与，钉在最底下 —— 那件买的就是这个位置，
+  // 普通档只排本轮打出的，跨轮的记忆留着：上几轮没被收走的沉在底下不动。
+  // 升一级才连整堆一起排。
+  //
+  // 埋饵埋下去的永远不参与，钉在最底下 —— 那件买的就是这个位置，
   // 让它跟着排序浮上去等于没埋
   function sortPile() {
     const pinned : Card[] = []
@@ -2250,9 +3006,11 @@
     for (let i = 1; i < loose.length; i++) {
       const card = loose[i]
       const flag = looseFlags[i]
-      const key = topOf(card)
+      // 用 sizeOf：断色废掉的那几张没有点数，比大小时最大，
+      // 所以它们沉到堆最底下 —— 谁也钩不动，正好当一层垫底
+      const key = sizeOf(card)
       let k = i - 1
-      while (k >= 0 && topOf(loose[k]) < key) {
+      while (k >= 0 && sizeOf(loose[k]) < key) {
         loose[k + 1] = loose[k]
         looseFlags[k + 1] = looseFlags[k]
         k = k - 1
@@ -2325,6 +3083,33 @@
     return false
   }
 
+  // 比大小的时候这张算多大。
+  //
+  // **没有点数的牌一律算最大** —— 不管点数是怎么没的：收色、断色、
+  // 空位贴纸、压冠、锁花、封位掐掉的那一张，全一个待遇。
+  //
+  // 「没有点数」和「点数是 0」是两回事，这是这套规则的分界线：
+  //   0 点 —— 有点数，只是这个数最小。什么都比它大，吞口一口吞一片。
+  //           空钩（forced = 0）和**断数**是这一类。
+  //   没点数 —— 压根没有这个属性。没有属性就没法比，那就什么都不比它大。
+  //           收色是这一类：它拿整个点数换一次按花色的散收，
+  //           换出去之后那张牌在点数这条轴上就不存在了，连吞口也够不着。
+  //
+  // 判据直接是「valuesOf 返回空」，不另记名单：牌一旦是没点数地落进堆，
+  // pileValues 从那一刻起就是空的、再也不会重算，所以这个判据天然
+  // 跟着牌走而不是跟着轮走 —— 同一张牌不会这一轮吞不动、下一轮又吞得动。
+  //
+  // 跟 topOf 分开是因为方向不同：topOf 是「我这张能拿出多大的数去比」，
+  // 没有点数就是拿不出数，该返回 0（吞口那边正好靠这个判出「它钩不了人」）；
+  // sizeOf 是「别人拿多大的数来跟我比」，没有点数就是谁也够不着。
+  // 一个函数兼两头的话，一张没点数的牌会变成「既钩得动所有人、
+  // 又谁都钩不动」的怪物
+  const SIZE_TOP : number = 99
+
+  function sizeOf(card : Card) : number {
+    return valuesOf(card).length == 0 ? SIZE_TOP : topOf(card)
+  }
+
   // 这张算得出来的最大那个数。比大小一律用最大值 ——
   // 两边都用同一个口径，不然「谁比谁大」这件事自己就说不圆
   function topOf(card : Card) : number {
@@ -2342,8 +3127,15 @@
   // 一路吞比自己小的，撞上不比自己小的就停。
   //
   // 一张都没吞到就不算钩中 —— 只收回自己那张不是「收牌」。
-  // 被断口哑掉的牌算 0 点，什么都比它大，所以一整片哑牌正好一口吞了
+  //
+  // 跟断口那两件的联动现在分成两头：
+  //   断数哑掉的是 0 点，什么都比它大 —— 一整片正好一口吞了；
+  //   断色废掉的是没有点数，什么都不比它大 —— 撞上就停，一张也吞不动。
+  // 所以断数是给吞口开路的，断色是拿来挡吞口的
   function pileIndexOfSwallow(card : Card) : number {
+    // 自己这一张用 topOf 不用 sizeOf：这儿问的是「我能拿多大的数去比」。
+    // 没有点数就是拿不出数，下面 mine <= 0 直接判它钩不了人 ——
+    // 换成 sizeOf 的话，一张被断色废掉的牌反倒会把整堆吞光
     const mine = topOf(card)
     const last = pile.value.length - 1
     if (mine <= 0 || last <= 0) {
@@ -2351,7 +3143,7 @@
     }
     let at = last
     let i = last - 1
-    while (i >= 0 && topOf(pile.value[i]) < mine) {
+    while (i >= 0 && sizeOf(pile.value[i]) < mine) {
       at = i
       i = i - 1
     }
@@ -2360,8 +3152,86 @@
 
   // 这张这一轮按花色钩吗
   function isSuitHook(card : Card) : boolean {
-    for (let i = 0; i < suitHook.length; i++) {
-      if (suitHook[i] == card) {
+    return inList(suitHook, card)
+  }
+
+  // 这张这一轮被你主动废掉点数了吗（收色、缠线、染水）
+  function isNoValue(card : Card) : boolean {
+    return inList(noValue, card)
+  }
+
+  function isTangle(card : Card) : boolean {
+    return inList(tangle, card)
+  }
+
+  function isDye(card : Card) : boolean {
+    return inList(dye, card)
+  }
+
+  function isEbb(card : Card) : boolean {
+    return inList(ebb, card)
+  }
+
+  function isGuard(card : Card) : boolean {
+    return inList(guards, card)
+  }
+
+  // 这一张挡口拦不拦得住被钩的那张。**两条都得成立**：
+  //
+  //   一、被钩那张的点数**没有挡口大** —— 岗哨得压得住它守的东西。
+  //       拿一张 3 去挡，只护得住 3 以下。
+  //   二、被钩那张**不是大数**（不大于 10）——
+  //       撞的是 J、Q、K 的话，挡口再大也拦不住，一律穿过去。
+  //
+  // 第二条是这件道具的天花板，也是它的定位：**大钩点拦不住**。
+  // 堆底埋着的那根 11 的桩、堆里那张 K，本来就是全场最肥的目标，
+  // 谁都盯着；这件道具管得了零碎，管不了那个。
+  // 想护大数得另想办法，或者干脆接受「埋大桩就是高风险高回报」。
+  //
+  // 两条一叠，挡口守的其实是**小牌堆出来的那一段**：
+  // 挡口自己越大守得越宽，但上限钉死在 10。
+  //
+  // 用 topOf 不用 sizeOf：这儿比的是**点数**，
+  // 而没点数的牌压根没有点数，当然算不上「比它大」，第一条自然成立
+  function guardBlocks(target : Card, one : Card) : boolean {
+    const v = topOf(target)
+    return v <= topOf(one) && v <= BIG_VALUE
+  }
+
+  // 挡口拦下来之后，这一钩改从哪儿起收。拦不住就返回 -1 ——
+  // 收到挡口右边为止，挡口和它护的那张都留下
+  function guardedStart(at : number) : number {
+    let now = at
+    let step = 0
+    // 叠了好几道岗哨就一道道往上让。给个上限纯粹是防呆
+    while (step < 8) {
+      step = step + 1
+      const next = now + 1
+      if (next >= pile.value.length) {
+        break
+      }
+      const one = pile.value[next]
+      if (!isGuard(one) || !guardBlocks(pile.value[now], one)) {
+        break
+      }
+      now = next + 1
+      if (now >= pile.value.length) {
+        break
+      }
+    }
+    return now == at ? -1 : now
+  }
+
+  // 落潮压平左边几张。同名只有一件，所以这一关的档位是定死的，
+  // 落堆那会儿现查就行，不用跟着牌记一份
+  function ebbSpan() : number {
+    const tier = itemTierOf(save.value, 'ebb')
+    return tier < 0 ? 0 : valueAt(itemAt('ebb'), tier)
+  }
+
+  function inList(list : Card[], card : Card) : boolean {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i] == card) {
         return true
       }
     }
@@ -2385,6 +3255,15 @@
     return muteKind == MUTE_ODD ? odd : !odd
   }
 
+  // 这张是被**断数**哑掉的吗。断数给 0 点，断色给「没点数」，
+  // 落堆那边靠它分流
+  function isNumMuted(card : Card) : boolean {
+    if (muteKind != MUTE_ODD && muteKind != MUTE_EVEN) {
+      return false
+    }
+    return isMuted(card)
+  }
+
   function muteName(kind : number) : string {
     if (kind == MUTE_ODD) {
       return '奇数'
@@ -2398,11 +3277,6 @@
     return '黑色'
   }
 
-  function closePeek() {
-    peekOpen.value = false
-    peekCards.value = [] as Card[]
-  }
-
   // ---------- 自动出牌 ----------
 
   function startPlay() {
@@ -2414,6 +3288,8 @@
       return
     }
     phase.value = 'play'
+    // 到这一刻庄家才排它的出牌顺序 —— 你排完了，它才排
+    settleDealer()
     // step 由 startRound 置 0，这儿不用再动 ——
     // 第 0 步就是庄家那第一张，手牌区一直亮着的就是它
     resetDrag()
@@ -2545,40 +3421,241 @@
   // 打一张下去，返回这一下有没有收到牌
   function playOne(byDealer : boolean, card : Card) : boolean {
     card.faceDown = false
+    // 这是你这一轮的第几张。封位掐的是每轮你的第一张，
+    // 而那个判断在下面算候选点数的时候就要用 ——
+    // 所以得在这儿取，不能等到落堆那一段再声明
+    const myPlayed = byDealer ? -1 : playedMine
     // 空位类落堆没有点数：钩不上别人，也没人钩得上它。
     // 断口哑掉的那一类同样走这条 —— 点数没了，但**花色还在**，
-    // 所以收色、集花照样够得着，只按点数钩的人够不着
-    if (isBlankSticker(card.stickerKey) || isMuted(card)) {
+    // 所以收色、集花照样够得着，只按点数钩的人够不着。
+    // 压冠、锁花废掉的你那几张也一样：点数没了，花色留着，
+    // 所以集花那条路还能把它们救回来
+    if (isNoValue(card)) {
+      // 收色、缠线、染水：**没有点数**，只剩花色。排在断数前面 ——
+      // 这是你主动挑的一张，庄家的规矩压不过它；
+      // 真让断数把它改成 0 点，它反倒会被吞口一口吞了
+      card.pileValues = [] as number[]
+      card.pileValue = NO_VALUE
+    } else if (isZeroed(card) || isNumMuted(card)) {
+      // 停口选了「变 0 点」的那几张，跟断数走同一支。
+      //
+      // 0 点不是没点数 —— 0 是个实打实的点数，
+      // 只是最小：什么都比它大，所以吞口一口能吞一整片。
+      // 断色那件才是没点数（走下面那一支，比大小时当最大）。
+      // 两件断口的分野全在这儿
+      card.pileValues = [0] as number[]
+      card.pileValue = 0
+    } else if (isBlankSticker(card.stickerKey) || isMuted(card)
+      || (!byDealer && ruledDead(card))) {
       card.pileValues = [] as number[]
       card.pileValue = NO_VALUE
     } else {
       let vals = playOptions(card)
-      // 活钩：你的牌还可以按 ±N 算。只管你这边 ——
-      // 它是你花钱买的，没道理连庄家一起照顾
-      if (!byDealer) {
-        vals = spanValues(vals, liveSpan())
+      if (byDealer) {
+        // 长手：它的牌还可以按 ±N 算。N 是这一关摇出来的 1 或 2
+        if (reachSpan.value > 0) {
+          vals = spanValues(vals, reachSpan.value)
+        }
+        // 百搭：摇中那个点数当任意点数用 —— 一到十三全给它
+        if (wildRank.value > 0 && card.value == wildRank.value) {
+          const all : number[] = []
+          for (let v = 1; v <= 13; v++) {
+            all.push(v)
+          }
+          vals = all
+        }
+      } else {
+        // 归标：大数牌多带一个 11。摆在钝钩**之前** ——
+        // 钝钩说的是「只留最小的那个候选」，那就该对着完整的候选表来算。
+        // 于是一张 K 在钝钩底下剩的是 11 而不是 13：
+        // 本来的点数被掐了，桩还够得着。这一条对 11 流几乎不疼，
+        // 对拿归标配别的打法的人才是真损失
+        vals = tollValues(card, vals)
+        // 钝钩：只留最小的那个候选 —— 幸运、归标多给的那几条路全掐掉
+        if (hasRule('blunt') && vals.length > 1) {
+          let low = vals[0]
+          for (let i = 1; i < vals.length; i++) {
+            if (vals[i] < low) {
+              low = vals[i]
+            }
+          }
+          vals = [low] as number[]
+        }
       }
-      card.pileValues = vals
+      // 同源：庄家的牌跟堆顶同花色时，点数直接算成跟堆顶一样。
+      // 它等于白送一次钩中，所以只给庄家
+      if (byDealer && hasRule('akin') && pile.value.length > 0) {
+        const top = pile.value[pile.value.length - 1]
+        if (top != card && pileSuitOf(top) == card.suit) {
+          const tv = valuesOf(top)
+          if (tv.length > 0) {
+            vals = tv
+          }
+        }
+      }
+      // 封位：你每轮打出的第一张不算钩点
+      if (!byDealer && hasRule('mute1') && myPlayed == 0) {
+        vals = [] as number[]
+      }
+      // 出口上夹一道：提子减下去的牌到 0 为止，不留负数
+      card.pileValues = noNegative(vals)
       card.pileValue = vals.length > 0 ? 0 : NO_VALUE
     }
     const who = byDealer ? '庄家' : '你'
-    // 记一笔「这张是这一轮打的」，重排时只动这些
+    // 记一笔「这张是这一轮打的」，重排时只动这些。
+    // 你这边还要数是第几张 —— 封位那条规矩掐的是每轮你的第一张
     roundCards.push(card)
-    // 埋饵：沉到堆底，而且这一下不钩。
+    if (!byDealer) {
+      playedMine = playedMine + 1
+    }
+    // 埋饵、定标：落进**堆底**而不是堆顶。
     //
-    // 换来的是堆最深处的一个钩点 —— 后面拿张同点数的来收，
-    // 从那儿一路端到手上，整堆全归你。代价就是当下这一下白打
-    if (isBuried(card)) {
+    // **沉底不等于不钩。** 这一条是基础规则：堆上有对子就一定要钩，
+    // 没有「这一下我不钩」这种选择。所以沉下去之后照样判一次撞 ——
+    // 撞上了照收，只是收法不一样（见下面 sank 那一支）。
+    //
+    // 换来的是堆最深处的一个钩点：后面拿张同点数的来收，
+    // 从那儿一路端到手上，整堆全归你
+    const sank = isBuried(card)
+    if (sank) {
       pile.value = unshiftCard(pile.value, card)
       pileFromDealer.value = unshiftFlag(pileFromDealer.value, byDealer)
-      catchMarks.value = [] as boolean[]
-      message.value = who + '把 ' + card.suit + rankText(card) + ' 埋到了堆底。'
-      return false
+    } else {
+      pile.value = pushCard(pile.value, card)
+      pileFromDealer.value = pushFlag(pileFromDealer.value, byDealer)
     }
-    pile.value = pushCard(pile.value, card)
-    pileFromDealer.value = pushFlag(pileFromDealer.value, byDealer)
 
     message.value = who + '打出 ' + card.suit + rankText(card) + '。'
+
+    // 落堆那一下的两件事，都排在判钩之前 —— 它俩改的是堆本身，
+    // 得先让堆定型，再拿定型后的堆去判这一下钩没钩上。
+    // 这两张自己都没点数，所以本来也钩不着谁，顺序上不吃亏
+    if (isTangle(card)) {
+      // 缠线：把紧挨着它左边那张也废成没点数。
+      //
+      // 堆是从左往右摞的（下标 0 在最左、也最深），所以「左边那张」
+      // 就是刚刚打出的上一张 —— 多半是庄家那张。
+      // 废掉它等于拆掉庄家留在堆上的一个钩点，同时跟自己凑成
+      // 连着两张没点数的墙：吞口吞不动，按点数也没人钩得上
+      const at = pile.value.length - 2
+      if (at >= 0) {
+        const left = pile.value[at]
+        left.pileValues = [] as number[]
+        left.pileValue = NO_VALUE
+        message.value = who + '打出 ' + card.suit + rankText(card)
+          + '，【缠线】把左边那张 ' + left.suit + ' 也缠废了。'
+      }
+    }
+    if (isEbb(card)) {
+      // 落潮：左边那几张全压成 0 点。
+      //
+      // **没点数的也压**，这是这件的正事 —— 没点数比大小时算最大，
+      // 是堵死吞口/巨口的那道墙；压成 0 之后它从最大翻成最小，
+      // 墙当场变成口粮。所以这儿不能只压「本来有点数」的那些。
+      //
+      // 写 [0] 而不是空数组：0 是个实打实的点数（什么都比它大），
+      // 空数组才是没点数（什么都不比它大）—— 这一层分野见 sizeOf
+      const span = ebbSpan()
+      const stop = pile.value.length - 1 - span
+      const flat : Card[] = []
+      let hit = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        const one = pile.value[i]
+        if (i < pile.value.length - 1 && i >= stop && i >= 0) {
+          one.pileValues = [0] as number[]
+          one.pileValue = 0
+          hit = hit + 1
+        }
+        flat.push(one)
+      }
+      // 换一次数组引用，跟染水那边一个路子
+      pile.value = flat
+      if (hit > 0) {
+        message.value = who + '打出 ' + card.suit + rankText(card)
+          + '，【落潮】把左边 ' + hit + ' 张全压平了。'
+      }
+    }
+    if (lastingTier('flood') >= 0 && isZeroPoint(card)) {
+      // 落水：**任何人**打出 0 点牌时，它左侧所有牌点数 −X。
+      //
+      // 不加 byDealer 的判断是有意的。别的永续件（并色、巨口、挡口）
+      // 都只照顾你这边，那是因为它们给的是**好处**。
+      // 这件给的不是好处，是**改牌桌的物理** —— 水位落下去，
+      // 谁的牌都一起沉。没道理只淹一半。
+      //
+      // 而且「一起淹」在这儿天然对你有利：砸平之后等点数那条线废了，
+      // 可庄家**只有**那一条线，你还有吞口、巨口、收色。
+      // 所以这条规矩越公平，它越吃亏。
+      //
+      // 顺带它把这一路最大的毛病治了：弹药不再全由你出。
+      // 断数让双方这一轮的那一整类牌落地即 0，于是**庄家自己每打一张
+      // 都在替你砸一脚** —— 你花一次断数，它帮你引爆半个回合。
+      //
+      // X = 这时候堆上 0 点牌的张数，含刚打出的这张 —— 不含的话
+      // 第一张 0 就减 0 点，等于白打，雪崩根本起不来。
+      //
+      // 只减左边、不减自己：牌是砸下去那块石头，波纹往下铺开，石头不动。
+      // 顺带这一条堵死了一条路 —— 沉到堆底的牌（埋饵）左边什么都没有，
+      // 淹不了任何东西，「埋一张 0 在最底下反复引爆」行不通。
+      //
+      // 没点数的牌免疫：pileValues 是空数组，没有数可减，也不计进 X。
+      // 断色、压冠、锁花立的墙在洪水里屹立不倒 —— 天然的克星。
+      //
+      // 减到 0 就停，那是全局规则（noNegative），这儿只是照着办
+      let at = -1
+      for (let i = 0; i < pile.value.length; i++) {
+        if (pile.value[i] == card) {
+          at = i
+        }
+      }
+      let span = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (isZeroPoint(pile.value[i])) {
+          span = span + 1
+        }
+      }
+      if (at > 0 && span > 0) {
+        const sunk : Card[] = []
+        let hit = 0
+        for (let i = 0; i < pile.value.length; i++) {
+          const one = pile.value[i]
+          if (i < at && valuesOf(one).length > 0) {
+            const next : number[] = []
+            for (let k = 0; k < one.pileValues.length; k++) {
+              next.push(one.pileValues[k] - span)
+            }
+            one.pileValues = noNegative(next)
+            one.pileValue = 0
+            hit = hit + 1
+          }
+          sunk.push(one)
+        }
+        pile.value = sunk
+        message.value = who + '打出 ' + card.suit + rankText(card)
+          + '，【落水】左边 ' + hit + ' 张全 −' + span + '（场上 '
+          + span + ' 张 0）。'
+      }
+    }
+    if (isDye(card)) {
+      // 染水：把堆上所有牌染成它的花色。
+      //
+      // 染的是 suit 本身，不是记个名单 —— 花色是牌的属性，
+      // 收色、集花、并色、断色全看它，改一处就都认。
+      // 也因此**不随轮次还原**：堆是跨轮的，染过的水不会自己清。
+      //
+      // 双刃在于它对庄家的同源也一样管用（跟堆顶同花色就白送点数）——
+      // 把一池子水染成一个颜色，等于给带同源的庄家铺了路
+      const dyed : Card[] = []
+      for (let i = 0; i < pile.value.length; i++) {
+        const one = pile.value[i]
+        one.suit = card.suit
+        dyed.push(one)
+      }
+      // 改完再换一次数组引用 —— 项目里一律这么刷新，不靠对象内部的响应
+      pile.value = dyed
+      message.value = who + '打出 ' + card.suit + rankText(card)
+        + '，【染水】整堆都成了 ' + card.suit + '。'
+    }
 
     // 通吃不看数字，从堆底一路端到自己这儿。
     // J 焊着它，两边牌组里各有四张 —— 漏了这一支，J 打出去就只是张 11
@@ -2587,14 +3664,16 @@
     //
     // 收色走的是另一套收法：不钩某一张再扫一段，而是把堆上**所有**
     // 同花色的挑出来一起拿走 —— 位置散在哪儿都算。
-    // 它自己的点数按 0 算，所以点数那条线上它既钩不着人也没人钩得着，
-    // 断口把点数全哑掉之后它照样收得动
+    // 它自己**没有点数**，所以点数那条线上它既钩不着人也没人钩得着
+    //（连吞口也吞不动它），断口把点数全哑掉之后它照样收得动
     let marks : boolean[] = [] as boolean[]
     let count = 0
     let head = ''
     if (isSuitHook(card)) {
       for (let i = 0; i < pile.value.length; i++) {
-        const on = pile.value[i] == card || pileSuitOf(pile.value[i]) == card.suit
+        // 走 suitAlike 而不是直接比字符串 —— 带着并色的话
+        // 方块和红心算一路、梅花和黑桃算一路
+        const on = pile.value[i] == card || suitAlike(pileSuitOf(pile.value[i]), card.suit)
         marks.push(on)
         if (on) {
           count = count + 1
@@ -2603,35 +3682,129 @@
       // 只剩自己一张就是没收着 —— 堆上没有同花色的，它就留在堆里
       if (count <= 1) {
         catchMarks.value = [] as boolean[]
-        sortPile()
+        if (tidyOn()) {
+          sortPile()
+        }
         message.value = who + '打出 ' + card.suit + rankText(card)
           + '，堆上没有同花色的，它留下了。'
         return false
       }
       head = '，【收色】把堆上 ' + card.suit + ' 全收走，共 '
+    } else if (sank) {
+      // 沉到堆底那张。它在下标 0，**底下没有牌了**，所以比大小那条线
+      // （吞口、巨口）对它无从谈起 —— 只走等点数。
+      //
+      // 撞上了收的是「自己那张 + 从撞中那张到堆顶」，中间那一段
+      // 比撞中那张还深，照基础规则本来就不该收 ——
+      // 所以这是一次**不连续**的收牌，跟收色一样交给 marks 表去表达。
+      //
+      // 顺钩、逆钩这儿一律不掺：它们调的是「钩得多深」，
+      // 而这一下的深度是你埋桩时就定死的，不是临场推出来的
+      const at = pileIndexExcept(pile.value, valuesOf(card), card)
+      if (at < 0) {
+        catchMarks.value = [] as boolean[]
+        if (tidyOn()) {
+          sortPile()
+        }
+        message.value = who + '把 ' + card.suit + rankText(card)
+          + ' 埋到了堆底 —— 堆上没有对得上的，它在那儿等着。'
+        return false
+      }
+      for (let i = 0; i < pile.value.length; i++) {
+        const on = i == 0 || i >= at
+        marks.push(on)
+        if (on) {
+          count = count + 1
+        }
+      }
+      head = '，埋到堆底、顺手撞中第 ' + (at + 1) + ' 张，收走 '
     } else {
+      // 这一下按大小收还是按等点数收。
+      // 吞口是你当场指的那一张，巨口是挂着的规矩 —— 够大的牌自动走大小这条线
+      const bySize = isBigHook(card) || isMaw(byDealer, card)
       let at = -1
       if (haul) {
         at = 0
-      } else if (isBigHook(card)) {
+      } else if (bySize) {
         at = pileIndexOfSwallow(card)
       } else {
         at = pileIndexExcept(pile.value, valuesOf(card), card)
       }
+      // 浑底：堆最底下那张对你不算钩点。
+      // 钩中它就往上让一位 —— 「一钩端走整堆」这种事没有了
+      if (!byDealer && at == 0 && hasRule('murk')) {
+        if (bySize) {
+          // 按大小吞的，往上让一位就完事 —— 少吞最底下那一张。
+          //
+          // **不能拿等点数的规则重算**：吞口那张多半跟谁都不等，
+          // 一重算 again 就是 -1，整次吞口作废。
+          // 而浑底的说明只说「最底下那张不算钩点」，不是「这一下白打」。
+          // 巨口进来之后按大小收成了常事，这条路径天天走，错不得
+          at = pile.value.length > 1 ? 1 : -1
+        } else {
+          const rest : Card[] = []
+          for (let i = 1; i < pile.value.length; i++) {
+            rest.push(pile.value[i])
+          }
+          const again = pileIndexExcept(rest, valuesOf(card), card)
+          at = again < 0 ? -1 : again + 1
+        }
+      }
+      // 挡口：庄家钩中它左边那张、而那张点数又没它大的时候，
+      // 这一钩只收到它右边为止 —— 挡口和它护的那张都留下。
+      //
+      // 钩收走的是「从被钩那张到堆顶」，所以把起点往右推两格
+      //（越过被护的那张和挡口自己），少收的正好是这两张。
+      //
+      // **只挡庄家**：两边都挡的话你自己也收不到自己护的那张，
+      // 那它就自相矛盾了。跟并色、巨口一个规矩 —— 你买的道具只照顾你
+      if (byDealer && at >= 0) {
+        const moved = guardedStart(at)
+        if (moved >= 0) {
+          at = moved
+        }
+        // 推到头上就是没收着：它上面只剩它自己那张了
+        if (at >= pile.value.length - 1) {
+          at = -1
+        }
+      }
       if (at < 0) {
         catchMarks.value = [] as boolean[]
-        // 没钩上，堆重排一次：大的沉底，小的浮顶。
-        // 钩中了就不排了 —— 那一段马上要被收走，排了也是白排
-        sortPile()
+        // 带了拢堆才重排。没带的话堆就是出牌顺序 ——
+        // 「你相邻两张之间夹着它一张」那条核心机制靠的就是这个顺序，
+        // 无条件重排等于把它废了
+        if (tidyOn()) {
+          sortPile()
+        }
         return false
       }
-      // 顺钩：钩中之后再往堆底多带走几张。
-      // 钩点越靠底收得越多，所以这件的效果就是把 at 往下推 ——
-      // 推到 0 为止，再往下没有了
-      if (!byDealer && !haul) {
-        at = at - alongBonus()
+      // 钩点越靠底收得越多，所以「多收几张」就是把 at 往下推。
+      //
+      // 你这边：顺钩往下推，庄家的逆钩往回顶一张。
+      // 它那边：深钩往下推一张
+      if (!haul) {
+        if (byDealer) {
+          if (hasRule('deep')) {
+            at = at - 1
+          }
+        } else {
+          at = at - alongBonus()
+          if (hasRule('counter')) {
+            at = at + 1
+          }
+        }
         if (at < 0) {
           at = 0
+        }
+        // 逆钩顶过头了就是没收着 —— 只剩自己那张不算收牌
+        if (at >= pile.value.length - 1) {
+          catchMarks.value = [] as boolean[]
+          if (tidyOn()) {
+            sortPile()
+          }
+          message.value = who + '打出 ' + card.suit + rankText(card)
+            + '，【逆钩】压着，这一下没收着。'
+          return false
         }
       }
       // 从撞中那张一路收到自己这张，中间的全带走
@@ -2642,7 +3815,14 @@
           count = count + 1
         }
       }
-      head = haul ? '，【通吃】端走整堆 ' : '，钩中第 ' + (at + 1) + ' 张，收走 '
+      // 走的是哪条线得写出来 —— 一张 K 没跟谁配上对却收了一串，
+      // 不说一声玩家根本不知道是巨口在生效
+      head = haul
+        ? '，【通吃】端走整堆 '
+        : (bySize
+          ? '，' + (isBigHook(card) ? '【吞口】' : '【巨口】')
+            + '一路吞到第 ' + (at + 1) + ' 张，收走 '
+          : '，钩中第 ' + (at + 1) + ' 张，收走 ')
     }
     catchMarks.value = marks
     message.value = who + '打出 ' + card.suit + rankText(card) + head + count + ' 张。'
@@ -2688,7 +3868,7 @@
     flyGo.value = false
     flyCards.value = [] as FlyOne[]
     // 长竿多摆出来、这一轮没轮到打的那几张，收起来留给下一轮。
-    // 队列被压舱压短的时候这儿本来就没东西，循环直接不进
+    // 没带长竿的话队列正好五张，循环直接不进
     keepCards = [] as Card[]
     keepHidden = [] as boolean[]
     for (let i = capOf(false); i < playerQueue.value.length; i++) {
@@ -2736,6 +3916,15 @@
         data.relayBest = level.value.index
       }
       data.runLevel = level.value.index + 1
+      // 下一关的规矩现在就摇好存下 —— 商店要先摊给你看，
+      // 「买道具之前知道要面对什么」是这套经济能算得动的前提
+      data.runRules = rollRulesFor(data.runLevel)
+      // 货架清空：进了商店它自己会摆新的一批。
+      // 不清的话下一关的商店摆的还是上一关剩下的货
+      data.runShelf = [] as string[]
+      // 下一关那副牌也现在就洗 —— 商店要把你那 26 张摊出来，
+      // 你才谈得上照着牌买道具
+      data.runDeck = dealRunDeck()
       // 立个牌子：这一轮眼下停在商店。
       // 在商店里退出去，下次「继续」才会回到商店而不是直接推进牌桌
       data.runShop = true
@@ -2866,8 +4055,20 @@
     pendingCount = 0
   }
 
+  // 退出：能退就退，退不了就直接跳回入口。
+  //
+  // 栈里只剩这一页的时候 navigateBack 是空操作，按了没反应 ——
+  // 这在两种情况下都会发生：H5 开发时热重载把栈冲掉了，
+  // 以及从商店 redirectTo 过来、而商店自己又是被 redirect 替换掉的。
+  // 兜一道，按钮就永远是有反应的
   function goBack() {
-    uni.navigateBack()
+    if (getCurrentPages().length > 1) {
+      uni.navigateBack()
+      return
+    }
+    uni.redirectTo({
+      url: '/pages/examples/blackjack/relay-levels'
+    })
   }
 
   onUnmounted(() => {
@@ -3085,6 +4286,23 @@
     font-size: 10px;
   }
 
+  /* 庄家挂着的规矩，横着摆一排。点一下在说明框里展开 */
+  .rule-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+
+  .rule-tag {
+    color: #ff9e80;
+    background-color: #0e3a28;
+    font-size: 10px;
+    border-radius: 8px;
+    padding: 2px 7px;
+    margin-right: 4px;
+    margin-bottom: 2px;
+  }
+
   .dealer-row {
     flex-direction: row;
     align-items: center;
@@ -3142,19 +4360,34 @@
     font-size: 9px;
   }
 
+  /* 说明框。文字在左、按钮在右，所以是 row；
+     文字那块 flex:1 撑开，把按钮顶到最右边 */
   .message-box {
+    flex-direction: row;
+    align-items: center;
     min-height: 34px;
     margin-top: 6px;
     background-color: #084730;
     border-radius: 6px;
     padding: 5px 8px;
-    justify-content: center;
   }
 
   .message-text {
+    flex: 1;
     color: #cfeade;
     font-size: 11px;
     line-height: 15px;
+  }
+
+  /* 选中道具时右边冒出来的那颗。不再另弹窗，就在这儿按 */
+  .msg-btn {
+    color: #3b2a00;
+    background-color: #e8b23a;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin-left: 8px;
   }
 
   /* 每轮白送的贴纸。高度写死，有没有贴纸这一行都占同样的位子 ——
@@ -3397,6 +4630,14 @@
      不然整排牌会带着换好的新牌面，再滑回去一格 */
   .card-settling {
     transition-duration: 0ms;
+  }
+
+  /* 被道具瞄上的：描金边、底色也提一点。
+     跟「选中待压」那个橙红描边分开 —— 一个是要扔掉，一个是要下手，
+     混成一个颜色就分不清自己刚才点的是哪一路 */
+  .card-aim {
+    border-color: #e8b23a;
+    background-color: #fffbe8;
   }
 
   /* 备选：这一轮打不到，留给下一轮。压暗一点，跟要打的那几张分开 */
