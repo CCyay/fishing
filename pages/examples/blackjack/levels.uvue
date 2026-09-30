@@ -68,7 +68,7 @@
   import { rarityAt } from '@/pages/examples/blackjack/stickers.uts'
   import {
     SaveData,
-    loadCurrentSave,
+    loadFishSave,
     emptySave,
     setCurrentLevel,
     sumOf
@@ -172,10 +172,10 @@
   }
 
   onShow(() => {
-    save.value = loadCurrentSave()
+    save.value = loadFishSave()
   })
 
-  save.value = loadCurrentSave()
+  save.value = loadFishSave()
 </script>
 
 <style>

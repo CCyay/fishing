@@ -1344,8 +1344,8 @@ const menus = ref<Menu[]>([
         },
         {
           id: 'blackjack',
-          name: '钓鱼（fishing）',
-          url: 'blackjack/home'
+          name: '钓鱼 / 排竿（fishing）',
+          url: 'blackjack/menu'
         }
       ] as Page[]
     },

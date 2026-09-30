@@ -1,3 +1,6 @@
+// 启动页现在是玩法选择页：钓鱼和排竿是两个游戏、两套存档，
+// home 退回去只当钓鱼那一侧的主菜单
+const MENU_PATH = '/pages/examples/blackjack/menu'
 const HOME_PATH = '/pages/examples/blackjack/home'
 const LEVELS_PATH = '/pages/examples/blackjack/levels'
 const DECK_PATH = '/pages/examples/blackjack/deck-editor'
@@ -58,7 +61,18 @@ describe('/pages/examples/blackjack', () => {
     }
   })
 
-  it('首页展示存档并提供四个入口', async () => {
+  it('选择页给两个玩法的入口，各报自己的存档', async () => {
+    await open(MENU_PATH)
+
+    expect(await page.$('#bj-pick-fish')).not.toBe(null)
+    expect(await page.$('#bj-pick-relay')).not.toBe(null)
+
+    // 清过 storage，两边都还没有档。这一页只读不建，所以报的是「新游戏」
+    expect(await textOf('#bj-pick-fish')).toContain('新游戏')
+    expect(await textOf('#bj-pick-relay')).toContain('新游戏')
+  })
+
+  it('钓鱼主菜单展示存档并提供四个入口', async () => {
     await open(HOME_PATH)
 
     // 一关没打过，四种自选券都是 0；开局的本钱是 4 张普通随机券

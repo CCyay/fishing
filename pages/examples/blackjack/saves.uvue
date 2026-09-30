@@ -1,7 +1,9 @@
 <template>
   <view class="page">
-    <text class="page-title">选择存档</text>
-    <text class="page-desc">存档记录金钱、战绩、拥有的卡牌与当前牌组</text>
+    <!-- 标题必须印着是谁的档：这一页两个游戏共用，
+         url 上的 scope 传错的话，这儿是唯一看得出来的地方 -->
+    <text id="bj-saves-title" class="page-title">{{ gameName }}存档</text>
+    <text class="page-desc">{{ pageDesc }}</text>
 
     <view class="slots">
       <view
@@ -14,7 +16,19 @@
           <text v-if="slot.index == activeIndex" class="slot-badge">使用中</text>
         </view>
 
-        <view v-if="slot.data.exists" class="slot-info">
+        <!-- 三个分支必须是**相邻兄弟**，中间插别的节点 v-else 就接不上了。
+             两个游戏的槽位摘要看的是完全不同的字段：排竿的档里 cleared 和
+             tickets 永远是空的，摆出来只会让人以为「进度丢了」 -->
+        <text v-if="!slot.data.exists" class="slot-empty">槽位 {{ slot.index }} 尚未创建</text>
+        <view v-else-if="isRelay" class="slot-info">
+          <text class="slot-text">最远 {{ bestOf(slot) }}</text>
+          <text class="slot-text">{{ runOf(slot) }}</text>
+          <text class="slot-text">金币 {{ slot.data.runCoins }}</text>
+          <text class="slot-text"
+            >道具 {{ itemsOf(slot) }} 件 · {{ slot.data.runSlots }} 格</text
+          >
+        </view>
+        <view v-else class="slot-info">
           <text class="slot-text"
             >兑换券 {{ ticketsOfSlot(slot) }} · 随机券 {{ randomTicketsOfSlot(slot) }}</text
           >
@@ -24,7 +38,6 @@
           <text class="slot-text">通关 {{ slot.data.cleared.length }}</text>
           <text class="slot-text">已贴 {{ stuckOf(slot) }} · 存货 {{ ownedOf(slot) }} 张</text>
         </view>
-        <text v-else class="slot-empty">槽位 {{ slot.index }} 尚未创建</text>
 
         <view class="slot-actions">
           <view
@@ -57,14 +70,23 @@
   import {
     SaveData,
     SLOT_COUNT,
-    loadSave,
-    newSave,
-    writeSave,
-    clearSave,
-    currentSlot,
-    setCurrentSlot,
-    sumOf
+    sumOf,
+    loadFishAt,
+    writeFishAt,
+    clearFishAt,
+    fishSaveSlot,
+    setFishSaveSlot,
+    newFishSave,
+    loadRelayAt,
+    writeRelayAt,
+    clearRelayAt,
+    relaySaveSlot,
+    setRelaySaveSlot,
+    newRelaySave,
+    FISH_SAVE_NAME,
+    RELAY_SAVE_NAME
   } from '@/pages/examples/blackjack/save.uts'
+  import { RELAY_COUNT } from '@/pages/examples/blackjack/relay-levels.uts'
 
   type Slot = {
     index : number
@@ -73,6 +95,83 @@
 
   const slots = ref<Slot[]>([] as Slot[])
   const activeIndex = ref<number>(1)
+  // 这一页两个游戏共用，scope 决定动哪一套存档。
+  // 从 url 上带过来（home 传 fish、relay-levels 传 relay），见下面的 onLoad
+  const isRelay = ref<boolean>(false)
+
+  // ---------- 分发只在这五个函数里 ----------
+  //
+  // 别处一律走它们。各处自己 if 一遍的话迟早有一处写反，
+  // 而写反的后果是把人家另一个游戏的档切了或者删了 —— 这种错没法回滚
+
+  function loadOne(index : number) : SaveData {
+    return isRelay.value ? loadRelayAt(index) : loadFishAt(index)
+  }
+
+  function usedSlot() : number {
+    return isRelay.value ? relaySaveSlot() : fishSaveSlot()
+  }
+
+  function pickSlot(index : number) {
+    if (isRelay.value) {
+      setRelaySaveSlot(index)
+    } else {
+      setFishSaveSlot(index)
+    }
+  }
+
+  function makeSlot(index : number) {
+    if (isRelay.value) {
+      writeRelayAt(index, newRelaySave(RELAY_SAVE_NAME + ' ' + index))
+    } else {
+      writeFishAt(index, newFishSave(FISH_SAVE_NAME + ' ' + index))
+    }
+  }
+
+  function dropSlot(index : number) {
+    if (isRelay.value) {
+      clearRelayAt(index)
+    } else {
+      clearFishAt(index)
+    }
+  }
+
+  // 标题和说明都印着玩法名 —— **scope 传错的时候这是唯一肉眼抓得住的地方**，
+  // 所以必须有
+  const gameName = computed<string>(() : string => {
+    return isRelay.value ? RELAY_SAVE_NAME : FISH_SAVE_NAME
+  })
+
+  const pageDesc = computed<string>(() : string => {
+    return isRelay.value
+      ? '存档记录最远战绩，以及这一轮的关号、金币和道具'
+      : '存档记录兑换券、战绩、通关进度和牌组上的贴纸'
+  })
+
+  // 排竿那一半的槽位摘要
+  function bestOf(slot : Slot) : string {
+    const best = slot.data.relayBest
+    return best > 0 ? best + '/' + RELAY_COUNT : '一关未通'
+  }
+
+  function runOf(slot : Slot) : string {
+    const lv = slot.data.runLevel
+    if (lv <= 0) {
+      return '本轮未开始'
+    }
+    return lv > RELAY_COUNT ? '本轮已通关' : '本轮第 ' + lv + ' 关'
+  }
+
+  // 道具库里有几件。runTiers 存的是「等级 + 1」，所以大于 0 就是有
+  function itemsOf(slot : Slot) : number {
+    let n = 0
+    for (let i = 0; i < slot.data.runTiers.length; i++) {
+      if (slot.data.runTiers[i] > 0) {
+        n = n + 1
+      }
+    }
+    return n
+  }
 
   // 手里各种稀有度的券加起来
   function ticketsOfSlot(slot : Slot) : number {
@@ -94,12 +193,12 @@
   }
 
   function refresh() {
-    activeIndex.value = currentSlot()
+    activeIndex.value = usedSlot()
     const list : Slot[] = []
     for (let i = 1; i <= SLOT_COUNT; i++) {
       const slot : Slot = {
         index: i,
-        data: loadSave(i)
+        data: loadOne(i)
       }
       list.push(slot)
     }
@@ -107,47 +206,64 @@
   }
 
   function useSlot(index : number) {
-    setCurrentSlot(index)
+    pickSlot(index)
     refresh()
     uni.showToast({
       icon: 'none',
-      title: '已切换到存档 ' + index
+      title: '已切换到' + gameName.value + '存档 ' + index
     })
   }
 
   function createSlot(index : number) {
-    const data = newSave('存档 ' + index)
-    writeSave(index, data)
-    setCurrentSlot(index)
+    makeSlot(index)
+    pickSlot(index)
     refresh()
     uni.showToast({
       icon: 'none',
-      title: '已创建存档 ' + index
+      title: '已创建' + gameName.value + '存档 ' + index
     })
   }
 
   function removeSlot(index : number) {
     uni.showModal({
-      title: '删除存档',
-      content: '存档 ' + index + ' 的金钱、卡牌与战绩都会清空，确定删除？',
+      title: '删除' + gameName.value + '存档',
+      content: gameName.value + '存档 ' + index + ' 的进度会全部清空，确定删除？',
       success: (res) => {
         if (res.confirm) {
-          clearSave(index)
+          dropSlot(index)
           refresh()
         }
       }
     })
   }
 
+  // 两个上游（钓鱼主页、排竿入口页）都能推它进来，所以补一道栈兜底 ——
+  // 栈里只剩这一页的时候 navigateBack 是空操作，按了没反应
   function goBack() {
-    uni.navigateBack()
+    if (getCurrentPages().length > 1) {
+      uni.navigateBack()
+      return
+    }
+    uni.redirectTo({
+      url: '/pages/examples/blackjack/menu'
+    })
   }
+
+  onLoad((options : OnLoadOptions) => {
+    // 漏传就按钓鱼走。传错传漏都看得见 —— 标题、说明、弹窗都印着玩法名
+    const scope = options['scope']
+    isRelay.value = scope != null && ('' + scope) == 'relay'
+    refresh()
+  })
 
   onShow(() => {
     refresh()
   })
 
-  refresh()
+  // **这儿原来有一句裸 refresh()，删掉了。**
+  // 它跑在 onLoad 之前，scope 还没读进来，于是 scope=relay 时首帧
+  // 会按钓鱼读一遍三个槽 —— 摆出来的是另一个游戏的档。
+  // onLoad 必定在 onShow 之前跑，两处都调了 refresh，首帧不会空
 </script>
 
 <style>

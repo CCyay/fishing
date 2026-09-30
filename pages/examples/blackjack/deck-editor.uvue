@@ -140,8 +140,8 @@
   import {
     SaveData,
     emptySave,
-    loadCurrentSave,
-    saveCurrent,
+    loadFishSave,
+    saveFish,
     cloneSave,
     canStick,
     applySticker,
@@ -205,7 +205,7 @@
   })
 
   function refresh() {
-    save.value = loadCurrentSave()
+    save.value = loadFishSave()
     // 选中项可能已经不在手上了（贴光了、或者是刚进页面还没选），
     // 自动落到手里的第一张
     const owned = ownedStickers.value
@@ -395,7 +395,7 @@
 
   // 数据改完整体替换一次，保证视图刷新
   function commit(data : SaveData, tip : string) {
-    saveCurrent(data)
+    saveFish(data)
     save.value = cloneSave(data)
     uni.showToast({
       icon: 'none',

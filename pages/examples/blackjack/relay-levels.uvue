@@ -5,6 +5,13 @@
       <text class="hero-sub">提前排好五张的出竿顺序，双方交替自动打完</text>
     </view>
 
+    <!-- 在哪个档上打得写出来。head 那三格已经满了，所以另起一行 ——
+         排竿现在有自己的三个存档槽，不说清楚会以为进度丢了 -->
+    <view class="slot-line">
+      <text class="slot-tip">存档</text>
+      <text id="rv-slot" class="slot-name">{{ slotLabel }}</text>
+    </view>
+
     <view class="head">
       <view class="head-item">
         <text class="head-label">最远战绩</text>
@@ -23,7 +30,9 @@
     <view class="rule">
       <text class="rule-text"
         >一轮挑战连打 {{ RELAY_COUNT }} 关。赢一关拿金币，进商店买道具、给道具进阶，
-        再进下一关。输一局这一轮就结束 —— 金币、道具全清，从第一关重来。</text
+        再进下一关。庄家的规矩**摇到就固定**，往后每关只在上头再添一条，
+        所以照着它配的装一路都管用。打平这一关不作数，家当留着重打一遍；
+        输一局这一轮就结束 —— 金币、道具全清，从第一关重来。</text
       >
     </view>
 
@@ -53,18 +62,25 @@
       <view id="rv-items" class="menu-btn" @click="openItems">
         <text class="menu-btn-text">道具信息</text>
       </view>
+      <!-- 摆在「重新开始」下面而不是上面：切档和推倒重来都是破坏性的，
+           但「重新开始」得紧跟着「继续」—— 那是同一个决定的两个分支 -->
+      <view id="rv-saves" class="menu-btn" @click="chooseSave">
+        <text class="menu-btn-text">选择存档</text>
+      </view>
       <view id="rv-back" class="menu-btn" @click="goBack">
         <text class="menu-btn-text">返回</text>
       </view>
     </view>
 
-    <!-- 道具图鉴：永续的和限制的分开列。
+    <!-- 道具图鉴：永续的和限制的分开列，末了再列庄家那排规矩。
          贴纸那一页取消了 —— 排竿这边整套换成了道具 -->
     <view v-if="showItems" class="layer" @click="closeAll">
       <view class="panel" @click.stop="noop">
         <view class="panel-head">
           <text class="panel-title">道具信息</text>
-          <text class="panel-sub">{{ ITEMS.length }} 件 · 商店里买</text>
+          <text class="panel-sub"
+            >道具 {{ ITEMS.length }} 件 · 庄家规矩 {{ RULES.length }} 条（翻到底）</text
+          >
         </view>
         <scroll-view class="panel-body">
           <view v-for="(grp, gi) in itemGroups" :key="'ig-' + gi">
@@ -88,6 +104,28 @@
               <text class="entry-desc">{{ itemDesc(it) }}</text>
             </view>
           </view>
+
+          <!-- 庄家那排。它不买道具，挂的是「规矩」—— 一条条改的是这一关的
+               玩法本身。摆在这儿是因为买道具的全部依据就是它：
+               知道这一关会被改成什么样，才谈得上照着配。
+               按 since 排，你才看得出这条路上什么时候会冒出什么。
+               一轮之内摇到就固定，往后每关只多一条 —— 所以这张表
+               读起来是「这一轮还可能再添哪几条」 -->
+          <text class="group">{{ ruleGroupTitle }}</text>
+          <view
+            v-for="(r, ri) in dealerRules"
+            :key="'dr-' + ri"
+            :id="'rv-dr-' + r.key"
+            class="entry">
+            <view class="entry-top">
+              <text class="entry-name entry-name-plain">{{ r.name }}</text>
+              <text class="entry-tag">{{ ruleTag(r) }}</text>
+              <!-- 这一关正挂着这条，就在右边点出来 —— 面板是从选关页开的，
+                   「我马上要面对的是哪几条」比通读整张表有用得多 -->
+              <text v-if="ruleOn(r.key)" class="entry-own">{{ runLabel }}</text>
+            </view>
+            <text class="entry-desc">{{ ruleDesc(r) }}</text>
+          </view>
         </scroll-view>
         <text class="panel-close" @click.stop="closeAll">收起来</text>
       </view>
@@ -103,8 +141,9 @@
   import {
     SaveData,
     emptySave,
-    loadCurrentSave,
-    saveCurrent,
+    loadRelaySave,
+    saveRelay,
+    relaySaveSlot,
     cloneSave,
     resetRun,
     runAlive,
@@ -120,7 +159,12 @@
     KIND_LASTING,
     descOf as itemDescAt,
     tierName,
-    tierColor
+    tierColor,
+    DealerRule,
+    DEALER_RULES,
+    REACH_WIDE_SINCE,
+    ruleRolls,
+    ruleKeyOf
   } from '@/pages/examples/blackjack/relay-items.uts'
 
   // 图鉴里的一段：永续一段、限制一段
@@ -130,9 +174,13 @@
   }
 
   const save = ref<SaveData>(emptySave())
+  // 当前在第几个排竿槽上。跟道具格（runSlots）是两件事，别看混
+  const slotIndex = ref<number>(1)
   // 模板里要读 RELAY_ITEMS.length，得有个本地名字接一下
   const ITEMS = RELAY_ITEMS
+  const RULES = DEALER_RULES
   const itemGroups = ref<ItemGroup[]>(buildGroups())
+  const dealerRules = ref<DealerRule[]>(sortedRules())
 
   // 按类分两段。显式分一遍而不是指望表本身就是排好的 ——
   // 那张表将来增删挪动都可能，指望它的顺序等于把这页的显示押在别处的排版上
@@ -152,6 +200,75 @@
     return list
   }
 
+  // 庄家那排规矩，按「第几关起摇得到」排开。
+  //
+  // 表本身是按主题写的，不保证按 since 有序（长手就从第 5 关挪到了第 7 关，
+  // 位置没跟着动）。这儿显式排一遍 —— 这一段的用处正是让人看出
+  // 「这条路往后会冒出什么」，乱序摆等于把那条时间线打散了。
+  // 每轮挑一个还没用过的最小 since。严格小于，所以同一关起的几条
+  // 保持表里的先后 —— 稳定排序，读表的人对得上原表
+  function sortedRules() : DealerRule[] {
+    const out : DealerRule[] = []
+    const used : boolean[] = []
+    for (let i = 0; i < DEALER_RULES.length; i++) {
+      used.push(false)
+    }
+    for (let n = 0; n < DEALER_RULES.length; n++) {
+      let best = -1
+      for (let i = 0; i < DEALER_RULES.length; i++) {
+        if (used[i]) {
+          continue
+        }
+        if (best < 0 || DEALER_RULES[i].since < DEALER_RULES[best].since) {
+          best = i
+        }
+      }
+      if (best < 0) {
+        break
+      }
+      used[best] = true
+      out.push(DEALER_RULES[best])
+    }
+    return out
+  }
+
+  const ruleGroupTitle = '庄家 · 它挂的规矩（摇到哪几条看关号）'
+
+  // 中间那行：从第几关起摇得到，带不带随机参数。
+  // 门槛要写出来 —— 玩家得看得出「这条现在还轮不到我操心」。
+  //
+  // 参数写「摇到时定」而不是「每关重摇」：规矩一摇到就连参数一起固定，
+  // 一路跟到这一轮结束（见 relay-items 的 rollDealerRules）
+  function ruleTag(rule : DealerRule) : string {
+    const head = '第 ' + rule.since + ' 关起'
+    return ruleRolls(rule.key) ? head + ' · 参数摇到时定，之后不变' : head
+  }
+
+  // 长手那条的参数自己还有一道门槛（±2 比 ±1 凶一倍），
+  // 图鉴里不写的话，看到「±1」的人会以为它就这么大
+  function ruleDesc(rule : DealerRule) : string {
+    if (rule.key == 'reach') {
+      return rule.desc + '；±2 那一版第 ' + REACH_WIDE_SINCE + ' 关起才摇得到'
+    }
+    return rule.desc
+  }
+
+  // 这一轮眼下那一关挂着的，标出来。
+  // runRules 存的始终是 runLevel 那一关的规矩 —— 在商店里就是下一关的，
+  // 所以标签跟着 runLevel 写关号，不写「这一关」
+  function ruleOn(key : string) : boolean {
+    if (!alive.value) {
+      return false
+    }
+    const list = save.value.runRules
+    for (let i = 0; i < list.length; i++) {
+      if (ruleKeyOf(list[i]) == key) {
+        return true
+      }
+    }
+    return false
+  }
+
   // 图鉴里一律按普通档的说明展示 —— 那是你买到手时的样子。
   // 手头已经升过的，等级另外标在右边
   function itemDesc(item : RelayItem) : string {
@@ -168,6 +285,10 @@
     return runAlive(save.value) && save.value.runLevel <= RELAY_COUNT
   })
 
+  const slotLabel = computed<string>(() : string => {
+    return save.value.label == '' ? '存档 ' + slotIndex.value : save.value.label
+  })
+
   const bestText = computed<string>(() : string => {
     return save.value.relayBest <= 0 ? '未通关' : save.value.relayBest + '/' + RELAY_COUNT
   })
@@ -178,6 +299,12 @@
     }
     const lv = save.value.runLevel
     return lv > RELAY_COUNT ? '已通关' : '第 ' + lv + ' 关'
+  })
+
+  // 图鉴里给「眼下这一关挂着」的规矩打的标。写关号不写「这一关」——
+  // 在商店里的时候 runRules 说的是下一关，写死「这一关」就是错的
+  const runLabel = computed<string>(() : string => {
+    return '第 ' + save.value.runLevel + ' 关'
   })
 
   const resumeText = computed<string>(() : string => {
@@ -221,7 +348,7 @@
   function startFresh() {
     const data = save.value
     resetRun(data)
-    saveCurrent(data)
+    saveRelay(data)
     save.value = cloneSave(data)
     setCurrentRelayLevel(data.runLevel)
     uni.navigateTo({
@@ -255,16 +382,30 @@
   // 面板里面点着不关，交给外面那层遮罩关
   function noop() {}
 
+  // 存档页两个游戏共用，所以得告诉它现在选的是排竿的档。
+  // 回来时 onShow 会重读，切了槽自动就刷新了
+  function chooseSave() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/saves?scope=relay'
+    })
+  }
+
   function goBack() {
     uni.navigateBack()
   }
 
+  // 读档和读槽号要一起做 —— 摘要那行要报槽号，漏一处就永远显示「存档 1」
+  function reload() {
+    slotIndex.value = relaySaveSlot()
+    save.value = loadRelaySave()
+  }
+
   onShow(() => {
-    save.value = loadCurrentSave()
+    reload()
     closeAll()
   })
 
-  save.value = loadCurrentSave()
+  reload()
 </script>
 
 <style>
@@ -289,6 +430,26 @@
     color: #9fd9bd;
     font-size: 11px;
     margin-top: 2px;
+  }
+
+  /* 「存档 排竿 2」那一行，居中摆在统计条上头 */
+  .slot-line {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .slot-tip {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-right: 6px;
+  }
+
+  .slot-name {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: bold;
   }
 
   .head {

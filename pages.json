@@ -1,6 +1,15 @@
 {
   "pages": [
     {
+      "path": "pages/examples/blackjack/menu",
+      "style": {
+        "navigationBarTitleText": "选择玩法（fishing）",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
+    {
       "path": "pages/examples/blackjack/home",
       "style": {
         "navigationBarTitleText": "钓鱼（fishing）",

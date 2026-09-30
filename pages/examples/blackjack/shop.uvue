@@ -98,8 +98,8 @@
   import {
     SaveData,
     emptySave,
-    loadCurrentSave,
-    saveCurrent,
+    loadFishSave,
+    saveFish,
     cloneSave,
     redeemSticker,
     refundSticker,
@@ -254,7 +254,7 @@
   }
 
   function refresh() {
-    save.value = loadCurrentSave()
+    save.value = loadFishSave()
   }
 
   function unlocked(key : string) : boolean {
@@ -323,7 +323,7 @@
 
   // 数据改完整体替换一次，保证视图刷新
   function commit(data : SaveData, tip : string) {
-    saveCurrent(data)
+    saveFish(data)
     save.value = cloneSave(data)
     uni.showToast({
       icon: 'none',

@@ -25,12 +25,15 @@
          「买道具之前先知道要面对什么」是这套经济能算得动的前提，
          买完才告诉你等于让你瞎买 -->
     <view v-if="ruleList.length > 0" class="rules">
-      <text class="rules-head">下一关庄家挂着这几条规矩</text>
+      <text class="rules-head">{{ rulesHead }}</text>
       <!-- 效果直接摊开写，不用点开看 ——
-           这几条是你买道具的全部依据，藏一层等于没给 -->
+           这几条是你买道具的全部依据，藏一层等于没给。
+           新压上来那条标出来：规矩摇到就固定，往后每关只多一条，
+           所以「这次新增的是哪条」才是你这一趟进店要解决的问题 -->
       <view v-for="(one, ri) in ruleList" :key="'sr-' + ri" class="rule-line">
-        <text class="rule-tag">{{ one.name }}</text>
+        <text class="rule-tag" :class="{ 'rule-tag-fresh': one.fresh }">{{ one.name }}</text>
         <text class="rule-desc">{{ one.desc }}</text>
+        <text v-if="one.fresh" class="rule-new">新</text>
       </view>
     </view>
 
@@ -112,8 +115,9 @@
 
       <!-- 货架：随机上货，买走一件就空一格。
            只出普通和稀有 —— 史诗、传说买不到，只能靠进阶升上去。
-           盲盒跟道具摆在一排，每批只有一个，是兜底：
-           货架上没中意的、或者钱不够买那几件时，它是唯一还买得动的 -->
+           盲盒跟道具摆在一排，每批只有一个：它卖的不是便宜，是
+           「货架这五件都不对路」时的另一条路 —— 按期望的七成收钱，
+           打掉的那三折正是你放弃的挑选权 -->
       <view class="shelf-head">
         <text class="section">货架 · 第 {{ save.runLevel }} 关的行情</text>
         <text id="rs-reroll" class="reroll" @click="reroll">换一批 {{ rerollCost }}</text>
@@ -129,8 +133,7 @@
         }}</text>
       </view>
       <view class="lib-row">
-        <!-- 盲盒排头一个：它是兜底的那条路，货架上没中意的、
-             或者钱不够买那几件时，只剩它买得动 -->
+        <!-- 盲盒排头一个：它是另一条路 —— 不挑，但比货架的公允价便宜三成 -->
         <view
           id="rs-blind"
           class="goods goods-blind"
@@ -197,8 +200,8 @@
   import {
     SaveData,
     emptySave,
-    loadCurrentSave,
-    saveCurrent,
+    loadRelaySave,
+    saveRelay,
     cloneSave,
     firstFreeSlot,
     setRunEquip,
@@ -214,7 +217,7 @@
   import {
     RELAY_COUNT,
     SHOP_SIZE,
-    REROLL_PRICE,
+    rerollPrice,
     blindPrice,
     shelfWeights,
     rollRarity,
@@ -253,7 +256,10 @@
   // 货架上这一批。买走的位置留个空 key 占位，不重排 ——
   // 一买就整排往左跳，手会点错
   const shelf = ref<Goods[]>([] as Goods[])
-  // 这一批的盲盒卖掉没有。每批就一个，买完等换批
+  // 这一批的盲盒卖掉没有。每批就一个，买完等换批 ——
+  // 换批（restock）会把这个牌子撤掉，所以「刷新一次再开一盒」是能
+  // 反复跑的。这是有意留的：靠刷新费把它的边际成本抬回公允价，
+  // 而不是靠一道「一关只准开一次」的硬闸（见 rerollPrice）
   const blindSold = ref<boolean>(false)
   // 这一批哪一件半价。-1 表示没有
   const saleAt = ref<number>(-1)
@@ -344,11 +350,33 @@
       + '配得上对的越多，钩中的机会越多'
   })
 
-  // 摊在页面上的一条规矩：名字 + 已经把参数填进去的效果
+  // 摊在页面上的一条规矩：名字 + 已经把参数填进去的效果 +
+  // 是不是这一关新压上来的
   type RuleLine = {
     name : string
     desc : string
+    fresh : boolean
   }
+
+  // 上一关挂着几条。**摇到就固定**，新摇的排在后面（见 rollDealerRules），
+  // 所以「上一关的条数」就是新旧的分界线 —— 不用给存档另加字段。
+  //
+  // runLevel 是 1 的时候 relayLevelAt(0) 兜回第一关，条数 0 —— 正好：
+  // 第一关前面没有商店，而万一走到这儿，那一条也该算新的
+  const oldCount = computed<number>(() : number => {
+    return relayLevelAt(save.value.runLevel - 1).dealerRules
+  })
+
+  // 读 runRules 而不是 ruleList —— ruleList 在下面才声明，
+  // 而 UTS 编译到 Kotlin 那边局部变量必须先声明后用，lambda 里也一样
+  const rulesHead = computed<string>(() : string => {
+    const fresh = save.value.runRules.length - oldCount.value
+    if (fresh <= 0) {
+      // 条数没涨的那几关（3、5 关）：一条新的都没加
+      return '下一关庄家还是这几条规矩 —— 没有新的'
+    }
+    return '下一关庄家挂着这几条规矩 · 新压上来 ' + fresh + ' 条'
+  })
 
   // 下一关庄家挂着的那几条。上一关打赢时就摇好存进档了 ——
   // 所以这儿读的和牌桌上跑的是同一份。
@@ -358,11 +386,16 @@
   const ruleList = computed<RuleLine[]>(() : RuleLine[] => {
     const out : RuleLine[] = []
     const list = save.value.runRules
+    const old = oldCount.value
     for (let i = 0; i < list.length; i++) {
       const key = ruleKeyOf(list[i])
       const arg = ruleArgOf(list[i])
       const one = dealerRuleAt(key)
-      out.push({ name: one.name, desc: ruleDesc(key, arg, one.desc) } as RuleLine)
+      out.push({
+        name: one.name,
+        desc: ruleDesc(key, arg, one.desc),
+        fresh: i >= old
+      } as RuleLine)
     }
     return out
   })
@@ -378,6 +411,10 @@
     if (key == 'wild' && arg != '') {
       return '庄家的 ' + faceOf(parseInt(arg)) + ' 可以当任意点数用'
     }
+    if (key == 'trawl' && arg != '') {
+      return '庄家的 ' + faceOf(parseInt(arg)) + ' 按花色收 —— 打出时把堆上所有'
+        + '同花色的一并收走，它自己失去点数（花色还在，你的收色够得着）'
+    }
     if (key == 'crown' && arg != '') {
       const pair = arg.split(',')
       if (pair.length == 2) {
@@ -387,6 +424,13 @@
     }
     if (key == 'lock' && arg != '') {
       return '你的 ' + arg + ' 一律失去点数'
+    }
+    if (key == 'brim' && arg != '') {
+      return '庄家的 ' + arg + ' 一落堆，整堆点数 +1 —— 涨过 K 的漫出堆外归它'
+    }
+    if (key == 'par' && arg != '') {
+      return '庄家的 ' + arg + ' 一律算 11 点（跟 J 一样，但没有通吃）—— '
+        + '那门花色互相都钩得上，而堆上攒起的那片 11 你也钩得动'
     }
     return fallback
   }
@@ -448,8 +492,10 @@
     return '还空着 ' + free + ' 格 · 限制类的次数下一关自己回满'
   })
 
+  // 刷新费跟着关号走 —— 它同时是盲盒的边际成本，
+  // 「刷新一次再开一盒」这条循环靠它收口（见 rerollPrice）
   const rerollCost = computed<number>(() : number => {
-    return REROLL_PRICE
+    return rerollPrice(save.value.runLevel)
   })
 
   // ---------- 上货 ----------
@@ -504,7 +550,7 @@
     }
     const data = save.value
     data.runShelf = list
-    saveCurrent(data)
+    saveRelay(data)
     save.value = cloneSave(data)
   }
 
@@ -974,7 +1020,7 @@
     }
     // 出了这个门就不在商店了。放下牌子，「继续」才会直奔牌桌
     data.runShop = false
-    saveCurrent(data)
+    saveRelay(data)
     save.value = cloneSave(data)
     setCurrentRelayLevel(lv)
     uni.redirectTo({
@@ -990,7 +1036,7 @@
   }
 
   function commit(data : SaveData, msg : string) {
-    saveCurrent(data)
+    saveRelay(data)
     save.value = cloneSave(data)
     if (msg != '') {
       tip.value = msg
@@ -1031,13 +1077,13 @@
   })
 
   onShow(() => {
-    const data = loadCurrentSave()
+    const data = loadRelaySave()
     // 格数纯粹由关号白送（竿架那件取消了）。在这儿对一次 ——
     // 进店时正好是下一关的关号，于是「打到第几关就有几格」对得上
     const want = slotsAt(data.runLevel)
     if (data.runSlots != want) {
       data.runSlots = want
-      saveCurrent(data)
+      saveRelay(data)
     }
     // 格子上装着库里已经没有的、或者同一件占了两格的，清掉兜个底
     trimEquip(data)
@@ -1050,7 +1096,7 @@
     }
   })
 
-  save.value = loadCurrentSave()
+  save.value = loadRelaySave()
   if (!loadShelf()) {
     restock()
   }
@@ -1323,11 +1369,26 @@
     margin-right: 6px;
   }
 
+  /* 新压上来那条：名字的框描亮一圈。
+     旧的那几条你上一关就见过了，这一趟要想的是新的这条 */
+  .rule-tag-fresh {
+    color: #3b2a00;
+    background-color: #ff9e80;
+  }
+
   .rule-desc {
     flex: 1;
     color: #9fd9bd;
     font-size: 10px;
     line-height: 14px;
+  }
+
+  /* 行尾那个「新」字。摆在最右边，扫一眼就知道哪几行要重新想 */
+  .rule-new {
+    color: #ff9e80;
+    font-size: 10px;
+    font-weight: bold;
+    margin-left: 6px;
   }
 
   .lib-up {

@@ -1,0 +1,200 @@
+<template>
+  <view class="page">
+    <view class="hero">
+      <text class="hero-title">钓鱼</text>
+      <text class="hero-sub">两种玩法，各有各的存档</text>
+    </view>
+
+    <!-- 两个游戏各一颗按钮，按钮下面一行小字报进度。
+         报进度是为了不用点进去就知道各自到哪儿了 ——
+         这一页唯一的作用就是分流，分流之前总得让人看清要去哪边 -->
+    <view class="menu">
+      <view id="bj-pick-fish" class="menu-btn menu-btn-primary" @click="pickFish">
+        <text class="menu-btn-text menu-btn-text-dark">钓鱼游戏</text>
+        <text class="menu-btn-sub menu-btn-sub-dark">{{ fishText }}</text>
+      </view>
+      <view id="bj-pick-relay" class="menu-btn" @click="pickRelay">
+        <text class="menu-btn-text">排竿对局</text>
+        <text class="menu-btn-sub">{{ relayText }}</text>
+      </view>
+    </view>
+
+    <view class="footer">
+      <text id="bj-menu-back" class="footer-link" @click="goExamples">返回示例列表</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import {
+    SaveData,
+    emptySave,
+    fishSaveSlot,
+    relaySaveSlot,
+    loadFishAt,
+    loadRelayAt
+  } from '@/pages/examples/blackjack/save.uts'
+  import { LEVEL_COUNT } from '@/pages/examples/blackjack/levels.uts'
+  import { RELAY_COUNT } from '@/pages/examples/blackjack/relay-levels.uts'
+
+  // 两份档各读一份。这一页是唯一同时看得见两个游戏的地方 ——
+  // 别的页面各自只认自己那一套 API，互相不知道对方存在。
+  //
+  // 用 loadFishAt(fishSaveSlot()) 而不是 loadFishSave()：后者「读不到就建一份」，
+  // 而这一页只是给人看一眼的路牌，**看一眼不该产生存档**。
+  // 建档留给真正进去的那两页（home / relay-levels 的 onShow）——
+  // 这样「新游戏」这行字才真的有机会出现一次
+  const fish = ref<SaveData>(emptySave())
+  const relay = ref<SaveData>(emptySave())
+  const fishAt = ref<number>(1)
+  const relayAt = ref<number>(1)
+
+  const fishText = computed<string>(() : string => {
+    const one = fish.value
+    const head = slotName(one, fishAt.value)
+    if (!one.exists) {
+      return head + ' · 新游戏'
+    }
+    return head + ' · 通关 ' + one.cleared.length + '/' + LEVEL_COUNT
+      + ' · 胜 ' + one.win
+  })
+
+  const relayText = computed<string>(() : string => {
+    const one = relay.value
+    const head = slotName(one, relayAt.value)
+    if (!one.exists) {
+      return head + ' · 新游戏'
+    }
+    // 最远战绩和本轮进度是两件事：一个跨轮留着，一个输了就清。
+    // 一次都没打过就直说，比摆两个 0 清楚
+    if (one.relayBest <= 0 && one.runLevel <= 0) {
+      return head + ' · 还没开始'
+    }
+    const best = one.relayBest > 0
+      ? '最远 ' + one.relayBest + '/' + RELAY_COUNT
+      : '一关未通'
+    const now = one.runLevel > 0 && one.runLevel <= RELAY_COUNT
+      ? ' · 打到第 ' + one.runLevel + ' 关'
+      : ''
+    return head + ' · ' + best + now
+  })
+
+  // 槽名：建过档就用它自己的名字，没建过就报槽号
+  function slotName(one : SaveData, index : number) : string {
+    return one.label == '' ? '存档 ' + index : one.label
+  }
+
+  function refresh() {
+    fishAt.value = fishSaveSlot()
+    relayAt.value = relaySaveSlot()
+    fish.value = loadFishAt(fishAt.value)
+    relay.value = loadRelayAt(relayAt.value)
+  }
+
+  function pickFish() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/home'
+    })
+  }
+
+  function pickRelay() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/relay-levels'
+    })
+  }
+
+  // 这一页是启动页，栈底就是它，navigateBack 是空操作 ——
+  // 所以回示例列表只能 navigateTo。代价是栈上多压一页，
+  // 但这是出口不是入口，压一页就走了，不会越走越深
+  function goExamples() {
+    uni.navigateTo({
+      url: '/pages/index/index'
+    })
+  }
+
+  // 从任一游戏返回都要刷新 —— 那边可能换了槽、也可能打完了一关
+  onShow(() => {
+    refresh()
+  })
+
+  refresh()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 16px;
+    background-color: #0b5d3b;
+  }
+
+  .hero {
+    align-items: center;
+    margin-top: 40px;
+  }
+
+  .hero-title {
+    color: #e8b23a;
+    font-size: 44px;
+    font-weight: bold;
+  }
+
+  .hero-sub {
+    color: #9fd9bd;
+    font-size: 13px;
+    margin-top: 2px;
+  }
+
+  /* 两颗按钮竖排居中。样式照 home.uvue 那套主菜单按钮，
+     只是高一些 —— 这两颗要装两行字 */
+  .menu {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .menu-btn {
+    height: 62px;
+    border-radius: 31px;
+    margin-top: 14px;
+    align-items: center;
+    justify-content: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .menu-btn-primary {
+    background-color: #e8b23a;
+  }
+
+  .menu-btn-text {
+    color: #e8b23a;
+    font-size: 18px;
+    font-weight: bold;
+  }
+
+  .menu-btn-text-dark {
+    color: #3b2a00;
+  }
+
+  /* 按钮里那行进度小字。金底那颗要压深一点的颜色才看得清 */
+  .menu-btn-sub {
+    color: #9fd9bd;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .menu-btn-sub-dark {
+    color: #6b5210;
+  }
+
+  .footer {
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .footer-link {
+    color: #e8b23a;
+    font-size: 12px;
+  }
+</style>

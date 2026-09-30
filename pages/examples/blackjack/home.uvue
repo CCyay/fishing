@@ -42,10 +42,8 @@
       <view id="bj-enter-game" class="menu-btn menu-btn-primary" @click="enterGame">
         <text class="menu-btn-text menu-btn-text-dark">进入游戏</text>
       </view>
-      <!-- 另一种玩法：不再一张张挑着打，而是提前把接下来五张排成一串 -->
-      <view id="bj-enter-relay" class="menu-btn" @click="enterRelay">
-        <text class="menu-btn-text">排竿对局</text>
-      </view>
+      <!-- 「排竿对局」那颗按钮搬去选择页了（menu.uvue）：
+           排竿现在是另一个游戏、另一份存档，不该再从钓鱼主菜单开侧门进去 -->
       <view id="bj-choose-save" class="menu-btn" @click="chooseSave">
         <text class="menu-btn-text">选择存档</text>
       </view>
@@ -58,7 +56,7 @@
     </view>
 
     <view class="footer">
-      <text id="bj-home-back" class="footer-link" @click="goExamples">返回示例列表</text>
+      <text id="bj-home-back" class="footer-link" @click="goBack">返回</text>
     </view>
   </view>
 </template>
@@ -67,8 +65,8 @@
   import { countStuck } from '@/pages/examples/blackjack/cards.uts'
   import {
     SaveData,
-    currentSlot,
-    loadCurrentSave,
+    fishSaveSlot,
+    loadFishSave,
     emptySave
   } from '@/pages/examples/blackjack/save.uts'
   import { LEVEL_COUNT } from '@/pages/examples/blackjack/levels.uts'
@@ -114,8 +112,8 @@
   }
 
   function refresh() {
-    slotIndex.value = currentSlot()
-    save.value = loadCurrentSave()
+    slotIndex.value = fishSaveSlot()
+    save.value = loadFishSave()
   }
 
   function enterGame() {
@@ -124,15 +122,10 @@
     })
   }
 
-  function enterRelay() {
-    uni.navigateTo({
-      url: '/pages/examples/blackjack/relay-levels'
-    })
-  }
-
+  // 存档页两个游戏共用，所以得告诉它现在选的是谁的档
   function chooseSave() {
     uni.navigateTo({
-      url: '/pages/examples/blackjack/saves'
+      url: '/pages/examples/blackjack/saves?scope=fish'
     })
   }
 
@@ -148,9 +141,19 @@
     })
   }
 
-  function goExamples() {
-    uni.navigateTo({
-      url: '/pages/index/index'
+  // 退回选择页。
+  //
+  // 从前这儿是 navigateTo 跳示例列表 —— 因为那会儿 home 自己就是启动页，
+  // 栈底就是它，navigateBack 是空操作。代价是每次「返回」都往栈上再压一页，
+  // 只增不减。现在 home 上面有选择页了，navigateBack 才是对的。
+  // 栈里只剩这一页的兜底还是留着（热重载、或者被 redirect 换掉过）
+  function goBack() {
+    if (getCurrentPages().length > 1) {
+      uni.navigateBack()
+      return
+    }
+    uni.redirectTo({
+      url: '/pages/examples/blackjack/menu'
     })
   }
 

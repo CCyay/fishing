@@ -444,8 +444,8 @@
   import {
     SaveData,
     emptySave,
-    loadCurrentSave,
-    saveCurrent,
+    loadFishSave,
+    saveFish,
     currentLevel,
     unlockShop,
     addTickets,
@@ -704,7 +704,7 @@
 
   // 开一局。平局重来时也走这里，牌会重新洗过
   function setup() {
-    const data = loadCurrentSave()
+    const data = loadFishSave()
     save.value = data
     level.value = levelAt(currentLevel())
 
@@ -4049,7 +4049,7 @@
       return
     }
     save.value = data
-    saveCurrent(data)
+    saveFish(data)
     const ach = achievementAt(id)
     toast('达成【' + ach.name + '】，解锁贴纸【' + stickerAt(ach.sticker).name + '】')
   }
@@ -4102,7 +4102,7 @@
     const data = save.value
     data.push = data.push + 1
     save.value = data
-    saveCurrent(data)
+    saveFish(data)
 
     pushCount = pushCount + 1
     if (pushCount > MAX_PUSH) {
@@ -4190,7 +4190,7 @@
     }
 
     save.value = data
-    saveCurrent(data)
+    saveFish(data)
 
     resultText.value = tip + extra
     message.value = tip

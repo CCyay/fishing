@@ -53,9 +53,24 @@ import {
 
 export const SLOT_COUNT : number = 3
 
+// 一个类型装两个游戏的字段，但**一份存档里只有一半有意义**。
+//
+// 钓鱼和排竿现在是两套独立的存档（两个前缀、各三个槽），字段本来就不相交，
+// 所以没有拆成两个类型 —— 拆了的话 emptySave / cloneSave / loadAt / writeAt
+// 这四个逐字段枚举 24 段的函数全部翻倍，而收益只是省下几个用不到的默认值。
+//
+// 代价就一条：**读的时候得知道自己在哪一半**。排竿的档里 cleared 永远是空数组、
+// tickets 永远全 0，钓鱼的档里 runLevel 永远是 0 —— 那不是「还没打」，
+// 是「这份档压根不管这件事」。所以下面用两条横线把两半隔开，
+// 谁也别越线去读对面的字段
 export type SaveData = {
+  // 槽位元数据，两个命名空间都有
   exists : boolean
   label : string
+
+  // ---------- 以下只在「钓鱼」的存档里有意义 ----------
+  // 排竿的档里这些全是默认值，读了只会拿到 0 或空
+
   // 贴纸兑换券，按稀有度索引。一张券换一张对应稀有度的贴纸，自己挑
   tickets : number[]
   // 随机兑换券，同样按稀有度索引。一张换该稀有度里随机一张，没得挑，
@@ -79,7 +94,8 @@ export type SaveData = {
   // 牌组：13 × 4 的矩阵，一个格子一张牌，存「贴纸下标 + 1」，0 表示没贴
   stuck : number[]
 
-  // ---------- 排竿模式 ----------
+  // ---------- 以下只在「排竿」的存档里有意义 ----------
+  // 钓鱼的档里这些全是默认值，同理
   //
   // 排竿是一轮一轮的挑战：从第 1 关连打到第 10 关，金币、贴纸库、贴纸位
   // 全是这一轮之内的家当，输一局就全清、从第 1 关重来。
@@ -176,10 +192,31 @@ export type SaveData = {
 //      RELAY_ITEMS 的下标存的定长表，少一件就整体错位 ——
 //      v17 的存档读进来，每件道具的等级和剩余次数都会串到隔壁那件身上。
 //      段数对得上、内容全错，是最难查的一种坏档，所以必须靠版号挡掉
-const SAVE_VERSION : string = 'v18'
+// v19：存档拆成两个命名空间 —— 钓鱼一套三个槽、排竿一套三个槽，各记当前槽。
+//      段格式一点没动，但**一份档里只有一半字段有意义**，另一半是默认值。
+//      键换成 bj_fish_save_* / bj_relay_save_*，旧的 bj_save_* 从此没人读。
+//      格式没变还抬版号，是为两件事：这一段注释是这个文件记存档演化的地方，
+//      命名空间一分为二属于该记的；以及万一有人把前缀改回去（回滚半个改动之类），
+//      v19 还能把串味的旧档挡住。成本是零
+const SAVE_VERSION : string = 'v19'
 
-const KEY_PREFIX : string = 'bj_save_'
-const KEY_CURRENT : string = 'bj_current_slot'
+// 两个游戏各自的存档键。
+//
+// 从前是共用一份 `bj_save_N` 加一个 `bj_current_slot`，于是切钓鱼的档
+// 会把排竿的进度一起切走 —— 两个游戏共享一个槽号，那不叫两个游戏。
+// 现在各走各的前缀、各记各的当前槽，互不相干。
+//
+// 旧的 `bj_save_*` / `bj_current_slot` 就此失效，留在 storage 里当垃圾键。
+// 不写迁移是照这个文件一贯的做法：版号对不上就 emptySave() 丢掉重开，
+// 从来没迁过 —— 为一次键名变更单独写一套迁移不划算
+const FISH_PREFIX : string = 'bj_fish_save_'
+const RELAY_PREFIX : string = 'bj_relay_save_'
+const KEY_FISH_SLOT : string = 'bj_fish_slot'
+const KEY_RELAY_SLOT : string = 'bj_relay_slot'
+// 新建存档的默认名。带上玩法，不然两边三个槽都叫「存档 1」，
+// 在存档页上分不出这是谁的档
+export const FISH_SAVE_NAME : string = '钓鱼'
+export const RELAY_SAVE_NAME : string = '排竿'
 const KEY_LEVEL : string = 'bj_current_level'
 // 排竿的关卡另记一个，跟主玩法的当前关互不干扰 ——
 // 两边来回切的时候不该把对方的进度冲掉
@@ -600,11 +637,24 @@ export function emptySave() : SaveData {
 // 抽不到也不至于开不了局，货架上那几张免解锁的普通永续同在抽池里
 export const STARTER_RANDOM_TICKETS : number = 4
 
-export function newSave(label : string) : SaveData {
+// 开一份新的钓鱼档：带那 4 张随机券
+export function newFishSave(label : string) : SaveData {
   const data = emptySave()
   data.exists = true
   data.label = label
   data.randomTickets[RARITY_COMMON] = STARTER_RANDOM_TICKETS
+  return data
+}
+
+// 开一份新的排竿档。**不发那 4 张随机券** —— 券是钓鱼的东西，
+// 发进排竿的档里只会躺在死字段上，以后翻 storage 的人还要疑惑一阵。
+//
+// 排竿的起手家当（金币、三件道具）是 resetRun 在按「开始挑战」那下发的，
+// 所以新档 runLevel = 0「还没开过一轮」就是正确的初态
+export function newRelaySave(label : string) : SaveData {
+  const data = emptySave()
+  data.exists = true
+  data.label = label
   return data
 }
 
@@ -643,8 +693,21 @@ export function cloneSave(data : SaveData) : SaveData {
   return next
 }
 
-export function loadSave(index : number) : SaveData {
-  const raw = readString(KEY_PREFIX + index)
+// ---------- 两套存档，各走各的键 ----------
+//
+// 钓鱼和排竿是两个游戏，各有 3 个槽、各记自己的当前槽。
+// 字段本来就不相交（钓鱼那 11 个 / 排竿那 11 个，只有 exists 和 label 共享），
+// 所以两边共用同一个 SaveData 和同一套序列化 —— 各自命名空间里
+// 「另一半」留默认值，无害。拆成两个类型只会让下面这四个
+// 逐字段枚举 24 段的函数全部翻倍。
+//
+// 下面这几个私有函数就是原来 loadSave / writeSave / ... 的函数体，
+// 只是把键拎成了参数。对外导出的是两套薄壳（loadFishSave / loadRelaySave 之类）——
+// **不加 scope 参数，也不用模块级的「当前是哪个游戏」变量**：
+// 存档的写入点必须在调用处就看得出是谁在写，而隐藏状态一旦某页忘了设，
+// 就是静默写错档，这种错本机编译不了也测不出来。
+function loadAt(prefix : string, index : number) : SaveData {
+  const raw = readString(prefix + index)
   if (raw == '') {
     return emptySave()
   }
@@ -693,7 +756,7 @@ export function loadSave(index : number) : SaveData {
   return data
 }
 
-export function writeSave(index : number, data : SaveData) {
+function writeAt(prefix : string, index : number, data : SaveData) {
   const text = SAVE_VERSION
     + '|' + countsToText(data.tickets)
     + '|' + data.win
@@ -718,15 +781,15 @@ export function writeSave(index : number, data : SaveData) {
     + '|' + plainListToText(data.runDeck)
     + '|' + (data.runShop ? '1' : '0')
     + '|' + data.label
-  uni.setStorageSync(KEY_PREFIX + index, text)
+  uni.setStorageSync(prefix + index, text)
 }
 
-export function clearSave(index : number) {
-  uni.removeStorageSync(KEY_PREFIX + index)
+function clearAt(prefix : string, index : number) {
+  uni.removeStorageSync(prefix + index)
 }
 
-export function currentSlot() : number {
-  const raw = readString(KEY_CURRENT)
+function slotOf(key : string) : number {
+  const raw = readString(key)
   if (raw == '') {
     return 1
   }
@@ -737,25 +800,94 @@ export function currentSlot() : number {
   return index
 }
 
-export function setCurrentSlot(index : number) {
-  uni.setStorageSync(KEY_CURRENT, '' + index)
+function setSlotOf(key : string, index : number) {
+  uni.setStorageSync(key, '' + index)
 }
 
-// 当前存档；若还没有任何存档，自动在 1 号槽建一个
-export function loadCurrentSave() : SaveData {
-  const index = currentSlot()
-  const data = loadSave(index)
+// 当前存档；若还没有任何存档，自动在 1 号槽建一个。
+// name 是新建时的默认名 —— 两个游戏各叫各的，不然三个槽都叫「存档 1」分不清
+// ---------- 钓鱼那一套 ----------
+//
+// 名字上两处刻意的讲究：
+//
+//   叫 fishSaveSlot 不叫 fishSlot —— 排竿那边「slot」这个词已经被
+//   **道具格**占了（runSlots、firstFreeSlot、setRunEquip(data, slot, key)），
+//   relaySlot() 摆在 relay-shop 里会被读成「道具格」。两边得对称，所以
+//   钓鱼这边也带上 Save。
+//
+//   叫 loadFishAt(i) 不叫 loadFishSlot(i) —— 它跟 loadFishSave()（当前槽）
+//   只差两个字母，而这两个用错的后果不一样。At 后面必跟下标，一眼分得开
+
+export function loadFishAt(index : number) : SaveData {
+  return loadAt(FISH_PREFIX, index)
+}
+
+export function writeFishAt(index : number, data : SaveData) {
+  writeAt(FISH_PREFIX, index, data)
+}
+
+export function clearFishAt(index : number) {
+  clearAt(FISH_PREFIX, index)
+}
+
+export function fishSaveSlot() : number {
+  return slotOf(KEY_FISH_SLOT)
+}
+
+export function setFishSaveSlot(index : number) {
+  setSlotOf(KEY_FISH_SLOT, index)
+}
+
+export function loadFishSave() : SaveData {
+  const index = fishSaveSlot()
+  const data = loadFishAt(index)
   if (!data.exists) {
-    const created = newSave('存档 ' + index)
-    writeSave(index, created)
-    setCurrentSlot(index)
+    const created = newFishSave(FISH_SAVE_NAME + ' ' + index)
+    writeFishAt(index, created)
     return created
   }
   return data
 }
 
-export function saveCurrent(data : SaveData) {
-  writeSave(currentSlot(), data)
+export function saveFish(data : SaveData) {
+  writeFishAt(fishSaveSlot(), data)
+}
+
+// ---------- 排竿那一套 ----------
+
+export function loadRelayAt(index : number) : SaveData {
+  return loadAt(RELAY_PREFIX, index)
+}
+
+export function writeRelayAt(index : number, data : SaveData) {
+  writeAt(RELAY_PREFIX, index, data)
+}
+
+export function clearRelayAt(index : number) {
+  clearAt(RELAY_PREFIX, index)
+}
+
+export function relaySaveSlot() : number {
+  return slotOf(KEY_RELAY_SLOT)
+}
+
+export function setRelaySaveSlot(index : number) {
+  setSlotOf(KEY_RELAY_SLOT, index)
+}
+
+export function loadRelaySave() : SaveData {
+  const index = relaySaveSlot()
+  const data = loadRelayAt(index)
+  if (!data.exists) {
+    const created = newRelaySave(RELAY_SAVE_NAME + ' ' + index)
+    writeRelayAt(index, created)
+    return created
+  }
+  return data
+}
+
+export function saveRelay(data : SaveData) {
+  writeRelayAt(relaySaveSlot(), data)
 }
 
 // 正在挑战的关卡编号。用 storage 传参，牌桌页在 setup 阶段即可读到
@@ -826,11 +958,11 @@ export const RELAY_START_TIERS : number[] = [1, 0, 0]
 
 // 开局的启动金。
 //
-// 给的不是难度，是第一次进商店的体验：打完第一关到手三四十金币，
-// 而店里最便宜的道具 15、稀有 35、盲盒十几块，升一级要五十往上 ——
-// 只够买一件普通道具的话，第一次进店根本没有选择，
-// 也就体会不到「再买一件 还是 攒钱升一级」这套取舍，而那是整个玩法的核心。
-// 添上这一笔，头一回进店手上五六十，正好得挑一挑。
+// 给的不是难度，是第一次进商店的体验：打完第一关到手四五十金币
+//（底金 16 加分差赏钱，见 baseCoins），而店里最便宜的道具 15、
+// 稀有 85 起、盲盒十几块，升一级要 70 往上 —— 光靠头一关那笔，
+// 「再买一件 还是 攒钱升一级」这套取舍还是问不出来，而那是整个玩法的核心。
+// 添上这一笔，头一回进店手上七十上下，正好卡在「两件普通 还是 攒一手」的坎上。
 // 再多就没必要了 —— 前期拮据本身就是金币来之不易的体感来源
 export const RELAY_START_COINS : number = 25
 
@@ -845,8 +977,9 @@ export function resetRun(data : SaveData) {
   data.runTiers = zeroList(RELAY_ITEMS.length)
   data.runEquip = [] as string[]
   data.runUsed = zeroList(RELAY_ITEMS.length)
-  // 第一关一条规矩都没有，摇出来也是空的
-  data.runRules = rollRulesFor(1)
+  // 第一关一条规矩都没有，摇出来也是空的。
+  // keep 传空 —— 新开一轮就是从零攒，上一轮那几条一律不带过来
+  data.runRules = rollRulesFor(1, [] as string[])
   // 货架空着，进商店那会儿再摆
   data.runShelf = [] as string[]
   // 第一关那副牌现在就洗好 —— 第一关前面没有商店，
@@ -943,16 +1076,22 @@ export function usesLeft(data : SaveData, key : string) : number {
   return left > 0 ? left : 0
 }
 
-// 用掉一次。用不了返回 false，调用处照这个判断能不能发动
-export function spendUse(data : SaveData, key : string) : boolean {
-  if (usesLeft(data, key) <= 0) {
+// 用掉 times 次。用不了返回 false，调用处照这个判断能不能发动。
+//
+// 要带张数是因为「点一张就用掉一次」：圈三张牌下手就是一次扣三次。
+// 张数和次数在排竿里是同一件东西（见 relay-items 开头那段），
+// 所以这儿必须一次扣完 —— 分三次调用的话，中间扣到一半余额不够，
+// 前面那几张已经改完了，收不回来
+export function spendUse(data : SaveData, key : string, times : number) : boolean {
+  const want = times < 1 ? 1 : times
+  if (usesLeft(data, key) < want) {
     return false
   }
   const at = itemIndexOf(key)
   if (at < 0 || at >= data.runUsed.length) {
     return false
   }
-  data.runUsed[at] = data.runUsed[at] + 1
+  data.runUsed[at] = data.runUsed[at] + want
   return true
 }
 
@@ -983,10 +1122,13 @@ export const HALF_DECK : number = 26
 //
 // 摇的时机是**进商店之前**（打赢一关、关号推进的那一下），
 // 这样商店才能提前把下一关的规矩摊出来。
-// 花色表从这儿传进去 —— relay-items 那个文件不该去认花色
-export function rollRulesFor(level : number) : string[] {
+// 花色表从这儿传进去 —— relay-items 那个文件不该去认花色。
+//
+// keep 传上一关那几条：**摇到就固定**，只补足新增的条数
+//（见 rollDealerRules 那段）。从第一关起一轮的时候传空的
+export function rollRulesFor(level : number, keep : string[]) : string[] {
   const lv = relayLevelAt(level)
-  return rollDealerRules(level, lv.dealerRules, SUITS)
+  return rollDealerRules(level, lv.dealerRules, SUITS, keep)
 }
 
 export function firstFreeSlot(data : SaveData) : number {
