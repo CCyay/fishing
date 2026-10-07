@@ -2,12 +2,13 @@
   <view class="page">
     <view class="hero">
       <text class="hero-title">钓鱼</text>
-      <text class="hero-sub">两种玩法，各有各的存档</text>
+      <text class="hero-sub">三种玩法，各有各的存档</text>
     </view>
 
-    <!-- 两个游戏各一颗按钮，按钮下面一行小字报进度。
+    <!-- 每个游戏一颗按钮，按钮下面一行小字报进度。
          报进度是为了不用点进去就知道各自到哪儿了 ——
-         这一页唯一的作用就是分流，分流之前总得让人看清要去哪边 -->
+         这一页唯一的作用就是分流，分流之前总得让人看清要去哪边。
+         摸打钓鱼的档在它自己的关卡页里切 -->
     <view class="menu">
       <view id="bj-pick-fish" class="menu-btn menu-btn-primary" @click="pickFish">
         <text class="menu-btn-text menu-btn-text-dark">钓鱼游戏</text>
@@ -16,6 +17,10 @@
       <view id="bj-pick-relay" class="menu-btn" @click="pickRelay">
         <text class="menu-btn-text">排竿对局</text>
         <text class="menu-btn-sub">{{ relayText }}</text>
+      </view>
+      <view id="bj-pick-action" class="menu-btn" @click="pickAction">
+        <text class="menu-btn-text">摸打钓鱼</text>
+        <text class="menu-btn-sub">{{ drawText }}</text>
       </view>
     </view>
 
@@ -36,6 +41,13 @@
   } from '@/pages/examples/blackjack/save.uts'
   import { LEVEL_COUNT } from '@/pages/examples/blackjack/levels.uts'
   import { RELAY_COUNT } from '@/pages/examples/blackjack/relay-levels.uts'
+  import {
+    DrawSave,
+    emptyDrawSave,
+    loadDrawAt,
+    drawSaveSlot,
+    DRAW_RUN_LENGTH
+  } from '@/pages/examples/blackjack/draw-save.uts'
 
   // 两份档各读一份。这一页是唯一同时看得见两个游戏的地方 ——
   // 别的页面各自只认自己那一套 API，互相不知道对方存在。
@@ -79,6 +91,21 @@
     return head + ' · ' + best + now
   })
 
+  // 摸打钓鱼同样只读不建：loadDrawAt 读不到就是空档
+  const draw = ref<DrawSave>(emptyDrawSave())
+  const drawAt = ref<number>(1)
+
+  const drawText = computed<string>(() : string => {
+    const one = draw.value
+    const head = one.label == '' ? '存档 ' + drawAt.value : one.label
+    if (!one.exists) {
+      return head + ' · 新游戏'
+    }
+    // 和排竿一样：最远战绩跨轮留着，本轮进度输了就清
+    const now = one.runLevel > DRAW_RUN_LENGTH ? '本轮通关' : '打到第 ' + one.runLevel + ' 关'
+    return head + ' · 最远 ' + one.best + '/' + DRAW_RUN_LENGTH + ' · ' + now
+  })
+
   // 槽名：建过档就用它自己的名字，没建过就报槽号
   function slotName(one : SaveData, index : number) : string {
     return one.label == '' ? '存档 ' + index : one.label
@@ -89,6 +116,8 @@
     relayAt.value = relaySaveSlot()
     fish.value = loadFishAt(fishAt.value)
     relay.value = loadRelayAt(relayAt.value)
+    drawAt.value = drawSaveSlot()
+    draw.value = loadDrawAt(drawAt.value)
   }
 
   function pickFish() {
@@ -100,6 +129,12 @@
   function pickRelay() {
     uni.navigateTo({
       url: '/pages/examples/blackjack/relay-levels'
+    })
+  }
+
+  function pickAction() {
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/draw-levels'
     })
   }
 

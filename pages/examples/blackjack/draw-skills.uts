@@ -1,0 +1,386 @@
+// 摸打钓鱼的技能。设计稿见根目录《摸打钓鱼-技能与关卡设计.md》。
+//
+// 一条铁律：**没有技能直接改积分**。积分永远等于收走的张数，
+// 技能只改「怎么钓、钓不钓得到、对方拿什么来钓」。
+//
+// 两个槽，按「覆盖面」装技能：
+//   花色槽最多覆盖 2 个花色 —— 2 个初始技能各管一个花色，或 1 个升过级的颜色技（一个颜色就是 2 个花色）；
+//   点数槽最多覆盖 6 个点数 —— 初始技能管 1 个、升 1 级管 3 个、升 2 级管 6 个。J 不能指定。
+// 同一个技能只能装进一个槽；槽里每个花色、每个点数只归一个技能。
+//
+// 强度是模拟校准过的（每局分差，扣掉后手本来就有的 +2.9）：
+//   护饵、磁钩、观潮 满装约 +4 ~ +7，属于「升满了明显好用」；
+//   钩顶、搅水 只指定 1 个点数就有 +4 ~ +5，所以只能放点数槽、不能升级。
+//   换牌、连竿 两个候选模拟下来没有效果，先拿掉了
+
+import { SUITS } from '@/pages/examples/blackjack/cards.uts'
+
+export type DrawSkill = {
+  key : string
+  name : string
+  // 一句话效果，技能页和对局里的「技能」说明框都用它
+  desc : string
+  // 能放哪个槽：KIND_ANY 两个都行，KIND_RANK 只能放点数槽
+  kind : number
+  // 最高等级。0 表示不能升级
+  maxLevel : number
+  // 解锁价
+  unlock : number
+  // 升到第 1、2 级各要多少钱
+  upgrade : number[]
+}
+
+export const KIND_ANY : number = 0
+export const KIND_RANK : number = 2
+
+export const SK_GUARD : number = 0
+export const SK_HOOK : number = 1
+export const SK_TIDE : number = 2
+export const SK_PEEK : number = 3
+export const SK_TOP : number = 4
+export const SK_STIR : number = 5
+
+export const DRAW_SKILLS : DrawSkill[] = [
+  {
+    key: 'guard', name: '护饵', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
+    desc: '这张没钓到牌时，对方下一回合钓不到它（J 照样通吃）'
+  },
+  {
+    key: 'hook', name: '磁钩', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
+    desc: '这张还能对上点数比它大 1 的牌（Q 钓 K，10 钓不了 J）'
+  },
+  {
+    key: 'tide', name: '观潮', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
+    desc: '打出后看牌库顶那张（对方下一张要摸的），可以把它沉到牌库底'
+  },
+  {
+    key: 'peek', name: '窥视', kind: KIND_ANY, maxLevel: 2, unlock: 40, upgrade: [60, 100],
+    desc: '打出后翻开对方一张手牌，直到它打出去'
+  },
+  {
+    key: 'top', name: '钩顶', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    desc: '这张对不上任何牌时，钓走堆顶那一张（只能放点数槽，不能升级）'
+  },
+  {
+    key: 'stir', name: '搅水', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    desc: '打出后对方随机一张手牌明着落到牌堆上，不算钓牌（只能放点数槽，不能升级）'
+  }
+]
+
+export const SUIT_CAPACITY : number = 2
+export const RANK_CAPACITY : number = 6
+
+// 点数槽能指定的点数：A–10、Q、K，一共 12 个。J 本身就通吃，不给指定
+export const SKILL_RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
+
+// 装在两个槽里的样子。下标 -> 技能下标，-1 表示空着。
+// suitOwner 和 SUITS 对齐（♠♥♦♣），rankOwner 和 SKILL_RANKS 对齐
+export type DrawLoadout = {
+  suitOwner : number[]
+  rankOwner : number[]
+}
+
+export const SLOT_NONE : number = 0
+export const SLOT_SUIT : number = 1
+export const SLOT_RANK : number = 2
+
+function filled(count : number, value : number) : number[] {
+  const list : number[] = []
+  for (let i = 0; i < count; i++) {
+    list.push(value)
+  }
+  return list
+}
+
+export function emptyLoadout() : DrawLoadout {
+  return { suitOwner: filled(SUITS.length, -1), rankOwner: filled(SKILL_RANKS.length, -1) }
+}
+
+export function cloneLoadout(lo : DrawLoadout) : DrawLoadout {
+  return { suitOwner: lo.suitOwner.slice(0), rankOwner: lo.rankOwner.slice(0) }
+}
+
+// 一个技能在花色槽里能管几个花色：初始 1 个，升过级就是一整个颜色（2 个）
+export function suitSizeOf(level : number) : number {
+  return level >= 1 ? 2 : 1
+}
+
+// 一个技能在点数槽里能管几个点数：1 / 3 / 6
+export function rankSizeOf(level : number) : number {
+  if (level >= 2) {
+    return 6
+  }
+  return level == 1 ? 3 : 1
+}
+
+function countOf(owner : number[], skill : number) : number {
+  let n = 0
+  for (let i = 0; i < owner.length; i++) {
+    if (owner[i] == skill) {
+      n = n + 1
+    }
+  }
+  return n
+}
+
+function usedOf(owner : number[]) : number {
+  let n = 0
+  for (let i = 0; i < owner.length; i++) {
+    if (owner[i] >= 0) {
+      n = n + 1
+    }
+  }
+  return n
+}
+
+export function suitUsed(lo : DrawLoadout) : number {
+  return usedOf(lo.suitOwner)
+}
+
+export function rankUsed(lo : DrawLoadout) : number {
+  return usedOf(lo.rankOwner)
+}
+
+// 这个技能装在哪个槽
+export function slotOf(lo : DrawLoadout, skill : number) : number {
+  if (countOf(lo.suitOwner, skill) > 0) {
+    return SLOT_SUIT
+  }
+  if (countOf(lo.rankOwner, skill) > 0) {
+    return SLOT_RANK
+  }
+  return SLOT_NONE
+}
+
+function clearSkill(owner : number[], skill : number) {
+  for (let i = 0; i < owner.length; i++) {
+    if (owner[i] == skill) {
+      owner[i] = -1
+    }
+  }
+}
+
+// 和这个花色同色的另一个花色：♠♣ 一对，♥♦ 一对
+export function partnerSuit(suitIndex : number) : number {
+  if (suitIndex == 0) {
+    return 3
+  }
+  if (suitIndex == 3) {
+    return 0
+  }
+  return suitIndex == 1 ? 2 : 1
+}
+
+// 点一下花色格子：把 skill 放到这个花色上（skill = -1 表示清空这一格）。
+// 初始技能只占这一个花色；升过级的占整个颜色，同色的另一格一起换掉。
+// 同一个技能只能在一个槽里：放进花色槽时会把它从点数槽撤下来。
+// 放不下（超过容量）返回 null
+export function assignSuit(lo : DrawLoadout, levels : number[], suitIndex : number, skill : number) : DrawLoadout | null {
+  const next = cloneLoadout(lo)
+  if (skill < 0) {
+    const old = next.suitOwner[suitIndex]
+    if (old >= 0) {
+      clearSkill(next.suitOwner, old)
+    }
+    return next
+  }
+  if (DRAW_SKILLS[skill].kind == KIND_RANK) {
+    return null
+  }
+  clearSkill(next.rankOwner, skill)
+  clearSkill(next.suitOwner, skill)
+  const cells : number[] = [suitIndex]
+  if (suitSizeOf(levels[skill]) == 2) {
+    cells.push(partnerSuit(suitIndex))
+  }
+  for (let i = 0; i < cells.length; i++) {
+    const old = next.suitOwner[cells[i]]
+    if (old >= 0) {
+      // 挤掉原来占着的技能（整个撤下，不留半个颜色）
+      clearSkill(next.suitOwner, old)
+    }
+  }
+  for (let i = 0; i < cells.length; i++) {
+    next.suitOwner[cells[i]] = skill
+  }
+  if (usedOf(next.suitOwner) > SUIT_CAPACITY) {
+    return null
+  }
+  return next
+}
+
+// 点一下点数格子：把 skill 放到这个点数上（skill = -1 表示清空这一格）。
+// 一个技能最多管 rankSizeOf(等级) 个点数，满了再点就把它最早那一格挪过来。
+// 整个槽最多 6 个点数。放不下返回 null
+export function assignRank(lo : DrawLoadout, levels : number[], rankIndex : number, skill : number) : DrawLoadout | null {
+  const next = cloneLoadout(lo)
+  if (skill < 0) {
+    next.rankOwner[rankIndex] = -1
+    return next
+  }
+  clearSkill(next.suitOwner, skill)
+  if (next.rankOwner[rankIndex] == skill) {
+    return next
+  }
+  next.rankOwner[rankIndex] = skill
+  const size = rankSizeOf(levels[skill])
+  if (countOf(next.rankOwner, skill) > size) {
+    // 超了：撤掉这个技能除刚点的这格以外最靠前的那一格
+    for (let i = 0; i < next.rankOwner.length; i++) {
+      if (i != rankIndex && next.rankOwner[i] == skill) {
+        next.rankOwner[i] = -1
+        break
+      }
+    }
+  }
+  if (usedOf(next.rankOwner) > RANK_CAPACITY) {
+    return null
+  }
+  return next
+}
+
+// 升级 / 降级之后，装着的覆盖面可能和新等级对不上（比如花色技升成颜色技），整理一遍：
+// 花色槽里升过级的技能补齐同色另一格（放不下就整个撤下）；点数槽里超出的格子撤掉
+export function normalizeLoadout(lo : DrawLoadout, levels : number[]) : DrawLoadout {
+  let next = cloneLoadout(lo)
+  for (let s = 0; s < next.suitOwner.length; s++) {
+    const skill = next.suitOwner[s]
+    if (skill < 0) {
+      continue
+    }
+    const want = suitSizeOf(levels[skill])
+    if (want == 2 && next.suitOwner[partnerSuit(s)] != skill) {
+      const tried = assignSuit(next, levels, s, skill)
+      if (tried != null) {
+        next = tried
+      } else {
+        clearSkill(next.suitOwner, skill)
+      }
+    }
+  }
+  for (let k = 0; k < DRAW_SKILLS.length; k++) {
+    const size = rankSizeOf(levels[k])
+    while (countOf(next.rankOwner, k) > size) {
+      for (let i = next.rankOwner.length - 1; i >= 0; i--) {
+        if (next.rankOwner[i] == k) {
+          next.rankOwner[i] = -1
+          break
+        }
+      }
+    }
+  }
+  return next
+}
+
+export function rankSlotIndex(rank : string) : number {
+  for (let i = 0; i < SKILL_RANKS.length; i++) {
+    if (SKILL_RANKS[i] == rank) {
+      return i
+    }
+  }
+  return -1
+}
+
+export function suitSlotIndex(suit : string) : number {
+  for (let i = 0; i < SUITS.length; i++) {
+    if (SUITS[i] == suit) {
+      return i
+    }
+  }
+  return -1
+}
+
+// 打出这张牌会触发哪几个技能（最多两个：花色槽一个、点数槽一个）
+export function triggersOf(lo : DrawLoadout, suit : string, rank : string) : number[] {
+  const list : number[] = []
+  const s = suitSlotIndex(suit)
+  if (s >= 0 && lo.suitOwner[s] >= 0) {
+    list.push(lo.suitOwner[s])
+  }
+  const r = rankSlotIndex(rank)
+  if (r >= 0 && lo.rankOwner[r] >= 0 && list.indexOf(lo.rankOwner[r]) < 0) {
+    list.push(lo.rankOwner[r])
+  }
+  return list
+}
+
+export function hasTrigger(list : number[], skill : number) : boolean {
+  return list.indexOf(skill) >= 0
+}
+
+// 这个技能现在管着哪些花色 / 点数，写成「♥♦」「5 7 9」这样
+export function coverageText(lo : DrawLoadout, skill : number) : string {
+  let text = ''
+  for (let s = 0; s < lo.suitOwner.length; s++) {
+    if (lo.suitOwner[s] == skill) {
+      text = text + SUITS[s]
+    }
+  }
+  for (let r = 0; r < lo.rankOwner.length; r++) {
+    if (lo.rankOwner[r] == skill) {
+      text = text + (text == '' ? '' : ' ') + SKILL_RANKS[r]
+    }
+  }
+  return text
+}
+
+// 装着的技能下标，按技能表顺序
+export function equippedSkills(lo : DrawLoadout) : number[] {
+  const list : number[] = []
+  for (let k = 0; k < DRAW_SKILLS.length; k++) {
+    if (slotOf(lo, k) != SLOT_NONE) {
+      list.push(k)
+    }
+  }
+  return list
+}
+
+// 升到下一级要多少钱，-1 表示已经满级
+export function nextUpgradeCost(skill : number, level : number) : number {
+  const def = DRAW_SKILLS[skill]
+  if (level < 0) {
+    return def.unlock
+  }
+  if (level >= def.maxLevel) {
+    return -1
+  }
+  return def.upgrade[level]
+}
+
+// 这个技能到这一级为止一共值多少：解锁价 + 各级升级价。
+// 技能是过关白拿的，但卖的时候按它「值」多少折算，升过级的卖得更贵
+export function investedOf(skill : number, level : number) : number {
+  if (level < 0) {
+    return 0
+  }
+  const def = DRAW_SKILLS[skill]
+  let total = def.unlock
+  for (let i = 0; i < level && i < def.upgrade.length; i++) {
+    total = total + def.upgrade[i]
+  }
+  return total
+}
+
+// 卖出拿回一半
+export function sellPriceOf(skill : number, level : number) : number {
+  return Math.floor(investedOf(skill, level) / 2)
+}
+
+// 把一个技能从两个槽里都撤下来（卖掉时用）
+export function removeSkill(lo : DrawLoadout, skill : number) : DrawLoadout {
+  const next = cloneLoadout(lo)
+  clearSkill(next.suitOwner, skill)
+  clearSkill(next.rankOwner, skill)
+  return next
+}
+
+export function levelText(skill : number, level : number) : string {
+  if (level < 0) {
+    return '未解锁'
+  }
+  if (DRAW_SKILLS[skill].maxLevel == 0) {
+    return '固定'
+  }
+  return level == 0 ? '初始' : '升 ' + level + ' 级'
+}
+

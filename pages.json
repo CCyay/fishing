@@ -90,6 +90,33 @@
         "backgroundColorBottom": "#0B5D3B"
       }
     },
+    {
+      "path": "pages/examples/blackjack/draw-levels",
+      "style": {
+        "navigationBarTitleText": "摸打关卡（draw）",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
+    {
+      "path": "pages/examples/blackjack/draw-skills",
+      "style": {
+        "navigationBarTitleText": "摸打技能（draw）",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
+    {
+      "path": "pages/examples/blackjack/ap-fishing",
+      "style": {
+        "navigationBarTitleText": "摸打钓鱼（draw）",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
 
     {
       "path": "pages/index/index",

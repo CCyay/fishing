@@ -1,0 +1,1454 @@
+<template>
+  <view class="page">
+    <!-- 顶栏：双方积分 + 牌库剩几张。积分就是收走的牌数 -->
+    <view class="score-bar">
+      <view class="score-cell">
+        <text class="score-label">你</text>
+        <text id="ap-my-score" class="score-num" :class="{ 'score-flash': flashMe }">{{ myScore }}</text>
+      </view>
+      <view class="score-cell">
+        <text class="score-label">第 {{ level.id }} 关 · 牌库</text>
+        <text id="ap-deck-count" class="score-num score-num-dim">{{ deck.length }}</text>
+      </view>
+      <view class="score-cell">
+        <text class="score-label">庄家</text>
+        <text id="ap-foe-score" class="score-num" :class="{ 'score-flash': flashFoe }">{{ foeScore }}</text>
+      </view>
+    </view>
+
+    <!-- 庄家手牌：平时只给看牌背；被窥视翻开的那几张明着摆 -->
+    <view class="foe-area">
+      <text class="area-title">庄家手牌 {{ foeHand.length }} 张</text>
+      <!-- 庄家带的技能，照排竿「庄家挂着的规矩」横着摆一排，点一下在说明框里看效果。
+           摆出来是有意的 —— 难度该看得见，藏着的话「我怎么突然钓不到了」就成了坑人 -->
+      <view v-if="foeChips.length > 0" class="rule-row">
+        <text
+          v-for="(chip, ci) in foeChips"
+          :key="'fc-' + ci"
+          :id="'ap-foe-skill-' + ci"
+          class="rule-tag"
+          :class="{ 'rule-tag-on': chipAt == 100 + ci }"
+          @click="showChip(true, ci)"
+          >{{ chip.slot }} · {{ chip.name }} {{ chip.cover }}</text
+        >
+      </view>
+      <view class="foe-row">
+        <view
+          v-for="(card, index) in foeHand"
+          :key="'fh-' + index"
+          class="card card-small"
+          :class="{ 'card-back': !foeShown[index] }">
+          <view v-if="!foeShown[index]" class="card-back-art card-back-art-small">
+            <view class="card-back-gem card-back-gem-small"></view>
+          </view>
+          <text v-if="foeShown[index]" class="card-rank card-rank-small" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+          <text v-if="foeShown[index]" class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 牌堆：从左往右是落下的先后，满一行换行。被护饵护着的描蓝边 -->
+    <view class="pile-area">
+      <text class="area-title">牌堆 {{ pile.length }} 张</text>
+      <scroll-view class="board">
+        <view class="board-row">
+          <text v-if="pile.length == 0" class="dim-tip">空堆</text>
+          <view
+            v-for="(card, index) in pile"
+            :key="'pl-' + index"
+            class="card card-in-pile"
+            :class="{
+              'card-from-foe': pileByFoe[index],
+              'card-from-me': !pileByFoe[index],
+              'card-guarded': pileGuard[index] != GUARD_NONE,
+              'card-caught': catching && index >= catchFrom,
+              'card-flying': flyOn && index >= catchFrom
+            }">
+            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+            <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <view class="message-box">
+      <text id="ap-message" class="message-text">{{ message }}</text>
+    </view>
+
+    <!-- 观潮：你打出触发了它，看一眼牌库顶，选沉不沉 -->
+    <view v-if="tidePending" class="tide-box">
+      <text class="tide-text">观潮：牌库顶是 {{ tideName }}（庄家下一张要摸的）</text>
+      <view class="tide-actions">
+        <view id="ap-tide-sink" class="tide-btn" @click="onTide(true)">
+          <text class="tide-btn-text">沉到库底</text>
+        </view>
+        <view id="ap-tide-keep" class="tide-btn tide-btn-plain" @click="onTide(false)">
+          <text class="tide-btn-text tide-btn-text-plain">不动</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="turn-bar">
+      <text id="ap-turn" class="turn-label">{{ turnText }}</text>
+    </view>
+
+    <!-- 技能栏：照排竿的道具栏，装着的全摆出来，点一下在说明框里看效果。
+         高度写死，有没有技能这一行都占同样的位子，不然手牌区会上下跳 -->
+    <view class="skill-row">
+      <text class="skill-label">技能</text>
+      <view
+        v-for="(chip, ci) in myChips"
+        :key="'mc-' + ci"
+        :id="'ap-skill-' + ci"
+        class="skill-chip"
+        :class="{ 'skill-chip-on': chipAt == ci }"
+        @click="showChip(false, ci)">
+        <text class="skill-chip-slot" :class="{ 'skill-chip-slot-on': chipAt == ci }">{{ chip.slot }}</text>
+        <text class="skill-chip-name" :class="{ 'skill-chip-name-on': chipAt == ci }">{{ chip.name }}</text>
+        <text class="skill-chip-cover" :class="{ 'skill-chip-cover-on': chipAt == ci }">{{ chip.cover }}</text>
+      </view>
+      <text v-if="myChips.length == 0" class="skill-none">没装技能</text>
+    </view>
+
+    <!-- 你的手牌：轮到你时已经自动摸好一张，点一张打出。
+         牌底下的小字是这张会触发的技能 -->
+    <view class="hand-area">
+      <text class="area-title">你的手牌 {{ hand.length }} 张 · 点一张打出</text>
+      <scroll-view class="hand-scroll" direction="horizontal">
+        <view class="hand-row">
+          <view
+            v-for="(card, index) in hand"
+            :key="'h-' + index"
+            :id="'ap-hand-' + index"
+            class="card card-hand"
+            :class="{ 'card-hint': canPlay && canCatch(card, false), 'card-new': index == newIndex }"
+            @click="onPlay(index)">
+            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+            <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            <text v-if="skillTag(card) != ''" class="card-skill">{{ skillTag(card) }}</text>
+            <text v-if="handSeen[index]" class="card-seen">被看</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 结算：牌库和双方手牌都空了才出现。
+         照排竿：赢了往下一关走，输了整轮作废从第 1 关重来；平局重打这一关 -->
+    <view v-if="over" class="mask">
+      <view class="result-box">
+        <text id="ap-result" class="result-title">{{ resultText }}</text>
+        <text class="result-sub">你 {{ myScore }} : {{ foeScore }} 庄家</text>
+        <text id="ap-reward" class="result-reward">{{ rewardText }}</text>
+        <text v-if="skillText != ''" id="ap-skill-gain" class="result-skill">{{ skillText }}</text>
+        <view v-if="outcome == OUT_WIN" id="ap-next" class="result-btn" @click="goNext">
+          <text class="result-btn-text">下一关</text>
+        </view>
+        <view v-if="outcome == OUT_WIN" id="ap-shop" class="result-btn result-btn-plain" @click="goShop">
+          <text class="result-btn-text result-btn-text-plain">去商店</text>
+        </view>
+        <view v-if="outcome == OUT_LOSE" id="ap-restart" class="result-btn" @click="newGame">
+          <text class="result-btn-text">从第 1 关重来</text>
+        </view>
+        <view v-if="outcome == OUT_DRAW" id="ap-replay" class="result-btn" @click="newGame">
+          <text class="result-btn-text">重打这一关</text>
+        </view>
+        <text id="ap-back" class="result-link" @click="goBack">返回关卡</text>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import {
+    SUITS,
+    RANKS,
+    RANK_VALUES,
+    isRedSuit
+  } from '@/pages/examples/blackjack/cards.uts'
+  import {
+    DRAW_SKILLS,
+    DrawLoadout,
+    SK_GUARD,
+    SK_HOOK,
+    SK_TIDE,
+    SK_PEEK,
+    SK_TOP,
+    SK_STIR,
+    emptyLoadout,
+    triggersOf,
+    hasTrigger,
+    equippedSkills,
+    coverageText,
+    levelText,
+    slotOf,
+    SLOT_SUIT
+  } from '@/pages/examples/blackjack/draw-skills.uts'
+  import {
+    DrawLevel,
+    MARGIN_BONUS_CAP,
+    drawLevelById
+  } from '@/pages/examples/blackjack/draw-levels.uts'
+  import {
+    DrawSave,
+    DRAW_RUN_LENGTH,
+    emptyDrawSave,
+    loadDrawSave,
+    saveDraw,
+    settleWin,
+    resetDrawRun
+  } from '@/pages/examples/blackjack/draw-save.uts'
+
+  // 摸打钓鱼：一副 52 张。
+  // 每回合先从牌库摸 1 张（牌库空了就不摸），再打出 1 张明牌。
+  // 打到堆上的牌如果和堆里某张同点数，就把那张、夹在中间的、连同刚打的这张一起收走，张数记作积分。
+  // J 通吃：堆上有牌时打 J，整堆收走；空堆上打 J 就只是落在堆上。
+  // 牌库和双方手牌都空了，比积分。
+  //
+  // 早先试过「每回合 2 行动点、摸牌和出牌各花 1 点」和「盖牌 + 花行动点翻牌」两版，
+  // 都被模拟打出了必胜套路（囤牌不下饵、埋底收整堆），所以收成了最朴素的摸一打一：
+  // 每回合唯一的决定就是打哪张 —— 能钓就钓，钓不到就挑一张最不容易被对方钓走的当饵。
+  //
+  // 技能（draw-skills.uts）：打出的牌落在某个技能管着的花色 / 点数上就触发。
+  // 双方用同一套规则，庄家的技能由关卡给（draw-levels.uts）。没有技能直接改积分。
+  //
+  // 牌型单独定义一个最简的 —— cards.uts 的 Card 带着贴纸那一整套字段，
+  // 而且 buildDeck 会给 J 焊上「通吃」，这个玩法不要这些
+  type PlainCard = {
+    suit : string
+    rank : string
+    value : number
+  }
+
+  // 技能栏上的一格：技能名 + 它管着的花色 / 点数
+  type SkillChip = {
+    skill : number
+    name : string
+    cover : string
+    level : string
+    // 装在哪个槽：「花色」或「点数」
+    slot : string
+  }
+
+  const START_HAND : number = 3
+  const JACK : string = 'J'
+  // 节奏照钓鱼游戏（fishing.uvue）的来：庄家一回合只停一拍，摸牌和出牌一起做完，
+  // 打完立刻交回给你 —— 摸牌不用演，手牌张数一跳就看得出来。
+  // 早先摸、打、交回各停 0.7 秒，庄家钓到牌的那一回合要等三秒多，太拖
+  const FOE_DELAY_MS : number = 600
+  // 收牌特效分三拍：被收的那段亮起来停一下 → 往上飘走 → 积分跳一下。不弹横幅，
+  // 只靠牌本身和积分说话。亮的时长照钓鱼游戏的 CATCH_DELAY（560ms）取整
+  const CATCH_SHOW_MS : number = 500
+  const CATCH_FLY_MS : number = 200
+  const SCORE_FLASH_MS : number = 600
+
+  // 护饵护着的牌：记是谁护的。护饵只挡对方的下一回合，对方那回合一结束就失效
+  const GUARD_NONE : number = 0
+  const GUARD_ME : number = 1
+  const GUARD_FOE : number = 2
+
+  const save = ref<DrawSave>(emptyDrawSave())
+  const level = ref<DrawLevel>(drawLevelById(1))
+  const myLevels = ref<number[]>([] as number[])
+  const myLoadout = ref<DrawLoadout>(emptyLoadout())
+
+  const deck = ref<PlainCard[]>([])
+  const hand = ref<PlainCard[]>([])
+  // 和 hand 下标对齐：这张被庄家窥视过
+  const handSeen = ref<boolean[]>([])
+  const foeHand = ref<PlainCard[]>([])
+  // 和 foeHand 下标对齐：这张被你窥视翻开了
+  const foeShown = ref<boolean[]>([])
+  const pile = ref<PlainCard[]>([])
+  // 和 pile 下标对齐：这张是不是庄家打的。只用来描边，分清谁下的饵
+  const pileByFoe = ref<boolean[]>([])
+  // 和 pile 下标对齐：护饵状态
+  const pileGuard = ref<number[]>([])
+  // 被钓走的点数。庄家挑饵时拿来估「外面还剩几张同点数」
+  const goneRanks = ref<string[]>([])
+  const myScore = ref<number>(0)
+  const foeScore = ref<number>(0)
+  const myTurn = ref<boolean>(false)
+  const over = ref<boolean>(false)
+  const message = ref<string>('')
+  // 战况一更新，技能说明就收起
+  watch(message, (text : string) => {
+    if (text == chipText) {
+      return
+    }
+    chipAt.value = -1
+    lastEvent = text
+  })
+  // 你这回合刚摸到的那张在手牌里的下标，-1 表示没摸（牌库空了）。描绿边，打出之后清掉
+  const newIndex = ref<number>(-1)
+  // 技能栏上点亮的那一格：0 起是你的，100 起是庄家的，-1 表示没点
+  const chipAt = ref<number>(-1)
+  const rewardText = ref<string>('')
+  // 这关掉的技能那一句，没过关就是空串
+  const skillText = ref<string>('')
+  // 结算结果：赢了往下走 / 输了重来 / 整轮打通
+  const OUT_NONE : number = 0
+  const OUT_WIN : number = 1
+  const OUT_LOSE : number = 2
+  const OUT_CLEAR : number = 3
+  const OUT_DRAW : number = 4
+  const outcome = ref<number>(OUT_NONE)
+
+  // 观潮等你选的时候：牌库顶那张叫什么
+  const tidePending = ref<boolean>(false)
+  const tideName = ref<string>('')
+
+  // 收牌特效的状态。catching 期间牌还留在堆里（亮着），飘走之后才真的拿掉、才记分
+  const catching = ref<boolean>(false)
+  // 被收的那段从堆里第几张开始，到堆顶为止（包括刚打的那张）
+  const catchFrom = ref<number>(-1)
+  const catchByFoe = ref<boolean>(false)
+  const flyOn = ref<boolean>(false)
+  const flashMe = ref<boolean>(false)
+  const flashFoe = ref<boolean>(false)
+  // 收牌特效放完之后还要结算的技能（打出那张触发的）
+  let pendingSkills : number[] = []
+  // 最近一条战况。点技能看说明会盖掉 message，再点一次收起时拿它还原
+  let lastEvent : string = ''
+  // 说明框里正显示的技能说明。说明框一换成别的（新的战况），技能栏就熄掉
+  let chipText : string = ''
+
+  let foeTimer : number = -1
+  let catchTimer : number = -1
+  let flashTimer : number = -1
+
+  const canPlay = computed<boolean>(() : boolean => {
+    return myTurn.value && !over.value && !catching.value && !tidePending.value && hand.value.length > 0
+  })
+
+  const turnText = computed<string>(() : string => {
+    if (over.value) {
+      return '对局结束'
+    }
+    if (!myTurn.value) {
+      return '庄家回合'
+    }
+    if (tidePending.value) {
+      return '你的回合 · 观潮'
+    }
+    return catching.value ? '你的回合 · 收牌中' : '你的回合 · 打出一张'
+  })
+
+  const resultText = computed<string>(() : string => {
+    if (outcome.value == OUT_CLEAR) {
+      return '全部通关！'
+    }
+    if (myScore.value > foeScore.value) {
+      return '你赢了'
+    }
+    if (myScore.value < foeScore.value) {
+      return '你输了'
+    }
+    return '平局'
+  })
+
+  const myChips = computed<SkillChip[]>(() : SkillChip[] => {
+    return chipsOf(myLoadout.value, myLevels.value)
+  })
+
+  const foeChips = computed<SkillChip[]>(() : SkillChip[] => {
+    return chipsOf(level.value.loadout, level.value.levels)
+  })
+
+  function chipsOf(lo : DrawLoadout, levels : number[]) : SkillChip[] {
+    const chips : SkillChip[] = []
+    const list = equippedSkills(lo)
+    for (let i = 0; i < list.length; i++) {
+      const k = list[i]
+      chips.push({
+        skill: k,
+        name: DRAW_SKILLS[k].name,
+        cover: coverageText(lo, k),
+        level: levelText(k, levels[k]),
+        slot: slotOf(lo, k) == SLOT_SUIT ? '花色' : '点数'
+      })
+    }
+    return chips
+  }
+
+  // 点技能栏的一格：说明框改播它的效果。再点一次收起，说明框回到战况
+  function showChip(ofFoe : boolean, index : number) {
+    const at = ofFoe ? 100 + index : index
+    if (chipAt.value == at) {
+      chipAt.value = -1
+      message.value = lastEvent
+      return
+    }
+    const list = ofFoe ? foeChips.value : myChips.value
+    if (index >= list.length) {
+      return
+    }
+    const chip = list[index]
+    chipAt.value = at
+    chipText = (ofFoe ? '庄家的' : '') + chip.slot + '技【' + chip.name + '】' + chip.level + ' · 管 ' + chip.cover
+      + '：' + DRAW_SKILLS[chip.skill].desc
+    message.value = chipText
+  }
+
+  function isRed(card : PlainCard) : boolean {
+    return isRedSuit(card.suit)
+  }
+
+  function loadoutOf(byFoe : boolean) : DrawLoadout {
+    return byFoe ? level.value.loadout : myLoadout.value
+  }
+
+  function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
+    return triggersOf(loadoutOf(byFoe), card.suit, card.rank)
+  }
+
+  // 手牌底下那行小字：这张会触发的技能名
+  function skillTag(card : PlainCard) : string {
+    const list = skillsOf(false, card)
+    let text = ''
+    for (let i = 0; i < list.length; i++) {
+      text = text + (i == 0 ? '' : '·') + DRAW_SKILLS[list[i]].name
+    }
+    return text
+  }
+
+  function buildPlainDeck() : PlainCard[] {
+    const list : PlainCard[] = []
+    for (let r = 0; r < RANKS.length; r++) {
+      for (let s = 0; s < SUITS.length; s++) {
+        const card : PlainCard = { suit: SUITS[s], rank: RANKS[r], value: RANK_VALUES[r] }
+        list.push(card)
+      }
+    }
+    // Fisher-Yates 洗牌
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      const tmp = list[i]
+      list[i] = list[j]
+      list[j] = tmp
+    }
+    return list
+  }
+
+  // 堆里这张对出牌的一方来说是不是被护着：对方护的才挡，自己护的不挡自己
+  function guardedAgainst(index : number, byFoe : boolean) : boolean {
+    const g = pileGuard.value[index]
+    if (g == GUARD_NONE) {
+      return false
+    }
+    return byFoe ? g == GUARD_ME : g == GUARD_FOE
+  }
+
+  // 打出这张会从堆里第几张开始收，-1 表示钓不到。skills 是这张触发的技能。
+  //   J 通吃：堆上有牌就从第 0 张收起，护饵也挡不住；
+  //   同点数（磁钩：或者比它大 1 的点数）：找最靠前的那张，被对方护着的跳过；
+  //   钩顶：上面都对不上，就钓堆顶那一张。
+  // 不带磁钩时，同点数一落堆就会被收走，所以堆里同一个点数最多只有一张
+  function catchStart(card : PlainCard, byFoe : boolean, skills : number[]) : number {
+    const size = pile.value.length
+    if (card.rank == JACK) {
+      return size > 0 ? 0 : -1
+    }
+    const hook = hasTrigger(skills, SK_HOOK)
+    for (let i = 0; i < size; i++) {
+      if (guardedAgainst(i, byFoe)) {
+        continue
+      }
+      const p = pile.value[i]
+      if (p.rank == card.rank) {
+        return i
+      }
+      if (hook && p.rank != JACK && p.value == card.value + 1) {
+        return i
+      }
+    }
+    if (hasTrigger(skills, SK_TOP) && size > 0 && !guardedAgainst(size - 1, byFoe)) {
+      return size - 1
+    }
+    return -1
+  }
+
+  function canCatch(card : PlainCard, byFoe : boolean) : boolean {
+    return catchStart(card, byFoe, skillsOf(byFoe, card)) >= 0
+  }
+
+  function cardName(card : PlainCard) : string {
+    return card.suit + card.rank
+  }
+
+  function withoutCard(list : PlainCard[], index : number) : PlainCard[] {
+    const left : PlainCard[] = []
+    for (let i = 0; i < list.length; i++) {
+      if (i != index) {
+        left.push(list[i])
+      }
+    }
+    return left
+  }
+
+  function withoutFlag(list : boolean[], index : number) : boolean[] {
+    const left : boolean[] = []
+    for (let i = 0; i < list.length; i++) {
+      if (i != index) {
+        left.push(list[i])
+      }
+    }
+    return left
+  }
+
+  // 从某一方手里拿走一张（连同它的「被看过 / 被翻开」标记）
+  function takeFromHand(byFoe : boolean, index : number) : PlainCard {
+    if (byFoe) {
+      const card = foeHand.value[index]
+      foeHand.value = withoutCard(foeHand.value, index)
+      foeShown.value = withoutFlag(foeShown.value, index)
+      return card
+    }
+    const card = hand.value[index]
+    hand.value = withoutCard(hand.value, index)
+    handSeen.value = withoutFlag(handSeen.value, index)
+    return card
+  }
+
+  // 从牌库顶摸一张进对应的手牌。牌库空了返回 null
+  function drawFor(byFoe : boolean) : PlainCard | null {
+    if (deck.value.length == 0) {
+      return null
+    }
+    const rest = deck.value.slice(0)
+    const card = rest.pop()!
+    deck.value = rest
+    if (byFoe) {
+      foeHand.value = foeHand.value.concat([card])
+      foeShown.value = foeShown.value.concat([false])
+    } else {
+      hand.value = hand.value.concat([card])
+      handSeen.value = handSeen.value.concat([false])
+    }
+    return card
+  }
+
+  function pushPile(card : PlainCard, byFoe : boolean, guard : number) {
+    pile.value = pile.value.concat([card])
+    pileByFoe.value = pileByFoe.value.concat([byFoe])
+    pileGuard.value = pileGuard.value.concat([guard])
+  }
+
+  // 打出一张手牌：先落堆，撞上了就开始收牌特效。返回要收走几张（0 = 没钓到）。
+  // 钓到时牌不是马上拿掉的 —— 特效放完才拿掉、才记分，然后由 finishCatch 接着结算技能、交回合
+  function playFor(byFoe : boolean, index : number) : number {
+    const card = takeFromHand(byFoe, index)
+    const skills = skillsOf(byFoe, card)
+    const at = catchStart(card, byFoe, skills)
+    pendingSkills = skills
+    if (at < 0) {
+      pushPile(card, byFoe, hasTrigger(skills, SK_GUARD) ? (byFoe ? GUARD_FOE : GUARD_ME) : GUARD_NONE)
+      return 0
+    }
+    pushPile(card, byFoe, GUARD_NONE)
+    startCatch(byFoe, at)
+    return pile.value.length - at
+  }
+
+  function startCatch(byFoe : boolean, at : number) {
+    catching.value = true
+    catchFrom.value = at
+    catchByFoe.value = byFoe
+    flyOn.value = false
+    catchTimer = setTimeout(catchFly, CATCH_SHOW_MS)
+  }
+
+  function catchFly() {
+    flyOn.value = true
+    catchTimer = setTimeout(finishCatch, CATCH_FLY_MS)
+  }
+
+  function flashOff() {
+    flashTimer = -1
+    flashMe.value = false
+    flashFoe.value = false
+  }
+
+  // 特效放完：真正把那段牌拿掉、记分、积分跳一下，然后结算技能、交回合
+  function finishCatch() {
+    catchTimer = -1
+    const at = catchFrom.value
+    const caught = pile.value.length - at
+    const gone = goneRanks.value.slice(0)
+    for (let i = at; i < pile.value.length; i++) {
+      gone.push(pile.value[i].rank)
+    }
+    goneRanks.value = gone
+    pile.value = pile.value.slice(0, at)
+    pileByFoe.value = pileByFoe.value.slice(0, at)
+    pileGuard.value = pileGuard.value.slice(0, at)
+    const byFoe = catchByFoe.value
+    if (byFoe) {
+      foeScore.value = foeScore.value + caught
+      flashFoe.value = true
+    } else {
+      myScore.value = myScore.value + caught
+      flashMe.value = true
+    }
+    flashTimer = setTimeout(flashOff, SCORE_FLASH_MS)
+    catching.value = false
+    flyOn.value = false
+    catchFrom.value = -1
+    afterPlay(byFoe)
+  }
+
+  // ---------- 打出之后的技能 ----------
+  //
+  // 窥视、搅水立刻结算；观潮要看人：你打出的停下来等你选，庄家打出的自己判断。
+  // 都结算完才交回合
+
+  function afterPlay(byFoe : boolean) {
+    const skills = pendingSkills
+    pendingSkills = []
+    if (hasTrigger(skills, SK_PEEK)) {
+      peekFor(byFoe)
+    }
+    if (hasTrigger(skills, SK_STIR)) {
+      stirFor(byFoe)
+    }
+    if (hasTrigger(skills, SK_TIDE) && deck.value.length > 1) {
+      const top = deck.value[deck.value.length - 1]
+      if (!byFoe) {
+        tideName.value = cardName(top)
+        tidePending.value = true
+        return
+      }
+      // 庄家看到的是你下一张要摸的：是 J、或者能钓堆里的牌，就沉下去
+      let useful = top.rank == JACK
+      for (let i = 0; i < pile.value.length && !useful; i++) {
+        if (pile.value[i].rank == top.rank) {
+          useful = true
+        }
+      }
+      if (useful) {
+        sinkTop()
+        message.value = message.value + ' 庄家观潮，把牌库顶沉了下去。'
+      }
+    }
+    passTurn(byFoe)
+  }
+
+  function sinkTop() {
+    const rest = deck.value.slice(0)
+    const top = rest.pop()!
+    deck.value = [top].concat(rest)
+  }
+
+  function onTide(sink : boolean) {
+    if (!tidePending.value) {
+      return
+    }
+    tidePending.value = false
+    if (sink) {
+      sinkTop()
+      message.value = '你把 ' + tideName.value + ' 沉到了牌库底。'
+    }
+    passTurn(false)
+  }
+
+  // 窥视：翻开对方一张还没被看过的手牌
+  function peekFor(byFoe : boolean) {
+    const flags = byFoe ? handSeen.value.slice(0) : foeShown.value.slice(0)
+    const hidden : number[] = []
+    for (let i = 0; i < flags.length; i++) {
+      if (!flags[i]) {
+        hidden.push(i)
+      }
+    }
+    if (hidden.length == 0) {
+      return
+    }
+    const pick = hidden[Math.floor(Math.random() * hidden.length)]
+    flags[pick] = true
+    if (byFoe) {
+      handSeen.value = flags
+      message.value = message.value + ' 庄家窥视了你一张牌。'
+    } else {
+      foeShown.value = flags
+      message.value = message.value + ' 窥视：翻开了庄家一张牌。'
+    }
+  }
+
+  // 搅水：对方随机一张手牌明着落到牌堆上，不算钓牌
+  function stirFor(byFoe : boolean) {
+    const count = byFoe ? hand.value.length : foeHand.value.length
+    if (count == 0) {
+      return
+    }
+    const victimIsFoe = !byFoe
+    const card = takeFromHand(victimIsFoe, Math.floor(Math.random() * count))
+    pushPile(card, victimIsFoe, GUARD_NONE)
+    message.value = message.value + (byFoe ? ' 搅水：你的 ' : ' 搅水：庄家的 ') + cardName(card) + ' 落到了牌堆上。'
+  }
+
+  function clearTimers() {
+    if (foeTimer >= 0) {
+      clearTimeout(foeTimer)
+      foeTimer = -1
+    }
+    if (catchTimer >= 0) {
+      clearTimeout(catchTimer)
+      catchTimer = -1
+    }
+    if (flashTimer >= 0) {
+      clearTimeout(flashTimer)
+      flashTimer = -1
+    }
+  }
+
+  // 一方的回合结束：对方之前护着的饵到这里失效（护饵只挡这一回合）
+  function expireGuards(finishedByFoe : boolean) {
+    const drop = finishedByFoe ? GUARD_ME : GUARD_FOE
+    const next = pileGuard.value.slice(0)
+    for (let i = 0; i < next.length; i++) {
+      if (next[i] == drop) {
+        next[i] = GUARD_NONE
+      }
+    }
+    pileGuard.value = next
+  }
+
+  // ---------- 结算 ----------
+
+  // 牌库和两边手牌都空了，就再没有能做的事
+  function checkOver() : boolean {
+    if (deck.value.length == 0 && hand.value.length == 0 && foeHand.value.length == 0) {
+      over.value = true
+      message.value = '牌都打完了。堆里剩下的 ' + pile.value.length + ' 张不算分。'
+      settle()
+      return true
+    }
+    return false
+  }
+
+  // 结算照排竿：
+  //   赢了 —— 推进到下一关、发金币（过关奖励 + 胜分奖励，胜分有上限）、掷一次技能；
+  //   平局 —— 存档不动，重打这一关；
+  //   输了 —— 本轮马上作废（技能、金币全清），只留最远纪录。
+  //     当场就写进存档，退出页面也逃不掉
+  function settle() {
+    const data = loadDrawSave()
+    const id = level.value.id
+    if (myScore.value == foeScore.value) {
+      outcome.value = OUT_DRAW
+      skillText.value = ''
+      rewardText.value = '平局，这一关重打，本轮进度不变'
+      return
+    }
+    if (myScore.value < foeScore.value) {
+      resetDrawRun(data)
+      saveDraw(data)
+      save.value = data
+      outcome.value = OUT_LOSE
+      skillText.value = ''
+      rewardText.value = '止步第 ' + id + ' 关，技能和金币清空 · 最远 ' + data.best + '/' + DRAW_RUN_LENGTH
+      return
+    }
+    const margin = Math.min(myScore.value - foeScore.value, MARGIN_BONUS_CAP)
+    const gain = level.value.reward + margin
+    skillText.value = settleWin(data, id, gain)
+    saveDraw(data)
+    save.value = data
+    rewardText.value = '获得 ' + gain + ' 金币（胜分 +' + margin + '）'
+    outcome.value = id >= DRAW_RUN_LENGTH ? OUT_CLEAR : OUT_WIN
+  }
+
+  // 一方打完这回合，交给另一方
+  function passTurn(byFoe : boolean) {
+    expireGuards(byFoe)
+    if (checkOver()) {
+      return
+    }
+    if (byFoe) {
+      startMyTurn()
+    } else {
+      startFoeTurn()
+    }
+  }
+
+  function startMyTurn() {
+    myTurn.value = true
+    const card = drawFor(false)
+    newIndex.value = card == null ? -1 : hand.value.length - 1
+    if (hand.value.length == 0) {
+      // 牌库空了、手里也没牌：这回合什么也做不了
+      message.value = '你没牌可打，跳过这回合。'
+      passTurn(false)
+      return
+    }
+    if (card == null) {
+      message.value = '牌库空了，直接打一张。'
+    } else {
+      message.value = '你摸到 ' + cardName(card!) + '，打出一张。'
+    }
+  }
+
+  function onPlay(index : number) {
+    if (!canPlay.value || index >= hand.value.length) {
+      return
+    }
+    const card = hand.value[index]
+    newIndex.value = -1
+    const caught = playFor(false, index)
+    if (caught > 0) {
+      message.value = '你打出 ' + cardName(card) + '，钓走 ' + caught + ' 张！'
+      // 特效放完由 finishCatch 结算技能、交回合
+      return
+    }
+    message.value = '你打出 ' + cardName(card) + '，落在堆上。'
+    afterPlay(false)
+  }
+
+  function startFoeTurn() {
+    myTurn.value = false
+    foeTimer = setTimeout(foeTurn, FOE_DELAY_MS)
+  }
+
+  // 庄家一回合：摸一张、打一张，一口气做完
+  function foeTurn() {
+    foeTimer = -1
+    drawFor(true)
+    if (foeHand.value.length == 0) {
+      message.value = '庄家没牌可打，跳过。'
+      passTurn(true)
+      return
+    }
+    const index = foePickCard()
+    const card = foeHand.value[index]
+    const caught = playFor(true, index)
+    if (caught > 0) {
+      message.value = '庄家打出 ' + cardName(card) + '，钓走 ' + caught + ' 张。'
+      return
+    }
+    message.value = '庄家打出 ' + cardName(card) + '。'
+    afterPlay(true)
+  }
+
+  // 这个点数除了庄家自己手里、堆上、已被钓走的，外面还剩几张 —— 你手里有它的可能就这么大
+  function outsideCount(rank : string) : number {
+    let seen = 0
+    for (let i = 0; i < foeHand.value.length; i++) {
+      if (foeHand.value[i].rank == rank) {
+        seen = seen + 1
+      }
+    }
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pile.value[i].rank == rank) {
+        seen = seen + 1
+      }
+    }
+    for (let i = 0; i < goneRanks.value.length; i++) {
+      if (goneRanks.value[i] == rank) {
+        seen = seen + 1
+      }
+    }
+    return 4 - seen
+  }
+
+  // 庄家要打的那张。能钓就挑钓得最多的（J、磁钩、钩顶都算在里面；J 堆上有牌就用，不攒着）。
+  // 钓不到时：会记牌的挑外面剩得最少的点数当饵，不拿 J 当饵；
+  // 挑饵时触发护饵 / 窥视 / 搅水 / 观潮的牌，只要不比最安全的那张差 1 张以上就优先。
+  // 不会记牌的（浅滩前两关）钓不到就随手打
+  function foePickCard() : number {
+    let best = -1
+    let bestCaught = 0
+    for (let i = 0; i < foeHand.value.length; i++) {
+      const card = foeHand.value[i]
+      const at = catchStart(card, true, skillsOf(true, card))
+      if (at >= 0) {
+        const caught = pile.value.length - at + 1
+        if (caught > bestCaught) {
+          bestCaught = caught
+          best = i
+        }
+      }
+    }
+    if (best >= 0) {
+      return best
+    }
+    if (!level.value.smart) {
+      return Math.floor(Math.random() * foeHand.value.length)
+    }
+    let fewest = 99
+    for (let i = 0; i < foeHand.value.length; i++) {
+      if (foeHand.value[i].rank != JACK) {
+        fewest = Math.min(fewest, outsideCount(foeHand.value[i].rank))
+      }
+    }
+    let pick = -1
+    let pickScore = 99.0
+    for (let i = 0; i < foeHand.value.length; i++) {
+      const card = foeHand.value[i]
+      if (card.rank == JACK) {
+        continue
+      }
+      let score = outsideCount(card.rank) * 1.0
+      const skills = skillsOf(true, card)
+      const wants = hasTrigger(skills, SK_GUARD) || hasTrigger(skills, SK_PEEK)
+        || hasTrigger(skills, SK_STIR) || hasTrigger(skills, SK_TIDE)
+      if (wants && score <= fewest + 1) {
+        score = score - 1.5
+      }
+      if (score < pickScore) {
+        pickScore = score
+        pick = i
+      }
+    }
+    return pick >= 0 ? pick : 0
+  }
+
+  function newGame() {
+    clearTimers()
+    catching.value = false
+    catchFrom.value = -1
+    flyOn.value = false
+    flashMe.value = false
+    flashFoe.value = false
+    tidePending.value = false
+    chipAt.value = -1
+    pendingSkills = []
+    const data = loadDrawSave()
+    save.value = data
+    // 打的永远是本轮现在这一关。整轮打通了（runLevel 超过 12）的档不该进到这里，
+    // 关卡页会先让它重开一轮；万一进来了就从第 1 关打
+    level.value = drawLevelById(data.runLevel > DRAW_RUN_LENGTH ? 1 : data.runLevel)
+    myLevels.value = data.levels.slice(0)
+    myLoadout.value = data.loadout
+    deck.value = buildPlainDeck()
+    hand.value = []
+    handSeen.value = []
+    foeHand.value = []
+    foeShown.value = []
+    pile.value = []
+    pileByFoe.value = []
+    pileGuard.value = []
+    goneRanks.value = []
+    newIndex.value = -1
+    myScore.value = 0
+    foeScore.value = 0
+    over.value = false
+    rewardText.value = ''
+    skillText.value = ''
+    outcome.value = OUT_NONE
+    // 开局双方各摸 3 张，庄家先摸、轮流来；然后庄家先手
+    for (let i = 0; i < START_HAND; i++) {
+      drawFor(true)
+      drawFor(false)
+    }
+    message.value = '第 ' + level.value.id + ' 关「' + level.value.name + '」。庄家先手，每回合摸一张、打一张。'
+    startFoeTurn()
+  }
+
+  // 下一关：存档里的 runLevel 已经推进过了，重新开局就会读到
+  function goNext() {
+    newGame()
+  }
+
+  function goShop() {
+    uni.navigateTo({ url: '/pages/examples/blackjack/draw-skills' })
+  }
+
+  function goBack() {
+    uni.navigateBack({})
+  }
+
+  onLoad(() => {
+    newGame()
+  })
+
+  // 从商店回来：技能可能换过了。只在还没开打（结算框开着）时刷新技能栏，
+  // 对局进行中不动 —— 商店只能从结算框进
+  onShow(() => {
+    if (over.value) {
+      const data = loadDrawSave()
+      myLevels.value = data.levels.slice(0)
+      myLoadout.value = data.loadout
+    }
+  })
+
+  onUnload(() => {
+    clearTimers()
+  })
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 12px;
+    background-color: #0b5d3b;
+  }
+
+  .score-bar {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background-color: #0e3a28;
+  }
+
+  .score-cell {
+    align-items: center;
+  }
+
+  .score-label {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .score-num {
+    color: #e8b23a;
+    font-size: 22px;
+    font-weight: bold;
+    transition-property: transform, color;
+    transition-duration: 200ms;
+  }
+
+  .score-num-dim {
+    color: #ffffff;
+  }
+
+  /* 记分那一下：数字放大、变亮，再缩回去。
+     过渡写在 .score-num 上，放大和缩回两个方向都有动画 */
+  .score-flash {
+    color: #fff3c4;
+    transform: scale(1.5);
+  }
+
+  .area-title {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .foe-area {
+    margin-top: 10px;
+  }
+
+  .foe-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+    min-height: 48px;
+  }
+
+  .pile-area {
+    flex: 1;
+    margin-top: 10px;
+  }
+
+  .board {
+    flex: 1;
+    min-height: 68px;
+    margin-top: 4px;
+  }
+
+  .board-row {
+    flex-direction: row;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .dim-tip {
+    color: #8fc7ab;
+    font-size: 11px;
+  }
+
+  /* 牌面照 relay.uvue 那套：46x64 白底 */
+  .card {
+    width: 46px;
+    height: 64px;
+    background-color: #ffffff;
+    border-radius: 5px;
+    margin-right: 6px;
+    align-items: center;
+    justify-content: center;
+    border-width: 2px;
+    border-style: solid;
+    border-color: #ffffff;
+  }
+
+  .card-in-pile {
+    margin-bottom: 6px;
+  }
+
+  .card-back {
+    background-color: #123f6b;
+    border-color: #0b2a48;
+  }
+
+  /* 谁下的饵：你打的描绿边，庄家打的描橙边 */
+  .card-from-me {
+    border-color: #7ce0a3;
+  }
+
+  .card-from-foe {
+    border-color: #ff9e80;
+  }
+
+  /* 被护饵护着：描蓝边，压过谁下的饵 —— 「现在钓不到」比「谁下的」要紧 */
+  .card-guarded {
+    border-color: #7cc4ff;
+    background-color: #eef7ff;
+  }
+
+  /* 被收走的那一段：金底金边、往上抬。必须排在上面几条描边后面，
+     同权重后来居上，边框色才盖得住 */
+  .card-caught {
+    background-color: #fff3c4;
+    border-color: #ffd54f;
+    transform: translateY(-8px);
+    transition-property: transform, opacity, background-color;
+    transition-duration: 160ms;
+  }
+
+  /* 亮完之后往上飘、淡出。排在 .card-caught 后面才盖得住它的位移 */
+  .card-flying {
+    opacity: 0;
+    transform: translateY(-40px);
+    transition-duration: 200ms;
+  }
+
+  .card-small {
+    width: 34px;
+    height: 48px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+
+  .card-back-art {
+    border-width: 1px;
+    border-style: solid;
+    border-color: #3d7fc1;
+    border-radius: 3px;
+    align-items: center;
+    justify-content: center;
+    background-color: #17497a;
+  }
+
+  .card-back-art-small {
+    width: 24px;
+    height: 36px;
+  }
+
+  .card-back-gem {
+    background-color: #3d7fc1;
+    transform: rotate(45deg);
+  }
+
+  .card-back-gem-small {
+    width: 11px;
+    height: 11px;
+  }
+
+  .card-rank {
+    color: #1a1a1a;
+    font-size: 18px;
+    font-weight: bold;
+  }
+
+  /* 庄家那排小牌：点数跟着小一号。必须排在 .card-rank 后面 */
+  .card-rank-small {
+    font-size: 14px;
+  }
+
+  .card-suit {
+    color: #1a1a1a;
+    font-size: 12px;
+  }
+
+  .card-red {
+    color: #d33b3b;
+  }
+
+  /* 这张会触发的技能名，压在花色下面 */
+  .card-skill {
+    color: #1565c0;
+    font-size: 9px;
+  }
+
+  .card-seen {
+    color: #d35400;
+    font-size: 9px;
+  }
+
+  .message-box {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background-color: #0e3a28;
+  }
+
+  .message-text {
+    color: #ffffff;
+    font-size: 13px;
+  }
+
+  .tide-box {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background-color: #123f6b;
+  }
+
+  .tide-text {
+    color: #ffffff;
+    font-size: 13px;
+  }
+
+  .tide-actions {
+    flex-direction: row;
+    margin-top: 6px;
+  }
+
+  .tide-btn {
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 16px;
+    margin-right: 8px;
+    align-items: center;
+    justify-content: center;
+    background-color: #e8b23a;
+  }
+
+  .tide-btn-plain {
+    background-color: #0e3a28;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .tide-btn-text {
+    color: #3b2a00;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .tide-btn-text-plain {
+    color: #e8b23a;
+  }
+
+  .turn-bar {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+  }
+
+  .turn-label {
+    color: #e8b23a;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  /* 庄家的技能，照排竿「庄家挂着的规矩」：横着一排橙字小标签 */
+  .rule-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .rule-tag {
+    color: #ff9e80;
+    background-color: #0e3a28;
+    font-size: 11px;
+    border-radius: 8px;
+    padding: 2px 8px;
+    margin-right: 4px;
+    margin-bottom: 2px;
+  }
+
+  .rule-tag-on {
+    color: #3b2a00;
+    background-color: #ff9e80;
+  }
+
+  /* 你的技能栏，照排竿的道具栏。高度写死，免得手牌区上下跳 */
+  .skill-row {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    min-height: 30px;
+    margin-top: 6px;
+  }
+
+  .skill-label {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-right: 6px;
+  }
+
+  /* 一格技能：名字和管的牌横着摆 */
+  .skill-chip {
+    flex-direction: row;
+    align-items: center;
+    height: 24px;
+    padding: 0 8px;
+    margin-right: 6px;
+    margin-bottom: 4px;
+    border-radius: 12px;
+    background-color: #0e3a28;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .skill-chip-on {
+    background-color: #e8b23a;
+  }
+
+  /* 左边那个槽位标志：花色 / 点数 */
+  .skill-chip-slot {
+    color: #3b2a00;
+    background-color: #e8b23a;
+    font-size: 9px;
+    border-radius: 6px;
+    padding: 1px 4px;
+    margin-right: 4px;
+  }
+
+  /* 点亮时整格变金底，标志反过来变深底 */
+  .skill-chip-slot-on {
+    color: #e8b23a;
+    background-color: #3b2a00;
+  }
+
+  .skill-chip-name {
+    color: #e8b23a;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .skill-chip-name-on {
+    color: #3b2a00;
+  }
+
+  .skill-chip-cover {
+    color: #fff3c4;
+    font-size: 11px;
+    margin-left: 4px;
+  }
+
+  /* 点亮时金底，管的牌改深色才看得清。排在 .skill-chip-cover 后面才盖得住 */
+  .skill-chip-cover-on {
+    color: #3b2a00;
+  }
+
+  .skill-none {
+    color: #8fc7ab;
+    font-size: 11px;
+  }
+
+  .hand-area {
+    margin-top: 8px;
+    margin-bottom: 12px;
+  }
+
+  .hand-scroll {
+    margin-top: 4px;
+    height: 72px;
+  }
+
+  .hand-row {
+    flex-direction: row;
+    align-items: center;
+    height: 72px;
+  }
+
+  /* 这回合刚摸到的那张：描绿边。排在 .card-hint 前面 ——
+     刚摸到又正好能钓的，金边更要紧 */
+  .card-new {
+    border-color: #7ce0a3;
+  }
+
+  /* 这张打出去能钓到东西：描金边提示 */
+  .card-hint {
+    border-color: #e8b23a;
+    background-color: #fffbe8;
+  }
+
+  .mask {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.6);
+  }
+
+  .result-box {
+    width: 260px;
+    padding: 20px;
+    border-radius: 14px;
+    align-items: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .result-title {
+    color: #e8b23a;
+    font-size: 26px;
+    font-weight: bold;
+  }
+
+  .result-sub {
+    color: #ffffff;
+    font-size: 14px;
+    margin-top: 6px;
+  }
+
+  .result-reward {
+    color: #fff3c4;
+    font-size: 13px;
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  .result-skill {
+    color: #7ce0a3;
+    font-size: 13px;
+    font-weight: bold;
+    margin-top: 6px;
+    text-align: center;
+  }
+
+  .result-btn {
+    width: 180px;
+    height: 42px;
+    border-radius: 21px;
+    margin-top: 14px;
+    align-items: center;
+    justify-content: center;
+    background-color: #e8b23a;
+  }
+
+  .result-btn-plain {
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .result-btn-text {
+    color: #3b2a00;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .result-btn-text-plain {
+    color: #e8b23a;
+  }
+
+  .result-link {
+    color: #e8b23a;
+    font-size: 12px;
+    margin-top: 12px;
+  }
+</style>

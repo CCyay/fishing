@@ -1,0 +1,301 @@
+// 摸打钓鱼的存档。三个槽，和钓鱼、排竿各走各的键。
+//
+// 玩法照排竿：一轮要从第 1 关连胜到第 12 关，输一次（平局也算）整轮作废，从头再来。
+// 所以存档里分两层：
+//   跨轮留着的：存档名、最远打到第几关（best）；
+//   一轮之内的：当前关、金币、技能、技能槽、「上次拿到技能之后空了几关」—— 输了全清。
+//
+// 技能不能买，只能靠过关拿：过第 1 关必得一个随机点数技；之后每过一关按概率掉一个，
+// 没掉的话下一关概率累加，掉了就重置（见 dropChance）。
+//
+// 不并进 save.uts 的 SaveData：那边已经 24 段、两个游戏共用一套序列化，
+// 这个玩法的字段一个都不重叠，塞进去只会让每个函数再长一截。
+// 格式照它的习惯：一行文本、'|' 分段、版号打头、存档名放最后（名字里可能有 '|'）
+
+import { SUITS } from '@/pages/examples/blackjack/cards.uts'
+import {
+  DRAW_SKILLS,
+  SKILL_RANKS,
+  KIND_RANK,
+  SLOT_NONE,
+  DrawLoadout,
+  emptyLoadout,
+  assignSuit,
+  assignRank,
+  normalizeLoadout,
+  slotOf,
+  coverageText
+} from '@/pages/examples/blackjack/draw-skills.uts'
+
+export const DRAW_SLOT_COUNT : number = 3
+export const DRAW_SAVE_NAME : string = '摸打'
+// 一轮一共几关。和 draw-levels.uts 的关卡表对上
+export const DRAW_RUN_LENGTH : number = 12
+
+// 掉技能的概率：起步 25%，每空一关加 25%，最多连空 3 关，第 4 关必掉
+export const DROP_BASE : number = 25
+export const DROP_STEP : number = 25
+
+const VERSION : string = 'md2'
+const KEY_PREFIX : string = 'md_save_'
+const KEY_SLOT : string = 'md_slot'
+
+export type DrawSave = {
+  exists : boolean
+  label : string
+  // 跨轮：最远通过到第几关（0 = 一关没过）
+  best : number
+  // 本轮：现在要打第几关。DRAW_RUN_LENGTH + 1 表示整轮打通了
+  runLevel : number
+  gold : number
+  // 本轮：上次拿到技能之后，又过了几关没拿到
+  misses : number
+  // 本轮：每个技能的等级，-1 表示没有。下标和 DRAW_SKILLS 对齐
+  levels : number[]
+  loadout : DrawLoadout
+}
+
+function listOf(count : number, value : number) : number[] {
+  const list : number[] = []
+  for (let i = 0; i < count; i++) {
+    list.push(value)
+  }
+  return list
+}
+
+export function emptyDrawSave() : DrawSave {
+  return {
+    exists: false,
+    label: '',
+    best: 0,
+    runLevel: 1,
+    gold: 0,
+    misses: 0,
+    levels: listOf(DRAW_SKILLS.length, -1),
+    loadout: emptyLoadout()
+  }
+}
+
+// 新档：开局什么技能都没有
+export function newDrawSave(label : string) : DrawSave {
+  const data = emptyDrawSave()
+  data.exists = true
+  data.label = label
+  return data
+}
+
+// 输了 / 打通之后重开一轮：本轮的东西全清，最远纪录留着
+export function resetDrawRun(data : DrawSave) {
+  data.runLevel = 1
+  data.gold = 0
+  data.misses = 0
+  data.levels = listOf(DRAW_SKILLS.length, -1)
+  data.loadout = emptyLoadout()
+}
+
+export function runCleared(data : DrawSave) : boolean {
+  return data.runLevel > DRAW_RUN_LENGTH
+}
+
+// 这一关过了之后掉技能的概率（百分比）
+export function dropChance(data : DrawSave) : number {
+  return Math.min(100, DROP_BASE + DROP_STEP * data.misses)
+}
+
+function toInt(text : string, fallback : number) : number {
+  const parsed = parseInt(text)
+  if (isNaN(parsed)) {
+    return fallback
+  }
+  return parsed
+}
+
+function readString(key : string) : string {
+  const raw = uni.getStorageSync(key)
+  if (raw == null) {
+    return ''
+  }
+  if (typeof raw == 'string') {
+    return raw as string
+  }
+  return ''
+}
+
+function numsToText(list : number[]) : string {
+  let text = ''
+  for (let i = 0; i < list.length; i++) {
+    text = text + (i == 0 ? '' : ',') + list[i]
+  }
+  return text
+}
+
+// 定长的数字表：读不够就补 fallback，多了截掉
+function textToFixed(text : string, count : number, fallback : number) : number[] {
+  const list = listOf(count, fallback)
+  if (text == '') {
+    return list
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length && i < count; i++) {
+    list[i] = toInt(parts[i], fallback)
+  }
+  return list
+}
+
+export function loadDrawAt(index : number) : DrawSave {
+  const raw = readString(KEY_PREFIX + index)
+  if (raw == '') {
+    return emptyDrawSave()
+  }
+  const parts = raw.split('|')
+  // 版号对不上（比如 md1 那版还有「通关列表」、没有本轮概念）就当没有这个档
+  if (parts.length < 9 || parts[0] != VERSION) {
+    return emptyDrawSave()
+  }
+  let label = parts[8]
+  for (let i = 9; i < parts.length; i++) {
+    label = label + '|' + parts[i]
+  }
+  return {
+    exists: true,
+    label: label,
+    best: toInt(parts[1], 0),
+    runLevel: toInt(parts[2], 1),
+    gold: toInt(parts[3], 0),
+    misses: toInt(parts[4], 0),
+    levels: textToFixed(parts[5], DRAW_SKILLS.length, -1),
+    loadout: {
+      suitOwner: textToFixed(parts[6], SUITS.length, -1),
+      rankOwner: textToFixed(parts[7], SKILL_RANKS.length, -1)
+    }
+  }
+}
+
+export function writeDrawAt(index : number, data : DrawSave) {
+  const text = VERSION
+    + '|' + data.best
+    + '|' + data.runLevel
+    + '|' + data.gold
+    + '|' + data.misses
+    + '|' + numsToText(data.levels)
+    + '|' + numsToText(data.loadout.suitOwner)
+    + '|' + numsToText(data.loadout.rankOwner)
+    + '|' + data.label
+  uni.setStorageSync(KEY_PREFIX + index, text)
+}
+
+export function clearDrawAt(index : number) {
+  uni.removeStorageSync(KEY_PREFIX + index)
+}
+
+export function drawSaveSlot() : number {
+  const index = toInt(readString(KEY_SLOT), 1)
+  if (index < 1 || index > DRAW_SLOT_COUNT) {
+    return 1
+  }
+  return index
+}
+
+export function setDrawSaveSlot(index : number) {
+  uni.setStorageSync(KEY_SLOT, '' + index)
+}
+
+// 当前存档；还没有就在当前槽建一个
+export function loadDrawSave() : DrawSave {
+  const index = drawSaveSlot()
+  const data = loadDrawAt(index)
+  if (data.exists) {
+    return data
+  }
+  const fresh = newDrawSave(DRAW_SAVE_NAME + ' ' + index)
+  writeDrawAt(index, fresh)
+  return fresh
+}
+
+export function saveDraw(data : DrawSave) {
+  writeDrawAt(drawSaveSlot(), data)
+}
+
+// ---------- 过关掉技能 ----------
+
+function randomInt(n : number) : number {
+  return Math.floor(Math.random() * n)
+}
+
+// 把一个新拿到的技能随机放进有空位的格子。
+// toRank 为真就只试点数槽；否则只能放点数槽的进点数槽，其他的先随机挑一个槽、放不下再试另一个。
+// 两个槽都满了就先不装，留在商店里自己调
+function placeRandom(data : DrawSave, skill : number, toRank : boolean) : boolean {
+  const rankFirst = toRank || DRAW_SKILLS[skill].kind == KIND_RANK || randomInt(2) == 0
+  const order : boolean[] = toRank || DRAW_SKILLS[skill].kind == KIND_RANK ? [true] : [rankFirst, !rankFirst]
+  for (let o = 0; o < order.length; o++) {
+    const useRank = order[o]
+    const owner = useRank ? data.loadout.rankOwner : data.loadout.suitOwner
+    const free : number[] = []
+    for (let i = 0; i < owner.length; i++) {
+      if (owner[i] < 0) {
+        free.push(i)
+      }
+    }
+    // 随机挑一个空格开始试，试一圈
+    for (let t = 0; t < free.length; t++) {
+      const cell = free[(randomInt(free.length) + t) % free.length]
+      const next = useRank
+        ? assignRank(data.loadout, data.levels, cell, skill)
+        : assignSuit(data.loadout, data.levels, cell, skill)
+      if (next != null) {
+        data.loadout = next!
+        return true
+      }
+    }
+  }
+  return false
+}
+
+// 掉一个技能：随机挑一个；已经有了就升一级，满级了换一个；全满了给 30 金币。
+// rankOnly：第 1 关那次只给点数技（放进点数槽）。返回给玩家看的一句话
+export function grantRandomSkill(data : DrawSave, rankOnly : boolean) : string {
+  const candidates : number[] = []
+  for (let k = 0; k < DRAW_SKILLS.length; k++) {
+    const level = data.levels[k]
+    if (level < 0 || level < DRAW_SKILLS[k].maxLevel) {
+      candidates.push(k)
+    }
+  }
+  if (candidates.length == 0) {
+    data.gold = data.gold + 30
+    return '技能都满级了，改给 30 金币'
+  }
+  const skill = candidates[randomInt(candidates.length)]
+  const name = DRAW_SKILLS[skill].name
+  if (data.levels[skill] >= 0) {
+    data.levels[skill] = data.levels[skill] + 1
+    data.loadout = normalizeLoadout(data.loadout, data.levels)
+    return '获得技能：' + name + '（已有，升到 ' + data.levels[skill] + ' 级）'
+  }
+  data.levels[skill] = 0
+  const placed = placeRandom(data, skill, rankOnly)
+  if (!placed || slotOf(data.loadout, skill) == SLOT_NONE) {
+    return '获得技能：' + name + '（槽满了，先放在商店里）'
+  }
+  return '获得技能：' + name + '（管 ' + coverageText(data.loadout, skill) + '）'
+}
+
+// 过了一关之后的结算：推进关卡、记最远、发金币、掷技能。返回技能那句话
+export function settleWin(data : DrawSave, levelId : number, gold : number) : string {
+  data.runLevel = levelId + 1
+  data.best = Math.max(data.best, levelId)
+  data.gold = data.gold + gold
+  if (levelId == 1) {
+    data.misses = 0
+    return grantRandomSkill(data, true)
+  }
+  const chance = dropChance(data)
+  if (randomInt(100) < chance) {
+    data.misses = 0
+    return grantRandomSkill(data, false)
+  }
+  data.misses = data.misses + 1
+  return '这关没掉技能（下一关概率 ' + dropChance(data) + '%）'
+}
+

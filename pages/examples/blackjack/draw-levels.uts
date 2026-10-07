@@ -1,0 +1,133 @@
+// 摸打钓鱼的 12 关。三章各 4 关，庄家的技能一章比一章多：
+//   浅滩 1–4：没有技能（1–2 随手出牌，3–4 会记牌）
+//   河湾 5–8：1 个技能，后两关升过级
+//   深海 9–12：2 个槽都用上，最后两关接近满装
+// 一轮要连胜 12 关，输一次从第 1 关重来（照排竿）。
+// 为什么 12 关、金币怎么定，见根目录《摸打钓鱼-技能与关卡设计.md》
+
+import {
+  DrawLoadout,
+  DRAW_SKILLS,
+  SKILL_RANKS,
+  SK_GUARD,
+  SK_HOOK,
+  SK_TIDE,
+  SK_PEEK,
+  SK_TOP,
+  SK_STIR,
+  emptyLoadout
+} from '@/pages/examples/blackjack/draw-skills.uts'
+
+export type DrawLevel = {
+  id : number
+  name : string
+  chapter : string
+  // 庄家会不会记牌。不会的话钓得到就钓，钓不到随手打
+  smart : boolean
+  // 庄家每个技能的等级，-1 表示没有
+  levels : number[]
+  loadout : DrawLoadout
+  // 过关给多少金币（再加胜分奖励）
+  reward : number
+}
+
+// 赢多少分额外给多少金币，最多这么多
+export const MARGIN_BONUS_CAP : number = 10
+
+function noSkills() : number[] {
+  const list : number[] = []
+  for (let i = 0; i < DRAW_SKILLS.length; i++) {
+    list.push(-1)
+  }
+  return list
+}
+
+// 「技能下标:等级」写成一串，没写到的就是 -1
+function levelsOf(pairs : number[]) : number[] {
+  const list = noSkills()
+  for (let i = 0; i + 1 < pairs.length; i += 2) {
+    list[pairs[i]] = pairs[i + 1]
+  }
+  return list
+}
+
+// suits：和 ♠♥♦♣ 对齐的四格；ranks：「点数, 技能」成对写
+function loadoutOf(suits : number[], ranks : string[], skills : number[]) : DrawLoadout {
+  const lo = emptyLoadout()
+  for (let s = 0; s < suits.length; s++) {
+    lo.suitOwner[s] = suits[s]
+  }
+  for (let i = 0; i < ranks.length; i++) {
+    for (let r = 0; r < SKILL_RANKS.length; r++) {
+      if (SKILL_RANKS[r] == ranks[i]) {
+        lo.rankOwner[r] = skills[i]
+      }
+    }
+  }
+  return lo
+}
+
+const N : number = -1
+
+export const DRAW_LEVELS : DrawLevel[] = [
+  // ---------- 浅滩 ----------
+  { id: 1, chapter: '浅滩', name: '试竿', smart: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
+  { id: 2, chapter: '浅滩', name: '涨潮', smart: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
+  { id: 3, chapter: '浅滩', name: '老渔夫', smart: true, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
+  { id: 4, chapter: '浅滩', name: '滩头', smart: true, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
+  // ---------- 河湾：1 个技能 ----------
+  {
+    id: 5, chapter: '河湾', name: '回水', smart: true, reward: 45,
+    levels: levelsOf([SK_HOOK, 0]),
+    loadout: loadoutOf([N, N, N, N], ['7'], [SK_HOOK])
+  },
+  {
+    id: 6, chapter: '河湾', name: '暗礁', smart: true, reward: 45,
+    levels: levelsOf([SK_GUARD, 0]),
+    loadout: loadoutOf([SK_GUARD, N, N, N], [], [])
+  },
+  {
+    id: 7, chapter: '河湾', name: '望潮', smart: true, reward: 45,
+    levels: levelsOf([SK_TIDE, 1]),
+    loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], [], [])
+  },
+  {
+    id: 8, chapter: '河湾', name: '湾口', smart: true, reward: 45,
+    levels: levelsOf([SK_HOOK, 1]),
+    loadout: loadoutOf([N, N, N, N], ['4', '7', '10'], [SK_HOOK, SK_HOOK, SK_HOOK])
+  },
+  // ---------- 深海：两个槽 ----------
+  {
+    id: 9, chapter: '深海', name: '雾海', smart: true, reward: 60,
+    levels: levelsOf([SK_GUARD, 0, SK_HOOK, 1]),
+    loadout: loadoutOf([SK_GUARD, N, N, N], ['3', '6', '9'], [SK_HOOK, SK_HOOK, SK_HOOK])
+  },
+  {
+    id: 10, chapter: '深海', name: '漩涡', smart: true, reward: 60,
+    levels: levelsOf([SK_TIDE, 1, SK_TOP, 0, SK_PEEK, 0]),
+    loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], ['Q', '5'], [SK_TOP, SK_PEEK])
+  },
+  {
+    id: 11, chapter: '深海', name: '鲸落', smart: true, reward: 60,
+    levels: levelsOf([SK_GUARD, 1, SK_HOOK, 2]),
+    loadout: loadoutOf([SK_GUARD, N, N, SK_GUARD], ['A', '3', '5', '7', '9', 'Q'],
+      [SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK])
+  },
+  {
+    id: 12, chapter: '深海', name: '深渊', smart: true, reward: 60,
+    levels: levelsOf([SK_TIDE, 1, SK_HOOK, 1, SK_TOP, 0, SK_STIR, 0, SK_GUARD, 0]),
+    loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], ['2', '6', '10', 'K', '8', '4'],
+      [SK_HOOK, SK_HOOK, SK_HOOK, SK_TOP, SK_STIR, SK_GUARD])
+  }
+]
+
+export const DRAW_LEVEL_COUNT : number = DRAW_LEVELS.length
+
+export function drawLevelById(id : number) : DrawLevel {
+  for (let i = 0; i < DRAW_LEVELS.length; i++) {
+    if (DRAW_LEVELS[i].id == id) {
+      return DRAW_LEVELS[i]
+    }
+  }
+  return DRAW_LEVELS[0]
+}

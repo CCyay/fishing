@@ -1,0 +1,461 @@
+<template>
+  <view class="page">
+    <view class="head">
+      <view>
+        <text class="title">摸打钓鱼</text>
+        <text id="md-slot-name" class="sub">{{ save.label }} · 最远 {{ save.best }}/{{ DRAW_RUN_LENGTH }}</text>
+      </view>
+      <text id="md-gold" class="gold">金币 {{ save.gold }}</text>
+    </view>
+
+    <!-- 本轮进度：照排竿，一轮连胜 12 关，输一次从头来 -->
+    <view class="run-box">
+      <text id="md-run" class="run-text">{{ runText }}</text>
+      <text class="run-sub">{{ dropText }}</text>
+    </view>
+
+    <view id="md-go" class="go-btn" @click="go">
+      <text class="go-text">{{ goText }}</text>
+    </view>
+
+    <view class="top-actions">
+      <view id="md-open-skills" class="top-btn" @click="openSkills">
+        <text class="top-btn-text">商店</text>
+      </view>
+      <view id="md-open-saves" class="top-btn" @click="showSaves = true">
+        <text class="top-btn-text">存档</text>
+      </view>
+    </view>
+
+    <!-- 关卡：一章一行标题，下面四关。本轮过了的描绿、正要打的描金、后面的锁着 -->
+    <scroll-view class="levels" direction="vertical">
+      <view v-for="(chapter, ci) in chapters" :key="'ch-' + ci" class="chapter">
+        <text class="chapter-title">{{ chapter }}</text>
+        <view class="chapter-row">
+          <view
+            v-for="lv in levelsOf(chapter)"
+            :key="'lv-' + lv.id"
+            :id="'md-level-' + lv.id"
+            class="level"
+            :class="{ 'level-done': cleared(lv.id), 'level-now': lv.id == save.runLevel, 'level-locked': lv.id > save.runLevel }"
+            @click="pickLevel(lv.id)">
+            <text class="level-num">{{ lv.id }}</text>
+            <text class="level-name">{{ lv.name }}</text>
+            <text class="level-tag">{{ tagOf(lv) }}</text>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+
+    <!-- 存档：三个槽，切换 / 新建 / 删除 -->
+    <view v-if="showSaves" class="mask">
+      <view class="save-box">
+        <text class="save-title">摸打钓鱼存档</text>
+        <view v-for="slot in slots" :key="'sv-' + slot.index" class="save-slot" :class="{ 'save-slot-current': slot.index == slotIndex }">
+          <view class="save-info">
+            <text class="save-name">{{ slot.data.exists ? slot.data.label : '空存档' }}</text>
+            <text class="save-meta">{{ slot.data.exists ? '最远 ' + slot.data.best + ' · 本轮第 ' + Math.min(slot.data.runLevel, DRAW_RUN_LENGTH) + ' 关' : '槽位 ' + slot.index }}</text>
+          </view>
+          <view class="save-btn" @click="useSlot(slot.index)">
+            <text class="save-btn-text">{{ slot.data.exists ? (slot.index == slotIndex ? '使用中' : '使用') : '新建' }}</text>
+          </view>
+          <view v-if="slot.data.exists && slot.index != slotIndex" class="save-btn save-btn-danger" @click="removeSlot(slot.index)">
+            <text class="save-btn-text">删除</text>
+          </view>
+        </view>
+        <text class="save-close" @click="showSaves = false">关闭</text>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import {
+    DrawLevel,
+    DRAW_LEVELS
+  } from '@/pages/examples/blackjack/draw-levels.uts'
+  import { equippedSkills } from '@/pages/examples/blackjack/draw-skills.uts'
+  import {
+    DrawSave,
+    DRAW_SLOT_COUNT,
+    DRAW_SAVE_NAME,
+    emptyDrawSave,
+    loadDrawSave,
+    loadDrawAt,
+    writeDrawAt,
+    clearDrawAt,
+    newDrawSave,
+    drawSaveSlot,
+    setDrawSaveSlot,
+    saveDraw,
+    resetDrawRun,
+    runCleared,
+    dropChance,
+    DRAW_RUN_LENGTH
+  } from '@/pages/examples/blackjack/draw-save.uts'
+
+  type SlotView = {
+    index : number
+    data : DrawSave
+  }
+
+  const chapters : string[] = ['浅滩', '河湾', '深海']
+
+  const save = ref<DrawSave>(emptyDrawSave())
+  const slotIndex = ref<number>(1)
+  const slots = ref<SlotView[]>([])
+  const showSaves = ref<boolean>(false)
+
+  function refresh() {
+    save.value = loadDrawSave()
+    slotIndex.value = drawSaveSlot()
+    const list : SlotView[] = []
+    for (let i = 1; i <= DRAW_SLOT_COUNT; i++) {
+      list.push({ index: i, data: loadDrawAt(i) })
+    }
+    slots.value = list
+  }
+
+  function levelsOf(chapter : string) : DrawLevel[] {
+    const list : DrawLevel[] = []
+    for (let i = 0; i < DRAW_LEVELS.length; i++) {
+      if (DRAW_LEVELS[i].chapter == chapter) {
+        list.push(DRAW_LEVELS[i])
+      }
+    }
+    return list
+  }
+
+  // 本轮过了这一关没有
+  function cleared(id : number) : boolean {
+    return id < save.value.runLevel
+  }
+
+  const runText = computed<string>(() : string => {
+    const data = save.value
+    if (runCleared(data)) {
+      return '本轮 12 关全部通关！'
+    }
+    return '本轮第 ' + data.runLevel + ' 关 · 金币 ' + data.gold
+  })
+
+  // 第 1 关过了必得点数技；之后显示下一关掉技能的概率
+  const dropText = computed<string>(() : string => {
+    const data = save.value
+    if (runCleared(data)) {
+      return '再来一轮会从第 1 关开始，技能和金币清空'
+    }
+    if (data.runLevel == 1) {
+      return '输一次就从第 1 关重来 · 过第 1 关必得一个点数技'
+    }
+    return '输一次就从第 1 关重来 · 过这关掉技能的概率 ' + dropChance(data) + '%'
+  })
+
+  const goText = computed<string>(() : string => {
+    return runCleared(save.value) ? '再来一轮' : '挑战第 ' + save.value.runLevel + ' 关'
+  })
+
+  // 关卡格子底下那行：庄家带几个技能 / 过没过
+  function tagOf(lv : DrawLevel) : string {
+    if (lv.id > save.value.runLevel) {
+      return '未解锁'
+    }
+    const n = equippedSkills(lv.loadout).length
+    const skill = n == 0 ? (lv.smart ? '会记牌' : '新手庄家') : '庄家 ' + n + ' 技能'
+    return cleared(lv.id) ? '已过 · ' + skill : skill
+  }
+
+  // 只能打本轮正要打的那一关：过了的不能重打，后面的还没到
+  function pickLevel(id : number) {
+    if (id == save.value.runLevel) {
+      go()
+      return
+    }
+    uni.showToast({ title: id < save.value.runLevel ? '本轮已经过了' : '先过前面的关', icon: 'none' })
+  }
+
+  function go() {
+    if (runCleared(save.value)) {
+      const data = loadDrawSave()
+      resetDrawRun(data)
+      saveDraw(data)
+      refresh()
+      return
+    }
+    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing' })
+  }
+
+  function openSkills() {
+    uni.navigateTo({ url: '/pages/examples/blackjack/draw-skills' })
+  }
+
+  function useSlot(index : number) {
+    const data = loadDrawAt(index)
+    if (!data.exists) {
+      writeDrawAt(index, newDrawSave(DRAW_SAVE_NAME + ' ' + index))
+    }
+    setDrawSaveSlot(index)
+    refresh()
+  }
+
+  function removeSlot(index : number) {
+    uni.showModal({
+      title: '删除存档',
+      content: '删掉「' + loadDrawAt(index).label + '」？最远纪录和本轮进度都会清空。',
+      success: (res) => {
+        if (res.confirm) {
+          clearDrawAt(index)
+          refresh()
+        }
+      }
+    })
+  }
+
+  // 从对局、技能页回来都要刷新：金币和通关进度可能变了
+  onShow(() => {
+    refresh()
+  })
+
+  refresh()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 16px;
+    background-color: #0b5d3b;
+  }
+
+  .head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .title {
+    color: #e8b23a;
+    font-size: 24px;
+    font-weight: bold;
+  }
+
+  .sub {
+    color: #9fd9bd;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .gold {
+    color: #fff3c4;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .run-box {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background-color: #0e3a28;
+  }
+
+  .run-text {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  .run-sub {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .go-btn {
+    height: 46px;
+    border-radius: 23px;
+    margin-top: 10px;
+    align-items: center;
+    justify-content: center;
+    background-color: #e8b23a;
+  }
+
+  .go-text {
+    color: #3b2a00;
+    font-size: 17px;
+    font-weight: bold;
+  }
+
+  .top-actions {
+    flex-direction: row;
+    margin-top: 10px;
+  }
+
+  .top-btn {
+    flex: 1;
+    height: 40px;
+    border-radius: 20px;
+    margin-right: 8px;
+    align-items: center;
+    justify-content: center;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .top-btn-text {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  .levels {
+    flex: 1;
+    margin-top: 12px;
+  }
+
+  .chapter {
+    margin-bottom: 14px;
+  }
+
+  .chapter-title {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .chapter-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+
+  .level {
+    width: 76px;
+    height: 84px;
+    margin-right: 8px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    align-items: center;
+    justify-content: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .level-done {
+    background-color: #155c3c;
+    border-color: #7ce0a3;
+  }
+
+  /* 本轮正要打的那一关：亮一档的底、粗金边。不用金底 —— 关卡号本身就是金字 */
+  .level-now {
+    background-color: #1b8a58;
+    border-width: 2px;
+  }
+
+  .level-locked {
+    opacity: 0.4;
+  }
+
+  .level-num {
+    color: #e8b23a;
+    font-size: 20px;
+    font-weight: bold;
+  }
+
+  .level-name {
+    color: #ffffff;
+    font-size: 12px;
+  }
+
+  .level-tag {
+    color: #9fd9bd;
+    font-size: 9px;
+    margin-top: 2px;
+  }
+
+  .mask {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.6);
+  }
+
+  .save-box {
+    width: 310px;
+    padding: 16px;
+    border-radius: 12px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .save-title {
+    color: #e8b23a;
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+
+  .save-slot {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px;
+    margin-top: 6px;
+    border-radius: 8px;
+    background-color: #0b5d3b;
+  }
+
+  .save-slot-current {
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .save-info {
+    flex: 1;
+  }
+
+  .save-name {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .save-meta {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .save-btn {
+    height: 28px;
+    padding: 0 10px;
+    margin-left: 6px;
+    border-radius: 14px;
+    align-items: center;
+    justify-content: center;
+    background-color: #e8b23a;
+  }
+
+  .save-btn-danger {
+    background-color: #b54a3c;
+  }
+
+  .save-btn-text {
+    color: #3b2a00;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .save-close {
+    color: #e8b23a;
+    font-size: 13px;
+    margin-top: 12px;
+    text-align: center;
+  }
+</style>

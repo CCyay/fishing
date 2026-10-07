@@ -1,0 +1,484 @@
+<template>
+  <view class="page">
+    <view class="head">
+      <text class="title">商店</text>
+      <text id="md-skill-gold" class="gold">金币 {{ save.gold }}</text>
+    </view>
+    <text class="tip">技能只能靠过关拿，这里只能升级和卖出。点一个技能选中，再点下面的格子把它放进去；点它占着的格子就撤下。</text>
+
+    <scroll-view class="body" direction="vertical">
+      <!-- 本轮拥有的技能。没拥有的不列 —— 不能买，列出来只是看着眼馋 -->
+      <text v-if="ownedCount == 0" class="empty">还没有技能。过第 1 关必得一个点数技，之后每关有概率掉。</text>
+      <view
+        v-for="(skill, k) in DRAW_SKILLS"
+        :key="'sk-' + k"
+        :id="'md-skill-' + k"
+        class="skill"
+        :class="{ 'skill-picked': k == picked, 'skill-hidden': save.levels[k] < 0 }"
+        @click="pick(k)">
+        <view class="skill-head">
+          <text class="skill-name">{{ skill.name }}</text>
+          <text class="skill-level">{{ levelText(k, save.levels[k]) }} · {{ kindText(k) }}</text>
+        </view>
+        <text class="skill-desc">{{ skill.desc }}</text>
+        <view class="skill-foot">
+          <text class="skill-cover">{{ coverText(k) }}</text>
+          <view
+            v-if="costOf(k) >= 0"
+            :id="'md-buy-' + k"
+            class="buy-btn"
+            :class="{ 'buy-btn-off': save.gold < costOf(k) }"
+            @click.stop="upgrade(k)">
+            <text class="buy-text">升级 {{ costOf(k) }}</text>
+          </view>
+          <text v-else class="skill-max">已满级</text>
+          <view :id="'md-sell-' + k" class="sell-btn" @click.stop="sell(k)">
+            <text class="sell-text">卖出 +{{ sellPriceOf(k, save.levels[k]) }}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 花色槽 -->
+      <view class="slot-head">
+        <text class="slot-title">花色槽 {{ suitUsed(save.loadout) }}/{{ SUIT_CAPACITY }}</text>
+        <text class="slot-note">初始技能占 1 个花色，升过级占一整个颜色</text>
+      </view>
+      <view class="cells">
+        <view
+          v-for="(suit, s) in SUITS"
+          :key="'su-' + s"
+          :id="'md-suit-' + s"
+          class="cell cell-suit"
+          :class="{ 'cell-on': save.loadout.suitOwner[s] >= 0 }"
+          @click="tapSuit(s)">
+          <text class="cell-main" :class="{ 'cell-red': s == 1 || s == 2 }">{{ suit }}</text>
+          <text class="cell-skill">{{ ownerName(save.loadout.suitOwner[s]) }}</text>
+        </view>
+      </view>
+
+      <!-- 点数槽 -->
+      <view class="slot-head">
+        <text class="slot-title">点数槽 {{ rankUsed(save.loadout) }}/{{ RANK_CAPACITY }}</text>
+        <text class="slot-note">初始 1 个点数，升 1 级 3 个，升 2 级 6 个；J 不能指定</text>
+      </view>
+      <view class="cells">
+        <view
+          v-for="(rank, r) in SKILL_RANKS"
+          :key="'rk-' + r"
+          :id="'md-rank-' + r"
+          class="cell"
+          :class="{ 'cell-on': save.loadout.rankOwner[r] >= 0 }"
+          @click="tapRank(r)">
+          <text class="cell-main">{{ rank }}</text>
+          <text class="cell-skill">{{ ownerName(save.loadout.rankOwner[r]) }}</text>
+        </view>
+      </view>
+    </scroll-view>
+
+    <view class="back-btn" @click="goBack">
+      <text class="back-text">返回关卡</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  import { SUITS } from '@/pages/examples/blackjack/cards.uts'
+  import {
+    DRAW_SKILLS,
+    SKILL_RANKS,
+    SUIT_CAPACITY,
+    RANK_CAPACITY,
+    KIND_RANK,
+    SLOT_NONE,
+    SLOT_SUIT,
+    suitUsed,
+    rankUsed,
+    slotOf,
+    assignSuit,
+    assignRank,
+    normalizeLoadout,
+    coverageText,
+    nextUpgradeCost,
+    sellPriceOf,
+    removeSkill,
+    levelText,
+    suitSizeOf,
+    rankSizeOf
+  } from '@/pages/examples/blackjack/draw-skills.uts'
+  import {
+    DrawSave,
+    emptyDrawSave,
+    loadDrawSave,
+    saveDraw
+  } from '@/pages/examples/blackjack/draw-save.uts'
+
+  const save = ref<DrawSave>(emptyDrawSave())
+  // 选中的技能下标，-1 表示没选
+  const picked = ref<number>(-1)
+
+  function refresh() {
+    save.value = loadDrawSave()
+  }
+
+  function kindText(k : number) : string {
+    return DRAW_SKILLS[k].kind == KIND_RANK ? '只放点数槽' : '两种槽都行'
+  }
+
+  // 升到下一级的价钱；没拥有的不能买，返回 -1
+  function costOf(k : number) : number {
+    if (save.value.levels[k] < 0) {
+      return -1
+    }
+    return nextUpgradeCost(k, save.value.levels[k])
+  }
+
+  const ownedCount = computed<number>(() : number => {
+    let n = 0
+    for (let k = 0; k < save.value.levels.length; k++) {
+      if (save.value.levels[k] >= 0) {
+        n = n + 1
+      }
+    }
+    return n
+  })
+
+  // 技能卡底下那行：装在哪、管着什么；没装就说能管多大
+  function coverText(k : number) : string {
+    const level = save.value.levels[k]
+    if (level < 0) {
+      return '未解锁'
+    }
+    const where = slotOf(save.value.loadout, k)
+    if (where == SLOT_NONE) {
+      const suitPart = DRAW_SKILLS[k].kind == KIND_RANK ? '' : '花色槽 ' + suitSizeOf(level) + ' 格 / '
+      return '未装 · 可占 ' + suitPart + '点数槽 ' + rankSizeOf(level) + ' 格'
+    }
+    return (where == SLOT_SUIT ? '花色槽：' : '点数槽：') + coverageText(save.value.loadout, k)
+  }
+
+  function ownerName(owner : number) : string {
+    return owner >= 0 ? DRAW_SKILLS[owner].name : ''
+  }
+
+  function commit(data : DrawSave) {
+    saveDraw(data)
+    save.value = data
+  }
+
+  function pick(k : number) {
+    if (save.value.levels[k] < 0) {
+      uni.showToast({ title: '还没有这个技能', icon: 'none' })
+      return
+    }
+    picked.value = picked.value == k ? -1 : k
+  }
+
+  function upgrade(k : number) {
+    const cost = costOf(k)
+    if (cost < 0) {
+      return
+    }
+    if (save.value.gold < cost) {
+      uni.showToast({ title: '金币不够', icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    data.gold = data.gold - cost
+    data.levels[k] = data.levels[k] + 1
+    // 升级可能让装着的覆盖面变了（比如花色技升成颜色技），整理一遍
+    data.loadout = normalizeLoadout(data.loadout, data.levels)
+    commit(data)
+    uni.showToast({ title: DRAW_SKILLS[k].name + ' ' + levelText(k, data.levels[k]), icon: 'none' })
+  }
+
+  function sell(k : number) {
+    const level = save.value.levels[k]
+    if (level < 0) {
+      return
+    }
+    const price = sellPriceOf(k, level)
+    uni.showModal({
+      title: '卖出' + DRAW_SKILLS[k].name,
+      content: levelText(k, level) + '的' + DRAW_SKILLS[k].name + '卖 ' + price + ' 金币？卖了只能等过关再掉。',
+      success: (res) => {
+        if (!res.confirm) {
+          return
+        }
+        const data = loadDrawSave()
+        data.gold = data.gold + price
+        data.levels[k] = -1
+        data.loadout = removeSkill(data.loadout, k)
+        commit(data)
+        if (picked.value == k) {
+          picked.value = -1
+        }
+      }
+    })
+  }
+
+  // 点花色格子：没选技能时点有技能的格子就撤下；选了技能就放上去
+  function tapSuit(s : number) {
+    const data = loadDrawSave()
+    const owner = data.loadout.suitOwner[s]
+    const k = picked.value
+    const target = k < 0 || owner == k ? -1 : k
+    if (target < 0 && owner < 0) {
+      uni.showToast({ title: '先在上面选一个技能', icon: 'none' })
+      return
+    }
+    if (target >= 0 && DRAW_SKILLS[target].kind == KIND_RANK) {
+      uni.showToast({ title: DRAW_SKILLS[target].name + '只能放点数槽', icon: 'none' })
+      return
+    }
+    const next = assignSuit(data.loadout, data.levels, s, target)
+    if (next == null) {
+      uni.showToast({ title: '花色槽放不下了', icon: 'none' })
+      return
+    }
+    data.loadout = next!
+    commit(data)
+  }
+
+  function tapRank(r : number) {
+    const data = loadDrawSave()
+    const owner = data.loadout.rankOwner[r]
+    const k = picked.value
+    const target = k < 0 || owner == k ? -1 : k
+    if (target < 0 && owner < 0) {
+      uni.showToast({ title: '先在上面选一个技能', icon: 'none' })
+      return
+    }
+    const next = assignRank(data.loadout, data.levels, r, target)
+    if (next == null) {
+      uni.showToast({ title: '点数槽放不下了', icon: 'none' })
+      return
+    }
+    data.loadout = next!
+    commit(data)
+  }
+
+  function goBack() {
+    uni.navigateBack({})
+  }
+
+  onShow(() => {
+    refresh()
+  })
+
+  refresh()
+</script>
+
+<style>
+  .page {
+    flex: 1;
+    padding: 16px;
+    background-color: #0b5d3b;
+  }
+
+  .head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .title {
+    color: #e8b23a;
+    font-size: 22px;
+    font-weight: bold;
+  }
+
+  .gold {
+    color: #fff3c4;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .tip {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .body {
+    flex: 1;
+    margin-top: 10px;
+  }
+
+  .skill {
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #0e6b45;
+  }
+
+  .skill-picked {
+    border-color: #e8b23a;
+    background-color: #157a4f;
+  }
+
+  /* 没拥有的技能不显示 */
+  .skill-hidden {
+    display: none;
+  }
+
+  .empty {
+    color: #9fd9bd;
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+
+  .sell-btn {
+    height: 28px;
+    padding: 0 10px;
+    margin-left: 6px;
+    border-radius: 14px;
+    align-items: center;
+    justify-content: center;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #ff9e80;
+  }
+
+  .sell-text {
+    color: #ff9e80;
+    font-size: 12px;
+  }
+
+  .skill-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .skill-name {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+  }
+
+  .skill-level {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .skill-desc {
+    color: #ffffff;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .skill-foot {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+  }
+
+  .skill-cover {
+    flex: 1;
+    color: #fff3c4;
+    font-size: 11px;
+  }
+
+  .skill-max {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .buy-btn {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 14px;
+    align-items: center;
+    justify-content: center;
+    background-color: #e8b23a;
+  }
+
+  .buy-btn-off {
+    opacity: 0.4;
+  }
+
+  .buy-text {
+    color: #3b2a00;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .slot-head {
+    margin-top: 10px;
+  }
+
+  .slot-title {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .slot-note {
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .cells {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+
+  .cell {
+    width: 50px;
+    height: 50px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: center;
+    background-color: #ffffff;
+    border-width: 2px;
+    border-style: solid;
+    border-color: #ffffff;
+  }
+
+  .cell-suit {
+    width: 66px;
+  }
+
+  .cell-on {
+    border-color: #e8b23a;
+    background-color: #fffbe8;
+  }
+
+  .cell-main {
+    color: #1a1a1a;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .cell-red {
+    color: #d33b3b;
+  }
+
+  .cell-skill {
+    color: #1565c0;
+    font-size: 10px;
+  }
+
+  .back-btn {
+    height: 42px;
+    border-radius: 21px;
+    margin-top: 8px;
+    align-items: center;
+    justify-content: center;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .back-text {
+    color: #e8b23a;
+    font-size: 15px;
+  }
+</style>
