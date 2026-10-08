@@ -5,24 +5,35 @@
 //   跨轮留着的：存档名、最远打到第几关（best）；
 //   一轮之内的：当前关、金币、技能、技能槽、「上次拿到技能之后空了几关」—— 输了全清。
 //
-// 技能不能买，只能靠过关拿：过第 1 关必得一个随机点数技；之后每过一关按概率掉一个，
-// 没掉的话下一关概率累加，掉了就重置（见 dropChance）。
+// 技能**在商店买**，跟卡牌混在同一栏上货（见 rollShelf）。
+// 一轮之内最多拥有 MAX_OWNED_SKILLS 个，想换先卖掉一个腾名额。
 //
 // 不并进 save.uts 的 SaveData：那边已经 24 段、两个游戏共用一套序列化，
 // 这个玩法的字段一个都不重叠，塞进去只会让每个函数再长一截。
 // 格式照它的习惯：一行文本、'|' 分段、版号打头、存档名放最后（名字里可能有 '|'）
 
-import { SUITS } from '@/pages/examples/blackjack/cards.uts'
+import { SUITS, RANKS, RANK_VALUES } from '@/pages/examples/blackjack/cards.uts'
+import {
+  SHOP_FIX_COUNT,
+  SHOP_CARD_COUNT,
+  SHELF_BONUS,
+  CARD_BONUS,
+  RANK_BONUS,
+  FLAT_REROLL,
+  cardRerollCost,
+  rollFixKeys
+} from '@/pages/examples/blackjack/draw-levels.uts'
 import {
   DRAW_SKILLS,
   SKILL_RANKS,
-  KIND_RANK,
+  RANK_CAPACITY,
   SLOT_NONE,
   DrawLoadout,
   emptyLoadout,
-  assignSuit,
-  assignRank,
-  normalizeLoadout,
+  rankCapOf,
+  rollPlace,
+  rollExpand,
+  canUpgrade,
   slotOf,
   coverageText
 } from '@/pages/examples/blackjack/draw-skills.uts'
@@ -32,11 +43,31 @@ export const DRAW_SAVE_NAME : string = '摸打'
 // 一轮一共几关。和 draw-levels.uts 的关卡表对上
 export const DRAW_RUN_LENGTH : number = 12
 
-// 掉技能的概率：起步 25%，每空一关加 25%，最多连空 3 关，第 4 关必掉
-export const DROP_BASE : number = 25
-export const DROP_STEP : number = 25
+// 原先这儿有 DROP_BASE / DROP_STEP（过关掉技能的概率，随连空关数往上走）。
+// 技能改成商店买了，这两个常量跟 dropChance 一起删掉 —— 详见下面那段
 
-const VERSION : string = 'md2'
+// md3 起多存两段：「这一轮的牌组构成」（cards）和「商店这一批货」（shelf）。
+// 两段都插在 label **前面** —— label 是最后一段，因为它可能自带 | 号，
+// 读的时候要把剩下的全拼回去。
+//
+// md4 动了两处，都是为了那两件永久扩容道具（加栏、加权）：
+//   · 第 4 段从 misses（过关掉技能那套留下的，恒为 0）换成 **rankCap**
+//     —— 点数槽这一轮有几格。顺手把那个死字段清掉了。
+//   · label 前面多插一段 **bonusShelf** —— 道具栏多了几格。
+//
+// md5 又补两段（还是插在 label 前面），给另外两件唯一道具：
+//   · **bonusCard** —— 技能 / 卡牌那一栏多了几格（加架）。
+//   · **flatReroll** —— 刷新价拍平了没有（平价），0 / 1。
+//
+// 这四个数就是「买没买过那四件唯一道具」的全部记录：
+// 加栏看 bonusShelf、加架看 bonusCard、加权看 rankCap 有没有超过底数、
+// 平价看 flatReroll。**不另记一张「已买过」的清单** —— 同一件事
+// 在存档里有两份记录，迟早对不上（见 takenOnceKeys）。
+//
+// 版号一跳，老档就当没有（下面那道 parts[0] != VERSION 的闸）。
+// 这儿没做兼容读：md2 的第 8 段是 label，md3 的第 8 段是 cards，
+// 两者都可能是任意字符串，分不出来 —— 那就别猜
+const VERSION : string = 'md5'
 const KEY_PREFIX : string = 'md_save_'
 const KEY_SLOT : string = 'md_slot'
 
@@ -48,11 +79,45 @@ export type DrawSave = {
   // 本轮：现在要打第几关。DRAW_RUN_LENGTH + 1 表示整轮打通了
   runLevel : number
   gold : number
-  // 本轮：上次拿到技能之后，又过了几关没拿到
-  misses : number
   // 本轮：每个技能的等级，-1 表示没有。下标和 DRAW_SKILLS 对齐
   levels : number[]
   loadout : DrawLoadout
+  // 本轮的**牌组构成**：每段一张牌，写成「花色 + 点数」（♠3、♥10）。
+  //
+  // 空数组 = 还没改造过，用标准的 52 张。商店里买的改造道具
+  //（推点数、同化、定点）和买来的新牌都落在这儿。
+  //
+  // 存整副而不是存「改动列表」：开局直接照它发牌，不用再算一遍差异。
+  // 排竿的 runDeck 也是这么存的。
+  //
+  // **双方共用这一副** —— 摸打不像排竿那样对半分，所以你改造的牌
+  // 对方也摸得到。改造的收益来自「往自己技能的点数上靠」：
+  // 那几个点数的牌变多，你的技能触发率跟着上去，而对方的技能
+  // 摇在别的点数上，这笔改造对它没用
+  cards : string[]
+  // 本轮：商店这一批货。
+  //
+  // **存进档，不是存在页面里。** 理由是读档刷新漏洞：货架要是每次进店
+  // 重摇，退出去再进来就能刷到想要的那张 —— 而商店是过一关进一次，
+  // 那等于白送无限次重摇，花钱刷新那条路也就白设了。
+  // 排竿那边同样把货架存进了档（runShelf）。
+  //
+  // 格式：第 0 段是「刷新过几次」，之后每段一件货
+  //   i:push1:0   道具（key、卖掉没有）
+  //   c:♠J:0      卡牌（牌面、卖掉没有）
+  //   s:3:0       技能（技能下标、卖掉没有）
+  // 牌面里不含逗号和冒号，所以这套分隔是安全的
+  shelf : string[]
+  // 本轮：道具栏比底数多几格。买过【加栏】就是 SHELF_BONUS，否则 0。
+  //
+  // 存「多出来的那几格」而不是存总数：底数（SHOP_FIX_COUNT）哪天要调，
+  // 老档不会连着一块儿锁死在旧值上
+  bonusShelf : number
+  // 本轮：技能 / 卡牌那一栏比底数多几格。买过【加架】就是 CARD_BONUS
+  bonusCard : number
+  // 本轮：刷新价拍平了没有。买过【平价】就是 true ——
+  // 之后每次换一批都是 FLAT_REROLL，不再翻倍
+  flatReroll : boolean
 }
 
 function listOf(count : number, value : number) : number[] {
@@ -70,9 +135,13 @@ export function emptyDrawSave() : DrawSave {
     best: 0,
     runLevel: 1,
     gold: 0,
-    misses: 0,
     levels: listOf(DRAW_SKILLS.length, -1),
-    loadout: emptyLoadout()
+    loadout: emptyLoadout(),
+    cards: [] as string[],
+    shelf: [] as string[],
+    bonusShelf: 0,
+    bonusCard: 0,
+    flatReroll: false
   }
 }
 
@@ -88,19 +157,33 @@ export function newDrawSave(label : string) : DrawSave {
 export function resetDrawRun(data : DrawSave) {
   data.runLevel = 1
   data.gold = 0
-  data.misses = 0
   data.levels = listOf(DRAW_SKILLS.length, -1)
+  // emptyLoadout 把 rankCap 也带回底数 —— 加权买来的那一格一起清。
+  // 它跟技能、牌组一个待遇：本轮的家当
   data.loadout = emptyLoadout()
+  // 牌组改造跟技能一个待遇：本轮的家当，输了一起清。
+  // 不清的话它会跨轮累积，而这个玩法的整个结构是「输一次从头来」
+  data.cards = [] as string[]
+  // 货架也清空 —— 下次进店会摆新的一批
+  data.shelf = [] as string[]
+  // 四件唯一扩容道具买来的东西同理，都只「永久」到这一轮结束 ——
+  // 跨轮留着的话它们会累成一条养成线，而这个玩法没有养成线
+  //（加权那一格在 emptyLoadout 里已经清了）
+  data.bonusShelf = 0
+  data.bonusCard = 0
+  data.flatReroll = false
 }
 
 export function runCleared(data : DrawSave) : boolean {
   return data.runLevel > DRAW_RUN_LENGTH
 }
 
-// 这一关过了之后掉技能的概率（百分比）
-export function dropChance(data : DrawSave) : number {
-  return Math.min(100, DROP_BASE + DROP_STEP * data.misses)
-}
+// 原先这儿有个 dropChance（过关掉技能的概率，随连空关数往上走）。
+// 技能改成商店买了，这个函数和它依赖的 DROP_BASE / DROP_STEP 一起没用了。
+//
+// 它留下的那个 `misses` 字段（恒为 0）当时没删，说好「哪天版号因为别的事
+// 要跳，顺手清掉」—— md4 为了加权那一格要跳版了，于是顺手清了：
+// 第 4 段现在装 rankCap
 
 function toInt(text : string, fallback : number) : number {
   const parsed = parseInt(text)
@@ -129,6 +212,30 @@ function numsToText(list : number[]) : string {
   return text
 }
 
+// 一串字符串，逗号分隔。牌组构成那一栏用它 —— 存的是「♠3」这种，
+// 不用查任何表，原样存原样读
+function listToText(list : string[]) : string {
+  let text = ''
+  for (let i = 0; i < list.length; i++) {
+    text = text + (i == 0 ? '' : ',') + list[i]
+  }
+  return text
+}
+
+function textToList(text : string) : string[] {
+  const out : string[] = []
+  if (text == '') {
+    return out
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] != '') {
+      out.push(parts[i])
+    }
+  }
+  return out
+}
+
 // 定长的数字表：读不够就补 fallback，多了截掉
 function textToFixed(text : string, count : number, fallback : number) : number[] {
   const list = listOf(count, fallback)
@@ -149,11 +256,12 @@ export function loadDrawAt(index : number) : DrawSave {
   }
   const parts = raw.split('|')
   // 版号对不上（比如 md1 那版还有「通关列表」、没有本轮概念）就当没有这个档
-  if (parts.length < 9 || parts[0] != VERSION) {
+  if (parts.length < 14 || parts[0] != VERSION) {
     return emptyDrawSave()
   }
-  let label = parts[8]
-  for (let i = 9; i < parts.length; i++) {
+  // label 是最后一段，而它可能自带 | 号 —— 所以从第 13 段起全拼回去
+  let label = parts[13]
+  for (let i = 14; i < parts.length; i++) {
     label = label + '|' + parts[i]
   }
   return {
@@ -162,12 +270,18 @@ export function loadDrawAt(index : number) : DrawSave {
     best: toInt(parts[1], 0),
     runLevel: toInt(parts[2], 1),
     gold: toInt(parts[3], 0),
-    misses: toInt(parts[4], 0),
     levels: textToFixed(parts[5], DRAW_SKILLS.length, -1),
     loadout: {
       suitOwner: textToFixed(parts[6], SUITS.length, -1),
-      rankOwner: textToFixed(parts[7], SKILL_RANKS.length, -1)
-    }
+      rankOwner: textToFixed(parts[7], SKILL_RANKS.length, -1),
+      // 读不出来就当底数（rankCapOf 也会再兜一次底）
+      rankCap: toInt(parts[4], RANK_CAPACITY)
+    },
+    cards: textToList(parts[8]),
+    shelf: textToList(parts[9]),
+    bonusShelf: toInt(parts[10], 0),
+    bonusCard: toInt(parts[11], 0),
+    flatReroll: parts[12] == '1'
   }
 }
 
@@ -176,10 +290,15 @@ export function writeDrawAt(index : number, data : DrawSave) {
     + '|' + data.best
     + '|' + data.runLevel
     + '|' + data.gold
-    + '|' + data.misses
+    + '|' + rankCapOf(data.loadout)
     + '|' + numsToText(data.levels)
     + '|' + numsToText(data.loadout.suitOwner)
     + '|' + numsToText(data.loadout.rankOwner)
+    + '|' + listToText(data.cards)
+    + '|' + listToText(data.shelf)
+    + '|' + data.bonusShelf
+    + '|' + data.bonusCard
+    + '|' + (data.flatReroll ? '1' : '0')
     + '|' + data.label
   uni.setStorageSync(KEY_PREFIX + index, text)
 }
@@ -216,86 +335,502 @@ export function saveDraw(data : DrawSave) {
   writeDrawAt(drawSaveSlot(), data)
 }
 
-// ---------- 过关掉技能 ----------
+// ---------- 牌组构成 ----------
+//
+// 一张牌写成「花色 + 点数」：♠3、♥10、♦A。花色恒为一个字符，
+// 所以第一个字符是花色、剩下的是点数 —— 解析不用分隔符。
+//
+// ---- 点数卡贴上来的额外点数写在后面，用 '+' 隔开 ----
+//
+//   ♠3        普通的黑桃 3
+//   ♠3+7      它**同时**算 3 和 7：两边都钓得上，它也钓得上两边
+//   ♠3+7+10   贴了两张点数卡
+//
+// 为什么用 '+' 而不是别的分隔符：牌组这一段在存档里是用 ',' 分段的
+//（listToText / textToList），而货架那一段用的是 ':' ——
+// 这两个字符都不能用。'+' 还顺带读得出意思：「3 加一个 7」。
+//
+// 点数写的是**数值**（1–13）而不是牌面字母，因为贴上来的那个点数
+// 跟牌面没关系：♠3 贴个 12 就是「也算 Q」，但它仍然不是 Q
+//（rank 还是 '3'，所以它不会变成 J 那样的通吃，也不触发点数技）
+export const DECK_CAP : number = 64
+
+const PIP_MARK : string = '+'
+
+export function cardText(suit : string, rank : string) : string {
+  return suit + rank
+}
+
+export function suitOfText(text : string) : string {
+  return text.length > 0 ? text.substring(0, 1) : ''
+}
+
+// 牌面那个点数（A、10、Q…）。**切掉 '+' 后面那一截** ——
+// 贴过点数卡的牌，牌面点数还是原来那个
+export function rankOfText(text : string) : string {
+  if (text.length < 2) {
+    return ''
+  }
+  const body = text.substring(1)
+  const at = body.indexOf(PIP_MARK)
+  return at < 0 ? body : body.substring(0, at)
+}
+
+// 点数卡贴上来的那几个点数（数值）。没贴过就是空的
+export function pipsOfText(text : string) : number[] {
+  const out : number[] = []
+  const parts = text.split(PIP_MARK)
+  // 第 0 段是「花色 + 牌面点数」，从第 1 段起才是贴上来的
+  for (let i = 1; i < parts.length; i++) {
+    const v = parseInt(parts[i])
+    if (!isNaN(v)) {
+      out.push(v)
+    }
+  }
+  return out
+}
+
+// 给这张牌贴一个额外点数，返回新的牌面文本。
+// **贴重了就原样返回** —— 同一个点数贴两次没有任何额外效果
+export function addPip(text : string, value : number) : string {
+  const has = pipsOfText(text)
+  for (let i = 0; i < has.length; i++) {
+    if (has[i] == value) {
+      return text
+    }
+  }
+  return text + PIP_MARK + value
+}
+
+// 界面上怎么写这张牌：♠3+7 写成「♠3·7」。
+//
+// 存档里用 '+'、界面上用 '·'，是因为 '+7' 看着像「加 7 点」
+// （那是【推点数】那件道具干的事），而这儿是「**也**算 7 点」
+export function cardLabel(text : string) : string {
+  const pips = pipsOfText(text)
+  if (pips.length == 0) {
+    return text
+  }
+  let out = suitOfText(text) + rankOfText(text)
+  for (let i = 0; i < pips.length; i++) {
+    out = out + '·' + faceOfValue(pips[i])
+  }
+  return out
+}
+
+// 点数值写成牌面那套：11/12/13 写 J/Q/K
+export function faceOfValue(v : number) : string {
+  for (let i = 0; i < RANK_VALUES.length; i++) {
+    if (RANK_VALUES[i] == v) {
+      return RANKS[i]
+    }
+  }
+  return '' + v
+}
+
+// 标准的 52 张，按花色排在一起
+export function standardDeck() : string[] {
+  const out : string[] = []
+  for (let r = 0; r < RANKS.length; r++) {
+    for (let s = 0; s < SUITS.length; s++) {
+      out.push(cardText(SUITS[s], RANKS[r]))
+    }
+  }
+  return out
+}
+
+// 这一轮该用哪副牌。没改造过就是标准 52 张
+export function deckOf(data : DrawSave) : string[] {
+  return data.cards.length > 0 ? data.cards.slice(0) : standardDeck()
+}
+
+// 把改造后的构成写回存档。**不洗牌** ——
+// 洗是开局时的事（buildPlainDeck），存档里只记「这副牌有哪些张」
+export function setDeck(data : DrawSave, cards : string[]) {
+  data.cards = cards.slice(0)
+}
+
+// 这个点数在这副牌里一共有几张。
+//
+// **庄家的记牌靠它**：它钓不到牌时挑「外面剩得最少」的点数当饵
+//（见 ap-fishing 的 outsideCount），而那个「剩」是拿总张数减掉看得见的。
+// 改造一动，总张数就不再是恒定的 4 —— 不读这儿的话，
+// 它会越改造越蠢，而「会记牌」正是第 3 关起的核心难度
+export function countOfRank(data : DrawSave, rank : string) : number {
+  const deck = deckOf(data)
+  let n = 0
+  for (let i = 0; i < deck.length; i++) {
+    if (rankOfText(deck[i]) == rank) {
+      n = n + 1
+    }
+  }
+  return n
+}
+
+// ---------- 商店货架 ----------
+//
+// 一件货。四类：
+//   'i' 道具   —— tag 是 key（push1、same、drop、sharpen、wash、pack2…）
+//   'c' 卡牌   —— tag 是牌面（♠J）
+//   's' 技能   —— tag 是技能下标（'3'）
+//   'p' 点数卡 —— tag 是它给的点数值（'7'）
+//
+// 技能、卡牌、点数卡**混在同一栏**上货：三样是同一件事的三种形态 ——
+// 都是「花钱添一样东西进这一轮」。道具那一栏管的是「改手头已有的」。
+//
+// 点数卡算在这一栏而不是道具栏，是因为它跟买牌是**同一条轴**的两头：
+//   买牌   —— 牌组多一张，于是那个点数多一次撞上的机会（但牌组也变厚了）
+//   点数卡 —— 牌组**不变厚**，但某一张牌多一个点数
+// 后者更精准、也更贵。摆在一起才看得出这个取舍
+export const GOODS_FIX : string = 'i'
+export const GOODS_CARD : string = 'c'
+export const GOODS_SKILL : string = 's'
+export const GOODS_PIP : string = 'p'
+
+export type ShelfGoods = {
+  kind : string
+  tag : string
+  sold : boolean
+}
+
+// 摇一批新货。keepFix 为真就留着原来那几件道具、只换下面那一栏 ——
+// 刷新走这条：**道具买完就没了，刷新不补**，技能和卡牌才是「行情」。
+export function rollShelf(data : DrawSave, keepFix : boolean) {
+  const out : string[] = []
+  // 第 0 段：刷新过几次。摇全新一批（进店那次）归零，刷新那次 +1
+  out.push('' + (keepFix ? rerollTimes(data) + 1 : 0))
+  if (keepFix) {
+    // 原来那几件道具原样搬（连卖掉的标记一起 —— 卖了就是卖了）
+    const old = shelfGoods(data)
+    for (let i = 0; i < old.length; i++) {
+      if (old[i].kind == GOODS_FIX) {
+        out.push(GOODS_FIX + ':' + old[i].tag + ':' + (old[i].sold ? '1' : '0'))
+      }
+    }
+  } else {
+    // **按稀有度摇**，而不是均匀抽（见 draw-levels 的 rareWeight）：
+    // 关号越大，稀有和史诗那几件越容易摆出来。
+    //
+    // 喂进去的 runLevel 是**下一关**的号：商店在打赢一关之后进，
+    // 而 settleWin 已经把 runLevel 推过去了。那正好 —— 这批货是
+    // 给下一关用的，按下一关的曲线上货才对得上。
+    //
+    // 买过的唯一道具排掉 —— 它们一轮只买得到一次
+    const picked = rollFixKeys(data.runLevel, fixSlotsOf(data), takenOnceKeys(data))
+    for (let i = 0; i < picked.length; i++) {
+      out.push(GOODS_FIX + ':' + picked[i] + ':0')
+    }
+  }
+  // 技能、卡牌、点数卡混在一栏。**技能只上你还没有的** ——
+  // 同名只有一个，摆一件你已经有的出来只是占格子。
+  // 用 let：挑掉一个之后整个换成剩下那些（UTS 那边 length 是只读的，
+  // 清不了数组，只能换引用）
+  let freeSkills : number[] = []
+  for (let k = 0; k < DRAW_SKILLS.length; k++) {
+    if (data.levels[k] < 0) {
+      freeSkills.push(k)
+    }
+  }
+  for (let i = 0; i < cardSlotsOf(data); i++) {
+    // 大致的配比：技能 1/3、点数卡 1/4、剩下摆牌。
+    // 技能摆完了（全有了）那一份自动匀给后两样
+    if (freeSkills.length > 0 && randomInt(3) == 0) {
+      const at = randomInt(freeSkills.length)
+      out.push(GOODS_SKILL + ':' + freeSkills[at] + ':0')
+      // 这一批里不重复上同一个技能
+      const rest : number[] = []
+      for (let k = 0; k < freeSkills.length; k++) {
+        if (k != at) {
+          rest.push(freeSkills[k])
+        }
+      }
+      freeSkills = rest
+      continue
+    }
+    if (randomInt(4) == 0) {
+      out.push(GOODS_PIP + ':' + rollPipValue() + ':0')
+      continue
+    }
+    const suit = SUITS[randomInt(SUITS.length)]
+    const rank = RANKS[randomInt(RANKS.length)]
+    out.push(GOODS_CARD + ':' + suit + rank + ':0')
+  }
+  data.shelf = out
+}
+
+// 点数卡给的是哪个点数。
+//
+// **J（11）不在池子里**，理由和点数槽不给指定 J 一样：J 是通吃，
+// 而通吃焊在「J 这张牌」上，不是「11 点」上（见 catchStart）。
+// 给一张 ♠3 贴个 11 点，它只会跟别的 11 点对上，不会变成通吃 ——
+// 那就是一张标着「J」却不通吃的牌，解释起来全是坑。
+//
+// 所以池子是 A–10、Q、K，跟 SKILL_RANKS 同一套
+export function rollPipValue() : number {
+  const at = randomInt(SKILL_RANKS.length)
+  return valueOfSkillRank(SKILL_RANKS[at])
+}
+
+function valueOfSkillRank(rank : string) : number {
+  for (let i = 0; i < RANKS.length; i++) {
+    if (RANKS[i] == rank) {
+      return RANK_VALUES[i]
+    }
+  }
+  return 1
+}
+
+// 原先这儿有个 pickSome（从 0..total-1 里均匀挑 want 个不重复的），
+// 道具上货就是靠它。换成按稀有度加权的 rollFixKeys 之后它没用了 ——
+// 卡牌那一栏不用它（牌是直接摇花色和点数，允许重复）
+
+// 道具栏这一轮有几格：底数 + 买过加栏的那几格
+export function fixSlotsOf(data : DrawSave) : number {
+  return SHOP_FIX_COUNT + data.bonusShelf
+}
+
+// 技能 / 卡牌那一栏这一轮有几格：底数 + 买过加架的那几格
+export function cardSlotsOf(data : DrawSave) : number {
+  return SHOP_CARD_COUNT + data.bonusCard
+}
+
+// 这一关第 times 次刷新要多少钱。
+//
+// 买过【平价】就拍平成一个数，没买就走翻倍那条曲线。
+// **页面别直接调 cardRerollCost** —— 那样平价就白买了
+export function rerollPriceOf(data : DrawSave) : number {
+  return data.flatReroll ? FLAT_REROLL : cardRerollCost(rerollTimes(data))
+}
+
+// 这一轮已经买过的唯一道具。
+//
+// 不另记一张清单 —— 那四件唯一道具买下来之后各自留了痕：
+// 加栏顶了 bonusShelf、加架顶了 bonusCard、加权顶了 rankCap、
+// 平价立了 flatReroll。存档里有两份同一件事的记录，迟早对不上
+export function takenOnceKeys(data : DrawSave) : string[] {
+  const out : string[] = []
+  if (data.bonusShelf > 0) {
+    out.push('shelf')
+  }
+  if (data.bonusCard > 0) {
+    out.push('card')
+  }
+  if (rankCapOf(data.loadout) > RANK_CAPACITY) {
+    out.push('weight')
+  }
+  if (data.flatReroll) {
+    out.push('flat')
+  }
+  return out
+}
+
+// 买加栏：道具栏永久 +SHELF_BONUS 格。买过了就不动（它是唯一道具，
+// 上货那儿已经排掉了，这道闸是防手快点两下）
+export function growShelf(data : DrawSave) : boolean {
+  if (data.bonusShelf > 0) {
+    return false
+  }
+  data.bonusShelf = SHELF_BONUS
+  return true
+}
+
+// 买加架：技能 / 卡牌那一栏永久 +CARD_BONUS 格。
+//
+// **这一批的货不动** —— 已经摆出来的四件就是四件。多出来那一格
+// 从下一次上货开始算，而「下一次」既包括下一关，也包括这一关
+// 花钱刷新（刷新会重摇整条下栏，见 rollShelf 的 keepFix 分支）。
+// 所以它买完**当场就刷得出来**，只是要再花一次刷新钱
+export function growCard(data : DrawSave) : boolean {
+  if (data.bonusCard > 0) {
+    return false
+  }
+  data.bonusCard = CARD_BONUS
+  return true
+}
+
+// 买平价：刷新价从翻倍改成固定 FLAT_REROLL。
+//
+// **已经刷过的次数不清零** —— 清零的话「刷到第四次（160）再买平价」
+// 就变成了一招免费回档。平价改的是价格曲线，不是你刷过几次这件事实
+export function makeFlat(data : DrawSave) : boolean {
+  if (data.flatReroll) {
+    return false
+  }
+  data.flatReroll = true
+  return true
+}
+
+// 库里躺着没装上的技能有几个。
+//
+// 「躺在库里」= 买它那会儿两个槽都满了，于是只记了等级、没占格子
+//（见 takeSkill）。那样的技能在牌桌上毫无作用 —— 它不管任何花色和点数
+export function benchedCount(data : DrawSave) : number {
+  let n = 0
+  for (let k = 0; k < data.levels.length; k++) {
+    if (data.levels[k] >= 0 && slotOf(data.loadout, k) == SLOT_NONE) {
+      n = n + 1
+    }
+  }
+  return n
+}
+
+// 格子一空出来，就让库里躺着的技能摇位置装上去。装了几个就返回几。
+//
+// **两个入口共用这一处**：买加权（多一格）和卖技能（腾一格）。
+// 两件事都是「槽里空出位置」，所以后果该一样 —— 不然
+// 「我买了格子它怎么没上去」和「我卖了一个它怎么没上去」
+// 会变成两条各不相同的规则，而玩家只会记一条。
+//
+// 位置照旧是**摇**的（rollPlace），不是你指定的 —— 这条没破。
+// 空出来的格子不保证摇到哪一格，两个槽都空着的时候也不保证摇哪个槽。
+// 一路装到装不下为止：卖掉一个 2 级技能能腾出三格，够装两三个
+export function fillBench(data : DrawSave) : number {
+  let placed = 0
+  for (let k = 0; k < data.levels.length; k++) {
+    if (data.levels[k] < 0 || slotOf(data.loadout, k) != SLOT_NONE) {
+      continue
+    }
+    data.loadout = rollPlace(data.loadout, data.levels, k)
+    if (slotOf(data.loadout, k) != SLOT_NONE) {
+      placed = placed + 1
+    }
+  }
+  return placed
+}
+
+// 买加权：点数槽永久 +RANK_BONUS 格。
+//
+// **只抬容量，不动已经装着的技能** —— 多出来那一格对它们是空的，
+// 得再刷到砺钩才填得上。它卖的是「升级的余量」，不是免费升一级。
+//
+// 例外是库里躺着的（见 fillBench）：不把它装上去，这件 180 块的货
+// 对它就毫无作用，而玩家会合理地以为「我买了格子，那它该上去了」
+export function growRank(data : DrawSave) : boolean {
+  if (rankCapOf(data.loadout) > RANK_CAPACITY) {
+    return false
+  }
+  data.loadout.rankCap = RANK_CAPACITY + RANK_BONUS
+  fillBench(data)
+  return true
+}
+
+export function rerollTimes(data : DrawSave) : number {
+  return data.shelf.length == 0 ? 0 : toInt(data.shelf[0], 0)
+}
+
+// 货架上那几件。读不出来就是空的 —— 调用处据此判断要不要摇第一批
+export function shelfGoods(data : DrawSave) : ShelfGoods[] {
+  const out : ShelfGoods[] = []
+  for (let i = 1; i < data.shelf.length; i++) {
+    const seg = data.shelf[i].split(':')
+    if (seg.length != 3) {
+      continue
+    }
+    out.push({
+      kind: seg[0],
+      tag: seg[1],
+      sold: seg[2] == '1'
+    } as ShelfGoods)
+  }
+  return out
+}
+
+// 把第 index 件（按 shelfGoods 的下标）标成卖掉
+export function markSold(data : DrawSave, index : number) {
+  const list = shelfGoods(data)
+  if (index < 0 || index >= list.length) {
+    return
+  }
+  const out : string[] = []
+  out.push('' + rerollTimes(data))
+  for (let i = 0; i < list.length; i++) {
+    const one = list[i]
+    const sold = i == index ? true : one.sold
+    out.push(one.kind + ':' + one.tag + ':' + (sold ? '1' : '0'))
+  }
+  data.shelf = out
+}
+
+// 原先这儿有 saveFinalLevels / loadFinalLevels（一对 storage 读写，
+// 把关卡页勾好的终局配装捎给对局页）。自定义配装整套取消了，这两个
+// 跟着删 —— 没有调用方的导出函数留着只会让人以为还有那个功能。
+//
+// 取消的理由：技能掉什么不由你挑、位置摇定、升级要等货架上出砺钩，
+// 一路都在说「适应摇出来的东西」，而自定义配装是「先想好再执行」
+
+// ---------- 技能 ----------
+
+// 最多同时拥有几个技能。表里一共十三个，所以这条上限是实打实的取舍：
+// 你**拿不全**，得挑。
+//
+// 它跟「技能自己的强度」是两件事 —— 每个技能该多强、升一级加多少，
+// 一个数都没动（那套是模拟校准过的，见本文件头）。上限改的是
+// **你能同时摆出几样**，也就是把「这一轮走哪条路」从「全都要」
+// 变回一个选择。
+//
+// 名额满了之后货架上的技能就买不动了，想换名单只有卖掉一个 ——
+// 于是「卖出」从一个清库存的按钮变成了真正的决策
+// （它还有两个用途：换钱、腾槽位给升级）
+export const MAX_OWNED_SKILLS : number = 4
+
+export function ownedSkillCount(data : DrawSave) : number {
+  let n = 0
+  for (let k = 0; k < data.levels.length; k++) {
+    if (data.levels[k] >= 0) {
+      n = n + 1
+    }
+  }
+  return n
+}
 
 function randomInt(n : number) : number {
   return Math.floor(Math.random() * n)
 }
 
-// 把一个新拿到的技能随机放进有空位的格子。
-// toRank 为真就只试点数槽；否则只能放点数槽的进点数槽，其他的先随机挑一个槽、放不下再试另一个。
-// 两个槽都满了就先不装，留在商店里自己调
-function placeRandom(data : DrawSave, skill : number, toRank : boolean) : boolean {
-  const rankFirst = toRank || DRAW_SKILLS[skill].kind == KIND_RANK || randomInt(2) == 0
-  const order : boolean[] = toRank || DRAW_SKILLS[skill].kind == KIND_RANK ? [true] : [rankFirst, !rankFirst]
-  for (let o = 0; o < order.length; o++) {
-    const useRank = order[o]
-    const owner = useRank ? data.loadout.rankOwner : data.loadout.suitOwner
-    const free : number[] = []
-    for (let i = 0; i < owner.length; i++) {
-      if (owner[i] < 0) {
-        free.push(i)
-      }
-    }
-    // 随机挑一个空格开始试，试一圈
-    for (let t = 0; t < free.length; t++) {
-      const cell = free[(randomInt(free.length) + t) % free.length]
-      const next = useRank
-        ? assignRank(data.loadout, data.levels, cell, skill)
-        : assignSuit(data.loadout, data.levels, cell, skill)
-      if (next != null) {
-        data.loadout = next!
-        return true
-      }
-    }
-  }
-  return false
-}
+// 原先这儿有个 placeRandom（包一层 rollPlace，再返回「装上了没有」）。
+// 它带个 toRank 参数走「第 1 关白送一个点数技」那条路；白送取消了，
+// 包装也就只剩一个调用处，直接内联进 takeSkill
 
-// 掉一个技能：随机挑一个；已经有了就升一级，满级了换一个；全满了给 30 金币。
-// rankOnly：第 1 关那次只给点数技（放进点数槽）。返回给玩家看的一句话
-export function grantRandomSkill(data : DrawSave, rankOnly : boolean) : string {
-  const candidates : number[] = []
-  for (let k = 0; k < DRAW_SKILLS.length; k++) {
-    const level = data.levels[k]
-    if (level < 0 || level < DRAW_SKILLS[k].maxLevel) {
-      candidates.push(k)
-    }
-  }
-  if (candidates.length == 0) {
-    data.gold = data.gold + 30
-    return '技能都满级了，改给 30 金币'
-  }
-  const skill = candidates[randomInt(candidates.length)]
-  const name = DRAW_SKILLS[skill].name
+// 买下一个新技能：记等级、摇位置。买不了返回空串，买成了返回那句话。
+//
+// 名额（MAX_OWNED_SKILLS）和金币由调用处先查 —— 这儿只管落账。
+//
+// 两个槽都满了就先不装，留在商店里躺着 —— 卖掉别的技能之后，
+// 下一次升它会再摇一次位置（见 rollExpand）。
+// 摇位置那一套统一在 draw-skills 里（rollPlace）：
+// 「位置是摇出来的」这条规矩得只有一个实现，散在两处迟早摇出两套脾气
+export function takeSkill(data : DrawSave, skill : number) : string {
   if (data.levels[skill] >= 0) {
-    data.levels[skill] = data.levels[skill] + 1
-    data.loadout = normalizeLoadout(data.loadout, data.levels)
-    return '获得技能：' + name + '（已有，升到 ' + data.levels[skill] + ' 级）'
+    return ''
   }
   data.levels[skill] = 0
-  const placed = placeRandom(data, skill, rankOnly)
-  if (!placed || slotOf(data.loadout, skill) == SLOT_NONE) {
-    return '获得技能：' + name + '（槽满了，先放在商店里）'
+  data.loadout = rollPlace(data.loadout, data.levels, skill)
+  const name = DRAW_SKILLS[skill].name
+  if (slotOf(data.loadout, skill) == SLOT_NONE) {
+    return name + ' 到手了，但两个槽都满着 —— 它先在库里躺着'
   }
-  return '获得技能：' + name + '（管 ' + coverageText(data.loadout, skill) + '）'
+  return name + ' 到手，管 ' + coverageText(data.loadout, skill)
 }
 
-// 过了一关之后的结算：推进关卡、记最远、发金币、掷技能。返回技能那句话
-export function settleWin(data : DrawSave, levelId : number, gold : number) : string {
+// 过了一关之后的结算：推进关卡、记最远、发金币。
+//
+// ---- 技能**不再靠过关掉** ----
+//
+// 从前这儿掷一次骰子决定掉不掉技能（概率随连空关数往上走）。整套取消了，
+// 技能改成在商店买（跟卡牌混在同一栏上货）。
+//
+// 换掉的理由是**决策位置**：过关掉技能的时候你什么也决定不了 ——
+// 掉什么、掉不掉，都是骰子说的。而买技能是在商店里跟别的东西抢钱：
+// 这一百块买技能、买牌、还是买砺钩升手头那个？那是个真问题。
+// 随机性没少（上什么货是摇的、位置是摇的），但它从「结算后通知你」
+// 挪到了「摆在你面前让你挑」。
+//
+// 顺带把货架清空：一关一批货。商店是过关才进得去的，
+// 所以「每关一批」就等于「每次进店一批」
+export function settleWin(data : DrawSave, levelId : number, gold : number) {
   data.runLevel = levelId + 1
   data.best = Math.max(data.best, levelId)
   data.gold = data.gold + gold
-  if (levelId == 1) {
-    data.misses = 0
-    return grantRandomSkill(data, true)
-  }
-  const chance = dropChance(data)
-  if (randomInt(100) < chance) {
-    data.misses = 0
-    return grantRandomSkill(data, false)
-  }
-  data.misses = data.misses + 1
-  return '这关没掉技能（下一关概率 ' + dropChance(data) + '%）'
+  data.shelf = [] as string[]
 }
 

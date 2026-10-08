@@ -11,9 +11,47 @@
 // 强度是模拟校准过的（每局分差，扣掉后手本来就有的 +2.9）：
 //   护饵、磁钩、观潮 满装约 +4 ~ +7，属于「升满了明显好用」；
 //   钩顶、搅水 只指定 1 个点数就有 +4 ~ +5，所以只能放点数槽、不能升级。
-//   换牌、连竿 两个候选模拟下来没有效果，先拿掉了
+//
+// 后来添的那几件（换水起）没过那套模拟，价钱是照同类件抄的 ——
+// 哪天手感不对，先怀疑这几个的定价。
+//
+// 【连竿】当初模拟下来「没有效果」被拿掉过，现在又加回来了 ——
+// 因为它的定位变了：那会儿它只是「多打一张」，现在它是**把两件技能
+// 凑进同一个回合**的钥匙（染水→顺色、沉底→同点数通收）。
+// 那个价值在「技能之间没有联动」的版本里根本不存在，所以当年测不出来
 
 import { SUITS } from '@/pages/examples/blackjack/cards.uts'
+
+// 升一级多少钱。只有一个价 —— 不按技能、不按等级分。
+//
+// 升级走商店的【砺钩】道具，所以这个数同时是那件道具的标价
+//（draw-levels 的 FIX_ITEMS 直接引它，免得两处各写一个 100）。
+//
+// 定在这个文件而不是 draw-levels：那边已经 import 了这边
+//（关卡表要用 DRAW_SKILLS 配庄家的技能），反过来再 import 就成环了。
+// 升级价跟技能绑在一起，放这儿也更说得通
+export const UPGRADE_PRICE : number = 100
+
+// ---------- 关键字「优先」 ----------
+//
+// 带**优先**的技能，它的效果在**钓牌判定之前**就结算。
+//
+// 为什么需要这么一条关键字：一张牌最多触发两个技能（花色槽一个、
+// 点数槽一个，见 triggersOf），而「谁先谁后」从前是 afterPlay 里
+// 写死的那个顺序 —— 全都排在钓牌判定**之后**。
+//
+// 可有些效果改的正是**钓牌判定的输入**：
+//
+//   【染水】把整堆的花色换掉 → 顺色拿什么去匹配，变了
+//   【沉底】把这张打到堆底   → 从哪儿往哪儿收，变了
+//
+// 这两件要是排在判定之后，同一张牌上的组合当场就失效了。所以它们
+// 带「优先」，调用点在 playFor 里（catchStart 之前），不在 afterPlay 里。
+//
+// 玩家侧它是一个**看得见的标签**：技能卡和图鉴上描一个「优先」，
+// 意思是「这件先算」。同一张牌上两件都带优先的，按表里的先后来
+//（染水在沉底前面 —— 先定花色，再定落点）
+export const KEYWORD_FIRST : string = '优先'
 
 export type DrawSkill = {
   key : string
@@ -28,6 +66,8 @@ export type DrawSkill = {
   unlock : number
   // 升到第 1、2 级各要多少钱
   upgrade : number[]
+  // 带「优先」关键字吗（效果在钓牌判定之前结算，见上面那段）
+  first : boolean
 }
 
 export const KIND_ANY : number = 0
@@ -39,35 +79,498 @@ export const SK_TIDE : number = 2
 export const SK_PEEK : number = 3
 export const SK_TOP : number = 4
 export const SK_STIR : number = 5
+// 新技能一律**追加在表尾**，不许插在中间。
+//
+// 存档里 levels 和 loadout（suitOwner / rankOwner）存的都是**技能下标**
+//（见 draw-save 的 textToFixed）。插在中间的话老档读出来整个错位：
+// 你的护饵会变成别人家的磁钩。追加就安全 —— 老档里没有的那几格读成 -1
+export const SK_SWAP : number = 6
+export const SK_SUITED : number = 7
+export const SK_LANTERN : number = 8
+export const SK_FREEZE : number = 9
+export const SK_LOWTIDE : number = 10
+export const SK_FLOOD : number = 11
+export const SK_PICK : number = 12
+export const SK_SUITIFY : number = 13
+export const SK_SINK : number = 14
+export const SK_AGAIN : number = 15
+// 第二批十一件（照钓鱼的贴纸、排竿的道具移植，见表里那段分隔注释）。
+// 照旧**追加在表尾**，下标就是存档里的技能编号
+export const SK_DEEP : number = 16
+export const SK_PEAK : number = 17
+export const SK_HUE : number = 18
+export const SK_CAST : number = 19
+export const SK_PRESS : number = 20
+export const SK_UNHOOK : number = 21
+export const SK_SWAPCARD : number = 22
+export const SK_NARROW : number = 23
+export const SK_CREEL : number = 24
+export const SK_TWIN : number = 25
+export const SK_SUITFIND : number = 26
 
 export const DRAW_SKILLS : DrawSkill[] = [
   {
     key: 'guard', name: '护饵', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
+    first: false,
     desc: '这张没钓到牌时，对方下一回合钓不到它（J 照样通吃）'
   },
   {
     key: 'hook', name: '磁钩', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
+    first: false,
     desc: '这张还能对上点数比它大 1 的牌（Q 钓 K，10 钓不了 J）'
   },
   {
+    // 看的是**你自己回合末要补的**那两张 —— 回合末补牌（见 ap-fishing 的
+    // passTurn）把这件技能的朝向翻了过来：从前每回合开始摸一张，
+    // 你打完之后顶上那张是对方要摸的，观潮是偷看对手；
+    // 现在补的是刚打完那一方，于是它变成了「挑自己的牌」
     key: 'tide', name: '观潮', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
-    desc: '打出后看牌库顶那张（对方下一张要摸的），可以把它沉到牌库底'
+    first: false,
+    desc: '打出后看牌库顶 2 张（你回合末要补的），可以把它们一起沉到牌库底'
   },
   {
     key: 'peek', name: '窥视', kind: KIND_ANY, maxLevel: 2, unlock: 40, upgrade: [60, 100],
+    first: false,
     desc: '打出后翻开对方一张手牌，直到它打出去'
   },
   {
     key: 'top', name: '钩顶', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    first: false,
     desc: '这张对不上任何牌时，钓走堆顶那一张（只能放点数槽，不能升级）'
   },
   {
     key: 'stir', name: '搅水', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    first: false,
     desc: '打出后对方随机一张手牌明着落到牌堆上，不算钓牌（只能放点数槽，不能升级）'
+  },
+  {
+    // 换水：挑一张自己的手牌塞回牌库洗掉。
+    //
+    // 它治的是这个玩法最难受的那个局面：**手里四张跟堆上任何东西都对不上**。
+    // 现有六个技能里一个都管不着这件事 —— 护饵、磁钩、钩顶改的是「钓得到
+    // 钓不到」，观潮、窥视、搅水改的是「谁看得见什么」，
+    // 没有一个能换掉手里那张废牌。
+    //
+    // 跟回合末补牌（见 ap-fishing 的 passTurn）咬得正好：放回一张，
+    // 回合末就补一张新的回来。所以它的净效果是**拿一张不要的换一张未知的**。
+    //
+    // 塞回去是**真洗进牌库**，不是插在底下 —— 插底的话你数得出它
+    // 什么时候回来，那就不叫「换掉」了。
+    //
+    // 等级只扩覆盖面（管几个花色 / 几个点数），效果本身一直是「换一张」——
+    // 跟护饵、磁钩、观潮同一个规矩。价钱也照那三件走
+    key: 'swap', name: '换水', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
+    first: false,
+    desc: '打出后挑一张自己的手牌塞回牌库洗掉（回合末会补一张新的）'
+  },
+  {
+    // 顺色：**第二条钓牌通道**。
+    //
+    // 摸打到这件之前只认点数（加 J 通吃），花色除了当槽位的标签之外
+    // 一点用都没有。这一件让花色进钓牌判定 —— 而且跟点数那条完全并列：
+    // 判定是从堆底往上找第一个命中的（见 ap-fishing 的 catchStart），
+    // 所以同花色那张在多深，就从多深收起，中间的牌一并归你。
+    //
+    // ---- 代价：它自己失去点数 ----
+    //
+    // 带顺色的牌落堆时**没有点数**：钓不上任何人（只走花色这条线），
+    // 也没人按点数钓得上它。
+    //
+    // 不加这一条，它就是白给的第二条通道 —— 两条路都走得通的牌，
+    // 强到没有取舍可言。加上之后它成了一笔交换：
+    // 拿「这张牌的点数」换「一次按花色的深钩」。
+    //
+    // 这份代价是照排竿的【收色】抄的，连「花色还在、只是点数没了」
+    // 这个形状都一样
+    key: 'suited', name: '顺色', kind: KIND_ANY, maxLevel: 2, unlock: 80, upgrade: [90, 150],
+    first: false,
+    desc: '这张改按花色钓（堆里同花色最深那张起，中间的一并收走），但它自己失去点数'
+  },
+  // ---- 下面三件的效果「挂在打出的那张牌上」 ----
+  //
+  // 解除条件不是「过 N 个回合」，而是**那张效果牌被钓走**（谁钓的都算）。
+  // 这个形状比计时器好：对手有办法破它（去钓那张牌），
+  // 而你得掂量把效果挂在多深的位置 —— 挂得浅，它一钩就破；
+  // 挂得深，它要连带收走一大段才碰得到。
+  //
+  // 实现见 ap-fishing 的 HeldEffect
+  {
+    // 照水：对方全部手牌明置。
+    //
+    // 跟【窥视】的区别是**范围和时限**：窥视翻一张、翻到那张打出去为止；
+    // 照水翻全部、亮到效果牌被钓走为止，期间对方新补的牌也一样明着。
+    //
+    // 有个不对称得知道：**庄家用它对你没有实际作用**（你自己的手牌
+    // 一直看得见），它只能表达成「庄家知道你全部手牌」——
+    // 跟窥视现在标「被看」是同一个路子。所以它在你手里是实打实的情报，
+    // 在庄家手里是威慑
+    key: 'lantern', name: '照水', kind: KIND_ANY, maxLevel: 2, unlock: 80, upgrade: [90, 150],
+    first: false,
+    desc: '打出后对方全部手牌明置，直到这张牌被钓走'
+  },
+  {
+    // 冻结：锁对方一张手牌，它打不出去。
+    //
+    // 现有技能里没有一个碰**对方的选择面** —— 护饵、磁钩、钩顶改的是
+    // 「钓得到钓不到」，观潮、窥视、搅水改的是「谁看得见什么」。
+    // 这一件是第一个。
+    //
+    // ---- 你是**瞎挑**的，这正是它好玩的地方 ----
+    //
+    // 对方手牌盖着（除非被窥视或照水翻开过），所以你指定的是**位置**，
+    // 不是牌面 —— 点第几张，不知道那是什么。
+    // 于是它跟窥视、照水天然成连招：先翻开，再冻住那张好的。
+    // 没有情报的时候，冻结是一次下注；有情报的时候，它是一记精准打击
+    key: 'freeze', name: '冻结', kind: KIND_ANY, maxLevel: 2, unlock: 70, upgrade: [90, 150],
+    first: false,
+    desc: '打出后指定对方一张手牌，它不能打出，直到这张牌被钓走'
+  },
+  {
+    // 见底：把整个牌堆的点数压下去，收走压到 0 的那些。
+    //
+    // 压多少 = **场上黑色牌的张数**。所以它不是个固定数值，而是一个
+    // 你能算、也能操纵的量：想压得狠就先往堆上垫黑牌。
+    //
+    // ---- 为什么只放点数槽、不给升级 ----
+    //
+    // 跟钩顶、搅水同一个道理：它是清场型的，威力集中在一下。
+    // 覆盖面一旦能扩（升级让更多牌带上它），就等于「更多牌能触发清场」——
+    // 那比效果本身强得多，而且没法调。
+    //
+    // 收走的牌不走收牌特效（那套只演「从第几张到堆顶」这种连续段，
+    // 而这儿收的是散在堆里的 0 点牌）—— 直接结算 + 播报，跟搅水一个路子
+    key: 'lowtide', name: '见底', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    first: false,
+    desc: '打出后场上所有牌点数 −N（N = 场上黑色牌的张数），收走点数变成 0 的牌（只能放点数槽，不能升级）'
+  },
+  {
+    // 洪水：它自己没点数，但打出之后从**牌库**一张张往堆上翻，
+    // 直到翻出的那张跟堆上撞上点数 —— 撞上那一下连中间的全收走，算你的分。
+    //
+    // ---- 它是全表唯一一个「你按下去不知道会发生多少」的技能 ----
+    //
+    // 翻几张不由你定：堆上牌多就容易撞（翻一两张就收），堆空就得一直翻
+    //（翻到两张自己撞上为止）。所以同一张洪水牌，在厚堆上是小收，
+    // 在空堆上是一次爆发 —— 而「现在堆多厚」是你排牌时就看得见的。
+    //
+    // ---- 三份代价，都是实打实的 ----
+    //
+    //   · **它自己没点数**：这张牌钓不上任何人，也没人按点数钓得上它
+    //     （跟顺色一个待遇）。你花的是一整张牌的点数。
+    //   · **翻出来的牌不触发技能**：那些牌是从牌库硬翻上去的，不算打出。
+    //     所以它不会替你连锁引爆别的技能，也不会误触对方的。
+    //   · **翻空了就是白打**：牌库见底还没撞上，那些牌全留在堆上 ——
+    //     等于你亲手给对手堆了一摞钩点。而且牌库是双方共用的有限资源，
+    //     翻掉的那些谁也摸不到了，这一局会提前收场。
+    //
+    // 收牌不走飞牌特效（那套演的是一段连续的牌，而这儿是边翻边判、
+    // 翻几张不定）—— 直接结算 + 播报，跟见底一个路子
+    key: 'flood', name: '洪水', kind: KIND_RANK, maxLevel: 0, unlock: 130, upgrade: [],
+    first: false,
+    desc: '它自己没点数；打出后从牌库一张张翻到堆上，直到撞上点数，那一段全收走算你的分（翻上去的牌不触发技能；只能放点数槽，不能升级）'
+  },
+  {
+    // 择饵：看牌库顶五张，挑一张留在最上面，其余沉到底。
+    //
+    // 跟【观潮】是同一条轴上的两档，但形状不一样：
+    //
+    //   观潮 —— 看 2 张，**一起沉或一起不沉**。它问的是「这两张要不要」。
+    //   择饵 —— 看 5 张，**挑一张留顶**。它问的是「这五张里哪张最好」。
+    //
+    // 后者强得多：看得多（5 对 2），而且是精确挑选而不是整批取舍。
+    // 所以价钱也拉开（100 对 60）—— 观潮成了它的便宜版，
+    // 而不是被它取代。
+    //
+    // 回合末补牌之后这件技能的朝向跟观潮一样是**对着自己的**：
+    // 顶上那几张是你回合末要补的（见 ap-fishing 的 passTurn），
+    // 所以它是「从五张里给自己挑一张」，不是偷看对手
+    key: 'pick', name: '择饵', kind: KIND_ANY, maxLevel: 2, unlock: 100, upgrade: [90, 150],
+    first: false,
+    desc: '打出后看牌库顶 5 张（你回合末要补的），挑一张留在最上面，其余沉到牌库底'
+  },
+  {
+    // 染水〔**优先**〕：打出后把**场上所有牌的花色**改成跟这张一样。
+    //
+    // 它带「优先」关键字 —— 效果在钓牌判定之前结算（见文件头那段）。
+    // 不这么排的话同一张牌上的顺色看见的还是染色前的堆，组合当场失效。
+    //
+    // ---- 它自己一分不加 ----
+    //
+    // 这是全表唯一一个**纯粹的铺垫技**。花色在这套规则里不参与钓牌判定
+    //（钓牌看点数，见 catchStart），所以把整堆染成一个花色，
+    // 当场什么也不会发生。它的全部价值在**别的两件技能**身上：
+    //
+    //   【顺色】匹配堆里第一张同花色的，连中间的一起收走。
+    //          整堆同花色之后，顺色命中的必然是**最深那张** ——
+    //          也就是**整堆通收**。那是 J 级别的一下。
+    //   【见底】压的点数 N = 场上黑牌张数。
+    //          染黑 → N 等于整堆张数，压得极狠；
+    //          染红 → N 变成 0，这件技能当场失效。
+    //
+    // ---- 所以「你打的是红的还是黑的」决定它干什么 ----
+    //
+    // 这是它最要紧的一点，也是它好玩的地方：同一个技能，两种用法，
+    // 由你手里那张牌的**颜色**选：
+    //
+    //   打黑的 —— 进攻。给自己的见底堆料（或者把堆染成自己顺色那个花色）。
+    //   打红的 —— 防守。对方带着见底的时候，一张红牌就把它那一下拆了。
+    //
+    // 而花色槽装它的话，覆盖面本身就决定了你只能染那一两个花色 ——
+    // 「装在哪」和「它能干什么」第一次直接挂上了钩。
+    //
+    // ---- 它是**双刃**的 ----
+    //
+    // 整堆同花色对**双方的顺色**一样好用。所以染完那一堆是个诱饵：
+    // 你得在对手摸到同花色的牌之前把它用掉。终局模式里双方都是满配，
+    // 对面有顺色的概率不低。
+    //
+    // ---- 为什么给升级 ----
+    //
+    // 清场型的那四件（钩顶、搅水、见底、洪水）都不给升级，理由是
+    // 「覆盖面能扩 = 更多牌能触发清场」。染水看着像清场的帮手，
+    // 但它**自己清不了场**，而且价值完全是条件性的（得同时有顺色或见底）。
+    // 一件条件性的铺垫技需要**频率**才有意义 —— 只管一个点数的话，
+    // 等你那张顺色上手时堆早就不是单色了。所以它照常规技能走，能升到 2 级。
+    //
+    // 110 块：比择饵（100）贵一点，比顺色（120）便宜一点。
+    // 它单买是废的，所以定价偏低；可它跟顺色凑一起是全表最凶的一组
+    key: 'suitify', name: '染水', kind: KIND_ANY, maxLevel: 2, unlock: 110, upgrade: [90, 150],
+    first: true,
+    desc: '打出后把场上所有牌的花色变成跟它一样（自己不加分；它是给顺色和见底铺路的）'
+  },
+  {
+    // 沉底〔**优先**〕：这张**打到堆底**，而不是堆顶。
+    //
+    // 它带「优先」关键字，而且是**必须带** —— 它改的是「从哪儿往哪儿收」，
+    // 那是钓牌判定的输入。排在判定之后就什么也改不了了。
+    //
+    // ---- 它把收牌的方向整个翻过来 ----
+    //
+    // 基础规则是「打出的牌落在堆顶，对上堆里某张，收走**那张到堆顶**的整段」。
+    // 所以普通打法永远收的是**上半截**，堆底那几张老饵一直沉在那儿碰不着。
+    //
+    // 沉底落在堆底（下标 0），于是那一段变成「**堆底到匹配那张**」——
+    // 它是唯一能吃到堆底那几张的打法。而且匹配点越高收得越多，
+    // 所以搜索方向也跟着反过来：从堆顶往下找，命中最高那张（见 catchStart）。
+    //
+    // ---- 代价是**没匹配上就成了全堆的引信** ----
+    //
+    // 这张牌留在堆底。基础规则下，对手匹配到堆底那张就通吃整堆 ——
+    // 所以沉底空钩一次，等于给对手递了一个全收的靶子。
+    // 「它埋得多深」从前是防御属性（护饵那条），这儿反过来成了风险。
+    //
+    // ---- 它是组合技 ----
+    //
+    // 主线是跟【连竿】配：沉底埋一张，连竿再打一张同点数的 ——
+    // 第二张落堆顶、匹配到堆底那张，**整堆通收**。两张牌一个回合完成，
+    // 对手插不进手。那是全表最狠的一组，而它要两件技能同时在手、
+    // 还得手里真有一对同点数的牌。
+    //
+    // 单独带它也不废（能吃堆底），所以它不像【染水】那样完全依赖组合
+    key: 'sink', name: '沉底', kind: KIND_ANY, maxLevel: 2, unlock: 120, upgrade: [90, 150],
+    first: true,
+    desc: '这张打到堆底而不是堆顶；对上了就收走「堆底到匹配那张」的整段（空钩的话它留在堆底，对手匹配到就通吃）'
+  },
+  {
+    // 连竿：打出之后**再打一张**。
+    //
+    // ---- 它是「组合技」的通用钥匙 ----
+    //
+    // 这套的槽位结构把联动锁死了：一张牌最多触发两个技能
+    //（花色槽一个、点数槽一个，见 triggersOf），所以两件技能要配合，
+    // 从前只能祈祷它们落在同一张牌上 —— 那是很小的概率。
+    //
+    // 连竿换了条路：**两张牌、一个回合**。于是
+    //   染水染色 → 顺色通收
+    //   沉底埋牌 → 同点数的那张通收
+    // 这些从前要「同一张牌」的组合，现在只要「同一个回合」就行。
+    // 而且对手插不进手 —— 铺垫和收网之间没有它的回合。
+    //
+    // ---- 加打的那张**不再给加打** ----
+    //
+    // 不封这一条的话，覆盖面一宽就能一口气把整手牌打完，
+    // 而「每回合做一个决定」是这个玩法的节奏基础。封住之后
+    // 它恒定是「一回合两张」，跟覆盖面无关 —— 升级只影响
+    // 「多久能用上一次」，不影响那一次有多强。
+    //
+    // ---- 它是双刃的 ----
+    //
+    // 一回合打两张，没钓到的话你给对手堆了**两个**靶子，
+    // 而且手牌和牌库都消耗得更快（局更短、分差更小）。
+    // 领先的时候这是催命，落后的时候这是机会 —— 跟【弃饵】那条节奏轴同向。
+    //
+    // 100 块：它自己不收牌、不加分，买的是一个回合里的第二次机会
+    key: 'again', name: '连竿', kind: KIND_ANY, maxLevel: 2, unlock: 100, upgrade: [90, 150],
+    first: false,
+    desc: '打出后再打 1 张（加打的那张不再给加打）；它是把两件技能凑进同一个回合的钥匙'
+  },
+  // ================= 第二批：十一件（照钓鱼的贴纸、排竿的道具移植） =================
+  //
+  // 挑选和改写的记录在根目录《摸打钓鱼-技能与关卡设计.md》第十一节。
+  // 移植时有一条硬约束反复起作用：**钓鱼和排竿是「各有自己的牌库」，
+  // 摸打是双方共用一个牌库 + 一个共用牌堆**。所以那边「从庄家牌库顶取两张」
+  // 这类贴纸整条路走不通，能过来的都改写成了「动共用牌库」或「动对方手牌」。
+  //
+  // ---- 点数通道两件 ----
+  {
+    // 归深：这张牌还算 11 点。
+    //
+    // 11 是牌堆里**天然的空缺** —— J 打出就通吃走了（见 catchStart），
+    // 从不落堆，所以没有任何一张牌天生停在 11 这个点数上。
+    // 于是两张归深牌互相必钩：它不是「多一条通道」，是**一个只有自己人
+    // 进得去的私有钓点**。
+    //
+    // 跟磁钩的区别在这儿：磁钩拓宽的是「我能对上谁」（+1），
+    // 归深拓宽的是「谁能对上我」—— 它把带这件技能的牌全接到同一个深度。
+    // 所以它越升越强不是因为效果变大，而是因为**同伙变多**。
+    //
+    // 照钓鱼的【归深】抄，连「11 是 J 的数而 J 从不落堆」这个理由都一样
+    key: 'deep', name: '归深', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
+    first: false,
+    desc: '这张还算 11 点（J 的数，而 J 从不落堆 —— 那是只有归深牌够得到的钓点）'
+  },
+  {
+    // 齐顶：这张算堆上**最大**的那个点数。
+    //
+    // 落下去必钩中那张最大的，所以它的收成完全由**堆的形状**决定：
+    // 最大那张埋得越深，这一钩收得越多。
+    //
+    // ---- 空堆上算 0 点，那是它的闸 ----
+    //
+    // 0 点当不了钓点（见 anyEquals 里「0 对 0 不算相等」那条），
+    // 所以空堆上打齐顶就是白打一张。于是它逼出一个时机判断：
+    // 堆薄的时候留着，堆厚了再放 —— 跟【洪水】正好反着来
+    //（洪水是堆空时爆发、堆厚时小收）。
+    //
+    // 只放点数槽、不给升级：它是「必钩」级的效果，覆盖面一扩
+    // 就等于每回合都能必钩，那比效果本身强得多（跟钩顶、见底同一个道理）
+    key: 'peak', name: '齐顶', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    first: false,
+    desc: '这张算堆上最大的那个点数（落下去必钩中它；空堆上打出算 0 点，白打）'
+  },
+  // ---- 收割两件 ----
+  {
+    // 收色：堆上所有同花色的牌一起收走，连它自己。
+    //
+    // ---- 跟【顺色】的区别得写清楚，不然玩家分不出 ----
+    //
+    //   顺色 —— 按花色找**最深**那张，收「那张 → 堆顶」一整段连续的牌。
+    //           中间不同花色的也一并归你。
+    //   收色 —— 只收**同花色那几张**，散在哪儿都收，中间的不动。
+    //
+    // 所以厚堆上顺色收得多，而花色散得开的时候收色收得多。两件形状不同，
+    // 同一个花色上都装着也不冲突。
+    //
+    // 代价照顺色：**这张不走点数通道**（valuesOf 返回空），所以它不会
+    // 先钓到一段再散收。你花的是一整张牌的点数，换一次按花色的清扫
+    key: 'hue', name: '收色', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    first: false,
+    desc: '打出后堆上所有同花色的牌连它自己一起收走（散着收，中间的不动）；它自己失去点数'
+  },
+  {
+    // 撒网：堆上所有跟它**同奇偶**的牌一起收走。
+    //
+    // 奇偶按**牌面点数**算，不看点数卡贴的那几个 —— 一张牌只有一种奇偶，
+    // 这件事得一眼看得出来，不能让点数卡把它搅成「既是奇又是偶」。
+    // 堆上那些按**现在**的点数算（见底压过的按压后的，0 算偶数）。
+    //
+    // ---- 它和收色是一对，轴不一样 ----
+    //
+    // 收色按花色切（四分之一的牌），撒网按奇偶切（一半的牌）——
+    // 所以撒网收得多，但你挑不了：奇还是偶由**你打的那张**定死，
+    // 不像钓鱼的原版那样让你选。那条改动是有意的（用户定的）：
+    // 少一次静态选择，多一次「手里哪张的奇偶对」的盘算。
+    //
+    // 它**不失去点数**（要靠自己的点数定奇偶），所以可能先钓到一段、
+    // 再散收一批 —— 那是它贵且不给升级的原因
+    key: 'cast', name: '撒网', kind: KIND_RANK, maxLevel: 0, unlock: 160, upgrade: [],
+    first: false,
+    desc: '打出后堆上所有跟它同奇偶的牌一起收走（奇偶按牌面点数算，0 算偶数）'
+  },
+  // ---- 动对方手牌三件 ----
+  //
+  // 这三件都「看对方全部手牌再挑一张」，强度递增：压舱只是把牌挪走，
+  // 摘钩把它挪到自己手上（双重收益），对换还能顺手塞给他一张废牌。
+  // 所以只有最弱的那件（压舱）给升级
+  {
+    key: 'press', name: '压舱', kind: KIND_ANY, maxLevel: 2, unlock: 80, upgrade: [90, 150],
+    first: false,
+    desc: '打出后看对方全部手牌，挑 1 张塞回牌库洗掉（他回合末会补一张新的）'
+  },
+  {
+    // 摘钩：挑对方一张手牌，拿到**自己手上**。
+    //
+    // 零和对抗里它是双重收益：他少一张好牌，你多一张。而且你是
+    // **看着挑**的 —— 不像搅水那样随机。所以不给升级，价钱也顶到清场件那一档
+    key: 'unhook', name: '摘钩', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
+    first: false,
+    desc: '打出后看对方全部手牌，挑 1 张拿到自己手上（只能放点数槽，不能升级）'
+  },
+  {
+    // 对换：跟对方换一张，两边给哪张都你挑。
+    //
+    // 比摘钩多一层：你不只拿走他的钩，还能把自己手里最没用的那张塞给他。
+    // 手牌数两边都不变，所以它不改节奏 —— 改的是**双方手牌的质量差**
+    key: 'swapcard', name: '对换', kind: KIND_RANK, maxLevel: 0, unlock: 160, upgrade: [],
+    first: false,
+    desc: '打出后看对方全部手牌，跟他换 1 张 —— 两边各给哪张都由你挑（只能放点数槽，不能升级）'
+  },
+  // ---- 挂在牌上的两件 ----
+  //
+  // 解除条件照【照水】【冻结】：**那张效果牌被钓走**（谁钓的都算）。
+  // 所以它们都要求「这张没钓到牌」—— 挂效果得用一张钓不到的，
+  // 而埋得多深决定对手要花多大力气才破得掉
+  {
+    // 窄口：对方每回合只补到 3 张。
+    //
+    // 手牌 4 张是这个玩法做决定的全部素材（见 HAND_SIZE 那段），
+    // 砍掉一张等于把他的选择面削掉四分之一 —— 而且是**持续**的，
+    // 直到他舍得花一次钓牌去把这张挖走。
+    //
+    // 照钓鱼的【窄口】抄，那边是「只补到 4 张」（它手牌上限 5）
+    key: 'narrow', name: '窄口', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
+    first: false,
+    desc: '打出后对方每回合只补到 3 张手牌，直到这张牌被钓走'
+  },
+  {
+    // 满篓：自己的手牌上限 +1。
+    //
+    // 跟窄口是一对，一个削他一个补自己。多一张手牌 = 多一个选择，
+    // 而「打哪张」是这个玩法唯一的决定 —— 所以它比看着弱
+    key: 'creel', name: '满篓', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
+    first: false,
+    desc: '打出后你每回合补到 5 张手牌，直到这张牌被钓走'
+  },
+  // ---- 从牌库检索两件 ----
+  //
+  // 它们治的是这个玩法最大的运气来源：**手里四张跟堆上一个都对不上**。
+  // 换水是「拿一张不要的换一张未知的」，这两件是「换一张**指定**的」。
+  //
+  // 两件的挑法不一样，因为池子大小差四倍 ——
+  //   同号的池子只有 3 张（同点数的另外三张），所以随你挑；
+  //   同花的池子有 12 张，随你挑就太强了，所以只能**翻到第一张**
+  {
+    key: 'twin', name: '同号', kind: KIND_ANY, maxLevel: 2, unlock: 100, upgrade: [90, 150],
+    first: false,
+    desc: '打出后从牌库里挑 1 张跟它同点数的牌拿到手上（池子就那 3 张，随你挑）'
+  },
+  {
+    // 同花：翻牌库顶，拿第一张同花色的，翻过的其余**洗回牌库**。
+    //
+    // 洗回去而不是沉底：沉底你就数得出那几张什么时候回来，
+    // 而这件技能卖的是「拿到一张同花色的」，不该附赠一份牌库情报
+    //（跟【换水】塞回去要真洗是同一条理由）。
+    //
+    // 翻空了就是白打一张 —— 那个花色在牌库里一张不剩的时候
+    key: 'suitfind', name: '同花', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
+    first: false,
+    desc: '打出后翻开牌库顶，拿到第一张同花色的牌，翻过的其余洗回牌库'
   }
 ]
 
 export const SUIT_CAPACITY : number = 2
+// 点数槽的**底数**。商店的【加权】能把它往上抬一格（唯一道具，一轮一次），
+// 抬出来的那一格记在 DrawLoadout.rankCap 上 —— 真正该读的是 rankCapOf()
 export const RANK_CAPACITY : number = 6
 
 // 点数槽能指定的点数：A–10、Q、K，一共 12 个。J 本身就通吃，不给指定
@@ -78,6 +581,20 @@ export const SKILL_RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '
 export type DrawLoadout = {
   suitOwner : number[]
   rankOwner : number[]
+  // 点数槽**这一轮**有几格。底数是 RANK_CAPACITY，买过【加权】就 +1。
+  //
+  // 为什么挂在 loadout 上而不是存档上：下面一整串函数（fillRank、
+  // rollPlace、rollExpand、canUpgrade、hasRoom）全都已经在传 loadout 了，
+  // 而「这个槽有几格」本来就是槽自己的属性。挂这儿的话一个函数签名
+  // 都不用改；挂存档上就得给六个函数各加一个参数，而且每个调用处
+  // 都有机会忘传。老档（0 或读不出来）当底数处理，见 rankCapOf
+  rankCap : number
+}
+
+// 点数槽这一轮有几格。**别直接读 RANK_CAPACITY** ——
+// 它只是底数，加权买过之后真正的格数在 loadout 上
+export function rankCapOf(lo : DrawLoadout) : number {
+  return lo.rankCap > RANK_CAPACITY ? lo.rankCap : RANK_CAPACITY
 }
 
 export const SLOT_NONE : number = 0
@@ -93,11 +610,19 @@ function filled(count : number, value : number) : number[] {
 }
 
 export function emptyLoadout() : DrawLoadout {
-  return { suitOwner: filled(SUITS.length, -1), rankOwner: filled(SKILL_RANKS.length, -1) }
+  return {
+    suitOwner: filled(SUITS.length, -1),
+    rankOwner: filled(SKILL_RANKS.length, -1),
+    rankCap: RANK_CAPACITY
+  }
 }
 
 export function cloneLoadout(lo : DrawLoadout) : DrawLoadout {
-  return { suitOwner: lo.suitOwner.slice(0), rankOwner: lo.rankOwner.slice(0) }
+  return {
+    suitOwner: lo.suitOwner.slice(0),
+    rankOwner: lo.rankOwner.slice(0),
+    rankCap: rankCapOf(lo)
+  }
 }
 
 // 一个技能在花色槽里能管几个花色：初始 1 个，升过级就是一整个颜色（2 个）
@@ -105,12 +630,20 @@ export function suitSizeOf(level : number) : number {
   return level >= 1 ? 2 : 1
 }
 
-// 一个技能在点数槽里能管几个点数：1 / 3 / 6
+// 一个技能在点数槽里能管几个点数：**初始 1 个，每升一级多 1 个**。
+//
+// 从前是 1 / 3 / 6（跳跃式）。改成线性有两个好处：
+//
+//   · 点数槽总共 6 格，于是「占了几格」和「升了几级」直接对得上 ——
+//     升一级就是多吃一格，一眼算得清还剩多少。
+//     跳跃式下「升 2 级」一口吞掉整个槽，那不是升级是清场。
+//   · **升级要有空格才升得动**（见 canUpgrade）。线性增长下这条约束
+//     才有意义：每一级都在跟别的技能抢那 6 格，于是
+//     「升这个还是留着位子给下一个掉的」成了一道真问题。
+//
+// 卖掉一个技能因此有了第三个用途：腾格子给升级（前两个是腾名额、换钱）
 export function rankSizeOf(level : number) : number {
-  if (level >= 2) {
-    return 6
-  }
-  return level == 1 ? 3 : 1
+  return level < 0 ? 0 : level + 1
 }
 
 function countOf(owner : number[], skill : number) : number {
@@ -171,106 +704,180 @@ export function partnerSuit(suitIndex : number) : number {
   return suitIndex == 1 ? 2 : 1
 }
 
-// 点一下花色格子：把 skill 放到这个花色上（skill = -1 表示清空这一格）。
-// 初始技能只占这一个花色；升过级的占整个颜色，同色的另一格一起换掉。
-// 同一个技能只能在一个槽里：放进花色槽时会把它从点数槽撤下来。
-// 放不下（超过容量）返回 null
-export function assignSuit(lo : DrawLoadout, levels : number[], suitIndex : number, skill : number) : DrawLoadout | null {
-  const next = cloneLoadout(lo)
-  if (skill < 0) {
-    const old = next.suitOwner[suitIndex]
-    if (old >= 0) {
-      clearSkill(next.suitOwner, old)
+// ---------- 位置是摇出来的，不是你摆的 ----------
+//
+// 一个技能占哪个花色、哪几个点数，**在拿到它和升它的那一刻摇定**，之后动不了。
+//
+// 从前这两样是玩家在商店里点格子摆的。取消掉是因为那层优化跟「这局怎么打」
+// 离得太远：你在商店里对着一张静态的表算半天（护饵压在哪几个点数最值钱），
+// 而真正的题目在牌桌上。摇定之后，商店里的决策回到「买哪个、升哪个、卖哪个」，
+// 牌桌上的决策变成「摇到的这套怎么用」。
+//
+// 这跟排竿那边「庄家规矩摇到就固定」是同一条思路：你不能规划一切，
+// 得适应摇出来的东西。
+
+// 从一排格子里随机挑一个空的。全满了返回 -1
+function rollFreeCell(owner : number[]) : number {
+  const pool : number[] = []
+  for (let i = 0; i < owner.length; i++) {
+    if (owner[i] < 0) {
+      pool.push(i)
     }
-    return next
   }
-  if (DRAW_SKILLS[skill].kind == KIND_RANK) {
-    return null
+  return pool.length == 0 ? -1 : pool[Math.floor(Math.random() * pool.length)]
+}
+
+// 花色槽还塞得下这个技能吗。升过级的要一整个颜色（两格），没升级的一格
+function suitRoomFor(lo : DrawLoadout, levels : number[], skill : number) : boolean {
+  const want = suitSizeOf(levels[skill])
+  if (SUIT_CAPACITY - usedOf(lo.suitOwner) < want) {
+    return false
   }
+  if (want < 2) {
+    return rollFreeCell(lo.suitOwner) >= 0
+  }
+  // 要整个颜色：♠♣（0、3）或 ♥♦（1、2），得有一对两格都空着
+  return (lo.suitOwner[0] < 0 && lo.suitOwner[3] < 0)
+    || (lo.suitOwner[1] < 0 && lo.suitOwner[2] < 0)
+}
+
+// 把技能填进花色槽，位置随机。
+// 升过级的占一整个颜色，所以摇的是「哪个颜色」而不是「哪个花色」
+function fillSuit(lo : DrawLoadout, levels : number[], skill : number) : DrawLoadout {
+  const next = cloneLoadout(lo)
+  // 同一个技能只能在一个槽里，先从点数槽撤下来
   clearSkill(next.rankOwner, skill)
   clearSkill(next.suitOwner, skill)
-  const cells : number[] = [suitIndex]
   if (suitSizeOf(levels[skill]) == 2) {
-    cells.push(partnerSuit(suitIndex))
-  }
-  for (let i = 0; i < cells.length; i++) {
-    const old = next.suitOwner[cells[i]]
-    if (old >= 0) {
-      // 挤掉原来占着的技能（整个撤下，不留半个颜色）
-      clearSkill(next.suitOwner, old)
+    const pairs : number[] = []
+    if (next.suitOwner[0] < 0 && next.suitOwner[3] < 0) {
+      pairs.push(0)
     }
+    if (next.suitOwner[1] < 0 && next.suitOwner[2] < 0) {
+      pairs.push(1)
+    }
+    if (pairs.length == 0) {
+      return next
+    }
+    const first = pairs[Math.floor(Math.random() * pairs.length)]
+    next.suitOwner[first] = skill
+    next.suitOwner[partnerSuit(first)] = skill
+    return next
   }
-  for (let i = 0; i < cells.length; i++) {
-    next.suitOwner[cells[i]] = skill
-  }
-  if (usedOf(next.suitOwner) > SUIT_CAPACITY) {
-    return null
+  const at = rollFreeCell(next.suitOwner)
+  if (at >= 0) {
+    next.suitOwner[at] = skill
   }
   return next
 }
 
-// 点一下点数格子：把 skill 放到这个点数上（skill = -1 表示清空这一格）。
-// 一个技能最多管 rankSizeOf(等级) 个点数，满了再点就把它最早那一格挪过来。
-// 整个槽最多 6 个点数。放不下返回 null
-export function assignRank(lo : DrawLoadout, levels : number[], rankIndex : number, skill : number) : DrawLoadout | null {
+// 把技能在点数槽里补到它这一级该占的格数，新增的位置随机。
+// **已经占着的那几格不动** —— 升级是「再摇几格」，不是重摇一遍
+function fillRank(lo : DrawLoadout, levels : number[], skill : number) : DrawLoadout {
   const next = cloneLoadout(lo)
-  if (skill < 0) {
-    next.rankOwner[rankIndex] = -1
-    return next
-  }
   clearSkill(next.suitOwner, skill)
-  if (next.rankOwner[rankIndex] == skill) {
-    return next
-  }
-  next.rankOwner[rankIndex] = skill
-  const size = rankSizeOf(levels[skill])
-  if (countOf(next.rankOwner, skill) > size) {
-    // 超了：撤掉这个技能除刚点的这格以外最靠前的那一格
-    for (let i = 0; i < next.rankOwner.length; i++) {
-      if (i != rankIndex && next.rankOwner[i] == skill) {
-        next.rankOwner[i] = -1
-        break
-      }
+  const want = rankSizeOf(levels[skill])
+  let has = countOf(next.rankOwner, skill)
+  while (has < want && usedOf(next.rankOwner) < rankCapOf(next)) {
+    const at = rollFreeCell(next.rankOwner)
+    if (at < 0) {
+      break
     }
-  }
-  if (usedOf(next.rankOwner) > RANK_CAPACITY) {
-    return null
+    next.rankOwner[at] = skill
+    has = has + 1
   }
   return next
 }
 
-// 升级 / 降级之后，装着的覆盖面可能和新等级对不上（比如花色技升成颜色技），整理一遍：
-// 花色槽里升过级的技能补齐同色另一格（放不下就整个撤下）；点数槽里超出的格子撤掉
-export function normalizeLoadout(lo : DrawLoadout, levels : number[]) : DrawLoadout {
-  let next = cloneLoadout(lo)
-  for (let s = 0; s < next.suitOwner.length; s++) {
-    const skill = next.suitOwner[s]
-    if (skill < 0) {
-      continue
-    }
-    const want = suitSizeOf(levels[skill])
-    if (want == 2 && next.suitOwner[partnerSuit(s)] != skill) {
-      const tried = assignSuit(next, levels, s, skill)
-      if (tried != null) {
-        next = tried
-      } else {
-        clearSkill(next.suitOwner, skill)
-      }
-    }
+// 替一个技能摇个位置：刚拿到的，或者拿到那会儿槽满了、这会儿再试一次的。
+//
+// 两种槽都行的技能：哪边塞得下就塞哪边，两边都行就摇一个。
+// 两边都塞不下就原样返回 —— 技能留着，只是没装上（商店里显示「未装」）
+//
+// 原先还有个 rankOnly 参数，走「第 1 关白送一个点数技」那条路。
+// 白送那一关取消了（技能改成商店买），所有调用都在传 false，于是删掉
+export function rollPlace(lo : DrawLoadout, levels : number[], skill : number) : DrawLoadout {
+  if (DRAW_SKILLS[skill].kind == KIND_RANK) {
+    return fillRank(lo, levels, skill)
   }
-  for (let k = 0; k < DRAW_SKILLS.length; k++) {
-    const size = rankSizeOf(levels[k])
-    while (countOf(next.rankOwner, k) > size) {
-      for (let i = next.rankOwner.length - 1; i >= 0; i--) {
-        if (next.rankOwner[i] == k) {
-          next.rankOwner[i] = -1
-          break
-        }
-      }
-    }
+  const suitFits = suitRoomFor(lo, levels, skill)
+  const rankFits = usedOf(lo.rankOwner) < rankCapOf(lo)
+  if (suitFits && rankFits) {
+    return Math.floor(Math.random() * 2) == 0
+      ? fillSuit(lo, levels, skill) : fillRank(lo, levels, skill)
   }
-  return next
+  if (suitFits) {
+    return fillSuit(lo, levels, skill)
+  }
+  return rankFits ? fillRank(lo, levels, skill) : cloneLoadout(lo)
 }
+
+// 洗点：把这个技能占的格子**重摇一遍，槽不变**。
+//
+// 它是「位置摇定」那条规矩唯一的救济口。摇定是这套的核心
+//（你不能规划一切，得适应摇出来的东西），但偶尔会摇出没法用的一手 ——
+// 技能落在 A、2 上，而那两个点数你一局也碰不上几次。
+//
+// 洗点给的不是「改成我要的」，是**再摇一次的机会**：结果照旧随机，
+// 可能洗得更烂。所以它救急而不破规矩。
+//
+// 槽不变是有意的：rollPlace 会随机挑槽，那样洗点就可能把点数技
+// 甩到花色槽去 —— 那不叫「改它指定的点数」，那叫换一件道具
+export function washSkill(lo : DrawLoadout, levels : number[], skill : number) : DrawLoadout {
+  const where = slotOf(lo, skill)
+  if (where == SLOT_NONE) {
+    // 拿到那会儿槽满、压根没装上的：当新装一次，摇哪个槽都行
+    return rollPlace(lo, levels, skill)
+  }
+  const next = removeSkill(lo, skill)
+  return where == SLOT_SUIT
+    ? fillSuit(next, levels, skill)
+    : fillRank(next, levels, skill)
+}
+
+// 升了一级：该多占的格子当场摇出来。
+//
+// 已经占着的不动，只摇新增的那几格 —— 不然你升一次级，
+// 原先摇在大牌上的覆盖面可能被挪到别处去，那笔投资莫名其妙就没了。
+//
+// 腾不出格子就这一级占不满（亏的是这一次升级，技能本身留着）。
+// 从前这儿走的是 normalizeLoadout，它对花色技的处理是「补不齐就整个撤下」——
+// 升一级反而把技能弄丢了，那显然不对
+export function rollExpand(lo : DrawLoadout, levels : number[], skill : number) : DrawLoadout {
+  const where = slotOf(lo, skill)
+  if (where == SLOT_SUIT) {
+    const next = cloneLoadout(lo)
+    if (suitSizeOf(levels[skill]) < 2) {
+      return next
+    }
+    for (let s = 0; s < next.suitOwner.length; s++) {
+      if (next.suitOwner[s] != skill) {
+        continue
+      }
+      const mate = partnerSuit(s)
+      if (next.suitOwner[mate] < 0 && usedOf(next.suitOwner) < SUIT_CAPACITY) {
+        next.suitOwner[mate] = skill
+      }
+      break
+    }
+    return next
+  }
+  if (where == SLOT_RANK) {
+    return fillRank(lo, levels, skill)
+  }
+  // 还没装上：升完再摇一次，这一级说不定就塞得进了
+  return rollPlace(lo, levels, skill)
+}
+
+// 原先这儿还有三个函数：assignSuit、assignRank（点一下格子，把技能放进去
+// 或者撤下来）和 normalizeLoadout（升降级之后整理覆盖面）。整套删掉了。
+//
+// 它们是「玩家在商店里手动摆位置」那套玩法的全部实现，而那套玩法取消了 ——
+// 位置现在在拿到和升级的那一刻摇定（见上面 rollPlace / rollExpand）。
+// 没有调用方的导出函数留着只会让下一个人以为还能那么用。
+//
+// normalizeLoadout 顺带也不需要了：它的活儿是「等级变了，覆盖面跟着对齐」，
+// 而 rollExpand 在升级的同一下就把格子摇好了，不存在对不齐的中间状态
 
 export function rankSlotIndex(rank : string) : number {
   for (let i = 0; i < SKILL_RANKS.length; i++) {
@@ -324,6 +931,182 @@ export function coverageText(lo : DrawLoadout, skill : number) : string {
   return text
 }
 
+// 覆盖面，但**点数那部分只报个数、不报是哪几个**。
+//
+// 商店预告下一关庄家时走这条（见 draw-skills.uvue 的 foePreview）：
+// 花色公开、点数藏着。
+//
+// 为什么这么切：预告要解决的是「买的时候不知道下一关什么题」，
+// 可**全公开就把牌桌上的推理删掉了** —— 点数是钓牌判定那条轴，
+// 知道了具体哪几个点数，你就能用弃饵和推点数把它那几个点数从
+// 牌组里抽干，一关一关做成作业。
+//
+// 花色公开是安全的：花色只决定「它那张牌触发不触发技能」，
+// 而你改不了牌的花色（同化能抄，但那是一张一张来的事）。
+// 所以花色给了方向感，点数留着当谜
+export function coverageHint(lo : DrawLoadout, skill : number) : string {
+  let suits = ''
+  for (let s = 0; s < lo.suitOwner.length; s++) {
+    if (lo.suitOwner[s] == skill) {
+      suits = suits + SUITS[s]
+    }
+  }
+  let ranks = 0
+  for (let r = 0; r < lo.rankOwner.length; r++) {
+    if (lo.rankOwner[r] == skill) {
+      ranks = ranks + 1
+    }
+  }
+  if (suits != '' && ranks > 0) {
+    return suits + ' + ' + ranks + ' 个点数（不公开）'
+  }
+  if (suits != '') {
+    return suits
+  }
+  return ranks > 0 ? ranks + ' 个点数（不公开）' : '未装'
+}
+
+// ---------- 终局模式：随机摇一套满配 ----------
+//
+// 两个槽的容量**都用满**（花色 2 格、点数 6 格），技能和等级随机摇。
+//
+// 摇的不是「强到什么程度」—— 容量满了就是满了，两边一样满。
+// 摇的是**形状**：一个 2 级技能吃掉整个点数槽，和两个 1 级分着占，
+// 打起来完全是两回事。
+//
+// 这就是终局模式的全部内容：双方都顶配、一局定胜负，所以那一局的题目
+// 是「这两套配装怎么互相咬」，而不是「我攒够钱了没有」
+export type DrawKit = {
+  levels : number[]
+  loadout : DrawLoadout
+}
+
+// 从还没用过的技能里随机挑一个。kindWant 传 -1 表示不挑类型。
+// 挑不出来返回 -1。挑中的当场标记用掉 —— 同一个技能只能占一个槽，
+// 那是 slotOf 的前提
+function rollSkill(used : boolean[], kindWant : number) : number {
+  const pool : number[] = []
+  for (let i = 0; i < DRAW_SKILLS.length; i++) {
+    if (used[i]) {
+      continue
+    }
+    if (kindWant >= 0 && DRAW_SKILLS[i].kind != kindWant) {
+      continue
+    }
+    pool.push(i)
+  }
+  if (pool.length == 0) {
+    return -1
+  }
+  const k = pool[Math.floor(Math.random() * pool.length)]
+  used[k] = true
+  return k
+}
+
+// 从 0..total-1 里随机挑 want 个下标。Fisher-Yates 只洗前 want 个 ——
+// 挑出来的顺序也是乱的，所以技能占的那几个点数不会总是连着
+function rollSpots(total : number, want : number) : number[] {
+  const all : number[] = []
+  for (let i = 0; i < total; i++) {
+    all.push(i)
+  }
+  const out : number[] = []
+  for (let i = 0; i < want && i < total; i++) {
+    const at = i + Math.floor(Math.random() * (all.length - i))
+    const one = all[at]
+    all[at] = all[i]
+    all[i] = one
+    out.push(one)
+  }
+  return out
+}
+
+// 终局模式一套里最多摇几个技能。跟正常模式的名额上限对齐 ——
+// 「最多同时拥有四个」是这个玩法的取舍，终局模式不该偷偷多拿两个。
+// 数值定在 draw-save（MAX_OWNED_SKILLS），这儿不 import 回来是为了
+// 不让装备层反过来依赖存档层，所以抄一个同名常量，改的时候一起改
+const FULL_KIT_SKILLS : number = 4
+
+// 原先这儿有个 kitFromLevels（按给定的等级表摇一套装备），
+// 给终局的「自定义配装」用的。那个功能整套取消了，这个跟着删 ——
+// 技能带什么、几级、落在哪一律是摇出来的，终局也不例外
+
+export function rollFullKit() : DrawKit {
+  const levels = filled(DRAW_SKILLS.length, -1)
+  const lo = emptyLoadout()
+  const used : boolean[] = []
+  for (let i = 0; i < DRAW_SKILLS.length; i++) {
+    used.push(false)
+  }
+  // 摇满四个就不再往里添 —— 把还没用的全标成用过，rollSkill 自然摇不到
+  let taken = 0
+  // ---- 花色槽：2 格，只有 KIND_ANY 装得进去 ----
+  //
+  // 两种填满的形状，摇一个：
+  //   一个升过级的技能占整个颜色（♠♣ 或 ♥♦），或者
+  //   两个没升级的各占一格（花色随便挑两个）
+  if (Math.floor(Math.random() * 2) == 0) {
+    const k = rollSkill(used, KIND_ANY)
+    if (k >= 0) {
+      levels[k] = 1
+      taken = taken + 1
+      // 同色对：0↔3（♠♣）、1↔2（♥♦），见 partnerSuit
+      const first = Math.floor(Math.random() * 2) == 0 ? 0 : 1
+      lo.suitOwner[first] = k
+      lo.suitOwner[partnerSuit(first)] = k
+    }
+  } else {
+    const spots = rollSpots(SUITS.length, SUIT_CAPACITY)
+    for (let i = 0; i < spots.length; i++) {
+      const k = rollSkill(used, KIND_ANY)
+      if (k < 0) {
+        break
+      }
+      levels[k] = 0
+      taken = taken + 1
+      lo.suitOwner[spots[i]] = k
+    }
+  }
+  // ---- 点数槽：6 格，什么类型都装得进去 ----
+  //
+  // 这儿用的是**底数** RANK_CAPACITY，不读 rankCapOf —— 终局模式跟存档
+  // 毫无关系（两边都是现摇的满配），你这一轮买过的加权不该跟进来。
+  // 双方同一个预算，比的才是用法
+  //
+  // 一个一个往里填，每个技能先摇自己的等级，再按**剩下几格**压一压 ——
+  // 压到填得下为止。于是形状自己长出来：6 / 3+3 / 3+1+1+1 / 1×6 都可能
+  const spots = rollSpots(SKILL_RANKS.length, RANK_CAPACITY)
+  let left = RANK_CAPACITY
+  let at = 0
+  while (left > 0 && taken < FULL_KIT_SKILLS) {
+    const k = rollSkill(used, -1)
+    if (k < 0) {
+      break
+    }
+    let lv = Math.floor(Math.random() * (DRAW_SKILLS[k].maxLevel + 1))
+    while (lv > 0 && rankSizeOf(lv) > left) {
+      lv = lv - 1
+    }
+    const size = rankSizeOf(lv)
+    if (size > left) {
+      break
+    }
+    levels[k] = lv
+    taken = taken + 1
+    for (let i = 0; i < size && at < spots.length; i++) {
+      lo.rankOwner[spots[at]] = k
+      at = at + 1
+    }
+    left = left - size
+  }
+  // 名额（4 个）用完了，点数槽偶尔会剩一两格空着 —— 就让它空着。
+  //
+  // 试过「让最后那个技能把剩格全吃掉」，但那样它的等级和实际管的格数
+  // 就对不上了（0 级却管四个点数），技能卡上写「初始」而牌桌上管一片，
+  // 没法解释。**等级和覆盖面必须是一回事**，这条比「一定填满」要紧
+  return { levels: levels, loadout: lo } as DrawKit
+}
+
 // 装着的技能下标，按技能表顺序
 export function equippedSkills(lo : DrawLoadout) : number[] {
   const list : number[] = []
@@ -335,30 +1118,50 @@ export function equippedSkills(lo : DrawLoadout) : number[] {
   return list
 }
 
-// 升到下一级要多少钱，-1 表示已经满级
-export function nextUpgradeCost(skill : number, level : number) : number {
-  const def = DRAW_SKILLS[skill]
-  if (level < 0) {
-    return def.unlock
+// 还升得动吗。两个条件都得满足：
+//
+//   一、**等级没到顶**（maxLevel）；
+//   二、**槽里还有空格** —— 升一级要多吃一格（见 rankSizeOf），
+//       没地方吃就升不动。
+//
+// 第二条是这套的要点：升级不只要有砺钩，还得有位置。于是
+// 「升手里这个」和「留着位子等下一个掉的」成了一道真取舍，
+// 而卖技能多了一个用途 —— 腾格子。
+//
+// 升级现在走商店的【砺钩】道具，所以这儿只回答「能不能」，
+// 不回答「多少钱」—— 价钱是那件道具的标价
+export function canUpgrade(lo : DrawLoadout, levels : number[], skill : number) : boolean {
+  const level = levels[skill]
+  if (level < 0 || level >= DRAW_SKILLS[skill].maxLevel) {
+    return false
   }
-  if (level >= def.maxLevel) {
-    return -1
+  const where = slotOf(lo, skill)
+  if (where == SLOT_SUIT) {
+    // 花色槽：0 级占 1 格、升过级占一整个颜色（2 格），所以只有 0→1
+    // 那一次要多吃一格。再往上花色槽也吃不下了（容量就 2）
+    if (suitSizeOf(level + 1) <= suitSizeOf(level)) {
+      return true
+    }
+    return usedOf(lo.suitOwner) < SUIT_CAPACITY
   }
-  return def.upgrade[level]
+  if (where == SLOT_RANK) {
+    return usedOf(lo.rankOwner) < rankCapOf(lo)
+  }
+  // 拿到那会儿两个槽都满、没装上的：升完要摇位置，所以得有一边空着
+  return usedOf(lo.rankOwner) < rankCapOf(lo) || usedOf(lo.suitOwner) < SUIT_CAPACITY
 }
 
-// 这个技能到这一级为止一共值多少：解锁价 + 各级升级价。
-// 技能是过关白拿的，但卖的时候按它「值」多少折算，升过级的卖得更贵
+// 这个技能到这一级为止一共值多少：解锁价 + 每级 UPGRADE_PRICE。
+// 技能是过关白拿的，但卖的时候按它「值」多少折算，升过级的卖得更贵。
+//
+// 按固定价算而不是查 upgrade 那张表：升级改成买【砺钩】之后，
+// 每一级就是一个价（本文件开头的 UPGRADE_PRICE），
+// 表里那串按级递增的数已经不作数了
 export function investedOf(skill : number, level : number) : number {
   if (level < 0) {
     return 0
   }
-  const def = DRAW_SKILLS[skill]
-  let total = def.unlock
-  for (let i = 0; i < level && i < def.upgrade.length; i++) {
-    total = total + def.upgrade[i]
-  }
-  return total
+  return DRAW_SKILLS[skill].unlock + UPGRADE_PRICE * level
 }
 
 // 卖出拿回一半

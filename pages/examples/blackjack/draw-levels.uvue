@@ -1,51 +1,144 @@
 <template>
   <view class="page">
+    <!-- 这儿不报金币：钱只在商店里花得出去，而商店只在过关那一下进得去
+         （结算框上那颗「去商店」）。在关卡页摆个花不掉的数，
+         除了让人惦记没别的用 -->
     <view class="head">
       <view>
         <text class="title">摸打钓鱼</text>
         <text id="md-slot-name" class="sub">{{ save.label }} · 最远 {{ save.best }}/{{ DRAW_RUN_LENGTH }}</text>
       </view>
-      <text id="md-gold" class="gold">金币 {{ save.gold }}</text>
     </view>
 
-    <!-- 本轮进度：照排竿，一轮连胜 12 关，输一次从头来 -->
+    <!-- 本轮进度。原先底下还有一行规则提示（输一次从头来、这关掉技能的
+         概率多少），删了 —— 那两条打过一轮就记住了，而它每次进这一页
+         都在重复一遍 -->
     <view class="run-box">
       <text id="md-run" class="run-text">{{ runText }}</text>
-      <text class="run-sub">{{ dropText }}</text>
     </view>
 
-    <view id="md-go" class="go-btn" @click="go">
-      <text class="go-text">{{ goText }}</text>
+    <!-- 整轮打通了才在这儿给一颗按钮（重开一轮）。
+         没打通的时候不摆 —— 开打的入口就是下面那张关卡卡片本身，
+         同一件事没必要摆两个按钮 -->
+    <view v-if="allCleared" id="md-go" class="go-btn" @click="go">
+      <text class="go-text">再来一轮</text>
     </view>
 
+    <!-- 这一排没有「商店」：**商店只在过关那一下进得去** ——
+         打赢一关，结算框上会冒出「去商店」。
+         从关卡页随时能进的话，「这一关赚的钱怎么花」就不再是
+         一个跟着那一关走的决定了（排竿那边同样是打赢才开店） -->
     <view class="top-actions">
-      <view id="md-open-skills" class="top-btn" @click="openSkills">
-        <text class="top-btn-text">商店</text>
+      <!-- 技能：看自己带着什么。商店进不去的时候这是唯一的查看口 ——
+           「我带着什么」是决定开不开打的依据，不该只有商店里看得见 -->
+      <view id="md-open-skills" class="top-btn" @click="showSkills = true">
+        <text class="top-btn-text">技能</text>
       </view>
+      <!-- 这儿原先还有颗「终局」。去掉了 —— 终局自己有一张牌子
+           （下面那张，带「开启挑战」和「自定义技能」），
+           同一个入口没必要摆两处 -->
       <view id="md-open-saves" class="top-btn" @click="showSaves = true">
         <text class="top-btn-text">存档</text>
       </view>
     </view>
 
-    <!-- 关卡：一章一行标题，下面四关。本轮过了的描绿、正要打的描金、后面的锁着 -->
+    <!-- 两张牌子：这一关，和终局。各自带自己的按钮。
+         **庄家带什么不在这儿说** —— 那是你上了桌才该知道的事
+         （对局页顶上横着摆出来）。预先摊开的话，这一页就变成了
+         一张作业表：照着它配装、算清楚再上桌，而那恰好把
+         「上桌之后才发现它这手有讲究」这件事给删了 -->
     <scroll-view class="levels" direction="vertical">
-      <view v-for="(chapter, ci) in chapters" :key="'ch-' + ci" class="chapter">
-        <text class="chapter-title">{{ chapter }}</text>
-        <view class="chapter-row">
+      <view v-if="!allCleared" class="card">
+        <view class="card-head">
+          <text class="now-id">第 {{ level.id }} 关</text>
+          <text class="now-name">{{ level.chapter }} · {{ level.name }}</text>
+          <text class="now-reward">过关 {{ level.reward }} 金</text>
+        </view>
+
+        <!-- 进度：十二个点，过了的实心、正打的亮着、后面的空着。
+             摆在这张牌子里 —— 它说的就是这张牌子上那个关号的来历。
+             **不摆成十二个格子**：摆成格子就像能点，可这一轮只打得了
+             当前这一关（输一次从头来），十二格里十一格是死的。
+             这条原则是排竿那边先立的 -->
+        <view class="dots">
           <view
-            v-for="lv in levelsOf(chapter)"
-            :key="'lv-' + lv.id"
-            :id="'md-level-' + lv.id"
-            class="level"
-            :class="{ 'level-done': cleared(lv.id), 'level-now': lv.id == save.runLevel, 'level-locked': lv.id > save.runLevel }"
-            @click="pickLevel(lv.id)">
-            <text class="level-num">{{ lv.id }}</text>
-            <text class="level-name">{{ lv.name }}</text>
-            <text class="level-tag">{{ tagOf(lv) }}</text>
+            v-for="one in dots"
+            :key="'dot-' + one"
+            class="dot"
+            :class="{ 'dot-done': one < save.runLevel, 'dot-now': one == save.runLevel }"></view>
+        </view>
+
+        <view class="card-acts">
+          <view id="md-now" class="card-btn card-btn-main" @click="go">
+            <text class="card-btn-text card-btn-text-dark">开启挑战</text>
+          </view>
+          <!-- 放弃：本轮作废，从第 1 关重来。摆在开打旁边是有意的 ——
+               打不过去的时候，「推倒重来」是个正当选择，不该藏起来 -->
+          <view id="md-give-up" class="card-btn" @click="askGiveUp">
+            <text class="card-btn-text">放弃挑战</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 终局。跟上面那张一个样式，但它不在那条十二关的线上 -->
+      <view class="card card-final">
+        <view class="card-head">
+          <text class="now-id">终局对决</text>
+          <!-- 空着撑开，把右边那个标签推到头 —— 这张牌子没有章节名可写 -->
+          <view class="card-head-gap"></view>
+          <text class="now-reward">不记账</text>
+        </view>
+        <!-- 只留口号。机制那段（随机满配、不记账、不推关号……）删了 ——
+             「不记账」右上角那个标签已经点出来了，剩下的上桌自然知道 -->
+        <text class="card-slogan">使出你的全力向王座发起挑战</text>
+        <!-- 这儿原先还有颗「自定义技能」（勾技能、定等级）。去掉了 ——
+             技能带什么、几级、落在哪，一律是摇出来的，终局也不例外。
+             开了自定义，那条规矩就只剩正常模式在守，而「适应摇到的东西」
+             正是这个玩法的主题 -->
+        <view class="card-acts">
+          <view id="md-final" class="card-btn card-btn-main" @click="goFinal">
+            <text class="card-btn-text card-btn-text-dark">开启挑战</text>
           </view>
         </view>
       </view>
     </scroll-view>
+
+    <!-- 这儿原先是一整块「自定义终局配装」（勾技能、定等级）。
+         连同它的按钮一起删了 —— 技能带什么、几级、落在哪，
+         一律是摇出来的。开了自定义，那条规矩就只剩正常模式在守 -->
+
+
+    <!-- 技能图鉴：**全表都列**，手里有的描亮并标出等级和它管着什么。
+         只读 —— 买、升级、卖出都在商店里，而商店只在过关那一下进得去。
+         位置（管哪个花色、哪几个点数）是拿到和升级时摇定的，这儿只是报一下 -->
+    <view v-if="showSkills" class="mask" @click="showSkills = false">
+      <view class="skill-box" @click.stop="noop">
+        <view class="skill-box-head">
+          <text class="skill-box-title">技能</text>
+          <text class="skill-box-sub" :class="{ 'own-full': ownedCount >= MAX_OWNED_SKILLS }"
+            >你有 {{ ownedCount }}/{{ MAX_OWNED_SKILLS }} · 共 {{ DRAW_SKILLS.length }} 种</text
+          >
+        </view>
+        <text class="skill-box-empty">技能在商店买（跟卡牌混在同一栏上货，上什么是摇的）—— 所以全表都列着，好让你知道有什么可等。名额满了就买不动了，想换先卖掉一个。</text>
+        <scroll-view class="skill-box-body" direction="vertical">
+          <view
+            v-for="(one, si) in mySkills"
+            :key="'ms-' + si"
+            class="my-skill"
+            :class="{ 'my-skill-off': !one.owned }">
+            <view class="my-skill-head">
+              <text class="my-skill-cover">{{ one.cover }}</text>
+              <text class="my-skill-name">{{ one.name }}</text>
+              <!-- 「优先」关键字：效果在钓牌判定之前结算 -->
+              <text v-if="one.first" class="my-skill-key">{{ KEYWORD_FIRST }}</text>
+              <text class="my-skill-level">{{ one.level }}</text>
+            </view>
+            <text class="my-skill-desc">{{ one.desc }}</text>
+          </view>
+        </scroll-view>
+        <text class="skill-box-close" @click.stop="showSkills = false">收起来</text>
+      </view>
+    </view>
 
     <!-- 存档：三个槽，切换 / 新建 / 删除 -->
     <view v-if="showSaves" class="mask">
@@ -72,9 +165,15 @@
 <script setup lang="uts">
   import {
     DrawLevel,
-    DRAW_LEVELS
+    drawLevelById
   } from '@/pages/examples/blackjack/draw-levels.uts'
-  import { equippedSkills } from '@/pages/examples/blackjack/draw-skills.uts'
+  import {
+    DRAW_SKILLS,
+    KEYWORD_FIRST,
+    KIND_RANK,
+    coverageText,
+    levelText
+  } from '@/pages/examples/blackjack/draw-skills.uts'
   import {
     DrawSave,
     DRAW_SLOT_COUNT,
@@ -90,8 +189,9 @@
     saveDraw,
     resetDrawRun,
     runCleared,
-    dropChance,
-    DRAW_RUN_LENGTH
+    DRAW_RUN_LENGTH,
+    MAX_OWNED_SKILLS,
+    ownedSkillCount
   } from '@/pages/examples/blackjack/draw-save.uts'
 
   type SlotView = {
@@ -99,12 +199,14 @@
     data : DrawSave
   }
 
-  const chapters : string[] = ['浅滩', '河湾', '深海']
-
   const save = ref<DrawSave>(emptyDrawSave())
   const slotIndex = ref<number>(1)
   const slots = ref<SlotView[]>([])
   const showSaves = ref<boolean>(false)
+  const showSkills = ref<boolean>(false)
+
+  // 弹层里面点着不关，交给外面那层遮罩关（跟排竿的道具面板一个路子）
+  function noop() {}
 
   function refresh() {
     save.value = loadDrawSave()
@@ -116,63 +218,92 @@
     slots.value = list
   }
 
-  function levelsOf(chapter : string) : DrawLevel[] {
-    const list : DrawLevel[] = []
-    for (let i = 0; i < DRAW_LEVELS.length; i++) {
-      if (DRAW_LEVELS[i].chapter == chapter) {
-        list.push(DRAW_LEVELS[i])
-      }
+  // 进度条那一排点，1 到 12。
+  // 摆个数组而不是让 v-for 直接遍历数字 —— 后者在 uvue 那边没把握
+  const dots = computed<number[]>(() : number[] => {
+    const out : number[] = []
+    for (let i = 1; i <= DRAW_RUN_LENGTH; i++) {
+      out.push(i)
     }
-    return list
+    return out
+  })
+
+  // 这一轮眼下要打的那一关
+  const level = computed<DrawLevel>(() : DrawLevel => {
+    return drawLevelById(save.value.runLevel)
+  })
+
+  const allCleared = computed<boolean>(() : boolean => {
+    return runCleared(save.value)
+  })
+
+  // 技能图鉴：**全表都列**，手里有的把等级和覆盖面标出来。
+  //
+  // 全列是有理由的：技能在商店买，而**上什么货是摇的** —— 所以
+  //「这游戏里一共有哪些技能、各管什么」是你盘算这一轮的底图：
+  // 它决定你看见某件货的时候值不值得掏钱，也决定你值不值得攒钱等。
+  // 排竿那边的道具图鉴是同一个路子（列全，手里有的标等级）。
+  //
+  // 管什么排在最前 —— 跟对局页的技能栏一个规矩：你问的是
+  //「我这张 7 会触发什么」，所以先给锚点再给名字
+  type MySkill = {
+    owned : boolean
+    cover : string
+    name : string
+    level : string
+    desc : string
+    // 带「优先」关键字吗（效果在钓牌判定之前结算）
+    first : boolean
   }
 
-  // 本轮过了这一关没有
-  function cleared(id : number) : boolean {
-    return id < save.value.runLevel
-  }
+  const mySkills = computed<MySkill[]>(() : MySkill[] => {
+    const data = save.value
+    const out : MySkill[] = []
+    for (let k = 0; k < DRAW_SKILLS.length; k++) {
+      const level = k < data.levels.length ? data.levels[k] : -1
+      const cover = level < 0 ? '' : coverageText(data.loadout, k)
+      out.push({
+        owned: level >= 0,
+        // 没拿到的报它能管多宽（那是它的样子）；
+        // 拿到了但两个槽都满、没装上的得说清楚，别让人以为它在生效
+        cover: level < 0
+          ? (DRAW_SKILLS[k].kind == KIND_RANK ? '点数槽' : '通用')
+          : (cover == '' ? '未装上' : cover),
+        name: DRAW_SKILLS[k].name,
+        level: level < 0 ? '未拥有' : levelText(k, level),
+        desc: DRAW_SKILLS[k].desc,
+        first: DRAW_SKILLS[k].first
+      } as MySkill)
+    }
+    return out
+  })
+
+  const ownedCount = computed<number>(() : number => {
+    return ownedSkillCount(save.value)
+  })
+
+  // 原先这儿有 foeLines（庄家带了哪几个技能）和 nextName（往后是第几关），
+  // 两样都删了。
+  //
+  // 庄家那几个技能**不该在上桌前给**：那是对局页顶上横着摆的东西。
+  // 预先摊开，这一页就成了一张作业表 —— 照着配装、算清楚再上桌，
+  // 而那恰好把「上桌之后才发现它这手有讲究」这件事删掉了。
+  // 下一关的名字同理：知道叫什么没用，到了自然看得见
 
   const runText = computed<string>(() : string => {
     const data = save.value
     if (runCleared(data)) {
       return '本轮 12 关全部通关！'
     }
-    return '本轮第 ' + data.runLevel + ' 关 · 金币 ' + data.gold
+    return '本轮第 ' + data.runLevel + ' 关'
   })
 
-  // 第 1 关过了必得点数技；之后显示下一关掉技能的概率
-  const dropText = computed<string>(() : string => {
-    const data = save.value
-    if (runCleared(data)) {
-      return '再来一轮会从第 1 关开始，技能和金币清空'
-    }
-    if (data.runLevel == 1) {
-      return '输一次就从第 1 关重来 · 过第 1 关必得一个点数技'
-    }
-    return '输一次就从第 1 关重来 · 过这关掉技能的概率 ' + dropChance(data) + '%'
-  })
+  // 原先这儿有个 dropText（「输一次从头来 · 这关掉技能的概率 N%」）。
+  // 整条删了 —— 那两件事打过一轮就记住了，而它每次进这一页都重复一遍。
+  // 技能名额那句话也不缺地方说：技能弹层的副标题上写着「你有 N/4」
 
-  const goText = computed<string>(() : string => {
-    return runCleared(save.value) ? '再来一轮' : '挑战第 ' + save.value.runLevel + ' 关'
-  })
-
-  // 关卡格子底下那行：庄家带几个技能 / 过没过
-  function tagOf(lv : DrawLevel) : string {
-    if (lv.id > save.value.runLevel) {
-      return '未解锁'
-    }
-    const n = equippedSkills(lv.loadout).length
-    const skill = n == 0 ? (lv.smart ? '会记牌' : '新手庄家') : '庄家 ' + n + ' 技能'
-    return cleared(lv.id) ? '已过 · ' + skill : skill
-  }
-
-  // 只能打本轮正要打的那一关：过了的不能重打，后面的还没到
-  function pickLevel(id : number) {
-    if (id == save.value.runLevel) {
-      go()
-      return
-    }
-    uni.showToast({ title: id < save.value.runLevel ? '本轮已经过了' : '先过前面的关', icon: 'none' })
-  }
+  // 原先这儿有个 goText（那颗大按钮上的字）。按钮没了 ——
+  // 未通关时开打的入口是关卡卡片本身，通关时那颗按钮的字写死「再来一轮」
 
   function go() {
     if (runCleared(save.value)) {
@@ -185,8 +316,43 @@
     uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing' })
   }
 
-  function openSkills() {
-    uni.navigateTo({ url: '/pages/examples/blackjack/draw-skills' })
+  // 原先这儿有个 openSkills（随时进商店），删了 ——
+  // 商店只在打赢一关的结算框上进得去
+
+  // 放弃这一轮：跟打输了一个下场 —— 技能、金币全清，从第 1 关重来。
+  // 问一句再动手
+  function askGiveUp() {
+    uni.showModal({
+      title: '放弃这一轮？',
+      content: '本轮作废，技能和金币清空，从第 1 关重来。最远纪录留着。',
+      confirmText: '放弃',
+      cancelText: '再打打',
+      success: (res) => {
+        if (res.confirm) {
+          const data = loadDrawSave()
+          resetDrawRun(data)
+          saveDraw(data)
+          refresh()
+        }
+      }
+    })
+  }
+
+  // 原先这儿有一套自定义终局配装的东西（openCustom / customCount /
+  // toggleCustom / bumpCustom，加上 goFinal 的 custom 分支）。整套删了。
+  //
+  // 理由是它跟这个玩法的主题对着干：货架上货什么是摇的、位置摇定、
+  // 升级要等货架上出砺钩 —— 一路都在说「适应摇出来的东西」，
+  // 而自定义配装是「先想好再执行」。开了这个口子，那条规矩就只剩
+  // 正常模式在守，而终局本该是它最纯粹的样子：两边都顶配，比的是用法
+
+  // 终局模式：一局定胜负，**一个字都不写存档** ——
+  // 不推关号、不发金币、输了也不清家当。
+  //
+  // 正常模式里一局的分量很重（输一次十二关白打），所以人会保守地打；
+  // 终局不记账，于是你敢拿任何疯招去试。它卖的就是这个
+  function goFinal() {
+    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing?mode=final' })
   }
 
   function useSlot(index : number) {
@@ -244,12 +410,6 @@
     margin-top: 2px;
   }
 
-  .gold {
-    color: #fff3c4;
-    font-size: 16px;
-    font-weight: bold;
-  }
-
   .run-box {
     margin-top: 12px;
     padding: 10px 12px;
@@ -263,11 +423,7 @@
     font-weight: bold;
   }
 
-  .run-sub {
-    color: #9fd9bd;
-    font-size: 11px;
-    margin-top: 2px;
-  }
+  /* .run-sub（那行规则提示）删了，样式一起 */
 
   .go-btn {
     height: 46px;
@@ -307,71 +463,263 @@
     font-weight: bold;
   }
 
+  /* 进度：一排小点。十二个点占一行，比十二个格子省一屏，
+     而且它不像能点的东西 —— 那正是要的 */
+  .dots {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 12px;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    margin-right: 6px;
+    background-color: #0e3a28;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #1b8a58;
+  }
+
+  .dot-done {
+    background-color: #7ce0a3;
+    border-color: #7ce0a3;
+  }
+
+  /* 正打的那个：金的，而且大一圈 */
+  .dot-now {
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    background-color: #e8b23a;
+    border-color: #e8b23a;
+  }
+
   .levels {
     flex: 1;
     margin-top: 12px;
   }
 
-  .chapter {
-    margin-bottom: 14px;
-  }
-
-  .chapter-title {
-    color: #ffffff;
-    font-size: 14px;
-    font-weight: bold;
-  }
-
-  .chapter-row {
-    flex-direction: row;
-    flex-wrap: wrap;
-    margin-top: 6px;
-  }
-
-  .level {
-    width: 76px;
-    height: 84px;
-    margin-right: 8px;
-    margin-bottom: 8px;
+  /* 一张牌子。原先这块地方摆的是十二个关卡格子，
+     而那十二格里只有一格点得动 */
+  .card {
+    padding: 12px;
+    margin-bottom: 10px;
     border-radius: 10px;
-    align-items: center;
-    justify-content: center;
     background-color: #0e6b45;
     border-width: 1px;
     border-style: solid;
     border-color: #e8b23a;
   }
 
-  .level-done {
-    background-color: #155c3c;
-    border-color: #7ce0a3;
+  /* 终局那张：底色压暗一档，边框也不抢 —— 它不在那条十二关的线上 */
+  .card-final {
+    background-color: #0e3a28;
+    border-color: #1b8a58;
   }
 
-  /* 本轮正要打的那一关：亮一档的底、粗金边。不用金底 —— 关卡号本身就是金字 */
-  .level-now {
-    background-color: #1b8a58;
-    border-width: 2px;
+  .card-head {
+    flex-direction: row;
+    align-items: center;
   }
 
-  .level-locked {
-    opacity: 0.4;
+  /* 没有章节名可写的牌子，拿它把右边那个标签推到头 */
+  .card-head-gap {
+    flex: 1;
   }
 
-  .level-num {
+  /* 口号那一行。比机制说明亮一档 —— 它是这张牌子的脸面，
+     底下那行小字才是规则 */
+  .card-slogan {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: bold;
+    margin-top: 10px;
+  }
+
+  /* .card-note（牌子上那段机制说明）用完就没了，样式一起删 */
+
+  /* 牌子底下那排按钮：主按钮金底，次的只描边 */
+  .card-acts {
+    flex-direction: row;
+    margin-top: 12px;
+  }
+
+  .card-btn {
+    flex: 1;
+    height: 40px;
+    border-radius: 20px;
+    margin-right: 8px;
+    align-items: center;
+    justify-content: center;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .card-btn-main {
+    background-color: #e8b23a;
+  }
+
+  .card-btn-text {
     color: #e8b23a;
-    font-size: 20px;
+    font-size: 14px;
     font-weight: bold;
   }
 
-  .level-name {
+  .card-btn-text-dark {
+    color: #3b2a00;
+  }
+
+  .now-id {
+    color: #e8b23a;
+    font-size: 18px;
+    font-weight: bold;
+    margin-right: 8px;
+  }
+
+  .now-name {
+    flex: 1;
     color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .now-reward {
+    color: #fff3c4;
     font-size: 12px;
   }
 
-  .level-tag {
+  /* 原先这张牌子里还列着庄家带的技能（.now-label / .now-foe / .now-skill），
+     底下还有一块「往后是第 N 关」（.next-box / .next-text），
+     以及一行「开启挑战」的提示字（.now-go）。
+     全删了 —— 庄家带什么是上了桌才该知道的事，而开打现在是颗真按钮 */
+
+  /* 技能面板 */
+  .skill-box {
+    width: 300px;
+    padding: 16px;
+    border-radius: 12px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .skill-box-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .skill-box-title {
+    color: #e8b23a;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .skill-box-sub {
     color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .skill-box-body {
+    max-height: 340px;
+    margin-top: 8px;
+  }
+
+  .skill-box-empty {
+    color: #9fd9bd;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .my-skill {
+    padding: 8px 9px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background-color: #0b5d3b;
+  }
+
+  .my-skill-head {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  /* 管什么排最前，跟对局页的技能栏一个规矩 */
+  .my-skill-cover {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+    margin-right: 6px;
+  }
+
+  .my-skill-name {
+    flex: 1;
+    color: #e8b23a;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .my-skill-level {
+    color: #9fd9bd;
+    font-size: 10px;
+  }
+
+  /* 图鉴里还没拿到的那几种：压暗。
+     信息留着（你得知道池子里有什么），但一眼看得出不是你的 */
+  .my-skill-off {
+    opacity: 0.45;
+  }
+
+  /* 自定义弹层里带上的那几个：描一圈金边 */
+  .my-skill-on {
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  /* 可点的等级：看着像个按钮，点一下循环切换 */
+  .my-skill-pick {
+    color: #3b2a00;
+    background-color: #e8b23a;
+    font-size: 10px;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 2px 7px;
+  }
+
+  /* 名额满了描成橙的，跟商店那边一个规矩 */
+  .own-full {
+    color: #ff9e80;
+    font-weight: bold;
+  }
+
+  /* 关键字标记（现在只有「优先」）。跟商店那边 .skill-key 一个样子 */
+  .my-skill-key {
+    color: #2a1a00;
+    background-color: #e8b23a;
     font-size: 9px;
-    margin-top: 2px;
+    font-weight: bold;
+    padding: 1px 5px;
+    border-radius: 7px;
+    margin-left: 5px;
+  }
+
+  .my-skill-desc {
+    color: #cfeade;
+    font-size: 10px;
+    line-height: 15px;
+    margin-top: 3px;
+  }
+
+  .skill-box-close {
+    color: #e8b23a;
+    font-size: 13px;
+    font-weight: bold;
+    text-align: center;
+    margin-top: 10px;
   }
 
   .mask {
