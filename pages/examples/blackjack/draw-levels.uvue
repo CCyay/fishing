@@ -68,6 +68,22 @@
             :class="{ 'dot-done': one < save.runLevel, 'dot-now': one == save.runLevel }"></view>
         </view>
 
+        <!-- 难度：开打前选。一轮开始了（过了第 1 关或者卡在商店）就锁住，
+             输了 / 放弃之后才能换 -->
+        <view class="diff-row">
+          <text class="diff-label">难度</text>
+          <view
+            v-for="(name, di) in DIFF_NAMES"
+            :key="'df-' + di"
+            :id="'md-diff-' + di"
+            class="diff-btn"
+            :class="{ 'diff-on': di == diff, 'diff-locked': !canPickDiff && di != diff }"
+            @click="pickDiff(di)">
+            <text class="diff-text" :class="{ 'diff-text-on': di == diff }">{{ name }}</text>
+          </view>
+        </view>
+        <text class="diff-note">{{ diffNote }}</text>
+
         <view class="card-acts">
           <view id="md-now" class="card-btn card-btn-main" @click="go">
             <text class="card-btn-text card-btn-text-dark">开启挑战</text>
@@ -91,21 +107,58 @@
         <!-- 只留口号。机制那段（随机满配、不记账、不推关号……）删了 ——
              「不记账」右上角那个标签已经点出来了，剩下的上桌自然知道 -->
         <text class="card-slogan">使出你的全力向王座发起挑战</text>
-        <!-- 这儿原先还有颗「自定义技能」（勾技能、定等级）。去掉了 ——
-             技能带什么、几级、落在哪，一律是摇出来的，终局也不例外。
-             开了自定义，那条规矩就只剩正常模式在守，而「适应摇到的东西」
-             正是这个玩法的主题 -->
         <view class="card-acts">
           <view id="md-final" class="card-btn card-btn-main" @click="goFinal">
             <text class="card-btn-text card-btn-text-dark">开启挑战</text>
+          </view>
+          <view id="md-custom" class="card-btn" @click="showCustom = true">
+            <text class="card-btn-text">自定义技能</text>
           </view>
         </view>
       </view>
     </scroll-view>
 
-    <!-- 这儿原先是一整块「自定义终局配装」（勾技能、定等级）。
-         连同它的按钮一起删了 —— 技能带什么、几级、落在哪，
-         一律是摇出来的。开了自定义，那条规矩就只剩正常模式在守 -->
+    <!-- 终局自定义技能：点一行带上 / 取下，点等级标签循环换级。
+         带什么、几级你定，落在哪个花色 / 点数照旧是摇的。
+         一个都不带就是随机满配 -->
+    <view v-if="showCustom" class="mask" @click="showCustom = false">
+      <view class="skill-box" @click.stop="noop">
+        <view class="skill-box-head">
+          <text class="skill-box-title">自定义技能</text>
+          <text id="md-custom-count" class="skill-box-sub" :class="{ 'own-full': customCount >= MAX_OWNED_SKILLS }"
+            >已选 {{ customCount }}/{{ MAX_OWNED_SKILLS }}</text
+          >
+        </view>
+        <scroll-view class="skill-box-body" direction="vertical">
+          <view
+            v-for="(skill, k) in DRAW_SKILLS"
+            :key="'cs-' + k"
+            :id="'md-custom-' + k"
+            class="my-skill"
+            :class="{ 'my-skill-on': customLevels[k] >= 0 }"
+            @click="toggleCustom(k)">
+            <view class="my-skill-head">
+              <text class="my-skill-cover">{{ skill.kind == KIND_RANK ? '点数槽' : '通用' }}</text>
+              <text class="my-skill-name">{{ skill.name }}</text>
+              <text v-if="skill.first" class="my-skill-key">{{ KEYWORD_FIRST }}</text>
+              <text
+                v-if="customLevels[k] >= 0"
+                class="my-skill-pick"
+                @click.stop="bumpCustom(k)">{{ levelText(k, customLevels[k]) }}</text>
+            </view>
+            <text class="my-skill-desc">{{ skill.desc }}</text>
+          </view>
+        </scroll-view>
+        <view class="card-acts">
+          <view id="md-custom-go" class="card-btn card-btn-main" @click="goFinalCustom">
+            <text class="card-btn-text card-btn-text-dark">{{ customCount > 0 ? '开启挑战' : '随机满配开打' }}</text>
+          </view>
+          <view class="card-btn" @click="clearCustom">
+            <text class="card-btn-text">清空</text>
+          </view>
+        </view>
+      </view>
+    </view>
 
 
     <!-- 技能图鉴：**全表都列**，手里有的描亮并标出等级和它管着什么。
@@ -152,7 +205,7 @@
           <view class="save-btn" @click="useSlot(slot.index)">
             <text class="save-btn-text">{{ slot.data.exists ? (slot.index == slotIndex ? '使用中' : '使用') : '新建' }}</text>
           </view>
-          <view v-if="slot.data.exists && slot.index != slotIndex" class="save-btn save-btn-danger" @click="removeSlot(slot.index)">
+          <view v-if="slot.data.exists" :id="'md-del-' + slot.index" class="save-btn save-btn-danger" @click="removeSlot(slot.index)">
             <text class="save-btn-text">删除</text>
           </view>
         </view>
@@ -165,7 +218,12 @@
 <script setup lang="uts">
   import {
     DrawLevel,
-    drawLevelById
+    drawLevelById,
+    levelForDiff,
+    DIFF_NAMES,
+    DIFF_EASY,
+    DIFF_NORMAL,
+    DIFF_HARD
   } from '@/pages/examples/blackjack/draw-levels.uts'
   import {
     DRAW_SKILLS,
@@ -191,7 +249,10 @@
     runCleared,
     DRAW_RUN_LENGTH,
     MAX_OWNED_SKILLS,
-    ownedSkillCount
+    ownedSkillCount,
+    difficultyOf,
+    setDifficulty,
+    runFresh
   } from '@/pages/examples/blackjack/draw-save.uts'
 
   type SlotView = {
@@ -211,6 +272,7 @@
   function refresh() {
     save.value = loadDrawSave()
     slotIndex.value = drawSaveSlot()
+    diff.value = difficultyOf(slotIndex.value)
     const list : SlotView[] = []
     for (let i = 1; i <= DRAW_SLOT_COUNT; i++) {
       list.push({ index: i, data: loadDrawAt(i) })
@@ -229,9 +291,39 @@
   })
 
   // 这一轮眼下要打的那一关
+  // 这一关按难度改过的样子（过关奖励跟着难度走，见 levelForDiff）
   const level = computed<DrawLevel>(() : DrawLevel => {
-    return drawLevelById(save.value.runLevel)
+    return levelForDiff(drawLevelById(save.value.runLevel), diff.value)
   })
+
+  // ---- 难度 ----
+  const diff = ref<number>(DIFF_NORMAL)
+
+  const canPickDiff = computed<boolean>(() : boolean => {
+    return runFresh(save.value)
+  })
+
+  const diffNote = computed<string>(() : string => {
+    if (diff.value == DIFF_EASY) {
+      return '庄家前 4 关随机出牌、之后不记牌；过关金币 ×1.5'
+    }
+    if (diff.value == DIFF_HARD) {
+      return '庄家每一关都记牌；过关金币 ×0.75'
+    }
+    return '庄家第 1 关随机出牌、第 3 关起记牌；过关金币 ×1'
+  })
+
+  function pickDiff(d : number) {
+    if (d == diff.value) {
+      return
+    }
+    if (!canPickDiff.value) {
+      uni.showToast({ title: '这一轮已经开打了，输了或放弃后才能换难度', icon: 'none' })
+      return
+    }
+    diff.value = d
+    setDifficulty(slotIndex.value, d)
+  }
 
   const allCleared = computed<boolean>(() : boolean => {
     return runCleared(save.value)
@@ -313,6 +405,11 @@
       refresh()
       return
     }
+    // 上次是从商店退出来的：先回商店，在那儿点「开始下一关」才开打
+    if (loadDrawSave().inShop) {
+      uni.navigateTo({ url: '/pages/examples/blackjack/draw-skills' })
+      return
+    }
     uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing' })
   }
 
@@ -355,6 +452,67 @@
     uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing?mode=final' })
   }
 
+  // ---- 终局自定义技能 ----
+  //
+  // 等级表下标对齐 DRAW_SKILLS，-1 = 不带。名额跟正常模式一样最多 MAX_OWNED_SKILLS 个。
+  // 只活在这一页：终局不记账，配装也不进存档
+  const showCustom = ref<boolean>(false)
+  const customLevels = ref<number[]>(blankCustom())
+
+  function blankCustom() : number[] {
+    const out : number[] = []
+    for (let k = 0; k < DRAW_SKILLS.length; k++) {
+      out.push(-1)
+    }
+    return out
+  }
+
+  const customCount = computed<number>(() : number => {
+    let n = 0
+    for (let k = 0; k < customLevels.value.length; k++) {
+      if (customLevels.value[k] >= 0) {
+        n = n + 1
+      }
+    }
+    return n
+  })
+
+  function toggleCustom(k : number) {
+    const next = customLevels.value.slice(0)
+    if (next[k] >= 0) {
+      next[k] = -1
+    } else {
+      if (customCount.value >= MAX_OWNED_SKILLS) {
+        uni.showToast({ title: '最多带 ' + MAX_OWNED_SKILLS + ' 个', icon: 'none' })
+        return
+      }
+      next[k] = 0
+    }
+    customLevels.value = next
+  }
+
+  // 等级循环：初始 → 升 1 → … → 满级 → 初始。固定的技能（maxLevel 0）点了不动
+  function bumpCustom(k : number) {
+    const next = customLevels.value.slice(0)
+    next[k] = next[k] >= DRAW_SKILLS[k].maxLevel ? 0 : next[k] + 1
+    customLevels.value = next
+  }
+
+  function clearCustom() {
+    customLevels.value = blankCustom()
+  }
+
+  function goFinalCustom() {
+    showCustom.value = false
+    if (customCount.value == 0) {
+      goFinal()
+      return
+    }
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/ap-fishing?mode=final&kit=' + customLevels.value.join(',')
+    })
+  }
+
   function useSlot(index : number) {
     const data = loadDrawAt(index)
     if (!data.exists) {
@@ -364,10 +522,14 @@
     refresh()
   }
 
+  // 正在用的那个档也能删：删完这个槽位直接换成一个全新的空档接着用
+  //（refresh 里的 loadDrawSave 发现当前槽没档，会就地新建一个）
   function removeSlot(index : number) {
     uni.showModal({
       title: '删除存档',
-      content: '删掉「' + loadDrawAt(index).label + '」？最远纪录和本轮进度都会清空。',
+      content: '删掉「' + loadDrawAt(index).label + '」？最远纪录和本轮进度都会清空。'
+        + (index == slotIndex.value ? '这个槽位会换成一个新档。' : ''),
+      confirmText: '删除',
       success: (res) => {
         if (res.confirm) {
           clearDrawAt(index)
@@ -544,6 +706,56 @@
   .card-acts {
     flex-direction: row;
     margin-top: 12px;
+  }
+
+  /* 难度：三颗小胶囊，选中的填金 */
+  .diff-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 12px;
+  }
+
+  .diff-label {
+    color: #9fd9bd;
+    font-size: 12px;
+    margin-right: 8px;
+  }
+
+  .diff-btn {
+    height: 26px;
+    padding: 0 14px;
+    margin-right: 6px;
+    border-radius: 13px;
+    align-items: center;
+    justify-content: center;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .diff-on {
+    background-color: #e8b23a;
+  }
+
+  /* 一轮开打之后没选中的那两颗压暗：点得到（会提示为什么不能换），但看着就是锁着的 */
+  .diff-locked {
+    opacity: 0.35;
+  }
+
+  .diff-text {
+    color: #e8b23a;
+    font-size: 12px;
+  }
+
+  .diff-text-on {
+    color: #3b2a00;
+    font-weight: bold;
+  }
+
+  .diff-note {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-top: 6px;
   }
 
   .card-btn {

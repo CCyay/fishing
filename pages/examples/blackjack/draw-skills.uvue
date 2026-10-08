@@ -19,7 +19,6 @@
          上栏是道具（改手头已有的东西），下栏是技能和卡牌（往这一轮里添东西）。
          「把技能摆到哪个格子」那套手动分配取消了 —— 位置在拿到和升级的
          那一刻就摇定了（见 draw-skills 的 rollPlace / rollExpand） -->
-    <text class="tip">{{ tipText }}</text>
 
     <scroll-view class="body" direction="vertical">
       <!-- ---------- 下一关的庄家 ---------- -->
@@ -60,8 +59,11 @@
         那几个点数的牌变多，你的技能触发率跟着上去，而对方的技能
         摇在别的点数上，这笔改造对它没用
       -->
-      <text class="section">道具 · 牌组 {{ deckSize }}/{{ DECK_CAP }} 张</text>
-      <text class="section-note">{{ fixNote }}</text>
+      <text class="section">道具</text>
+      <!-- 新手引导第二步：就地提示，不盖遮罩（要让人点得到下面那件货） -->
+      <view v-if="guideStep == GUIDE_BUY" id="md-guide-tip" class="guide-tip">
+        <text class="guide-tip-text">点下面金框的「技能二选一」买下它，从两个技能里挑一个带进下一关</text>
+      </view>
       <!-- 道具**一件一行**（横着摆格子的版本删了）。
            换成竖排是因为表里进了砺钩、洗点、三个包、四件唯一扩容 ——
            「加权」「平价」这种名字光看猜不出来，而它们一件 80 到 180 块，
@@ -78,7 +80,8 @@
           :class="{
             'goods-rare': one.rare == RARE_RARE,
             'goods-epic': one.rare == RARE_EPIC,
-            'goods-off': save.gold < one.price
+            'goods-off': save.gold < one.price,
+            'goods-guide': guideStep == GUIDE_BUY && one.at == guidePackAt
           }"
           @click="tapGoods(one.at)">
           <view class="goods-main">
@@ -99,11 +102,9 @@
         <text class="section">技能 · 卡牌 · 点数</text>
         <text id="md-reroll" class="reroll" @click="doReroll">换一批 {{ rerollPrice }}</text>
       </view>
-      <text class="section-note">{{ cardNote }}</text>
       <text v-if="skillFull" class="section-note"
         >技能名额满了（{{ MAX_OWNED_SKILLS }} 个），想换先卖掉一个。</text
       >
-      <text v-if="deckFull" class="section-note">牌组满了（{{ DECK_CAP }} 张），加不进去了。</text>
       <view class="fix-row">
         <view
           v-for="(one, ci) in cardList"
@@ -118,27 +119,27 @@
           }"
           @click="tapGoods(one.at)">
           <text class="fix-name" :class="{ 'fix-red': one.red }">{{ one.name }}</text>
-          <text class="fix-price">{{ one.sold ? '已买' : '' + one.price }}</text>
+          <text class="fix-price">{{ one.sold ? '已买' : (one.isSkill ? one.tier + ' ' : '') + one.price }}</text>
         </view>
       </view>
 
       <!-- 本轮拥有的技能。没拥有的不列 —— 不能买，列出来只是看着眼馋 -->
-      <text v-if="ownedCount == 0" class="empty">还没有技能。上面那一栏会上货，买下来就是你的。</text>
+      <text class="section">我的技能</text>
+      <text v-if="ownedCount == 0" class="empty">还没有技能</text>
       <view
-        v-for="(skill, k) in DRAW_SKILLS"
+        v-for="k in ownedKeys"
         :key="'sk-' + k"
         :id="'md-skill-' + k"
-        class="skill"
-        :class="{ 'skill-hidden': save.levels[k] < 0 }">
+        class="skill">
         <view class="skill-head">
-          <text class="skill-name">{{ skill.name }}</text>
+          <text class="skill-name">{{ DRAW_SKILLS[k].name }}</text>
           <!-- 「优先」是个关键字（效果在钓牌判定之前结算）。
                描在名字旁边而不是塞进说明里 —— 它是一类标记，
                将来还会有别的关键字，得有个固定的位置 -->
-          <text v-if="skill.first" class="skill-key">{{ KEYWORD_FIRST }}</text>
+          <text v-if="DRAW_SKILLS[k].first" class="skill-key">{{ KEYWORD_FIRST }}</text>
           <text class="skill-level">{{ levelText(k, save.levels[k]) }} · {{ kindText(k) }}</text>
         </view>
-        <text class="skill-desc">{{ skill.desc }}</text>
+        <text class="skill-desc">{{ DRAW_SKILLS[k].desc }}</text>
         <!-- 这儿原先挂着一颗「升级 90」的按钮。升级改成买商店的【砺钩】了 ——
              有钱就能升变成了「等得到那件货」，所以这张卡上只报状态 -->
         <view class="skill-foot">
@@ -149,44 +150,32 @@
           </view>
         </view>
       </view>
-
-      <!-- 花色槽。只读 —— 点不动，位置是摇出来的 -->
-      <view class="slot-head">
-        <text class="slot-title">花色槽 {{ suitUsed(save.loadout) }}/{{ SUIT_CAPACITY }}</text>
-        <text class="slot-note">摇定的：初始技能占 1 个花色，升过级占一整个颜色</text>
-      </view>
-      <view class="cells">
-        <view
-          v-for="(suit, s) in SUITS"
-          :key="'su-' + s"
-          :id="'md-suit-' + s"
-          class="cell cell-suit"
-          :class="{ 'cell-on': save.loadout.suitOwner[s] >= 0 }">
-          <text class="cell-main" :class="{ 'cell-red': s == 1 || s == 2 }">{{ suit }}</text>
-          <text class="cell-skill">{{ ownerName(save.loadout.suitOwner[s]) }}</text>
-        </view>
-      </view>
-
-      <!-- 点数槽。同样只读。
-           分母是 rankCapOf 而不是 RANK_CAPACITY —— 买过【加权】就多一格 -->
-      <view class="slot-head">
-        <text id="md-rank-head" class="slot-title"
-          >点数槽 {{ rankUsed(save.loadout) }}/{{ rankCapOf(save.loadout) }}</text
-        >
-        <text class="slot-note">{{ rankSlotNote }}</text>
-      </view>
-      <view class="cells">
-        <view
-          v-for="(rank, r) in SKILL_RANKS"
-          :key="'rk-' + r"
-          :id="'md-rank-' + r"
-          class="cell"
-          :class="{ 'cell-on': save.loadout.rankOwner[r] >= 0 }">
-          <text class="cell-main">{{ rank }}</text>
-          <text class="cell-skill">{{ ownerName(save.loadout.rankOwner[r]) }}</text>
-        </view>
-      </view>
     </scroll-view>
+
+    <!-- 退出：回关卡页，下次开启挑战还是先进这个商店（存档里记着 inShop）。
+         开始下一关：离开商店，去打下一关。
+         摆在所有弹窗**前面**：后渲染的层级高，摆在后面遮罩就盖不住它 -->
+    <view class="back-row">
+      <view id="md-exit" class="back-btn back-btn-plain" @click="goExit">
+        <text class="back-text back-text-plain">退出</text>
+      </view>
+      <view id="md-next" class="back-btn" @click="goNext">
+        <text class="back-text">开始下一关</text>
+      </view>
+    </view>
+
+    <!-- 新手引导：欢迎（第一步）和收尾（第三步）。第二步是道具栏上方那张提示卡 -->
+    <view v-if="guideStep == GUIDE_WELCOME || guideStep == GUIDE_END" class="mask">
+      <view class="buy-box" @click.stop="noop">
+        <text id="md-guide-title" class="buy-name">{{ guideStep == GUIDE_WELCOME ? '欢迎来到商店' : '拿到第一个技能了！' }}</text>
+        <text class="buy-desc">{{ guideText }}</text>
+        <view class="buy-actions">
+          <view id="md-guide-ok" class="buy-btn" @click="guideNext">
+            <text class="buy-btn-text">{{ guideStep == GUIDE_WELCOME ? '去买技能' : '知道了' }}</text>
+          </view>
+        </view>
+      </view>
+    </view>
 
     <!-- 货品详情：**点货架上任何一件都先开这个**，确定了才真买。
          理由见脚本里 detailAt 上面那段（名字已经说不清这些货了，
@@ -281,21 +270,25 @@
           <text class="pick-title">{{ packTitle }}</text>
           <text class="pick-sub">挑 1 个</text>
         </view>
-        <text class="pick-tip">摇出来的就这几个。挑走 1 个，剩下的作废。</text>
 
+        <!-- 技能包：点一下只是**选中**（描金边），再点底下的钮才拿走 ——
+             钱已经扣了、只能挑一次，一下误触就拿错了 -->
         <scroll-view v-if="packSkills.length > 0" class="pick-body" direction="vertical">
           <view
             v-for="(k, si) in packSkills"
             :key="'pk-' + si"
             :id="'md-pack-skill-' + k"
-            class="my-skill my-skill-on"
-            @click="takePackSkill(k)">
+            class="my-skill"
+            :class="{ 'my-skill-on': packPick == k, 'my-skill-off': packBlocked(si) }"
+            @click="pickPackSkill(si)">
             <view class="my-skill-head">
-              <text class="my-skill-cover">{{ kindText(k) }}</text>
               <text class="my-skill-name">{{ DRAW_SKILLS[k].name }}</text>
-              <text class="my-skill-level">{{ levelText(k, 0) }}</text>
+              <text v-if="DRAW_SKILLS[k].first" class="skill-key">{{ KEYWORD_FIRST }}</text>
+              <view class="my-skill-gap"></view>
+              <text class="my-skill-cover">{{ si < packSlots.length ? slotName(packSlots[si]) + (packBlocked(si) ? '（满了）' : '') : kindText(k) }}</text>
             </view>
             <text class="my-skill-desc">{{ DRAW_SKILLS[k].desc }}</text>
+            <text class="my-skill-level">{{ DRAW_SKILLS[k].maxLevel > 0 ? '可升到 ' + DRAW_SKILLS[k].maxLevel + ' 级' : '不能升级' }}</text>
           </view>
         </scroll-view>
 
@@ -311,12 +304,42 @@
             </view>
           </view>
         </scroll-view>
+        <!-- 有候选因为槽满选不了：就地卖掉一个已有技能腾位置，卖完那个候选自己亮起来 -->
+        <view v-if="packAnyBlocked" class="pack-sell">
+          <text class="pack-sell-title">腾位置：卖掉一个已有技能</text>
+          <view
+            v-for="k in ownedKeys"
+            :key="'ps-' + k"
+            class="pack-sell-row">
+            <text class="pack-sell-name">{{ DRAW_SKILLS[k].name }}</text>
+            <text class="pack-sell-cover">{{ coverText(k) }}</text>
+            <view :id="'md-pack-sell-' + k" class="sell-btn" @click.stop="sell(k)">
+              <text class="sell-text">卖出 +{{ sellPriceOf(k, save.levels[k]) }}</text>
+            </view>
+          </view>
+        </view>
+        <view class="buy-actions">
+          <view
+            v-if="packSkills.length > 0"
+            id="md-pack-ok"
+            class="buy-btn"
+            :class="{ 'buy-btn-off': packPick < 0 }"
+            @click="confirmPackSkill">
+            <text class="buy-btn-text">{{ packPick < 0 ? '先点一个技能' : '就要它' }}</text>
+          </view>
+          <!-- 放弃：一个都不拿。钱在摊开那一刻就扣了，不退（见 packOpen 上面那段）。
+               新手引导里不给放弃 —— 那一步就是要你拿到第一个技能 -->
+          <view
+            v-if="guideStep != GUIDE_BUY"
+            id="md-pack-skip"
+            class="buy-btn buy-btn-plain"
+            @click="abandonPack">
+            <text class="buy-btn-text buy-btn-text-plain">放弃</text>
+          </view>
+        </view>
       </view>
     </view>
 
-    <view class="back-btn" @click="goBack">
-      <text class="back-text">返回关卡</text>
-    </view>
   </view>
 </template>
 
@@ -325,15 +348,14 @@
   import {
     DRAW_SKILLS,
     KEYWORD_FIRST,
-    SKILL_RANKS,
-    SUIT_CAPACITY,
-    RANK_CAPACITY,
     rankCapOf,
     KIND_RANK,
     SLOT_NONE,
     SLOT_SUIT,
-    suitUsed,
-    rankUsed,
+    SLOT_RANK,
+    slotName,
+    canPlaceIn,
+    rollSlotFor,
     slotOf,
     rollExpand,
     washSkill,
@@ -354,7 +376,6 @@
     MAX_OWNED_SKILLS,
     DRAW_RUN_LENGTH,
     ownedSkillCount,
-    DECK_CAP,
     deckOf,
     setDeck,
     suitOfText,
@@ -381,12 +402,16 @@
     benchedCount,
     fillBench,
     GOODS_FIX,
-    GOODS_SKILL
+    GOODS_SKILL,
+    drawSaveSlot,
+    difficultyOf,
+    fillShelfSlots,
+    shopGuided,
+    setShopGuided
   } from '@/pages/examples/blackjack/draw-save.uts'
   import {
-    SHOP_FIX_COUNT,
-    SHOP_CARD_COUNT,
     drawLevelById,
+    levelForDiff,
     DECK_MIN,
     FLAT_REROLL,
     PIP_PRICE,
@@ -459,13 +484,6 @@
   })
 
   // 道具那一栏的副标题。格数会变（买过加栏就 4 格），所以写成 computed
-  const fixNote = computed<string>(() : string => {
-    const slots = fixSlotsOf(save.value)
-    const grown = slots > SHOP_FIX_COUNT ? '（加栏 +' + (slots - SHOP_FIX_COUNT) + '）' : ''
-    return '买了立刻用，本轮有效、输了清空。这一批上 ' + slots + ' 种' + grown
-      + '，稀有的越往后越容易刷到，买完就没了、刷新也不补。'
-  })
-
   // 技能和卡牌那一栏。卖掉的**留着显示「已买」** —— 跟道具相反，
   // 因为这一排刷得动，留着那一格能看出「这批我买过什么」
   const cardList = computed<ShelfView[]>(() : ShelfView[] => {
@@ -513,7 +531,8 @@
           // 这一栏不分稀有度 —— 稀有度管的是**道具**那一栏。
           // 这一栏的随机性走的是另一条路：刷新（花钱、价钱翻倍涨）
           rare: RARE_COMMON,
-          tier: '',
+          // 技能借 tier 这一格标它定好的槽（「花色」/「点数」），价钱前面显示
+          tier: one.slot == SLOT_SUIT ? '花色' : (one.slot == SLOT_RANK ? '点数' : ''),
           desc: '',
           sold: one.sold
         } as ShelfView)
@@ -579,9 +598,9 @@
     if (id < 1 || id > DRAW_RUN_LENGTH) {
       return '下一关'
     }
-    const lv = drawLevelById(id)
+    const lv = levelForDiff(drawLevelById(id), difficultyOf(drawSaveSlot()))
     return '下一关 · 第 ' + id + ' 关「' + lv.name + '」'
-      + (lv.smart ? ' · 会记牌' : ' · 随手出牌')
+      + (lv.random ? ' · 随机出牌' : (lv.smart ? ' · 会记牌' : ' · 随手出牌'))
   })
 
   // 一个技能都没带的那几关（浅滩 1–4）也得说句话 ——
@@ -596,17 +615,6 @@
 
   // 技能 / 卡牌那一栏的副标题。格数和刷新价都会被唯一道具改掉，
   // 所以两件事都在这儿报一声 —— 买过的那件得看得见它在生效
-  const cardNote = computed<string>(() : string => {
-    const slots = cardSlotsOf(save.value)
-    const grown = slots > SHOP_CARD_COUNT ? '（加架 +' + (slots - SHOP_CARD_COUNT) + '）' : ''
-    const roll = save.value.flatReroll
-      ? '换一批固定 ' + FLAT_REROLL + ' 块（平价）'
-      : '换一批的价钱翻倍涨'
-    return '这一批 ' + slots + ' 件' + grown + '，' + roll
-      + '。技能只上你还没有的；蓝色那种是点数卡（' + PIP_PRICE
-      + '），买了挑一张牌，让它同时也算那个点数。'
-  })
-
   // 「下关利息 +N」。没息就什么都不显示 ——
   // 前两三关你根本攒不到 50 块，挂个「+0」只是噪音
   const interestText = computed<string>(() : string => {
@@ -616,20 +624,9 @@
 
   // 点数槽那行小字。买过加权就把那一格点出来 ——
   // 不然「6/7」那个 7 是哪来的没人看得明白
-  const rankSlotNote = computed<string>(() : string => {
-    const base = '摇定的：初始 1 个点数，每升 1 级多 1 个；J 不能指定'
-    const cap = rankCapOf(save.value.loadout)
-    return cap > RANK_CAPACITY
-      ? base + '。加权 +' + (cap - RANK_CAPACITY) + ' 格'
-      : base
-  })
 
   const deckSize = computed<number>(() : number => {
     return deckOf(save.value).length
-  })
-
-  const deckFull = computed<boolean>(() : boolean => {
-    return deckSize.value >= DECK_CAP
   })
 
   // 走 rerollPriceOf 而不是 cardRerollCost —— 买过【平价】就是固定价
@@ -643,6 +640,9 @@
   // 价钱翻倍涨（见 cardRerollCost）：第一次 20 块比一张牌还便宜，
   // 第三次就是 J 的价钱了。买过【平价】那条曲线就拍平成 30
   function doReroll() {
+    if (guideLock()) {
+      return
+    }
     const cost = rerollPrice.value
     if (save.value.gold < cost) {
       uni.showToast({ title: '金币不够，换一批要 ' + cost, icon: 'none' })
@@ -711,7 +711,7 @@
       return fixDetail(one.tag)
     }
     if (one.kind == GOODS_SKILL) {
-      return skillDetail(parseInt(one.tag))
+      return skillDetail(parseInt(one.tag), one.slot)
     }
     if (one.kind == GOODS_PIP) {
       return pipDetail(parseInt(one.tag))
@@ -737,8 +737,6 @@
       block = '没有升得动的技能（满级了，或者槽满了）'
     } else if (item.key == 'wash' && ownedCount.value == 0) {
       block = '手里还没技能'
-    } else if (item.key == 'cards6' && deckFull.value) {
-      block = '牌组满了（' + DECK_CAP + ' 张）'
     } else if ((item.key == 'pack2' || item.key == 'pack5') && skillFull.value) {
       block = '技能名额满了（' + MAX_OWNED_SKILLS + ' 个）'
     } else if (item.key == 'drop' && deckSize.value <= DECK_MIN) {
@@ -755,7 +753,7 @@
     } as Detail
   }
 
-  function skillDetail(k : number) : Detail {
+  function skillDetail(k : number, slot : number) : Detail {
     if (isNaN(k) || k >= DRAW_SKILLS.length) {
       return noDetail()
     }
@@ -769,10 +767,18 @@
     // 技能这儿额外报两件事：能放哪个槽、能升到几级 ——
     // 两样都影响「这一百块值不值」，而货架格子上写不下
     const lv = one.maxLevel > 0 ? '可升到 ' + one.maxLevel + ' 级' : '不能升级'
+    // 槽是上货时就定好的，这儿照实报；那个槽现在满着就买不了
+    let where = slot == SLOT_NONE ? kindText(k) : '放进' + slotName(slot)
+    if (slot != SLOT_NONE && !canPlaceIn(save.value.loadout, k, slot)) {
+      where = where + '（现在满着，无法购买）'
+      if (block == '') {
+        block = slotName(slot) + '满着，无法购买'
+      }
+    }
     return {
       ok: true,
       name: one.name,
-      tag: kindText(k) + ' · ' + lv,
+      tag: where + ' · ' + lv,
       desc: one.desc,
       price: one.unlock,
       first: one.first,
@@ -801,9 +807,7 @@
   function cardDetail(text : string) : Detail {
     const price = rankOfText(text) == 'J' ? 80 : 40
     let block = ''
-    if (deckFull.value) {
-      block = '牌组满了（' + DECK_CAP + ' 张）'
-    } else if (save.value.gold < price) {
+    if (save.value.gold < price) {
       block = '金币不够'
     }
     const rank = rankOfText(text)
@@ -824,6 +828,9 @@
 
   // 点货架上一件：开详情，**不买**
   function tapGoods(at : number) {
+    if (at != guidePackAt.value && guideLock()) {
+      return
+    }
     const list = shelfGoods(save.value)
     if (at >= list.length || list[at].sold) {
       return
@@ -865,7 +872,7 @@
       return
     }
     if (list[at].kind == GOODS_SKILL) {
-      buySkill(at, parseInt(list[at].tag))
+      buySkill(at, parseInt(list[at].tag), list[at].slot)
       return
     }
     // 点数卡要挑一张牌贴上去，所以它走选牌那条路（**先不扣钱**，
@@ -888,10 +895,6 @@
     }
     const text = list[at].tag
     const price = rankOfText(text) == 'J' ? 80 : 40
-    if (deckFull.value) {
-      uni.showToast({ title: '牌组满了（' + DECK_CAP + ' 张）', icon: 'none' })
-      return
-    }
     if (save.value.gold < price) {
       uni.showToast({ title: '金币不够', icon: 'none' })
       return
@@ -907,7 +910,7 @@
   }
 
   // 买一个技能。名额满了买不动 —— 想换先卖掉一个
-  function buySkill(at : number, k : number) {
+  function buySkill(at : number, k : number, slot : number) {
     if (isNaN(k) || k >= DRAW_SKILLS.length) {
       return
     }
@@ -918,6 +921,10 @@
       })
       return
     }
+    if (slot != SLOT_NONE && !canPlaceIn(save.value.loadout, k, slot)) {
+      uni.showToast({ title: slotName(slot) + '满着，无法购买', icon: 'none' })
+      return
+    }
     const price = DRAW_SKILLS[k].unlock
     if (save.value.gold < price) {
       uni.showToast({ title: '金币不够', icon: 'none' })
@@ -925,7 +932,7 @@
     }
     const data = loadDrawSave()
     data.gold = data.gold - price
-    const note = takeSkill(data, k)
+    const note = takeSkill(data, k, slot)
     markSold(data, at)
     commit(data)
     uni.showToast({ title: note, icon: 'none' })
@@ -991,21 +998,20 @@
   const pickTip = computed<string>(() : string => {
     if (pickMode.value == 'same') {
       return pickFirst.value < 0
-        ? '先点一张当样子（第二张会完全变成它，点数和花色都一样）'
+        ? '先点一张当样子'
         : '再点一张，它会变成上面那张'
     }
     if (pickMode.value == 'drop') {
-      return '点一张牌，把它从牌组里拿掉（牌组不能少于 ' + DECK_MIN + ' 张）'
+      return '点一张牌，从牌组里拿掉'
     }
     if (pickMode.value == 'sharpen') {
-      return '点一个技能升一级。升一级多管一个点数，所以槽里得有空格'
+      return '点一个技能升一级'
     }
     if (pickMode.value == 'wash') {
-      return '点一个技能，把它占的位置重摇一遍 —— 结果照旧随机，可能更烂'
+      return '点一个技能，重摇它占的位置'
     }
     if (pickMode.value == 'pip') {
-      return '点一张牌，让它**同时**也算 ' + faceOfValue(pickStep.value)
-        + ' 点（牌面不变，原来那个点数照旧算）'
+      return '点一张牌，让它也算 ' + faceOfValue(pickStep.value) + ' 点'
     }
     return '点一张牌，然后选往上推还是往下推'
   })
@@ -1243,6 +1249,8 @@
 
   // 摇出来的候选。技能装技能下标，牌装牌面文本
   const packSkills = ref<number[]>([] as number[])
+  // 跟 packSkills 一一对应：每个候选摊开时定好的槽
+  const packSlots = ref<number[]>([] as number[])
   const packCards = ref<string[]>([] as string[])
   // 开包是**先扣钱后挑**，跟别的道具相反。
   //
@@ -1281,10 +1289,6 @@
   function openPack(at : number, key : string, price : number) {
     const want = packSize(key)
     if (key == 'cards6') {
-      if (deckFull.value) {
-        uni.showToast({ title: '牌组满了（' + DECK_CAP + ' 张）', icon: 'none' })
-        return
-      }
       const drawn : string[] = []
       for (let i = 0; i < want; i++) {
         const suit = SUITS[Math.floor(Math.random() * SUITS.length)]
@@ -1337,24 +1341,154 @@
       }
       pool = rest
     }
+    // 每个候选摊开时就定好槽，弹窗里看得见
+    const slots : number[] = []
+    for (let i = 0; i < picks.length; i++) {
+      slots.push(rollSlotFor(picks[i]))
+    }
     const data = loadDrawSave()
     data.gold = data.gold - price
     markSold(data, at)
     commit(data)
+    packSlots.value = slots
     packSkills.value = picks
   }
 
   function clearPack() {
     packSkills.value = [] as number[]
+    packSlots.value = [] as number[]
     packCards.value = [] as string[]
+    packPick.value = -1
+  }
+
+  // 放弃这一包：一个都不拿。钱不退 —— 摊开那一刻就扣了（理由见 packOpen 上面那段）
+  function abandonPack() {
+    uni.showModal({
+      title: '放弃这一包？',
+      content: '一个都不拿，花的钱不退。',
+      confirmText: '放弃',
+      cancelText: '再看看',
+      success: (res) => {
+        if (res.confirm) {
+          clearPack()
+        }
+      }
+    })
+  }
+
+  // 技能包里选中的那个（技能下标），-1 = 还没选
+  const packPick = ref<number>(-1)
+
+  // 这个候选定好的槽现在满着：选不了
+  function packBlocked(si : number) : boolean {
+    if (si >= packSkills.value.length || si >= packSlots.value.length) {
+      return false
+    }
+    const slot = packSlots.value[si]
+    return slot != SLOT_NONE && !canPlaceIn(save.value.loadout, packSkills.value[si], slot)
+  }
+
+  const packAnyBlocked = computed<boolean>(() : boolean => {
+    for (let i = 0; i < packSkills.value.length; i++) {
+      if (packBlocked(i)) {
+        return true
+      }
+    }
+    return false
+  })
+
+  function pickPackSkill(si : number) {
+    if (packBlocked(si)) {
+      uni.showToast({ title: slotName(packSlots.value[si]) + '满着，无法选择', icon: 'none' })
+      return
+    }
+    packPick.value = packSkills.value[si]
+  }
+
+  function confirmPackSkill() {
+    if (packPick.value < 0) {
+      return
+    }
+    takePackSkill(packPick.value)
   }
 
   function takePackSkill(k : number) {
+    let slot = SLOT_NONE
+    for (let i = 0; i < packSkills.value.length && i < packSlots.value.length; i++) {
+      if (packSkills.value[i] == k) {
+        slot = packSlots.value[i]
+      }
+    }
     const data = loadDrawSave()
-    const note = takeSkill(data, k)
+    const note = takeSkill(data, k, slot)
     commit(data)
     clearPack()
+    if (guideStep.value == GUIDE_BUY) {
+      // 引导里买的那一个：不弹 toast，换成收尾那一页
+      guideStep.value = GUIDE_END
+      return
+    }
     uni.showToast({ title: note, icon: 'none' })
+  }
+
+  // ---------- 新手引导 ----------
+  //
+  // 每个存档第一次进店走一遍：欢迎 → 买下【技能二选一】并挑一个 → 收尾。
+  // 第二步**拦住别的操作**（别的货、换一批、卖出、退出、开始下一关），
+  // 只放那件二选一过去 —— 第一店一定上它、第 1 关的奖励也够买（见 rollShelf、DRAW_LEVELS）。
+  // 老档第一次进店时货架上没有它、或者钱不够，就只给欢迎页，不强买
+  const GUIDE_NONE : number = 0
+  const GUIDE_WELCOME : number = 1
+  const GUIDE_BUY : number = 2
+  const GUIDE_END : number = 3
+  const guideStep = ref<number>(GUIDE_NONE)
+
+  const guideText = computed<string>(() : string => {
+    if (guideStep.value == GUIDE_WELCOME) {
+      return '过关赢来的金币在这儿花：买技能、买牌、改牌组。没花完的钱每关还会生利息。'
+        + '\n\n第一次来，先买一个技能带进下一关吧。'
+    }
+    return '技能占着几个花色或点数（写在下面「我的技能」里），打出的牌落在上面就会触发。'
+      + '\n\n剩下的钱可以接着逛，也可以攒着吃利息。'
+  })
+
+  // 货架上还没卖掉的那件技能二选一的下标，没有就 -1
+  const guidePackAt = computed<number>(() : number => {
+    const list = shelfGoods(save.value)
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].kind == GOODS_FIX && list[i].tag == 'pack2' && !list[i].sold) {
+        return i
+      }
+    }
+    return -1
+  })
+
+  function startGuide() {
+    if (guideStep.value != GUIDE_NONE || shopGuided(drawSaveSlot())) {
+      return
+    }
+    guideStep.value = GUIDE_WELCOME
+  }
+
+  function guideNext() {
+    if (guideStep.value == GUIDE_WELCOME) {
+      if (guidePackAt.value >= 0 && save.value.gold >= fixItemOf('pack2').price) {
+        guideStep.value = GUIDE_BUY
+        return
+      }
+    }
+    // 收尾，或者买不成二选一的老档：引导到此为止
+    guideStep.value = GUIDE_NONE
+    setShopGuided(drawSaveSlot())
+  }
+
+  // 第二步里拦操作：拦下了返回 true
+  function guideLock() : boolean {
+    if (guideStep.value != GUIDE_BUY) {
+      return false
+    }
+    uni.showToast({ title: '先买下「技能二选一」', icon: 'none' })
+    return true
   }
 
   function takePackCard(text : string) {
@@ -1372,7 +1506,14 @@
   // 拿第一个是任意的，但它好过什么都不给
   function autoTakePack() {
     if (packSkills.value.length > 0) {
-      takePackSkill(packSkills.value[0])
+      for (let i = 0; i < packSkills.value.length; i++) {
+        if (!packBlocked(i)) {
+          takePackSkill(packSkills.value[i])
+          return
+        }
+      }
+      // 全都选不了：等于放弃
+      clearPack()
       return
     }
     if (packCards.value.length > 0) {
@@ -1609,17 +1750,15 @@
     return ownedSkillCount(save.value)
   })
 
-  const tipText = computed<string>(() : string => {
-    // 「钱能攒」这一条要在抬头就说：有了利息，「这一关什么都不买」
-    // 成了一个真选项，而那是个反直觉的玩法（商店的默认读法是「花光」）
-    const base = '点货看详情，确定了才扣钱。升级要买【砺钩】。钱攒着每关生息，'
-      + '所以什么都不买也是一手。占哪个花色、哪几个点数是'
-      + '拿到和升级时摇定的，改不了 —— 下面两排只是给你看它们现在管着什么。'
-    // 名额满了就把那条路说清楚：买不动了，想换得先卖
-    return ownedCount.value >= MAX_OWNED_SKILLS
-      ? base + '名额满了（' + MAX_OWNED_SKILLS
-        + ' 个），再买不动；想换别的，先卖掉一个腾名额。'
-      : base
+  // 拥有的技能下标（等级 >= 0 的），「我的技能」那一栏就列这些
+  const ownedKeys = computed<number[]>(() : number[] => {
+    const out : number[] = []
+    for (let k = 0; k < DRAW_SKILLS.length; k++) {
+      if (save.value.levels[k] >= 0) {
+        out.push(k)
+      }
+    }
+    return out
   })
 
   // 技能卡底下那行：装在哪、管着什么；没装就说能管多大
@@ -1634,10 +1773,6 @@
       return '未装 · 可占 ' + suitPart + '点数槽 ' + rankSizeOf(level) + ' 格'
     }
     return (where == SLOT_SUIT ? '花色槽：' : '点数槽：') + coverageText(save.value.loadout, k)
-  }
-
-  function ownerName(owner : number) : string {
-    return owner >= 0 ? DRAW_SKILLS[owner].name : ''
   }
 
   function commit(data : DrawSave) {
@@ -1668,6 +1803,9 @@
   }
 
   function sell(k : number) {
+    if (guideLock()) {
+      return
+    }
     const level = save.value.levels[k]
     if (level < 0) {
       return
@@ -1704,8 +1842,41 @@
   // 没有躺着的就空着等后面买的。那是一笔赌 —— 腾出来的格子
   // 不保证摇到哪一格（买哪个技能现在是你挑的，占哪儿还是摇的）
 
-  function goBack() {
-    uni.navigateBack({})
+  const LEVELS_ROUTE : string = 'pages/examples/blackjack/draw-levels'
+  const FISHING_ROUTE : string = 'pages/examples/blackjack/ap-fishing'
+
+  // 开始下一关：清掉 inShop，回摸打页开局。
+  // 从摸打结算进来的就退回去（那边 onShow 会开下一关）；
+  // 从关卡页「开启挑战」直接进来的，换成摸打页
+  function goNext() {
+    if (guideLock()) {
+      return
+    }
+    const data = loadDrawSave()
+    data.inShop = false
+    commit(data)
+    const pages = getCurrentPages()
+    if (pages.length > 1 && pages[pages.length - 2].route == FISHING_ROUTE) {
+      uni.navigateBack({})
+      return
+    }
+    uni.redirectTo({ url: '/' + FISHING_ROUTE })
+  }
+
+  // 退出：回关卡页，inShop 留着。栈里有关卡页就一路退回去
+  //（中间那个摸打页一起出栈），没有就直接换过去
+  function goExit() {
+    if (guideLock()) {
+      return
+    }
+    const pages = getCurrentPages()
+    for (let i = pages.length - 2; i >= 0; i--) {
+      if (pages[i].route == LEVELS_ROUTE) {
+        uni.navigateBack({ delta: pages.length - 1 - i })
+        return
+      }
+    }
+    uni.redirectTo({ url: '/' + LEVELS_ROUTE })
   }
 
   // 这一关的第一批货：摇好**写进存档**。
@@ -1715,6 +1886,11 @@
   // 花钱刷新那条路也就白设了（排竿那边同样把货架存进了档）
   function ensureShelf() {
     if (save.value.shelf.length > 0) {
+      // 老货架上没定槽的技能补定一下（见 fillShelfSlots）
+      const data = loadDrawSave()
+      if (fillShelfSlots(data)) {
+        commit(data)
+      }
       return
     }
     const data = loadDrawSave()
@@ -1725,6 +1901,7 @@
   onShow(() => {
     refresh()
     ensureShelf()
+    startGuide()
   })
 
   // 包摊开着就被切走 / 退出去的话，替你拿第一个（见 autoTakePack）
@@ -1780,12 +1957,6 @@
   .own-full {
     color: #ff9e80;
     font-weight: bold;
-  }
-
-  .tip {
-    color: #9fd9bd;
-    font-size: 11px;
-    margin-top: 4px;
   }
 
   .body {
@@ -1932,6 +2103,29 @@
     border-left-color: #c77dff;
   }
 
+  /* 新手引导要你点的那一件：整圈金边 */
+  .goods-guide {
+    border-width: 2px;
+    border-style: solid;
+    border-color: #e8b23a;
+    border-left-width: 4px;
+    border-left-color: #e8b23a;
+  }
+
+  .guide-tip {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background-color: #e8b23a;
+  }
+
+  .guide-tip-text {
+    color: #2a1a00;
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 17px;
+  }
+
   .goods-off {
     opacity: 0.45;
   }
@@ -2011,15 +2205,24 @@
   }
 
   /* 三样混在同一栏，所以得一眼分得出来：
-     牌是白的（像张牌）、技能是紫的、点数卡是蓝的 */
+     形状一样，只靠底色分：牌是白的（像张牌）、技能是紫的、点数卡是金的。
+     点数卡不用蓝色 —— 道具栏的稀有度已经占了蓝 */
   .fix-skill {
     background-color: #5b3a8e;
     border-color: #8b63c9;
   }
 
   .fix-pip {
-    background-color: #14517a;
-    border-color: #4ea8de;
+    background-color: #f2c14e;
+    border-color: #f2c14e;
+  }
+
+  .fix-pip .fix-name {
+    color: #5a3a00;
+  }
+
+  .fix-pip .fix-price {
+    color: #6b4a00;
   }
 
   /* 贴过点数卡的牌：描一圈金边。
@@ -2064,6 +2267,18 @@
   }
 
   /* ---------- 货品详情弹层 ---------- */
+
+  /* 弹窗遮罩：铺满整页，弹窗摆正中 */
+  .mask {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.6);
+  }
 
   .buy-box {
     width: 300px;
@@ -2194,6 +2409,101 @@
     margin-top: 8px;
   }
 
+  /* 弹窗里的技能卡（技能包、砺钩、洗点共用） */
+  .my-skill {
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background-color: #0b4f33;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #2f7a57;
+  }
+
+  .pack-sell {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top-width: 1px;
+    border-top-style: solid;
+    border-top-color: #2f7a57;
+  }
+
+  .pack-sell-title {
+    color: #ff9e80;
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  .pack-sell-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 4px;
+  }
+
+  .pack-sell-name {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: bold;
+    margin-right: 6px;
+  }
+
+  .pack-sell-cover {
+    flex: 1;
+    color: #9fd9bd;
+    font-size: 11px;
+  }
+
+  .my-skill-off {
+    opacity: 0.4;
+  }
+
+  .my-skill-on {
+    border-width: 2px;
+    border-color: #e8b23a;
+    background-color: #155c3d;
+  }
+
+  .my-skill-head {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .my-skill-gap {
+    flex: 1;
+  }
+
+  .my-skill-name {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: bold;
+    margin-right: 6px;
+  }
+
+  .my-skill-cover {
+    color: #9fd9bd;
+    font-size: 10px;
+    padding: 1px 6px;
+    margin-right: 6px;
+    border-radius: 7px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #4f8f70;
+  }
+
+  .my-skill-level {
+    color: #9fd9bd;
+    font-size: 10px;
+    margin-top: 4px;
+  }
+
+  .my-skill-desc {
+    color: #e6f4ec;
+    font-size: 12px;
+    line-height: 18px;
+    margin-top: 6px;
+  }
+
   /* 一行一个点数：左边标点数，右边摊开这个点数的所有牌 */
   .pick-line {
     flex-direction: row;
@@ -2258,10 +2568,6 @@
   }
 
   /* 没拥有的技能不显示 */
-  .skill-hidden {
-    display: none;
-  }
-
   .empty {
     color: #9fd9bd;
     font-size: 12px;
@@ -2339,88 +2645,16 @@
     font-size: 11px;
   }
 
-  .buy-btn {
-    height: 28px;
-    padding: 0 12px;
-    border-radius: 14px;
-    align-items: center;
-    justify-content: center;
-    background-color: #e8b23a;
-  }
-
-  .buy-btn-off {
-    opacity: 0.4;
-  }
-
-  .buy-text {
-    color: #3b2a00;
-    font-size: 12px;
-    font-weight: bold;
-  }
-
-  .slot-head {
-    margin-top: 10px;
-  }
-
-  .slot-title {
-    color: #ffffff;
-    font-size: 14px;
-    font-weight: bold;
-  }
-
-  .slot-note {
-    color: #9fd9bd;
-    font-size: 11px;
-  }
-
-  .cells {
+  .back-row {
     flex-direction: row;
-    flex-wrap: wrap;
-    margin-top: 6px;
-  }
-
-  .cell {
-    width: 50px;
-    height: 50px;
-    margin-right: 6px;
-    margin-bottom: 6px;
-    border-radius: 8px;
-    align-items: center;
     justify-content: center;
-    background-color: #ffffff;
-    border-width: 2px;
-    border-style: solid;
-    border-color: #ffffff;
-  }
-
-  .cell-suit {
-    width: 66px;
-  }
-
-  .cell-on {
-    border-color: #e8b23a;
-    background-color: #fffbe8;
-  }
-
-  .cell-main {
-    color: #1a1a1a;
-    font-size: 16px;
-    font-weight: bold;
-  }
-
-  .cell-red {
-    color: #d33b3b;
-  }
-
-  .cell-skill {
-    color: #1565c0;
-    font-size: 10px;
+    margin-top: 8px;
   }
 
   .back-btn {
-    height: 42px;
-    border-radius: 21px;
-    margin-top: 8px;
+    width: 120px;
+    height: 34px;
+    border-radius: 17px;
     align-items: center;
     justify-content: center;
     border-width: 1px;
@@ -2428,8 +2662,18 @@
     border-color: #e8b23a;
   }
 
+  .back-btn-plain {
+    width: 80px;
+    margin-right: 10px;
+    border-color: #9fd9bd;
+  }
+
   .back-text {
     color: #e8b23a;
-    font-size: 15px;
+    font-size: 14px;
+  }
+
+  .back-text-plain {
+    color: #9fd9bd;
   }
 </style>

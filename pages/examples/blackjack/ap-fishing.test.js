@@ -53,10 +53,6 @@ describe('/pages/examples/blackjack/ap-fishing', () => {
     expect(await page.$('#md-card-4')).toBe(null)
     // 名额那个计数器（0/4）一直摆在抬头上
     expect(await textOf('#md-skill-own')).toContain('0/4')
-    // 道具栏默认 3 格（买过【加栏】才是 4）
-    expect(await textOf('.section-note')).toContain('这一批上 3 种')
-    // 点数槽默认 6 格（买过【加权】才是 7）
-    expect(await textOf('#md-rank-head')).toContain('/6')
     // 道具按稀有度摇，所以每一行都标了档位。上的是哪一档不能断言 ——
     // 第 1 关史诗概率只有百分之几
     const tier = await textOf('.fix-tier')

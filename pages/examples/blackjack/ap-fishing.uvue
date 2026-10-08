@@ -297,11 +297,10 @@
         <text id="ap-reward" class="result-reward">{{ rewardText }}</text>
         <!-- 原先这儿有一行 skillText（「过关掉了什么技能」）。
              技能改成商店买了，结算不再发技能，这一行整条删掉 -->
-        <view v-if="outcome == OUT_WIN" id="ap-next" class="result-btn" @click="goNext">
-          <text class="result-btn-text">下一关</text>
-        </view>
-        <view v-if="outcome == OUT_WIN" id="ap-shop" class="result-btn result-btn-plain" @click="goShop">
-          <text class="result-btn-text result-btn-text-plain">去商店</text>
+        <!-- 赢了不再让你挑「下一关 / 去商店」：结算框亮一下就自己进商店，
+             从商店回来直接开下一关。这个按钮只是等不及时点的 -->
+        <view v-if="outcome == OUT_WIN" id="ap-shop" class="result-btn" @click="goShop">
+          <text class="result-btn-text">去商店</text>
         </view>
         <view v-if="outcome == OUT_LOSE" id="ap-restart" class="result-btn" @click="newGame">
           <text class="result-btn-text">从第 1 关重来</text>
@@ -366,13 +365,15 @@
     coverageText,
     levelText,
     DrawKit,
-    rollFullKit
+    rollFullKit,
+    kitFromLevels
   } from '@/pages/examples/blackjack/draw-skills.uts'
   import {
     DrawLevel,
     MARGIN_BONUS_CAP,
     interestOf,
-    drawLevelById
+    drawLevelById,
+    levelForDiff
   } from '@/pages/examples/blackjack/draw-levels.uts'
   import {
     DrawSave,
@@ -380,6 +381,8 @@
     emptyDrawSave,
     loadDrawSave,
     saveDraw,
+    drawSaveSlot,
+    difficultyOf,
     settleWin,
     resetDrawRun,
     deckOf,
@@ -454,6 +457,8 @@
   // 打完立刻交回给你 —— 摸牌不用演，手牌张数一跳就看得出来。
   // 早先摸、打、交回各停 0.7 秒，庄家钓到牌的那一回合要等三秒多，太拖
   const FOE_DELAY_MS : number = 600
+  // 赢了之后结算框停多久再自动进商店 —— 够看清拿了多少金币就行
+  const SHOP_DELAY_MS : number = 1200
   // 收牌特效分三拍：被收的那段亮起来停一下 → 往上飘走 → 积分跳一下。不弹横幅，
   // 只靠牌本身和积分说话。亮的时长照钓鱼游戏的 CATCH_DELAY（560ms）取整
   const CATCH_SHOW_MS : number = 500
@@ -535,6 +540,9 @@
   // 做成 URL 参数而不是存档里的一个开关：它是一局**不记账**的对局，
   // 存档里不该留下它来过的痕迹。退出页面这个模式就没了，正合适
   let finalMode : boolean = false
+  // 终局「自定义技能」带进来的等级表（下标对齐 DRAW_SKILLS，-1 = 不带）。
+  // 空的就是没自定义，照旧随机满配
+  let customKit : number[] = []
 
   // 观潮等你选的时候：牌库顶那两张叫什么
   const tidePending = ref<boolean>(false)
@@ -617,6 +625,7 @@
   let foeTimer : number = -1
   let catchTimer : number = -1
   let flashTimer : number = -1
+  let shopTimer : number = -1
 
   const canPlay = computed<boolean>(() : boolean => {
     return myTurn.value && !over.value && !catching.value && !tidePending.value
@@ -1298,6 +1307,16 @@
     pendingSkills = skills
     lastPlayed = card
     const worth = valuesOf(card, skills)
+    // J 打在空堆上：没有可通吃的，就**只勾走它自己**（记 1 分）。
+    //
+    // 不改 catchStart（那边空堆照旧返回 -1）：庄家挑牌、手牌高亮都读它，
+    // 让它们把这一下当「钓到了」，庄家就会把 J 白白花在空堆上换 1 分；
+    // 洪水从牌库翻上来的 J 也不算打出，不该吃这条
+    if (card.rank == JACK && pile.value.length == 0) {
+      pushPile(card, byFoe, GUARD_NONE, worth)
+      startCatch(byFoe, 0, 0)
+      return 1
+    }
     if (at < 0) {
       // 没钓到：沉底的插到堆底，普通的落堆顶
       const guard = hasTrigger(skills, SK_GUARD)
@@ -2482,6 +2501,10 @@
       clearTimeout(flashTimer)
       flashTimer = -1
     }
+    if (shopTimer >= 0) {
+      clearTimeout(shopTimer)
+      shopTimer = -1
+    }
   }
 
   // 把这一方的手牌补足到 HAND_SIZE。牌库空了就补多少算多少
@@ -2597,6 +2620,9 @@
     rewardText.value = '获得 ' + gain + ' 金币（胜分 +' + margin
       + (interest > 0 ? '，利息 +' + interest : '') + '）'
     outcome.value = id >= DRAW_RUN_LENGTH ? OUT_CLEAR : OUT_WIN
+    if (outcome.value == OUT_WIN) {
+      shopTimer = setTimeout(goShop, SHOP_DELAY_MS)
+    }
   }
 
   // 一方打完这回合，交给另一方。
@@ -2895,6 +2921,10 @@
   // 挑饵时触发护饵 / 窥视 / 搅水 / 观潮的牌，只要不比最安全的那张差 1 张以上就优先。
   // 不会记牌的（浅滩前两关）钓不到就随手打
   function foePickCard() : number {
+    // 新手关：完全随机，钓得到也不挑
+    if (level.value.random) {
+      return randomFree()
+    }
     let best = -1
     let bestCaught = 0
     for (let i = 0; i < foeHand.value.length; i++) {
@@ -3027,17 +3057,18 @@
       // 终局：**不读存档的关卡，也不读你平时的装备** ——
       // 这一局跟你攒了多少钱、打到第几关一点关系都没有。
       //
-      // 两边各摇一套满配。**没有自定义那条路了** ——
-      // 技能带什么、几级、落在哪一律是摇出来的，终局也不例外。
-      // 双方一样满，所以题目只剩「这两套配装怎么互相咬」
-      const mine = rollFullKit()
+      // 庄家摇一套满配；你这边在关卡页「自定义技能」里挑过就照它来
+      //（带什么、几级你定，落在哪照旧是摇的），没挑就也摇一套满配
+      const mine = customKit.length > 0 ? kitFromLevels(customKit) : rollFullKit()
       myLevels.value = mine.levels
       myLoadout.value = mine.loadout
       level.value = finalLevel(rollFullKit())
     } else {
       // 打的永远是本轮现在这一关。整轮打通了（runLevel 超过 12）的档不该进到这里，
       // 关卡页会先让它重开一轮；万一进来了就从第 1 关打
-      level.value = drawLevelById(data.runLevel > DRAW_RUN_LENGTH ? 1 : data.runLevel)
+      // 庄家怎么出牌、过关给多少，按这个存档选的难度来（见 levelForDiff）
+      level.value = levelForDiff(drawLevelById(data.runLevel > DRAW_RUN_LENGTH ? 1 : data.runLevel),
+        difficultyOf(drawSaveSlot()))
       myLevels.value = data.levels.slice(0)
       myLoadout.value = data.loadout
     }
@@ -3069,8 +3100,9 @@
     message.value = finalMode
       ? '终局 · 双方都是随机满配，一局定胜负。庄家先手，打完一张补足 '
         + HAND_SIZE + ' 张。'
-      : '第 ' + level.value.id + ' 关「' + level.value.name + '」。庄家先手，'
-        + '每回合打一张，回合末补足 ' + HAND_SIZE + ' 张。'
+      : '第 ' + level.value.id + ' 关「' + level.value.name + '」。'
+        + (level.value.random ? '这一关庄家随机出牌。' : '')
+        + '庄家先手，每回合打一张，回合末补足 ' + HAND_SIZE + ' 张。'
     startFoeTurn()
   }
 
@@ -3085,18 +3117,27 @@
       chapter: '终局',
       name: '满配对决',
       smart: true,
+      random: false,
       levels: kit.levels,
       loadout: kit.loadout,
       reward: 0
     } as DrawLevel
   }
 
-  // 下一关：存档里的 runLevel 已经推进过了，重新开局就会读到
-  function goNext() {
-    newGame()
-  }
+  // 进过商店了没。回到这一页时据此直接开下一关
+  // （存档里的 runLevel 已经推进过了，重新开局就会读到）
+  let shopped : boolean = false
 
+  // 自动跳和手点都走这儿，只跳一次
   function goShop() {
+    if (shopTimer >= 0) {
+      clearTimeout(shopTimer)
+      shopTimer = -1
+    }
+    if (shopped) {
+      return
+    }
+    shopped = true
     uni.navigateTo({ url: '/pages/examples/blackjack/draw-skills' })
   }
 
@@ -3120,13 +3161,35 @@
   onLoad((options : OnLoadOptions) => {
     const mode = options['mode']
     finalMode = mode != null && ('' + mode) == 'final'
+    // kit=等级,等级,…（关卡页「自定义技能」传过来的）
+    const kit = options['kit']
+    customKit = []
+    if (finalMode && kit != null && ('' + kit) != '') {
+      const parts = ('' + kit).split(',')
+      for (let i = 0; i < parts.length; i++) {
+        const v = parseInt(parts[i])
+        customKit.push(isNaN(v) ? -1 : v)
+      }
+    }
     newGame()
   })
 
-  // 从商店回来：技能可能换过了。只在还没开打（结算框开着）时刷新技能栏，
-  // 对局进行中不动 —— 商店只能从结算框进。
+  // 从商店回来：赢了那一关进的商店，回来就直接开下一关（newGame 会读新存档，
+  // 技能、牌组都是商店改过的）。
+  // 其余情况只在还没开打（结算框开着）时刷新技能栏，对局进行中不动。
   // 终局模式用的是摇出来的那套，不能让存档里的盖掉
   onShow(() => {
+    if (shopped && over.value && outcome.value == OUT_WIN) {
+      shopped = false
+      // 商店的「开始下一关」已经清过 inShop；按系统返回键回来的没清，这儿兜一道
+      const data = loadDrawSave()
+      if (data.inShop) {
+        data.inShop = false
+        saveDraw(data)
+      }
+      newGame()
+      return
+    }
     if (over.value && !finalMode) {
       const data = loadDrawSave()
       myLevels.value = data.levels.slice(0)
@@ -3146,16 +3209,20 @@
     background-color: #0b5d3b;
   }
 
+  /* 记分时数字会放大 1.5 倍（.score-flash），view 默认 overflow: hidden
+     会把超出格子的那截裁掉，所以这两层都放开 */
   .score-bar {
     flex-direction: row;
     justify-content: space-between;
     padding: 8px 12px;
     border-radius: 10px;
     background-color: #0e3a28;
+    overflow: visible;
   }
 
   .score-cell {
     align-items: center;
+    overflow: visible;
   }
 
   .score-label {

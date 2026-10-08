@@ -112,12 +112,12 @@ export const DRAW_SKILLS : DrawSkill[] = [
   {
     key: 'guard', name: '护饵', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
     first: false,
-    desc: '这张没钓到牌时，对方下一回合钓不到它（J 照样通吃）'
+    desc: '没钓到牌时，对方下一回合钓不到这张（J 除外）'
   },
   {
     key: 'hook', name: '磁钩', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
     first: false,
-    desc: '这张还能对上点数比它大 1 的牌（Q 钓 K，10 钓不了 J）'
+    desc: '还能钓点数比它大 1 的牌（如 Q 钓 K，钓不了 J）'
   },
   {
     // 看的是**你自己回合末要补的**那两张 —— 回合末补牌（见 ap-fishing 的
@@ -126,22 +126,22 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 现在补的是刚打完那一方，于是它变成了「挑自己的牌」
     key: 'tide', name: '观潮', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
     first: false,
-    desc: '打出后看牌库顶 2 张（你回合末要补的），可以把它们一起沉到牌库底'
+    desc: '打出后查看牌库顶 2 张，可选择把它们放到牌库底'
   },
   {
     key: 'peek', name: '窥视', kind: KIND_ANY, maxLevel: 2, unlock: 40, upgrade: [60, 100],
     first: false,
-    desc: '打出后翻开对方一张手牌，直到它打出去'
+    desc: '打出后翻开对方 1 张手牌，直到那张被打出'
   },
   {
     key: 'top', name: '钩顶', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
     first: false,
-    desc: '这张对不上任何牌时，钓走堆顶那一张（只能放点数槽，不能升级）'
+    desc: '没钓到牌时，改为钓走堆顶 1 张'
   },
   {
     key: 'stir', name: '搅水', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
     first: false,
-    desc: '打出后对方随机一张手牌明着落到牌堆上，不算钓牌（只能放点数槽，不能升级）'
+    desc: '打出后，对方随机 1 张手牌落到堆上（不算钓牌）'
   },
   {
     // 换水：挑一张自己的手牌塞回牌库洗掉。
@@ -161,7 +161,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 跟护饵、磁钩、观潮同一个规矩。价钱也照那三件走
     key: 'swap', name: '换水', kind: KIND_ANY, maxLevel: 2, unlock: 60, upgrade: [90, 150],
     first: false,
-    desc: '打出后挑一张自己的手牌塞回牌库洗掉（回合末会补一张新的）'
+    desc: '打出后，选 1 张自己的手牌洗回牌库'
   },
   {
     // 顺色：**第二条钓牌通道**。
@@ -184,7 +184,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 这个形状都一样
     key: 'suited', name: '顺色', kind: KIND_ANY, maxLevel: 2, unlock: 80, upgrade: [90, 150],
     first: false,
-    desc: '这张改按花色钓（堆里同花色最深那张起，中间的一并收走），但它自己失去点数'
+    desc: '改按花色钓牌：从堆里最深的同花色牌起，连同上面的牌一起收走。这张没有点数'
   },
   // ---- 下面三件的效果「挂在打出的那张牌上」 ----
   //
@@ -206,7 +206,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 在庄家手里是威慑
     key: 'lantern', name: '照水', kind: KIND_ANY, maxLevel: 2, unlock: 80, upgrade: [90, 150],
     first: false,
-    desc: '打出后对方全部手牌明置，直到这张牌被钓走'
+    desc: '打出后，对方手牌全部明示，直到这张被钓走'
   },
   {
     // 冻结：锁对方一张手牌，它打不出去。
@@ -223,7 +223,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 没有情报的时候，冻结是一次下注；有情报的时候，它是一记精准打击
     key: 'freeze', name: '冻结', kind: KIND_ANY, maxLevel: 2, unlock: 70, upgrade: [90, 150],
     first: false,
-    desc: '打出后指定对方一张手牌，它不能打出，直到这张牌被钓走'
+    desc: '打出后选对方 1 张手牌，它不能打出，直到这张被钓走'
   },
   {
     // 见底：把整个牌堆的点数压下去，收走压到 0 的那些。
@@ -241,7 +241,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 而这儿收的是散在堆里的 0 点牌）—— 直接结算 + 播报，跟搅水一个路子
     key: 'lowtide', name: '见底', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
     first: false,
-    desc: '打出后场上所有牌点数 −N（N = 场上黑色牌的张数），收走点数变成 0 的牌（只能放点数槽，不能升级）'
+    desc: '打出后，场上所有牌点数减 N（N 为场上黑色牌数），收走点数变为 0 的牌'
   },
   {
     // 洪水：它自己没点数，但打出之后从**牌库**一张张往堆上翻，
@@ -267,7 +267,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 翻几张不定）—— 直接结算 + 播报，跟见底一个路子
     key: 'flood', name: '洪水', kind: KIND_RANK, maxLevel: 0, unlock: 130, upgrade: [],
     first: false,
-    desc: '它自己没点数；打出后从牌库一张张翻到堆上，直到撞上点数，那一段全收走算你的分（翻上去的牌不触发技能；只能放点数槽，不能升级）'
+    desc: '这张没有点数。打出后从牌库逐张翻牌到堆上，直到点数对上，收走那一段'
   },
   {
     // 择饵：看牌库顶五张，挑一张留在最上面，其余沉到底。
@@ -286,7 +286,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 所以它是「从五张里给自己挑一张」，不是偷看对手
     key: 'pick', name: '择饵', kind: KIND_ANY, maxLevel: 2, unlock: 100, upgrade: [90, 150],
     first: false,
-    desc: '打出后看牌库顶 5 张（你回合末要补的），挑一张留在最上面，其余沉到牌库底'
+    desc: '打出后查看牌库顶 5 张，选 1 张放在最上面，其余放到牌库底'
   },
   {
     // 染水〔**优先**〕：打出后把**场上所有牌的花色**改成跟这张一样。
@@ -336,7 +336,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 它单买是废的，所以定价偏低；可它跟顺色凑一起是全表最凶的一组
     key: 'suitify', name: '染水', kind: KIND_ANY, maxLevel: 2, unlock: 110, upgrade: [90, 150],
     first: true,
-    desc: '打出后把场上所有牌的花色变成跟它一样（自己不加分；它是给顺色和见底铺路的）'
+    desc: '打出后，场上所有牌的花色变成与这张相同'
   },
   {
     // 沉底〔**优先**〕：这张**打到堆底**，而不是堆顶。
@@ -369,7 +369,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 单独带它也不废（能吃堆底），所以它不像【染水】那样完全依赖组合
     key: 'sink', name: '沉底', kind: KIND_ANY, maxLevel: 2, unlock: 120, upgrade: [90, 150],
     first: true,
-    desc: '这张打到堆底而不是堆顶；对上了就收走「堆底到匹配那张」的整段（空钩的话它留在堆底，对手匹配到就通吃）'
+    desc: '这张放到堆底。对上时收走从堆底到对上的那一段；没对上则留在堆底'
   },
   {
     // 连竿：打出之后**再打一张**。
@@ -402,7 +402,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 100 块：它自己不收牌、不加分，买的是一个回合里的第二次机会
     key: 'again', name: '连竿', kind: KIND_ANY, maxLevel: 2, unlock: 100, upgrade: [90, 150],
     first: false,
-    desc: '打出后再打 1 张（加打的那张不再给加打）；它是把两件技能凑进同一个回合的钥匙'
+    desc: '打出后可再打 1 张（再打的那张不触发连竿）'
   },
   // ================= 第二批：十一件（照钓鱼的贴纸、排竿的道具移植） =================
   //
@@ -427,7 +427,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 照钓鱼的【归深】抄，连「11 是 J 的数而 J 从不落堆」这个理由都一样
     key: 'deep', name: '归深', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
     first: false,
-    desc: '这张还算 11 点（J 的数，而 J 从不落堆 —— 那是只有归深牌够得到的钓点）'
+    desc: '这张同时算 11 点'
   },
   {
     // 齐顶：这张算堆上**最大**的那个点数。
@@ -446,7 +446,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 就等于每回合都能必钩，那比效果本身强得多（跟钩顶、见底同一个道理）
     key: 'peak', name: '齐顶', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
     first: false,
-    desc: '这张算堆上最大的那个点数（落下去必钩中它；空堆上打出算 0 点，白打）'
+    desc: '这张算作堆上最大的点数，必定钓中；空堆时算 0 点'
   },
   // ---- 收割两件 ----
   {
@@ -465,7 +465,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 先钓到一段再散收。你花的是一整张牌的点数，换一次按花色的清扫
     key: 'hue', name: '收色', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
     first: false,
-    desc: '打出后堆上所有同花色的牌连它自己一起收走（散着收，中间的不动）；它自己失去点数'
+    desc: '打出后收走堆上所有同花色的牌（包括这张）。这张没有点数'
   },
   {
     // 撒网：堆上所有跟它**同奇偶**的牌一起收走。
@@ -485,7 +485,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 再散收一批 —— 那是它贵且不给升级的原因
     key: 'cast', name: '撒网', kind: KIND_RANK, maxLevel: 0, unlock: 160, upgrade: [],
     first: false,
-    desc: '打出后堆上所有跟它同奇偶的牌一起收走（奇偶按牌面点数算，0 算偶数）'
+    desc: '打出后收走堆上所有与它奇偶相同的牌（包括这张）'
   },
   // ---- 动对方手牌三件 ----
   //
@@ -495,7 +495,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
   {
     key: 'press', name: '压舱', kind: KIND_ANY, maxLevel: 2, unlock: 80, upgrade: [90, 150],
     first: false,
-    desc: '打出后看对方全部手牌，挑 1 张塞回牌库洗掉（他回合末会补一张新的）'
+    desc: '打出后查看对方手牌，选 1 张洗回牌库'
   },
   {
     // 摘钩：挑对方一张手牌，拿到**自己手上**。
@@ -504,7 +504,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // **看着挑**的 —— 不像搅水那样随机。所以不给升级，价钱也顶到清场件那一档
     key: 'unhook', name: '摘钩', kind: KIND_RANK, maxLevel: 0, unlock: 150, upgrade: [],
     first: false,
-    desc: '打出后看对方全部手牌，挑 1 张拿到自己手上（只能放点数槽，不能升级）'
+    desc: '打出后查看对方手牌，选 1 张拿到自己手上'
   },
   {
     // 对换：跟对方换一张，两边给哪张都你挑。
@@ -513,7 +513,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 手牌数两边都不变，所以它不改节奏 —— 改的是**双方手牌的质量差**
     key: 'swapcard', name: '对换', kind: KIND_RANK, maxLevel: 0, unlock: 160, upgrade: [],
     first: false,
-    desc: '打出后看对方全部手牌，跟他换 1 张 —— 两边各给哪张都由你挑（只能放点数槽，不能升级）'
+    desc: '打出后查看对方手牌，用自己 1 张换对方 1 张（都由你选）'
   },
   // ---- 挂在牌上的两件 ----
   //
@@ -530,7 +530,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 照钓鱼的【窄口】抄，那边是「只补到 4 张」（它手牌上限 5）
     key: 'narrow', name: '窄口', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
     first: false,
-    desc: '打出后对方每回合只补到 3 张手牌，直到这张牌被钓走'
+    desc: '打出后，对方每回合只补到 3 张手牌，直到这张被钓走'
   },
   {
     // 满篓：自己的手牌上限 +1。
@@ -539,7 +539,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 而「打哪张」是这个玩法唯一的决定 —— 所以它比看着弱
     key: 'creel', name: '满篓', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
     first: false,
-    desc: '打出后你每回合补到 5 张手牌，直到这张牌被钓走'
+    desc: '打出后，你每回合补到 5 张手牌，直到这张被钓走'
   },
   // ---- 从牌库检索两件 ----
   //
@@ -552,7 +552,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
   {
     key: 'twin', name: '同号', kind: KIND_ANY, maxLevel: 2, unlock: 100, upgrade: [90, 150],
     first: false,
-    desc: '打出后从牌库里挑 1 张跟它同点数的牌拿到手上（池子就那 3 张，随你挑）'
+    desc: '打出后从牌库选 1 张同点数的牌拿到手上'
   },
   {
     // 同花：翻牌库顶，拿第一张同花色的，翻过的其余**洗回牌库**。
@@ -564,7 +564,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 翻空了就是白打一张 —— 那个花色在牌库里一张不剩的时候
     key: 'suitfind', name: '同花', kind: KIND_ANY, maxLevel: 2, unlock: 90, upgrade: [90, 150],
     first: false,
-    desc: '打出后翻开牌库顶，拿到第一张同花色的牌，翻过的其余洗回牌库'
+    desc: '打出后从牌库顶翻牌，拿到第一张同花色的牌，其余洗回牌库'
   }
 ]
 
@@ -725,6 +725,53 @@ function rollFreeCell(owner : number[]) : number {
     }
   }
   return pool.length == 0 ? -1 : pool[Math.floor(Math.random() * pool.length)]
+}
+
+// ---- 购买前就定好进哪个槽 ----
+//
+// 货架上的技能在上货时、技能包的候选在摊开时就摇好「花色槽还是点数槽」，
+// 摆在格子上给你看 —— 买之前就知道它会落在哪一边。
+// 只放点数槽的技能恒为点数槽，其余两边各一半。格子落在哪几格照旧是拿到时才摇
+export function rollSlotFor(skill : number) : number {
+  if (DRAW_SKILLS[skill].kind == KIND_RANK) {
+    return SLOT_RANK
+  }
+  return Math.floor(Math.random() * 2) == 0 ? SLOT_SUIT : SLOT_RANK
+}
+
+export function slotName(slot : number) : string {
+  if (slot == SLOT_SUIT) {
+    return '花色槽'
+  }
+  if (slot == SLOT_RANK) {
+    return '点数槽'
+  }
+  return ''
+}
+
+// 一个新拿到的（0 级）技能，定好的那个槽现在塞得下吗
+export function canPlaceIn(lo : DrawLoadout, skill : number, slot : number) : boolean {
+  const levels = filled(DRAW_SKILLS.length, -1)
+  levels[skill] = 0
+  if (slot == SLOT_SUIT) {
+    return suitRoomFor(lo, levels, skill)
+  }
+  if (slot == SLOT_RANK) {
+    return usedOf(lo.rankOwner) < rankCapOf(lo)
+  }
+  return true
+}
+
+// 照定好的槽装。那个槽塞不下就先不装（库里躺着，等腾出位子）。
+// 没定槽的（老档的货架）照旧走 rollPlace，哪边塞得下摇哪边
+export function placeInSlot(lo : DrawLoadout, levels : number[], skill : number, slot : number) : DrawLoadout {
+  if (slot == SLOT_SUIT) {
+    return suitRoomFor(lo, levels, skill) ? fillSuit(lo, levels, skill) : cloneLoadout(lo)
+  }
+  if (slot == SLOT_RANK) {
+    return usedOf(lo.rankOwner) < rankCapOf(lo) ? fillRank(lo, levels, skill) : cloneLoadout(lo)
+  }
+  return rollPlace(lo, levels, skill)
 }
 
 // 花色槽还塞得下这个技能吗。升过级的要一整个颜色（两格），没升级的一格
@@ -1027,9 +1074,26 @@ function rollSpots(total : number, want : number) : number[] {
 // 不让装备层反过来依赖存档层，所以抄一个同名常量，改的时候一起改
 const FULL_KIT_SKILLS : number = 4
 
-// 原先这儿有个 kitFromLevels（按给定的等级表摇一套装备），
-// 给终局的「自定义配装」用的。那个功能整套取消了，这个跟着删 ——
-// 技能带什么、几级、落在哪一律是摇出来的，终局也不例外
+// 终局「自定义技能」：带哪几个、几级由你定，**位置照旧是摇的**。
+//
+// 按随机顺序一个个 rollPlace 进去（槽用底数，跟 rollFullKit 一样不读存档）。
+// 槽装不下的那个就没装上 —— 等级留着，但这一局它不上桌
+export function kitFromLevels(want : number[]) : DrawKit {
+  const levels = filled(DRAW_SKILLS.length, -1)
+  const order : number[] = []
+  for (let k = 0; k < DRAW_SKILLS.length && k < want.length; k++) {
+    if (want[k] >= 0) {
+      levels[k] = Math.min(want[k], DRAW_SKILLS[k].maxLevel)
+      order.push(k)
+    }
+  }
+  let lo = emptyLoadout()
+  const picked = rollSpots(order.length, order.length)
+  for (let i = 0; i < picked.length; i++) {
+    lo = rollPlace(lo, levels, order[picked[i]])
+  }
+  return { levels: levels, loadout: lo } as DrawKit
+}
 
 export function rollFullKit() : DrawKit {
   const levels = filled(DRAW_SKILLS.length, -1)

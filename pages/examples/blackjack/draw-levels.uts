@@ -27,6 +27,9 @@ export type DrawLevel = {
   chapter : string
   // 庄家会不会记牌。不会的话钓得到就钓，钓不到随手打
   smart : boolean
+  // 庄家完全随机出牌：钓得到也不挑，手里随便打一张。只给第 1 关 ——
+  // 新手关，让人先把「怎么钓」摸熟
+  random : boolean
   // 庄家每个技能的等级，-1 表示没有
   levels : number[]
   loadout : DrawLoadout
@@ -675,50 +678,52 @@ const N : number = -1
 
 export const DRAW_LEVELS : DrawLevel[] = [
   // ---------- 浅滩 ----------
-  { id: 1, chapter: '浅滩', name: '试竿', smart: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
-  { id: 2, chapter: '浅滩', name: '涨潮', smart: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
-  { id: 3, chapter: '浅滩', name: '老渔夫', smart: true, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
-  { id: 4, chapter: '浅滩', name: '滩头', smart: true, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
+  // 第 1 关给 80 而不是 30：新档 0 金币，第一个商店要是连【技能二选一】（80）
+  // 都买不起，进店就只能干看。80 + 胜分保证第一店至少能拿下一个技能
+  { id: 1, chapter: '浅滩', name: '试竿', smart: false, random: true, levels: noSkills(), loadout: emptyLoadout(), reward: 80 },
+  { id: 2, chapter: '浅滩', name: '涨潮', smart: false, random: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
+  { id: 3, chapter: '浅滩', name: '老渔夫', smart: true, random: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
+  { id: 4, chapter: '浅滩', name: '滩头', smart: true, random: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
   // ---------- 河湾：1 个技能 ----------
   {
-    id: 5, chapter: '河湾', name: '回水', smart: true, reward: 45,
+    id: 5, chapter: '河湾', name: '回水', smart: true, random: false, reward: 45,
     levels: levelsOf([SK_HOOK, 0]),
     loadout: loadoutOf([N, N, N, N], ['7'], [SK_HOOK])
   },
   {
-    id: 6, chapter: '河湾', name: '暗礁', smart: true, reward: 45,
+    id: 6, chapter: '河湾', name: '暗礁', smart: true, random: false, reward: 45,
     levels: levelsOf([SK_GUARD, 0]),
     loadout: loadoutOf([SK_GUARD, N, N, N], [], [])
   },
   {
-    id: 7, chapter: '河湾', name: '望潮', smart: true, reward: 45,
+    id: 7, chapter: '河湾', name: '望潮', smart: true, random: false, reward: 45,
     levels: levelsOf([SK_TIDE, 1]),
     loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], [], [])
   },
   {
-    id: 8, chapter: '河湾', name: '湾口', smart: true, reward: 45,
+    id: 8, chapter: '河湾', name: '湾口', smart: true, random: false, reward: 45,
     levels: levelsOf([SK_HOOK, 1]),
     loadout: loadoutOf([N, N, N, N], ['4', '7', '10'], [SK_HOOK, SK_HOOK, SK_HOOK])
   },
   // ---------- 深海：两个槽 ----------
   {
-    id: 9, chapter: '深海', name: '雾海', smart: true, reward: 60,
+    id: 9, chapter: '深海', name: '雾海', smart: true, random: false, reward: 60,
     levels: levelsOf([SK_GUARD, 0, SK_HOOK, 1]),
     loadout: loadoutOf([SK_GUARD, N, N, N], ['3', '6', '9'], [SK_HOOK, SK_HOOK, SK_HOOK])
   },
   {
-    id: 10, chapter: '深海', name: '漩涡', smart: true, reward: 60,
+    id: 10, chapter: '深海', name: '漩涡', smart: true, random: false, reward: 60,
     levels: levelsOf([SK_TIDE, 1, SK_TOP, 0, SK_PEEK, 0]),
     loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], ['Q', '5'], [SK_TOP, SK_PEEK])
   },
   {
-    id: 11, chapter: '深海', name: '鲸落', smart: true, reward: 60,
+    id: 11, chapter: '深海', name: '鲸落', smart: true, random: false, reward: 60,
     levels: levelsOf([SK_GUARD, 1, SK_HOOK, 2]),
     loadout: loadoutOf([SK_GUARD, N, N, SK_GUARD], ['A', '3', '5', '7', '9', 'Q'],
       [SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK])
   },
   {
-    id: 12, chapter: '深海', name: '深渊', smart: true, reward: 60,
+    id: 12, chapter: '深海', name: '深渊', smart: true, random: false, reward: 60,
     levels: levelsOf([SK_TIDE, 1, SK_HOOK, 1, SK_TOP, 0, SK_STIR, 0, SK_GUARD, 0]),
     loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], ['2', '6', '10', 'K', '8', '4'],
       [SK_HOOK, SK_HOOK, SK_HOOK, SK_TOP, SK_STIR, SK_GUARD])
@@ -726,6 +731,55 @@ export const DRAW_LEVELS : DrawLevel[] = [
 ]
 
 export const DRAW_LEVEL_COUNT : number = DRAW_LEVELS.length
+
+// ---------- 难度 ----------
+//
+// 三档，管两件事：庄家怎么出牌、过关给多少金币。
+//
+//   简单 —— 浅滩四关（1–4）庄家完全随机出牌，之后各关都不记牌；过关奖励 ×1.5
+//   普通 —— 照关卡表原样（第 1 关随机、第 2 关不记牌、第 3 关起记牌）
+//   困难 —— 十二关全都记牌，没有随机关；过关奖励 ×0.75
+//
+// 倍率只乘关卡的**基础奖励**，胜分奖励和利息不跟着变 ——
+// 那两样奖励的是「打得好」「忍住没花」，跟难度无关。
+//
+// 困难的第 1 关**保底 FIRST_REWARD_FLOOR**：第一个商店必上【技能二选一】，
+// 新手引导也要你买它，第 1 关给的钱不够买就卡死了
+export const DIFF_EASY : number = 0
+export const DIFF_NORMAL : number = 1
+export const DIFF_HARD : number = 2
+export const DIFF_NAMES : string[] = ['简单', '普通', '困难']
+const DIFF_REWARD_RATE : number[] = [1.5, 1.0, 0.75]
+const EASY_RANDOM_UNTIL : number = 4
+const FIRST_REWARD_FLOOR : number = 80
+
+// 这一关在这个难度下的样子。返回一份新的，不改 DRAW_LEVELS 本身
+export function levelForDiff(lv : DrawLevel, diff : number) : DrawLevel {
+  let random = lv.random
+  let smart = lv.smart
+  if (diff == DIFF_EASY) {
+    random = lv.id <= EASY_RANDOM_UNTIL
+    smart = false
+  } else if (diff == DIFF_HARD) {
+    random = false
+    smart = true
+  }
+  const rate = diff >= 0 && diff < DIFF_REWARD_RATE.length ? DIFF_REWARD_RATE[diff] : 1.0
+  let reward = Math.round(lv.reward * rate)
+  if (lv.id == 1 && reward < FIRST_REWARD_FLOOR) {
+    reward = FIRST_REWARD_FLOOR
+  }
+  return {
+    id: lv.id,
+    name: lv.name,
+    chapter: lv.chapter,
+    smart: smart,
+    random: random,
+    levels: lv.levels,
+    loadout: lv.loadout,
+    reward: reward
+  } as DrawLevel
+}
 
 export function drawLevelById(id : number) : DrawLevel {
   for (let i = 0; i < DRAW_LEVELS.length; i++) {
