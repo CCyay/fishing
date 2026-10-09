@@ -12,6 +12,10 @@
         <text id="md-lives" class="lives">♥ {{ livesNow }}</text>
       </view>
     </view>
+    <!-- 手里还有没开的彩票：提一句什么时候开，不然买完像没反应 -->
+    <text v-if="save.lotto > 0" id="md-lotto" class="lotto-line"
+      >彩票 {{ save.lotto }} 张 · 下次进商店开奖</text
+    >
     <!-- 这一页两栏货 + 一份家当清单：
          上栏是道具（改手头已有的东西），下栏是技能和卡牌（往这一轮里添东西）。
          「把技能摆到哪个格子」那套手动分配取消了，摇位置那套也取消了 ——
@@ -380,7 +384,7 @@
               :id="'md-pack-card-' + ci"
               class="pack-card"
               @click="takePackCard(one.text)">
-              <text class="pack-card-text" :class="{ 'fix-red': one.red }">{{ one.text }}</text>
+              <text class="pack-card-text" :class="{ 'fix-red': one.red }">{{ one.label }}</text>
             </view>
           </view>
         </scroll-view>
@@ -413,7 +417,7 @@
 </template>
 
 <script setup lang="uts">
-  import { SUITS, RANKS } from '@/pages/examples/blackjack/cards.uts'
+  import { SUITS } from '@/pages/examples/blackjack/cards.uts'
   import {
     DRAW_SKILLS,
     DRAW_ROLES,
@@ -470,6 +474,17 @@
     growShelf,
     growCard,
     makeFlat,
+    growLibrary,
+    rollShopCard,
+    libraryCapFor,
+    cardPriceOf,
+    hasFace,
+    rankFace,
+    fusedRank,
+    valueOfRankText,
+    DECK_RANKS,
+    ZERO_RANK,
+    BLANK_RANK,
     GOODS_FIX,
     GOODS_SKILL,
     drawSaveSlot,
@@ -480,7 +495,6 @@
   import {
     drawLevelById,
     levelForDiff,
-    libraryCapOf,
     maxLivesOf,
     foeCoverOf,
     // 庄家预告里「固定的那层」：角色名 + 特殊技全文
@@ -620,9 +634,10 @@
       out.push({
         at: i,
         tag: one.tag,
-        name: one.tag,
-        // 价钱只看是不是 J（它通吃）
-        price: rankOfText(one.tag) == 'J' ? 80 : 40,
+        // cardLabel：无点数牌写「♠无」而不是存档里那个 '♠-'
+        name: cardLabel(one.tag),
+        // 价钱统一走 cardPriceOf（J、零点、无点数各有各的价）
+        price: cardPriceOf(one.tag),
         // ♥♦ 是红的（SUITS 的顺序是 ♠♥♦♣）
         red: suit == SUITS[1] || suit == SUITS[2],
         isSkill: false,
@@ -654,8 +669,9 @@
   })
 
   // 技能库上限、生命上限都按难度（见 draw-levels 的 libraryCapOf / maxLivesOf）
+  // 走 libraryCapFor —— 买过【扩库】要算上那一格
   const libCap = computed<number>(() : number => {
-    return libraryCapOf(difficultyOf(drawSaveSlot()))
+    return libraryCapFor(save.value, difficultyOf(drawSaveSlot()))
   })
 
   const libFull = computed<boolean>(() : boolean => {
@@ -905,8 +921,11 @@
     } else if ((item.key == 'pack2' || item.key == 'pack5') && noSlots.value) {
       // 开出来没处放。**不拦「槽满了」** —— 满了也能开，嵌进去换掉一件
       block = '还没选角色 —— 没有槽可嵌'
-    } else if (item.key == 'drop' && deckSize.value <= DECK_MIN) {
+    } else if ((item.key == 'drop' || item.key == 'fuse') && deckSize.value <= DECK_MIN) {
+      // 熔合也会少一张（右边那张熔掉了）
       block = '牌组不能少于 ' + DECK_MIN + ' 张'
+    } else if (item.key == 'copy' && deckSize.value >= DECK_CAP) {
+      block = '牌组满了（' + DECK_CAP + ' 张）'
     }
     return {
       ok: true,
@@ -976,7 +995,7 @@
   }
 
   function cardDetail(text : string) : Detail {
-    const price = rankOfText(text) == 'J' ? 80 : 40
+    const price = cardPriceOf(text)
     let block = ''
     // 牌组上限先判，钱后判 —— 上限是硬的（攒再多钱也买不动），
     // 而「金币不够」会让人以为再打一关就能买
@@ -987,14 +1006,22 @@
     }
     const rank = rankOfText(text)
     const same = countOfRank(save.value, rank)
+    let desc = '加进这一轮的牌组。那个点数多一张，就多一次撞上的机会 ——'
+      + '代价是牌组变厚（局更长，你技能覆盖面的占比被稀释）。'
+    if (rank == 'J') {
+      desc = 'J 通吃：堆上有牌时打出它，整堆收走。所以它比别的牌贵一倍。'
+    } else if (rank == ZERO_RANK) {
+      desc = '零点牌：0 点跟谁都不相等，所以它钓不到牌，对方也按点数钓不走它。'
+        + '但它还在点数轴上 —— 见底会收走它，撒网把它算偶数，磁钩拿它能钩 A。'
+    } else if (rank == BLANK_RANK) {
+      desc = '无点数牌：一个点数都没有。按点数钓不到，也不会被按点数钓走 ——'
+        + '只有 J、顺色、收色带得走它。没牌可钓的回合打它，什么也不送给对手。'
+    }
     return {
       ok: true,
       name: cardLabel(text),
-      tag: '加进牌组 · 现在有 ' + same + ' 张 ' + rank,
-      desc: rank == 'J'
-        ? 'J 通吃：堆上有牌时打出它，整堆收走。所以它比别的牌贵一倍。'
-        : '加进这一轮的牌组。那个点数多一张，就多一次撞上的机会 ——'
-          + '代价是牌组变厚（局更长，你技能覆盖面的占比被稀释）。',
+      tag: '加进牌组 · 现在有 ' + same + ' 张 ' + rankFace(rank),
+      desc: desc,
       price: price,
       first: false,
       block: block
@@ -1069,7 +1096,7 @@
       return
     }
     const text = list[at].tag
-    const price = rankOfText(text) == 'J' ? 80 : 40
+    const price = cardPriceOf(text)
     // 跟 cardDetail 同一对闸、同一个顺序。两处都判是因为详情框那边
     // 只是把按钮压暗，真正扣钱的是这儿 —— 闸该在动钱的那一行前面
     if (deckSize.value >= DECK_CAP) {
@@ -1087,7 +1114,7 @@
     setDeck(data, cards)
     markSold(data, at)
     commit(data)
-    uni.showToast({ title: text + ' 加进牌组了', icon: 'none' })
+    uni.showToast({ title: cardLabel(text) + ' 加进牌组了', icon: 'none' })
   }
 
   // 买一个技能：**先不扣钱**，弹出挑槽（跟改造道具一个待遇 ——
@@ -1203,6 +1230,15 @@
     if (pickMode.value == 'drop') {
       return '弃饵'
     }
+    if (pickMode.value == 'copy') {
+      return '拓印'
+    }
+    if (pickMode.value == 'fuse') {
+      return '熔合'
+    }
+    if (pickMode.value == 'blank') {
+      return '抹点'
+    }
     if (pickMode.value == 'pip') {
       return '点数卡 +' + faceOfValue(pickStep.value)
     }
@@ -1262,6 +1298,17 @@
     }
     if (pickMode.value == 'drop') {
       return '点一张牌，从牌组里拿掉'
+    }
+    if (pickMode.value == 'copy') {
+      return '点一张牌，牌组里多一张一模一样的'
+    }
+    if (pickMode.value == 'fuse') {
+      return pickFirst.value < 0
+        ? '先点一张（无点数的不行）'
+        : '再点一张同花色的，两张合成一张，点数相加'
+    }
+    if (pickMode.value == 'blank') {
+      return '点一张牌，它从此没有点数'
     }
     if (pickMode.value == 'slot') {
       return '点一个槽装上【' + DRAW_SKILLS[pickStep.value].name
@@ -1345,10 +1392,13 @@
   const deckRows = computed<PickRow[]>(() : PickRow[] => {
     const cards = deckOf(save.value)
     const rows : PickRow[] = []
-    for (let r = 0; r < RANKS.length; r++) {
+    // A–K 之后还有零点、无点数两行（DECK_RANKS）。那两行**没牌就不列** ——
+    // 大多数牌组里一张都没有，列出来两行「没有」只是噪音
+    for (let r = 0; r < DECK_RANKS.length; r++) {
+      const rank = DECK_RANKS[r]
       const items : PickItem[] = []
       for (let i = 0; i < cards.length; i++) {
-        if (rankOfText(cards[i]) != RANKS[r]) {
+        if (rankOfText(cards[i]) != rank) {
           continue
         }
         const suit = suitOfText(cards[i])
@@ -1360,7 +1410,28 @@
           pipped: pipsOfText(cards[i]).length > 0
         } as PickItem)
       }
-      rows.push({ rank: RANKS[r], items: items } as PickRow)
+      if (items.length == 0 && (rank == ZERO_RANK || rank == BLANK_RANK)) {
+        continue
+      }
+      rows.push({ rank: rankFace(rank), items: items } as PickRow)
+    }
+    // 熔合出来的大点数（14 以上）不在 DECK_RANKS 里，统统归到最后一行「熔」，
+    // 不然它们在这张表里就看不见、也挑不着
+    const fused : PickItem[] = []
+    for (let i = 0; i < cards.length; i++) {
+      if (DECK_RANKS.indexOf(rankOfText(cards[i])) >= 0) {
+        continue
+      }
+      const suit = suitOfText(cards[i])
+      fused.push({
+        at: i,
+        text: cardLabel(cards[i]),
+        red: suit == SUITS[1] || suit == SUITS[2],
+        pipped: pipsOfText(cards[i]).length > 0
+      } as PickItem)
+    }
+    if (fused.length > 0) {
+      rows.push({ rank: '熔', items: fused } as PickRow)
     }
     return rows
   })
@@ -1399,6 +1470,11 @@
       buyGrow(at, item.key, item.price)
       return
     }
+    // 彩票也当场结清：没什么可挑的，记一张，下次进店开
+    if (item.key == 'lotto') {
+      buyLotto(at, item.price)
+      return
+    }
     // **先不扣钱** —— 挑牌挑到一半取消了不该白花。
     // 扣钱、标卖掉都在真正改完那一刻（doPush / doSame / doDrop）
     //
@@ -1409,6 +1485,9 @@
       pickMode.value = 'drop'
     } else if (item.key == 'same') {
       pickMode.value = 'same'
+    } else if (item.key == 'copy' || item.key == 'fuse' || item.key == 'blank') {
+      // 这三件的 pickMode 就是它的 key（拓印、熔合、抹点）
+      pickMode.value = item.key
     } else {
       // 走到这儿就是表里加了货、这个分支没跟上。
       // **不猜**（从前这儿是 `: 'same'`，于是认不出来的一律卖成同化）
@@ -1484,6 +1563,8 @@
       done = growShelf(data)
     } else if (key == 'card') {
       done = growCard(data)
+    } else if (key == 'library') {
+      done = growLibrary(data)
     } else {
       done = makeFlat(data)
     }
@@ -1508,7 +1589,44 @@
       // 这一栏刷新会重摇，所以当场刷一次就看得见多出来的那格
       return '技能/卡牌栏变成 ' + cardSlotsOf(data) + ' 格（换一批就看得见）'
     }
+    if (key == 'library') {
+      return '技能库变成 ' + libraryCapFor(data, difficultyOf(drawSaveSlot())) + ' 格'
+    }
     return '换一批固定 ' + FLAT_REROLL + ' 块了，不再翻倍'
+  }
+
+  // ---------- 彩票 ----------
+  //
+  // 买下来只是记一张（save.lotto），开奖在下一次进店那一刻（draw-save 的 drawLottery），
+  // 进门那句播报在 announcePrize
+  function buyLotto(at : number, price : number) {
+    if (save.value.gold < price) {
+      uni.showToast({ title: '金币不够', icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    data.gold = data.gold - price
+    data.lotto = data.lotto + 1
+    markSold(data, at)
+    commit(data)
+    uni.showToast({ title: '彩票收好了，下次进商店开奖', icon: 'none' })
+  }
+
+  // 进店报一声上一次开奖的结果，报完清掉（prize 写回 -1），退出再进不重报
+  function announcePrize() {
+    if (save.value.prize < 0) {
+      return
+    }
+    const won = save.value.prize
+    const data = loadDrawSave()
+    data.prize = -1
+    commit(data)
+    uni.showModal({
+      title: '彩票开奖',
+      content: won > 0 ? '中了 ' + won + ' 金币，已经进账。' : '一张都没中。',
+      showCancel: false,
+      confirmText: '知道了'
+    })
   }
 
   // ---------- 开包（技能二选一 / 五选一 / 牌六选一） ----------
@@ -1536,6 +1654,8 @@
 
   type PackCard = {
     text : string
+    // 界面上怎么写（无点数牌写「♠无」）。text 留原文，挑中时按它加进牌组
+    label : string
     red : boolean
   }
 
@@ -1545,6 +1665,7 @@
       const suit = suitOfText(packCards.value[i])
       out.push({
         text: packCards.value[i],
+        label: cardLabel(packCards.value[i]),
         red: suit == SUITS[1] || suit == SUITS[2]
       } as PackCard)
     }
@@ -1555,13 +1676,21 @@
   function openPack(at : number, key : string, price : number) {
     const want = packSize(key)
     if (key == 'cards6') {
+      // 跟货架摆牌同一套（rollShopCard）：从现有牌组里按张数加权抽，
+      // 到了上限的点数不出，零点 / 无点数牌偶尔出一张
       const drawn : string[] = []
       for (let i = 0; i < want; i++) {
-        const suit = SUITS[Math.floor(Math.random() * SUITS.length)]
-        const rank = RANKS[Math.floor(Math.random() * RANKS.length)]
+        const card = rollShopCard(save.value)
         // **不去重** —— 摇出两张一样的是真有可能的事，
         // 而「六张里有两张重了」本身就是这一包的运气
-        drawn.push(cardText(suit, rank))
+        if (card != '') {
+          drawn.push(card)
+        }
+      }
+      // 一张都抽不出来（每个点数都到上限了）：不扣钱，别让人花六十块开个空包
+      if (drawn.length == 0) {
+        uni.showToast({ title: '每个点数都到上限了，没有牌可卖', icon: 'none' })
+        return
       }
       const data = loadDrawSave()
       data.gold = data.gold - price
@@ -1772,7 +1901,7 @@
     setDeck(data, cards)
     commit(data)
     clearPack()
-    uni.showToast({ title: text + ' 加进牌组了', icon: 'none' })
+    uni.showToast({ title: cardLabel(text) + ' 加进牌组了', icon: 'none' })
   }
 
   // 包摊开着就离开页面的话，**替你拿第一个** ——
@@ -1811,8 +1940,43 @@
       askDrop(at)
       return
     }
+    // 零点牌、无点数牌没有能推、能贴的那个点数 —— 推点数和点数卡都不对它们下手
+    // 点数卡不贴零点 / 无点数牌（见 draw-save 的 ZERO_RANK 那段）。
+    // 推点数只拦无点数牌 —— 零点牌推得动（往上一格就是 A），熔合出来的大点数也推得动
+    if (pickMode.value == 'pip' && !hasFace(deckOf(save.value)[at])) {
+      uni.showToast({ title: '这张没有点数可改', icon: 'none' })
+      return
+    }
+    if (pickMode.value == 'push' && rankOfText(deckOf(save.value)[at]) == BLANK_RANK) {
+      uni.showToast({ title: '无点数牌推不动', icon: 'none' })
+      return
+    }
     if (pickMode.value == 'pip') {
       doPip(at)
+      return
+    }
+    if (pickMode.value == 'copy') {
+      askCopy(at)
+      return
+    }
+    if (pickMode.value == 'blank') {
+      askBlank(at)
+      return
+    }
+    if (pickMode.value == 'fuse') {
+      if (pickFirst.value < 0) {
+        if (!fusable(deckOf(save.value)[at])) {
+          uni.showToast({ title: '熔合不收无点数的牌', icon: 'none' })
+          return
+        }
+        pickFirst.value = at
+        return
+      }
+      if (pickFirst.value == at) {
+        pickFirst.value = -1
+        return
+      }
+      askFuse(pickFirst.value, at)
       return
     }
     if (pickMode.value == 'same') {
@@ -1839,7 +2003,7 @@
     }
     uni.showModal({
       title: '推 ' + pickStep.value + ' 格',
-      content: cards[at] + ' 往哪边推？点数到 A 和 K 就停，不绕圈。',
+      content: cardLabel(cards[at]) + ' 往哪边推？往上不封顶（K 再往上是 14），往下最低到 A。',
       confirmText: '往上 +' + pickStep.value,
       cancelText: '往下 −' + pickStep.value,
       success: (res) => {
@@ -1848,9 +2012,12 @@
     })
   }
 
-  // 点数挪 delta 格。**到 A 和 K 就停，不绕圈** ——
-  // 绕圈的话「推三格」能把 K 变成 3，那就不是「推」而是「随便改」了，
-  // 而「挑一张接近目标点数的牌」这个决策正是这件道具的全部内容
+  // 点数挪 delta 格，按**点数值**算，不按 A–K 那条梯子：
+  //   往上**不封顶** —— K 推一格是 14，跟熔合出来的大点数同一套写法（fusedRank）；
+  //   往下**最低到 A**，不绕圈 —— 绕圈的话「推三格」能把 A 变成 Q，
+  //     那就不是「推」而是「随便改」了；
+  //   零点牌往上推一格就是 A，往下推不动（它已经在底下了）。
+  // 推到 11 就是一张 J（通吃照样有），这跟原来沿梯子推是一回事
   function doPush(at : number, delta : number) {
     const data = loadDrawSave()
     const cards = deckOf(data)
@@ -1859,17 +2026,11 @@
       return
     }
     const suit = suitOfText(cards[at])
-    const was = rankIndexOf(rankOfText(cards[at]))
-    if (was < 0) {
-      clearPick()
-      return
-    }
+    const was = valueOfRankText(rankOfText(cards[at]))
     let to = was + delta
-    if (to < 0) {
-      to = 0
-    }
-    if (to > RANKS.length - 1) {
-      to = RANKS.length - 1
+    if (to < 1) {
+      // 零点牌往下推：原地不动（下面那句「推不动」接着报）
+      to = was < 1 ? was : 1
     }
     if (to == was) {
       uni.showToast({ title: '已经到头了，推不动', icon: 'none' })
@@ -1880,7 +2041,7 @@
     // **点数卡贴的那几个点数留着** —— 推的是牌面那个点数，
     // 不是「把这张牌重做一遍」。不留的话「先贴点数卡再推一格」
     // 会把九十块悄悄抹掉
-    let next = suit + RANKS[to]
+    let next = cardText(suit, fusedRank(to))
     const pips = pipsOfText(wasText)
     for (let i = 0; i < pips.length; i++) {
       next = addPip(next, pips[i])
@@ -1950,7 +2111,7 @@
     setDeck(data, cards)
     markSold(data, pickAt.value)
     commit(data)
-    uni.showToast({ title: was + ' → ' + cards[to], icon: 'none' })
+    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[to]), icon: 'none' })
     clearPick()
   }
 
@@ -1967,7 +2128,7 @@
     const left = countOfRank(save.value, rankOfText(cards[at])) - 1
     uni.showModal({
       title: '弃饵',
-      content: '把 ' + cards[at] + ' 从牌组里拿掉？拿掉之后这个点数还剩 '
+      content: '把 ' + cardLabel(cards[at]) + ' 从牌组里拿掉？拿掉之后这个点数还剩 '
         + left + ' 张。' + (left == 0 ? '（这个点数就从牌组里消失了）' : ''),
       confirmText: '拿掉',
       cancelText: '再想想',
@@ -1997,18 +2158,168 @@
     setDeck(data, next)
     markSold(data, pickAt.value)
     commit(data)
-    uni.showToast({ title: was + ' 从牌组里拿掉了', icon: 'none' })
+    uni.showToast({ title: cardLabel(was) + ' 从牌组里拿掉了', icon: 'none' })
     clearPick()
   }
 
-  function rankIndexOf(rank : string) : number {
-    for (let i = 0; i < RANKS.length; i++) {
-      if (RANKS[i] == rank) {
-        return i
+  // ---------- 拓印 / 熔合 / 抹点 ----------
+  //
+  // 三件都是「挑完才扣钱、才标卖掉」，跟同化、弃饵一个待遇。
+  // 动不可逆的（熔合两张变一张、抹点抹掉点数）先问一句
+
+  // 拓印：牌组里多一张一模一样的，点数卡一起抄（牌面文本整串复制）
+  function askCopy(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    if (cards.length >= DECK_CAP) {
+      uni.showToast({ title: '牌组满了（' + DECK_CAP + ' 张）', icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    const next = deckOf(data)
+    const text = next[at]
+    next.push(text)
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, next)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: '多了一张 ' + cardLabel(text), icon: 'none' })
+    clearPick()
+  }
+
+  // 熔合收得了哪张：有点数的都行（A–K、J、熔合出来的大点数，**连零点牌也收**）。
+  // 零点牌加 0 等于没加，所以熔进去它就直接没了 —— 那是一条清掉零点牌的路。
+  // 只有无点数牌不收：它没有点数，「点数相加」对它无从说起
+  function fusable(text : string) : boolean {
+    return rankOfText(text) != BLANK_RANK
+  }
+
+  // 两张熔成的那张的牌面文本：花色照旧，点数相加（fusedRank 管怎么写），
+  // 两张贴的点数卡并到一起（去重，跟新点数撞了的不留）
+  function fusedText(a : string, b : string) : string {
+    const sum = valueOfRankText(rankOfText(a)) + valueOfRankText(rankOfText(b))
+    let out = cardText(suitOfText(a), fusedRank(sum))
+    const pips = pipsOfText(a).concat(pipsOfText(b))
+    for (let i = 0; i < pips.length; i++) {
+      if (pips[i] != sum) {
+        out = addPip(out, pips[i])
       }
     }
-    return -1
+    return out
   }
+
+  function askFuse(firstAt : number, secondAt : number) {
+    const cards = deckOf(save.value)
+    if (firstAt >= cards.length || secondAt >= cards.length) {
+      return
+    }
+    const a = cards[firstAt]
+    const b = cards[secondAt]
+    if (!fusable(b)) {
+      uni.showToast({ title: '熔合不收无点数的牌', icon: 'none' })
+      return
+    }
+    if (suitOfText(a) != suitOfText(b)) {
+      uni.showToast({ title: '熔合要两张同花色的牌', icon: 'none' })
+      return
+    }
+    if (cards.length <= DECK_MIN) {
+      uni.showToast({ title: '牌组不能少于 ' + DECK_MIN + ' 张', icon: 'none' })
+      return
+    }
+    const fused = fusedText(a, b)
+    // 有一张是零点牌：加 0 等于没加，它就这么没了 —— 话要照实说
+    let note = ''
+    if (rankOfText(a) == ZERO_RANK || rankOfText(b) == ZERO_RANK) {
+      note = '（零点牌加 0 等于没加，熔进去就没了）'
+    } else if (rankOfText(fused) == 'J') {
+      note = '（加出 11，就是一张 J）'
+    }
+    uni.showModal({
+      title: '熔合',
+      content: cardLabel(a) + ' 和 ' + cardLabel(b) + ' 合成一张 ' + cardLabel(fused)
+        + '，牌组少一张。' + note,
+      confirmText: '熔合',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doFuse(firstAt, secondAt)
+        }
+      }
+    })
+  }
+
+  // 新牌放在先点的那张的位置上，后点的那张拿掉
+  function doFuse(firstAt : number, secondAt : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (firstAt >= cards.length || secondAt >= cards.length || cards.length <= DECK_MIN) {
+      clearPick()
+      return
+    }
+    const a = cards[firstAt]
+    const b = cards[secondAt]
+    const fused = fusedText(a, b)
+    const next : string[] = []
+    for (let i = 0; i < cards.length; i++) {
+      if (i == secondAt) {
+        continue
+      }
+      next.push(i == firstAt ? fused : cards[i])
+    }
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, next)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: cardLabel(a) + ' + ' + cardLabel(b) + ' → ' + cardLabel(fused), icon: 'none' })
+    clearPick()
+  }
+
+  // 抹点：问一句再抹 —— 抹掉就回不来了（点数卡一起没）
+  function askBlank(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    if (rankOfText(cards[at]) == BLANK_RANK) {
+      uni.showToast({ title: '这张本来就没有点数', icon: 'none' })
+      return
+    }
+    uni.showModal({
+      title: '抹点',
+      content: '把 ' + cardLabel(cards[at]) + ' 的点数抹掉？它从此按点数钓不到牌，'
+        + '也不会被按点数钓走' + (pipsOfText(cards[at]).length > 0 ? '（贴的点数卡一起没）' : '') + '。',
+      confirmText: '抹掉',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doBlank(at)
+        }
+      }
+    })
+  }
+
+  function doBlank(at : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (at >= cards.length) {
+      clearPick()
+      return
+    }
+    const was = cards[at]
+    cards[at] = cardText(suitOfText(was), BLANK_RANK)
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[at]), icon: 'none' })
+    clearPick()
+  }
+
+  // 原先这儿有个 rankIndexOf（牌面在 A–K 梯子上第几格），推点数靠它走梯子。
+  // 推点数改成按点数值算（往上不封顶）之后它没有调用方了
 
   // 原先这儿有 kindText（「可升级 / 不可升级」）、upgradeHint（「可升级 /
   // 已满级 / 槽满了」）、ownedCount、ownedKeys。
@@ -2098,6 +2409,7 @@
     refresh()
     ensureShelf()
     startGuide()
+    announcePrize()
   })
 
   // 包摊开着就被切走 / 退出去的话，替你拿第一个（见 autoTakePack）
@@ -2143,6 +2455,12 @@
     font-size: 16px;
     font-weight: bold;
     margin-left: 10px;
+  }
+
+  .lotto-line {
+    color: #fff3c4;
+    font-size: 12px;
+    margin-bottom: 6px;
   }
 
   .gold {

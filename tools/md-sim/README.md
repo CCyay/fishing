@@ -8,6 +8,7 @@ node sim.js one hook                 量一件技能的分差
 node sim.js one hook --level 1 --slot rank --spots 5,7,9
 node sim.js all -n 40000             所有技能跑一遍，出一张表
 node sim.js pair suitify suited      量两件装一起的分差（组合技的底数）
+node sim.js cards                    零点牌 / 无点数牌掺进牌组、抹点抹牌，局面怎么变
 node fingerprint.js                  对一遍源码有没有动过（见下面「漂移」）
 ```
 
@@ -55,11 +56,11 @@ esbuild / tsc 能把 `.uts` 的类型注解剥掉给 node 用；而对局规则�
 ## 量技能：口径
 
 ```
-node sim.js one hook                 # 装在默认角色（锁江）第 1 个槽
+node sim.js one hook                 # 装在默认角色（江口闸官）第 1 个槽
 node sim.js one hook --role basket --slot 1
 node sim.js all                      # 所有点数技能一张表
 node sim.js roles                    # 八个角色的常驻特殊技能
-node sim.js role night               # 夜钓打满槽
+node sim.js role night               # 夜钓客打满槽
 ```
 
 做法是**同一批种子跑两遍**：一遍基线，一遍一方带技能。
@@ -74,8 +75,8 @@ node sim.js role night               # 夜钓打满槽
 技能本身**不带覆盖面** —— 它管几张牌全看插的那个槽印着什么。
 所以 `one` / `all` 有两个参数：
 
-- `--role`（默认 `lock` 锁江）—— 它是 `['A','2','3','4']`，四个等大的小槽，
-  全表最中性的尺子。换成别的角色（比如溯流 `['5 6 7','4']`）量出来的数
+- `--role`（默认 `lock` 江口闸官）—— 它是 `['A','2','3','4']`，四个等大的小槽，
+  全表最中性的尺子。换成别的角色（比如逆流船夫 `['5 6 7','4']`）量出来的数
   **不能跟这一列比**
 - `--slot N`（默认 0）—— 插第几个槽，从 0 数
 

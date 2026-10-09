@@ -37,7 +37,10 @@ function baitRisk(G, side, card) {
   const vals = R.cardVals(card)
   let risk = 0
   for (let i = 0; i < vals.length; i++) {
-    risk += outsideCount(G, side, faceOfValue(vals[i]))
+    // 0 点谁也按点数钓不走（anyEquals 跳过 0），零点牌这一项不算风险
+    if (vals[i] === 0) continue
+    // 熔合出来的大点数总张数查不到，减出来可能是负的 —— 最少算 0
+    risk += Math.max(0, outsideCount(G, side, faceOfValue(vals[i])))
   }
   return risk
 }

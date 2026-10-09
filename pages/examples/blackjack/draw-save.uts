@@ -25,6 +25,18 @@ import {
   FLAT_REROLL,
   cardRerollCost,
   rollFixKeys,
+  // 扩库、彩票、货架牌价
+  LIBRARY_BONUS,
+  libraryCapOf,
+  LOTTO_ODDS,
+  LOTTO_PRIZES,
+  CARD_PRICE,
+  JACK_PRICE,
+  ZERO_CARD_PRICE,
+  BLANK_CARD_PRICE,
+  SPECIAL_CARD_ODDS,
+  RANK_SELL_CAP,
+  SLOT_CARD_WEIGHT,
   // 庄家角色：按关号查哪一张卡（技能名单印在卡上，标签这边摇）
   foeRoleAt,
   DIFF_EASY,
@@ -123,7 +135,12 @@ export const DRAW_RUN_LENGTH : number = 12
 // 不留老版号常量了 —— md9 一个都不兼容，留着没用
 // md11：多了技能库（library）和生命（lives）两段，插在 label 前面。
 // md10 照读：技能库 = 当时槽上嵌着的那几件，生命按难度给满
-const VERSION : string = 'md11'
+// md12：多了彩票（lotto / prize）和扩库（bonusLibrary）三段，还是插在 label 前面。
+// md11 照读：没彩票、没扩库。
+// 牌面多了两种写法（'♠0' 零点牌、'♠-' 无点数牌，见 ZERO_RANK / BLANK_RANK），
+// 老档里不会有，所以不用管
+const VERSION : string = 'md12'
+const VERSION_MD11 : string = 'md11'
 const VERSION_MD10 : string = 'md10'
 const KEY_PREFIX : string = 'md_save_'
 const KEY_SLOT : string = 'md_slot'
@@ -211,6 +228,13 @@ export type DrawSave = {
   // 格式：一个槽一段，段内用空格分隔标签（跟角色卡的 slots 同一个写法）。
   // 比如鲸骸摇出来可能是 ['♦', '3 9']
   foeSlots : string[]
+  // 本轮：手里还没开奖的彩票张数。**下一次进商店**时开（见 drawLottery）
+  lotto : number
+  // 本轮：上一次开奖一共中了多少。-1 = 没有要报的。
+  // 商店进门报一声，报完写回 -1（开奖在结算那一刻，播报在商店，所以得存）
+  prize : number
+  // 本轮：【扩库】给技能库多了几格（唯一道具，买过就是 LIBRARY_BONUS）
+  bonusLibrary : number
 }
 
 function listOf(count : number, value : number) : number[] {
@@ -240,7 +264,10 @@ export function emptyDrawSave() : DrawSave {
     // 空的 = 还没摇过。进对局的时候按关号补摇（ensureFoeKit）
     foeSlots: [] as string[],
     library: [] as number[],
-    lives: 0
+    lives: 0,
+    lotto: 0,
+    prize: -1,
+    bonusLibrary: 0
   }
 }
 
@@ -277,6 +304,10 @@ export function resetDrawRun(data : DrawSave) {
   // 技能库、生命都是本轮的：清空（生命在下一轮开局时按难度补满，见 ensureLives）
   data.library = [] as number[]
   data.lives = 0
+  // 没开的彩票作废 —— 一轮输光了，奖池跟着这一轮走
+  data.lotto = 0
+  data.prize = -1
+  data.bonusLibrary = 0
   // 庄家那一套也重摇 —— 新一轮就是新的十二道题。
   // 不重摇的话上一轮第 12 关那套会跟到新一轮的第 1 关
   rollFoeKit(data, 1)
@@ -503,8 +534,9 @@ export function loadDrawAt(index : number) : DrawSave {
   // 两段（装备能从这两样 derive），庄家的两段换成一段「摇出来的标签」
   //（角色由关号定死，不用存）。十六段缩到十三段
   const old = parts[0] == VERSION_MD10
-  const labelAt = old ? 13 : 15
-  if (parts.length < labelAt + 1 || (parts[0] != VERSION && !old)) {
+  const md11 = parts[0] == VERSION_MD11
+  const labelAt = old ? 13 : (md11 ? 15 : 18)
+  if (parts.length < labelAt + 1 || (parts[0] != VERSION && !old && !md11)) {
     return emptyDrawSave()
   }
   // label 是最后一段，而它可能自带 | 号 —— 所以从 labelAt 起全拼回去
@@ -531,7 +563,11 @@ export function loadDrawAt(index : number) : DrawSave {
     // md10 没有技能库：照当时槽上嵌着的那几件算
     library: old ? equippedOf(textToOwner(parts[5], roleSlotsOf(parts[4])))
       : textToSkills(parts[13]),
-    lives: old ? 0 : toInt(parts[14], 0)
+    lives: old ? 0 : toInt(parts[14], 0),
+    // md11 及以前没有这三段
+    lotto: labelAt == 18 ? toInt(parts[15], 0) : 0,
+    prize: labelAt == 18 ? toInt(parts[16], -1) : -1,
+    bonusLibrary: labelAt == 18 ? toInt(parts[17], 0) : 0
   }
 }
 
@@ -594,6 +630,9 @@ export function writeDrawAt(index : number, data : DrawSave) {
     + '|' + listToText(data.foeSlots)
     + '|' + skillsToText(data.library)
     + '|' + data.lives
+    + '|' + data.lotto
+    + '|' + data.prize
+    + '|' + data.bonusLibrary
     + '|' + data.label
   uni.setStorageSync(KEY_PREFIX + index, text)
 }
@@ -688,6 +727,71 @@ export function saveDraw(data : DrawSave) {
 //（rank 还是 '3'，所以它不会变成 J 那样的通吃，也不触发点数技）
 const PIP_MARK : string = '+'
 
+// ---- 两种「没有正常点数」的牌 ----
+//
+// **零点牌**（'♠0'）：点数是 0。0 点不跟任何牌按点数相等（见 ap-fishing 的
+//   anyEquals），所以它钓不到、也不会被按点数钓走 —— 但它**在点数轴上**：
+//   见底 / 干塘按「点数为 0」收它，撒网把它当偶数，磁钩的 0+1 能钩 A。
+// **无点数牌**（'♠-'）：一个点数都没有，跟顺色那张一样不在点数轴上 ——
+//   只有 J、顺色、收色带得走它。【抹点】把一张牌变成的就是它。
+//
+// 两种都**不触发点数槽**（槽上印的是 A–K，没有 0 和「无」），
+// 花色槽照常触发。两种都不收点数卡 —— 无点数牌贴了点数就不叫无点数了，
+// 而零点牌贴点数等于买一张普通牌，绕开了商店的牌价
+export const ZERO_RANK : string = '0'
+export const BLANK_RANK : string = '-'
+
+// 牌组里所有可能出现的牌面点数，按「现有牌组」那张表的行序排：
+// A–K 在前，零点、无点数垫底
+export const DECK_RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K',
+  ZERO_RANK, BLANK_RANK]
+
+// 牌面点数在界面上怎么写。无点数写「无」—— '-' 看着像减号
+export function rankFace(rank : string) : string {
+  return rank == BLANK_RANK ? '无' : rank
+}
+
+// 这张牌有没有「真」点数（A–K）。零点牌和无点数牌都不算 ——
+// 推点数、点数卡、熔合那几件都只对有真点数的牌下手
+export function hasFace(text : string) : boolean {
+  const rank = rankOfText(text)
+  return rank != ZERO_RANK && rank != BLANK_RANK
+}
+
+// ---- 点数写成牌面：点数可以超过 13 ----
+//
+// 【熔合】把两张同花色的牌合成一张、点数相加；【推点数】往上不封顶
+//（见 draw-levels 的 FIX_ITEMS）。两件算出来的点数都走这儿写成牌面：
+//   0       → '0'（零点牌熔零点牌，还是一张零点牌）；
+//   2–13    → 照常写（'7'、'J'、'K'）。**加出 11 就是 J**，通吃照样有 ——
+//             推一格把 10 推成 J 只要 30 块，熔合造 J 要 90 块外加两张同花色的牌，
+//             没理由单拦它；
+//   14 以上 → 写数字（'17'）。没有哪张原牌对得上它，只有别的熔合牌、
+//             磁钩（差 1）、齐顶碰得到 —— 那正是它的卖点和代价
+export function fusedRank(sum : number) : string {
+  if (sum > 13) {
+    return '' + sum
+  }
+  for (let i = 0; i < RANK_VALUES.length; i++) {
+    if (RANK_VALUES[i] == sum) {
+      return RANKS[i]
+    }
+  }
+  return '' + sum
+}
+
+// 牌面点数字符串算几点：A–K 查表，熔合出来的数字（'11'、'17'）直接读，
+// 零点 / 无点数 / 认不出来的都是 0
+export function valueOfRankText(rank : string) : number {
+  for (let i = 0; i < RANKS.length; i++) {
+    if (RANKS[i] == rank) {
+      return RANK_VALUES[i]
+    }
+  }
+  const v = parseInt(rank)
+  return isNaN(v) ? 0 : v
+}
+
 export function cardText(suit : string, rank : string) : string {
   return suit + rank
 }
@@ -696,7 +800,7 @@ export function suitOfText(text : string) : string {
   return text.length > 0 ? text.substring(0, 1) : ''
 }
 
-// 牌面那个点数（A、10、Q…）。**切掉 '+' 后面那一截** ——
+// 牌面那个点数（A、10、Q…，熔合牌是 '11'、'17' 这种数字）。**切掉 '+' 后面那一截** ——
 // 贴过点数卡的牌，牌面点数还是原来那个
 export function rankOfText(text : string) : string {
   if (text.length < 2) {
@@ -739,10 +843,7 @@ export function addPip(text : string, value : number) : string {
 // （那是【推点数】那件道具干的事），而这儿是「**也**算 7 点」
 export function cardLabel(text : string) : string {
   const pips = pipsOfText(text)
-  if (pips.length == 0) {
-    return text
-  }
-  let out = suitOfText(text) + rankOfText(text)
+  let out = suitOfText(text) + rankFace(rankOfText(text))
   for (let i = 0; i < pips.length; i++) {
     out = out + '·' + faceOfValue(pips[i])
   }
@@ -900,11 +1001,94 @@ export function rollShelf(data : DrawSave, keepFix : boolean) {
       out.push(GOODS_PIP + ':' + rollPipValue() + ':0')
       continue
     }
-    const suit = SUITS[randomInt(SUITS.length)]
-    const rank = RANKS[randomInt(RANKS.length)]
-    out.push(GOODS_CARD + ':' + suit + rank + ':0')
+    const card = rollShopCard(data)
+    if (card == '') {
+      // 一张都卖不了（每个点数都到了 RANK_SELL_CAP）—— 这一格改摆点数卡
+      out.push(GOODS_PIP + ':' + rollPipValue() + ':0')
+      continue
+    }
+    out.push(GOODS_CARD + ':' + card + ':0')
   }
   data.shelf = out
+}
+
+// ---------- 商店卖哪张牌 ----------
+//
+// **从你现在的牌组里抽**：牌组里每一张都是一个候选，所以一张牌被摆出来的
+// 权重就是它在牌组里有几张（♠7 有两张，它就比只有一张的 ♥7 常见一倍）。
+// 牌组里没有的牌不卖 —— 弃饵把某个点数清空了，那个点数从此也买不回来，
+// 「清空」是真的清空。
+//
+// 卖出来的是**牌面本身**（花色 + 点数），点数卡不跟着卖：
+// 点数卡在货架上另有一种货（GOODS_PIP），一起抄是【拓印】的事。
+//
+// ---- 一个点数到了 RANK_SELL_CAP 张就不再卖它 ----
+//
+// 按张数加权有个滚雪球：某个点数越多就越常被摆出来，买得越多又越常见。
+// 不封的话一副牌能被一路买成「十几张 7」—— 那时候技能的触发率表、
+// 庄家的记牌口径都不成立了（DECK_CAP 守的是总数，守不住单个点数）。
+// 封在 8 张，是标准牌组的两倍：够你把核心点数堆厚，堆不成一面墙。
+// 推点数、熔合、拓印还能把它推过这条线 —— 那几条路要花钱也要刷得到，不拦。
+//
+// ---- 例外：零点牌、无点数牌 ----
+//
+// 这两种牌**只有商店卖**（标准牌组里没有，零点牌也没有别的来路），
+// 照「牌组里有才卖」的话它们永远出不来。所以它们保留原来那条：
+// 每次摆牌约 1/SPECIAL_CARD_ODDS 的机会摆一张（两种各半，花色随机），
+// 张数上限照样管它们。
+//
+// 返回牌面文本；一张都卖不了就是空串（调用方换成别的货）
+export function rollShopCard(data : DrawSave) : string {
+  const deck = deckOf(data)
+  if (randomInt(SPECIAL_CARD_ODDS) == 0) {
+    const rank = randomInt(2) == 0 ? ZERO_RANK : BLANK_RANK
+    if (countOfRank(data, rank) < RANK_SELL_CAP) {
+      return cardText(SUITS[randomInt(SUITS.length)], rank)
+    }
+  }
+  // 每张牌一个候选（同一张牌有几张就进几次 —— 那就是权重），
+  // 点数已经到上限的整个排掉。点数卡切掉，只卖牌面。
+  //
+  // **落在角色槽上的牌再多进 SLOT_CARD_WEIGHT − 1 次**：槽上印着的点数、花色
+  // 就是这一轮技能触发的地方，商店该往那儿偏。认的是角色卡印的**全部**槽，
+  // 不管嵌没嵌技能 —— 角色一选定，构筑方向就定了，空槽迟早要嵌。
+  // 一张牌同时落在花色槽和点数槽上（明镜的 ♥3）也只加一次，不叠
+  const labels = roleLabelsOf(data)
+  const pool : string[] = []
+  for (let i = 0; i < deck.length; i++) {
+    const rank = rankOfText(deck[i])
+    if (countOfRank(data, rank) >= RANK_SELL_CAP) {
+      continue
+    }
+    const suit = suitOfText(deck[i])
+    const text = cardText(suit, rank)
+    const hit = labels.indexOf(rank) >= 0 || labels.indexOf(suit) >= 0
+    const times = hit ? SLOT_CARD_WEIGHT : 1
+    for (let k = 0; k < times; k++) {
+      pool.push(text)
+    }
+  }
+  if (pool.length == 0) {
+    return ''
+  }
+  return pool[randomInt(pool.length)]
+}
+
+// 这一轮的角色卡上印着的所有标签（'6'、'7'、'♥'…），摊成一个平的列表。
+// 还没选角色就是空的 —— 那时候商店照纯张数加权
+function roleLabelsOf(data : DrawSave) : string[] {
+  const out : string[] = []
+  if (data.role < 0 || data.role >= DRAW_ROLES.length) {
+    return out
+  }
+  const slots = DRAW_ROLES[data.role].slots
+  for (let i = 0; i < slots.length; i++) {
+    const one = slotLabels(slots[i])
+    for (let j = 0; j < one.length; j++) {
+      out.push(one[j])
+    }
+  }
+  return out
 }
 
 // 点数卡给的是哪个点数。
@@ -970,7 +1154,71 @@ export function takenOnceKeys(data : DrawSave) : string[] {
   if (data.flatReroll) {
     out.push('flat')
   }
+  if (data.bonusLibrary > 0) {
+    out.push('library')
+  }
   return out
+}
+
+// 买扩库：技能库永久 +LIBRARY_BONUS 格。跟加栏、加架同一个写法
+export function growLibrary(data : DrawSave) : boolean {
+  if (data.bonusLibrary > 0) {
+    return false
+  }
+  data.bonusLibrary = LIBRARY_BONUS
+  return true
+}
+
+// 技能库这一轮能放几件：难度给的底数 + 扩库那一格。
+// **页面别直接调 libraryCapOf** —— 那样扩库就白买了（跟 rerollPriceOf 同一个理由）
+export function libraryCapFor(data : DrawSave, diff : number) : number {
+  return libraryCapOf(diff) + data.bonusLibrary
+}
+
+// 货架上一张牌卖多少。J 贵（通吃），零点、无点数各有各的价（见 draw-levels 那几个常量）。
+// 价钱只在这儿算 —— 从前详情框和扣钱那儿各写一份「J 卖 80，其余 40」，
+// 对不上就是「标价 40、扣钱 80」那类 bug
+export function cardPriceOf(text : string) : number {
+  const rank = rankOfText(text)
+  if (rank == 'J') {
+    return JACK_PRICE
+  }
+  if (rank == ZERO_RANK) {
+    return ZERO_CARD_PRICE
+  }
+  if (rank == BLANK_RANK) {
+    return BLANK_CARD_PRICE
+  }
+  return CARD_PRICE
+}
+
+// ---------- 彩票 ----------
+//
+// 商店里买，**下一次进商店**时开奖：打赢一关进店（settleWin）、
+// 输了还有命退回商店（settleLoss）都算。两条路都在结算那一刻开，
+// 中的钱当场进金币，播报留到商店进门（prize）。
+//
+// 一张一张独立开（LOTTO_ODDS / LOTTO_PRIZES，见 draw-levels）。
+// 期望略高于票价 —— 它卖的不是赚钱，是**波动**：前期一张中 200
+// 能把一轮整个改道，而攒着钱吃利息的人不会去碰它
+export function drawLottery(data : DrawSave) {
+  if (data.lotto <= 0) {
+    return
+  }
+  let won = 0
+  for (let n = 0; n < data.lotto; n++) {
+    let roll = randomInt(100)
+    for (let i = 0; i < LOTTO_ODDS.length; i++) {
+      roll = roll - LOTTO_ODDS[i]
+      if (roll < 0) {
+        won = won + LOTTO_PRIZES[i]
+        break
+      }
+    }
+  }
+  data.gold = data.gold + won
+  data.prize = won
+  data.lotto = 0
 }
 
 // 买加栏：道具栏永久 +SHELF_BONUS 格。买过了就不动（它是唯一道具，
@@ -1079,8 +1327,8 @@ export function markSold(data : DrawSave, index : number) {
 // 原先这儿有 MAX_OWNED_SKILLS = 4（最多同时拥有几个技能）和 ownedSkillCount。
 //
 // **槽数本身就是上限了** —— 角色卡上有几个槽就带几件技能（2 到 4 个），
-// 而且上限随角色变，那比一个全局常数有意思：选锁江（4 个窄槽）
-// 还是沉钩（2 个宽槽），是「泛用 vs 专精」那道题。
+// 而且上限随角色变，那比一个全局常数有意思：选江口闸官（4 个窄槽）
+// 还是深海钓手（2 个宽槽），是「泛用 vs 专精」那道题。
 //
 // 「名额满了买不动」那条规矩也换了形状：槽满了照样买得动，
 // 只是得**换掉**里头那件（见 embedSkill）—— 于是决策从
@@ -1190,6 +1438,11 @@ export function settleLoss(data : DrawSave) : boolean {
     return false
   }
   data.inShop = data.runLevel > 1
+  // 退回商店也是「进商店」—— 彩票照开。第 1 关前面没有商店，
+  // 那时候也不可能买过彩票
+  if (data.inShop) {
+    drawLottery(data)
+  }
   return true
 }
 
@@ -1305,6 +1558,8 @@ export function settleWin(data : DrawSave, levelId : number, gold : number) {
   // 面对的还是同一套 —— 那一关的题目没变，重摇就等于「平局刷题」
   if (data.inShop) {
     rollFoeKit(data, data.runLevel)
+    // 彩票在进店这一刻开（见 drawLottery）
+    drawLottery(data)
   }
 }
 

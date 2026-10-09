@@ -6,6 +6,7 @@
 //   node sim.js pair <keyA> <keyB> [选项] 量两件技能装在一起的分差（组合技用）
 //   node sim.js roles [选项]              八个角色各自的常驻技能值多少分
 //   node sim.js role <key> [选项]         一个角色打满槽，对照空装
+//   node sim.js cards [选项]              零点牌 / 无点数牌掺进牌组，局面怎么变
 //
 // 选项：
 //   -n 40000        跑几局（默认 20000）
@@ -23,13 +24,13 @@
 // 「技能自带覆盖面，等级决定占几格」。源码那边花色槽砍了、等级删了，
 // 现在覆盖面由**角色卡的槽**决定，所以量一件技能必须先说「装在谁身上」。
 //
-// 这也是为什么 --role 的默认值是**锁江**：它四个槽、每槽恰好一个点数
+// 这也是为什么 --role 的默认值是**江口闸官**：它四个槽、每槽恰好一个点数
 //（4 张牌），是全表最中性的尺子 —— 换别的角色量出来的数不能直接比。
 
 const R = require('./rules.js')
 const AI = require('./ai.js')
 
-// 量单件技能时默认装在谁身上。锁江 = ['A','2','3','4']，
+// 量单件技能时默认装在谁身上。江口闸官 = ['A','2','3','4']，
 // 四个等大的小槽，所以「这件技能管 4 张牌」在各件之间是可比的
 const DEFAULT_ROLE = 'lock'
 
@@ -68,7 +69,10 @@ function run(n, seed, mine, foe, opts) {
       mineSmart: o.mineSmart !== false,
       foeSmart: o.foeSmart !== false,
       myRole: o.myRole === undefined ? -1 : o.myRole,
-      foeRole: o.foeRole === undefined ? -1 : o.foeRole
+      foeRole: o.foeRole === undefined ? -1 : o.foeRole,
+      // 改造过的牌组（cards 命令用）。每局现造一副 —— 牌是按对象认的，
+      // 两局共用同一批对象不出错，但现造最省心
+      deck: o.deckFn ? o.deckFn() : undefined
     }, AI)
     sum.games++
     for (let s = 0; s < 2; s++) {
@@ -225,7 +229,7 @@ function loadoutWith(key, roleKey, slotAt) {
 //
 // ---- 基线也带同一个角色，这是关键 ----
 //
-// 角色和特殊技能是绑死的，所以「带锁江 + 磁钩」里混着【窄口】的贡献。
+// 角色和特殊技能是绑死的，所以「带江口闸官 + 磁钩」里混着【窄口】的贡献。
 // 基线用**同一个角色、所有槽空着**，相减之后剩的才是磁钩本身。
 // 基线换成「不带角色」的话，量出来的每一件都会多算一份窄口
 function measure(args, loadout, role) {
@@ -257,7 +261,7 @@ function measureSpecial(args, role) {
   }
 }
 
-// 「锁江 · 第 1 个槽（A）」这样一行，报表抬头用
+// 「江口闸官 · 第 1 个槽（A）」这样一行，报表抬头用
 function whereText(made) {
   const role = R.DRAW_ROLES[made.role]
   return role.name + ' · 第 ' + (made.slotAt + 1) + ' 个槽（'
@@ -412,8 +416,8 @@ function cmdPair(args) {
   }
   const atA = skillIndexOf(args._[1])
   const atB = skillIndexOf(args._[2])
-  // 两件分别插头两个槽。**槽不一样大的角色会让这个数偏**（比如溯流是
-  // '5 6 7' + '4'），所以默认用锁江那种等大的
+  // 两件分别插头两个槽。**槽不一样大的角色会让这个数偏**（比如逆流船夫是
+  // '5 6 7' + '4'），所以默认用江口闸官那种等大的
   const lo = R.kitFromRole(role, slots.map(function (s, i) {
     return i === 0 ? atA : (i === 1 ? atB : -1)
   }))
@@ -434,7 +438,68 @@ function cmdPair(args) {
     + (synergy >= 0 ? '+' : '') + f2(synergy) + ' 分')
   console.log('  这个数是**现在**的协同（没有组合技，纯粹是两件技能互相影响）。')
   console.log('  第九节的组合技做完之后再跑一遍，差额就是组合技自己的贡献。')
-  console.log('\n  注意槽不一样大的角色会让这个数偏 —— 默认的锁江四个槽等大。')
+  console.log('\n  注意槽不一样大的角色会让这个数偏 —— 默认的江口闸官四个槽等大。')
+}
+
+// ---------- cards：零点牌 / 无点数牌掺进牌组，局面怎么变 ----------
+//
+// 牌组是**双方共用**的，所以这儿量的不是「谁占便宜」，而是**局面的形状**：
+// 局长不长、钓牌率掉多少、堆里剩多少 —— 商店卖这两种牌、【抹点】抹牌，
+// 改的就是这几样。双方都不带技能（基线口径），分差那一列看后手优势有没有被放大。
+//
+// 每一行跟同一批种子的标准 52 张比
+function cmdCards(args) {
+  const n = args.n
+  const plain = function () { return R.standardDeck() }
+  // 往标准牌组里加 k 张某种牌（花色轮着来）
+  const plus = function (rank, k) {
+    return function () {
+      const deck = R.standardDeck()
+      for (let i = 0; i < k; i++) deck.push(R.makeCard(R.SUITS[i % 4], rank, []))
+      return deck
+    }
+  }
+  // 把标准牌组里某个点数的 k 张抹成无点数（【抹点】）
+  const blanked = function (rank, k) {
+    return function () {
+      const deck = R.standardDeck()
+      let left = k
+      for (let i = 0; i < deck.length && left > 0; i++) {
+        if (deck[i].rank === rank) {
+          deck[i] = R.makeCard(deck[i].suit, R.BLANK_RANK, [])
+          left--
+        }
+      }
+      return deck
+    }
+  }
+  const rows = [
+    ['标准 52 张', plain],
+    ['+4 张零点', plus(R.ZERO_RANK, 4)],
+    ['+8 张零点', plus(R.ZERO_RANK, 8)],
+    ['+4 张无点数', plus(R.BLANK_RANK, 4)],
+    ['+8 张无点数', plus(R.BLANK_RANK, 8)],
+    ['抹掉 4 张 K', blanked('K', 4)],
+    ['抹掉 4 张 7', blanked('7', 4)]
+  ]
+  console.log('零点牌 / 无点数牌掺进牌组：双方都没技能、都会记牌，各跑 ' + n + ' 局\n')
+  console.log('  牌组            张数   每人出牌  每人钓到  每次收   堆里剩   后手分差   后手胜率')
+  console.log('  ' + '-'.repeat(84))
+  for (let i = 0; i < rows.length; i++) {
+    const sum = run(n, args.seed, R.emptyLoadout(), R.emptyLoadout(), { deckFn: rows[i][1] })
+    const g = sum.games
+    const size = rows[i][1]().length
+    const plays = (avg(sum.plays[R.ME], g) + avg(sum.plays[R.FOE], g)) / 2
+    const catches = (avg(sum.catches[R.ME], g) + avg(sum.catches[R.FOE], g)) / 2
+    const per = avg(sum.caught[R.ME] + sum.caught[R.FOE], sum.catches[R.ME] + sum.catches[R.FOE])
+    console.log('  ' + rows[i][0].padEnd(14) + String(size).padEnd(7)
+      + f1(plays).padEnd(10) + f1(catches).padEnd(10) + f2(per).padEnd(9)
+      + f1(avg(sum.leftover, g)).padEnd(9)
+      + ((meanDiff(sum) >= 0 ? '+' : '') + f2(meanDiff(sum))).padEnd(11)
+      + pct(avg(sum.wins[R.ME], g)))
+  }
+  console.log('\n  零点牌：见底 / 撒网 / 磁钩的料，按点数钓不到也钓不走。')
+  console.log('  无点数牌：只有 J、顺色、收色带得走 —— 堆里剩的那一列看它们卡住了多少。')
 }
 
 // ---------- 入口 ----------
@@ -448,6 +513,7 @@ function main() {
   if (cmd === 'pair') return cmdPair(args)
   if (cmd === 'roles') return cmdRoles(args)
   if (cmd === 'role') return cmdRole(args)
+  if (cmd === 'cards') return cmdCards(args)
   console.log('不认识的命令：' + cmd + '\n看文件头的注释，或者 README.md')
 }
 

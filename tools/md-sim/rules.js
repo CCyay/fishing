@@ -19,6 +19,10 @@ const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 const RANK_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 const JACK = 'J'
 const RED = ['♥', '♦']
+// 零点牌、无点数牌的牌面（照 draw-save 的 ZERO_RANK / BLANK_RANK）。
+// valueOfRank 认不出这两个，都回 0；区别在 cardVals：无点数牌是空列表
+const ZERO_RANK = '0'
+const BLANK_RANK = '-'
 
 // 点数槽能指定的点数：A–10、Q、K。J 不给指定（它本身就通吃）
 const SKILL_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
@@ -134,9 +138,12 @@ function pickOne(rng, list) {
 
 // ---------- 牌与牌组 ----------
 
+// 照 draw-save 的 valueOfRankText：A–K 查表，熔合出来的 '17' 直接读数，零点 / 无点数是 0
 function valueOfRank(rank) {
   const at = RANKS.indexOf(rank)
-  return at < 0 ? 0 : RANK_VALUES[at]
+  if (at >= 0) return RANK_VALUES[at]
+  const v = parseInt(rank, 10)
+  return isNaN(v) ? 0 : v
 }
 
 function isRedSuit(suit) {
@@ -145,7 +152,7 @@ function isRedSuit(suit) {
 
 // 这两门花色对出牌那一方算不算同色（照源码的 sameSuit）。
 //
-// 【两色】（夜钓带的）把 ♠♣ 并成一门、♦♥ 并成一门。
+// 【两色】（夜钓客带的）把 ♠♣ 并成一门、♦♥ 并成一门。
 // 口径跟源码一样只覆盖「匹配类」三处（顺色、收色 + harvestCount、同花），
 // 封色（suitSealed）照旧按单门花色算 —— 放大一个禁止类效果等于封掉半副牌
 function sameSuit(G, a, b, side) {
@@ -221,16 +228,16 @@ const SP_NOTE = {
 // **顺序照源码**，因为 ROLE_UNLOCK 那张平行数组按下标对齐 ——
 // 虽然模拟器不管解锁，但跑报表时「第几个角色」要对得上
 const DRAW_ROLES = [
-  { key: 'basket', name: '篓翁', special: SP.CREEL, slots: ['6 7', '8 9'] },
-  { key: 'flood', name: '望汛', special: SP.LIVEWATER, slots: ['2 4', '6 8'] },
-  { key: 'lock', name: '锁江', special: SP.NARROW, slots: ['A', '2', '3', '4'] },
-  { key: 'upstream', name: '溯流', special: SP.REVERSE, slots: ['5 6 7', '4'] },
-  { key: 'mirror', name: '明镜', special: SP.CLEAR, slots: ['♥', '3 4'] },
-  { key: 'deepline', name: '沉钩', special: SP.DEEPHOOK, slots: ['♣', 'K'] },
-  { key: 'pond', name: '养塘', special: SP.BAIT, slots: ['7', '3 5', 'K'] },
-  { key: 'night', name: '夜钓', special: SP.TWOCOLOR, slots: ['A', '5', '9'] }
+  { key: 'basket', name: '背篓渔夫', special: SP.CREEL, slots: ['6 7', '8 9'] },
+  { key: 'flood', name: '潮汐观测员', special: SP.LIVEWATER, slots: ['2 4', '6 8'] },
+  { key: 'lock', name: '江口闸官', special: SP.NARROW, slots: ['A', '2', '3', '4'] },
+  { key: 'upstream', name: '逆流船夫', special: SP.REVERSE, slots: ['5 6 7', '4'] },
+  { key: 'mirror', name: '镜湖占卜师', special: SP.CLEAR, slots: ['♥', '3 4'] },
+  { key: 'deepline', name: '深海钓手', special: SP.DEEPHOOK, slots: ['♣', 'K'] },
+  { key: 'pond', name: '鱼塘老板', special: SP.BAIT, slots: ['7', '3 5', 'K'] },
+  { key: 'night', name: '夜钓客', special: SP.TWOCOLOR, slots: ['A', '5', '9'] }
 ]
-// 角色 key 'flood'（望汛）和技能 key 'flood'（洪水）撞字 —— 源码里也是这样，
+// 角色 key 'flood'（潮汐观测员）和技能 key 'flood'（洪水）撞字 —— 源码里也是这样，
 // 两张表独立查，不会串。【稳钩】没有角色带（磐石删了），所以它的效果
 // 在这儿实现了但跑不到；【听浪】连着【记谱】一起删了
 
@@ -289,7 +296,7 @@ function slotCover(slot) {
 }
 
 // 这个角色一共盖住多少张（照 roleCover）。
-// 它是比较角色强弱时唯一可比的那个数 —— 但有一个已知反例【夜钓】，
+// 它是比较角色强弱时唯一可比的那个数 —— 但有一个已知反例【夜钓客】，
 // 见源码 rollRoleKit 上面那段
 function roleCover(role) {
   if (role < 0 || role >= DRAW_ROLES.length) return 0
@@ -520,6 +527,8 @@ function pileRed(G, i) {
 
 // 这张牌**印着**的那几个点数：牌面那个 + 点数卡贴上来的（照 cardVals）
 function cardVals(card) {
+  // 无点数牌（'-'）一个点数都没有；零点牌（'0'）照常走，点数就是 0
+  if (card.rank === BLANK_RANK) return []
   const out = [card.value]
   for (let i = 0; i < card.extra.length; i++) {
     if (out.indexOf(card.extra[i]) < 0) {
@@ -543,21 +552,27 @@ function valuesOf(G, card, skills) {
     || has(skills, SK.SPILL) || has(skills, SK.HUEVOID)) {
     return []
   }
+  // 无点数牌谁也给不了它点数（齐顶、归深、退潮、见底都改不动它）
+  if (card.rank === BLANK_RANK) return []
   // 退潮和见底：它们自己也归 0（在自己造的那阵退潮里），盖掉点数卡贴的那几个。
   // 0 点谁也钓不上 —— 这一手是用来施工的
   if (has(skills, SK.EBB) || has(skills, SK.LOWTIDE)) {
     return [0]
   }
-  // 齐顶：算堆上最大的那个点数，覆盖掉牌面和点数卡。空堆算 0（白打一张）
+  // 齐顶：算堆上**同颜色**牌里最大的那个点数，覆盖掉牌面和点数卡。
+  // 堆上没有同颜色的牌就按自己的点数算（照 ap-fishing 的 valuesOf）
   if (has(skills, SK.PEAK)) {
+    const red = isRedSuit(card.suit)
     let top = 0
+    let found = false
     for (let i = 0; i < G.pile.length; i++) {
+      if (isRedSuit(pileSuitAt(G, i)) !== red) continue
       const vals = pileValsAt(G, i)
       for (let k = 0; k < vals.length; k++) {
-        if (vals[k] > top) top = vals[k]
+        if (vals[k] > top) { top = vals[k]; found = true }
       }
     }
-    return [top]
+    return found ? [top] : cardVals(card)
   }
   const out = cardVals(card)
   // 归深：**追加** 11 这个候选。11 是 J 的数，而 J 从不落堆 ——
@@ -1494,7 +1509,7 @@ function playGame(opts, ai) {
 }
 
 module.exports = {
-  SUITS, RANKS, RANK_VALUES, SKILL_RANKS, JACK, HAND_SIZE,
+  SUITS, RANKS, RANK_VALUES, SKILL_RANKS, JACK, ZERO_RANK, BLANK_RANK, HAND_SIZE,
   GUARD_NONE, GUARD_ME, GUARD_FOE, ME, FOE, SK, SKILLS,
   // 特殊技能与角色（KIND_ANY / KIND_RANK 删了 —— 源码的 DrawSkill 没有 kind 了）
   SP, SP_NOTE, DRAW_ROLES, roleIndexOf, hasSpecial,

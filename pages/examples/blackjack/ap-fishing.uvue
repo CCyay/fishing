@@ -78,7 +78,7 @@
           <view v-if="!foeOpen(index)" class="card-back-art card-back-art-small">
             <view class="card-back-gem card-back-gem-small"></view>
           </view>
-          <text v-if="foeOpen(index)" class="card-rank card-rank-small" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+          <text v-if="foeOpen(index)" class="card-rank card-rank-small" :class="{ 'card-red': isRed(card) }">{{ rankFace(card.rank) }}</text>
           <text v-if="foeOpen(index)" class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
           <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
         </view>
@@ -326,7 +326,7 @@
               'card-frozen': isFrozen(card)
             }"
             @click="onPlay(index)">
-            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ card.rank }}</text>
+            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ rankFace(card.rank) }}</text>
             <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
             <!-- 点数卡贴上来的那几个点数。描成金的 ——
                  「这张还算 7 点」是打牌时必须看见的，牌面上写不出来 -->
@@ -443,7 +443,6 @@
   import {
     SUITS,
     RANKS,
-    RANK_VALUES,
     isRedSuit
   } from '@/pages/examples/blackjack/cards.uts'
   import {
@@ -552,7 +551,12 @@
     suitOfText,
     rankOfText,
     pipsOfText,
-    faceOfValue
+    faceOfValue,
+    // 无点数牌（'♠-'）：cardVals 认它，界面上写「无」
+    BLANK_RANK,
+    rankFace,
+    // 熔合出来的点数可以超过 13（'17'），读点数走它
+    valueOfRankText
   } from '@/pages/examples/blackjack/draw-save.uts'
 
   // 摸打钓鱼：一副 52 张。
@@ -1103,7 +1107,7 @@
 
   // 点那个特殊技标签（角色带的常驻技能）：报它的全文。
   //
-  // 标签上只写得下「篓翁·满篓」，整句效果在这儿看 ——
+  // 标签上只写得下「背篓渔夫·满篓」，整句效果在这儿看 ——
   // 那也是它为什么点得动（从前它是一行不可点的小字）
   function showRole(ofFoe : boolean) {
     const at = ofFoe ? 301 : 300
@@ -1149,7 +1153,7 @@
 
   // 这两门花色对出牌这一方算不算「同色」。
   //
-  // 【两色】（SP_TWOCOLOR，夜钓带的）把♠♣ 并成一门、♦♥ 并成一门。
+  // 【两色】（SP_TWOCOLOR，夜钓客带的）把♠♣ 并成一门、♦♥ 并成一门。
   // byFoe 是**出牌方** —— 技能是谁的，就按谁的眼睛算。
   //
   // 四个调用点都是「找出同花色的牌并收走」：顺色（catchStart）、
@@ -1203,7 +1207,7 @@
 
   // 这儿原先有个 specialText（角色名 + 技能名 + 整句效果，摆在技能栏下面
   // 当一行小字）。布局改过之后那一行没了 —— 技能栏上只摆
-  // 「篓翁·满篓」这个标签（roleTag），整句效果点一下看（showRole）
+  // 「背篓渔夫·满篓」这个标签（roleTag），整句效果点一下看（showRole）
 
   // ---------- 【囤饵】：开局往牌库塞 BAIT_COUNT 张，再洗 ----------
   //
@@ -1277,7 +1281,7 @@
     return text
   }
 
-  // 技能行上那个标签只写**角色名 + 技能名**（「篓翁·满篓」）——
+  // 技能行上那个标签只写**角色名 + 技能名**（「背篓渔夫·满篓」）——
   // 一行要塞得下点数技能那几个 chip，所以这儿不能写整句效果。
   // 整句在哪看：点一下它，说明框里有（见 showRole）
   //
@@ -1755,6 +1759,11 @@
   // 这张牌**印着**的那几个点数：牌面那个 + 点数卡贴上来的
   function cardVals(card : PlainCard) : number[] {
     const out : number[] = []
+    // 无点数牌（商店买的、【抹点】抹的）一个点数都没有 —— 跟顺色那张一样不在点数轴上。
+    // 零点牌照常走下面：它的点数就是 0（valueOfRank 认不出 '0'，回 0）
+    if (card.rank == BLANK_RANK) {
+      return out
+    }
     out.push(card.value)
     for (let i = 0; i < card.extra.length; i++) {
       // 贴重了就不重复算（界面上也只写一个）
@@ -1874,20 +1883,20 @@
       return false
     }
     const vals = pileValsAt(index)
+    // 无点数牌本来就没点数 —— 「没点数」正是它的牌面，不算对不上
+    if (vals.length == 0 && pile.value[index].rank == BLANK_RANK) {
+      return false
+    }
     if (vals.length != 1) {
       return true
     }
     return vals[0] != pile.value[index].value
   }
 
-  // 牌面那个点数字符串算几点。RANKS 和 RANK_VALUES 下标对齐
+  // 牌面那个点数字符串算几点。A–K 查表，熔合出来的 '17' 这种直接读数，
+  // 零点 / 无点数是 0（见 draw-save 的 valueOfRankText）
   function valueOfRank(rank : string) : number {
-    for (let i = 0; i < RANKS.length; i++) {
-      if (RANKS[i] == rank) {
-        return RANK_VALUES[i]
-      }
-    }
-    return 0
+    return valueOfRankText(rank)
   }
 
   // 原先这儿有个本地的 faceOfValue（点数值写成 J/Q/K）。
@@ -1905,7 +1914,7 @@
 
   // 牌名。贴过点数卡的在后面带上那几个点数：♠3·7
   function cardName(card : PlainCard) : string {
-    let out = card.suit + card.rank
+    let out = card.suit + rankFace(card.rank)
     for (let i = 0; i < card.extra.length; i++) {
       out = out + '·' + faceOfValue(card.extra[i])
     }
@@ -2105,6 +2114,12 @@
       || hasTrigger(skills, SK_SPILL) || hasTrigger(skills, SK_HUEVOID)) {
       return [] as number[]
     }
+    // 无点数牌**谁也给不了它点数**：齐顶、归深、退潮、见底都是在「它的点数」上改，
+    // 而它压根没有那一项。只有花色槽触发得到它（点数槽不收它），
+    // 所以撞上这几件只会是花色槽 —— 技能照常发动，它自己照旧没点数
+    if (card.rank == BLANK_RANK) {
+      return [] as number[]
+    }
     // ---- 退潮和见底：**它们自己也归 0** ----
     //
     // 两件都在自己造的那阵退潮里：退潮减掉自己的点数就是 0，
@@ -2128,25 +2143,32 @@
     if (hasTrigger(skills, SK_EBB) || hasTrigger(skills, SK_LOWTIDE)) {
       return [0]
     }
-    // ---- 齐顶：这张算堆上**最大**的那个点数 ----
+    // ---- 齐顶：这张算堆上**同颜色**牌里最大的那个点数 ----
     //
     // 覆盖掉牌面和点数卡 —— 它不是「多一个候选」，是「改成那个数」，
-    // 所以落下去必钩中最大那张（收「那张 → 堆顶」）。
+    // 所以落下去必钩中那张（收「那张 → 堆顶」）。
     //
-    // 空堆上算 0 点：0 当不了钓点（见 anyEquals），所以那是白打一张。
-    // 读的是 pileValsAt（现在算几点），不是牌面 —— 见底压过的、
-    // 顺色留下的没点数的，都按现在的算
+    // 原先是「全堆最大」，模拟器里两种槽都排第一（4 张槽 +4.36、花色槽 +12.89）。
+    // 限成同颜色（红 / 黑）之后是 +3.55 / +9.19，回到目标档位。
+    // 颜色按 pileSuitAt（染水改过的算改后的）；点数按 pileValsAt（现在算几点）。
+    // 堆上没有同颜色的牌：按它自己的点数算，跟普通牌一样去匹配
     if (hasTrigger(skills, SK_PEAK)) {
+      const red = isRedSuit(card.suit)
       let top = 0
+      let found = false
       for (let i = 0; i < pile.value.length; i++) {
+        if (isRedSuit(pileSuitAt(i)) != red) {
+          continue
+        }
         const vals = pileValsAt(i)
         for (let k = 0; k < vals.length; k++) {
           if (vals[k] > top) {
             top = vals[k]
+            found = true
           }
         }
       }
-      return [top]
+      return found ? [top] : cardVals(card)
     }
     const out = cardVals(card)
     // 归深：**追加** 11 这个候选（不覆盖原来的）。
@@ -2750,8 +2772,8 @@
     // ---- 这是第一件组合技，所以说清它为什么立得住 ----
     //
     // 前提是「一张牌同时触发两件技能」，而那在角色卡上**仍然存在** ——
-    // 带花色槽的角色（明镜 ♥ + '3 4'、沉钩 ♣ + 'K'）在两个槽的交集上
-    // 就是双触发（triggersOf 返回两个下标；DRAW_ROLES 里明镜那条 desc
+    // 带花色槽的角色（镜湖占卜师 ♥ + '3 4'、深海钓手 ♣ + 'K'）在两个槽的交集上
+    // 就是双触发（triggersOf 返回两个下标；DRAW_ROLES 里镜湖占卜师那条 desc
     // 写的就是这个）。设计文档第九节那套「重叠格组合技」因此没死，
     // 只是从「随机摇出来的重叠」变成了「角色卡印死的交集」。
     //
@@ -2765,8 +2787,8 @@
     //  退潮仍然是唯一一件不收牌的。）
     //
     // 幅度由牌面点数定，所以它自带一条上限曲线：
-    //   明镜 ♥3 / ♥4 —— 减 3、减 4，收走堆上点数不超过那个数的；
-    //   沉钩 ♣K     —— 减 13，几乎整堆归零 = 通吃。
+    //   镜湖占卜师 ♥3 / ♥4 —— 减 3、减 4，收走堆上点数不超过那个数的；
+    //   深海钓手 ♣K     —— 减 13，几乎整堆归零 = 通吃。
     //                  而 ♣K **只有一张**，所以一局最多响一次。
     // 对比 J 通吃（4 张、无条件），这一下要你把两件技能分别插对两个槽、
     // 还要正好摸到那张交集牌
@@ -4573,7 +4595,15 @@
     const vals = cardVals(card)
     let risk = 0
     for (let i = 0; i < vals.length; i++) {
-      risk = risk + outsideCount(faceOfValue(vals[i]))
+      // 0 点谁也按点数钓不走它（anyEquals 跳过 0），所以零点牌这一项不算风险。
+      // 无点数牌 cardVals 是空的，自然是 0 —— 两种都是最安全的饵
+      if (vals[i] == 0) {
+        continue
+      }
+      // 熔合出来的大点数（'17'）牌组里本来没有，总张数查不到是 0，
+      // 减掉看得见的那几张会成负数 —— 风险最少是 0，不能倒贴
+      const out = outsideCount(faceOfValue(vals[i]))
+      risk = risk + (out > 0 ? out : 0)
     }
     return risk
   }
@@ -4656,7 +4686,7 @@
     // 收色是**散收**（整堆所有同花色），撒网改成了**连续段**
     // （从一头往左连着收同奇偶）。原先两件都是散收，一个循环就够。
     //
-    // 一张牌可能同时触发两件（带花色槽的角色，比如明镜的 ♥3 ——
+    // 一张牌可能同时触发两件（带花色槽的角色，比如镜湖占卜师的 ♥3 ——
     // 花色槽一件、点数槽一件），所以标记叠加，最后数一遍
     const marked : boolean[] = []
     for (let i = 0; i < size; i++) {
