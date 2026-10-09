@@ -909,6 +909,20 @@ export const DIFF_EASY : number = 0
 export const DIFF_NORMAL : number = 1
 export const DIFF_HARD : number = 2
 export const DIFF_NAMES : string[] = ['简单', '普通', '困难']
+
+// 技能库上限：一轮里最多拥有几件技能（装在槽上的也算）。
+// 困难给 5 —— 最多槽的角色（锁江）有 4 个槽，至少得留一格周转
+const LIBRARY_CAPS : number[] = [8, 6, 5]
+// 生命：输一关扣 1 点、退回上一个商店；扣光了整轮作废
+const DIFF_LIVES : number[] = [3, 2, 1]
+
+export function libraryCapOf(diff : number) : number {
+  return diff >= 0 && diff < LIBRARY_CAPS.length ? LIBRARY_CAPS[diff] : LIBRARY_CAPS[1]
+}
+
+export function maxLivesOf(diff : number) : number {
+  return diff >= 0 && diff < DIFF_LIVES.length ? DIFF_LIVES[diff] : DIFF_LIVES[1]
+}
 const DIFF_REWARD_RATE : number[] = [1.5, 1.0, 0.75]
 const EASY_RANDOM_UNTIL : number = 4
 const FIRST_REWARD_FLOOR : number = 80

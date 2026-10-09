@@ -120,6 +120,19 @@
     border: 1px solid #dfdfdf;
     border-radius: 3px;
   }
+
+  /* 滚动条放到内容外面（摸打那几页的竖向 scroll-view 加了 sv-out）：
+     整块往右多伸 10px（伸进外框的留白里），里面的内容右侧留 10px ——
+     内容宽度不变，滚动条落在留白处，不再压着内容。
+     .uni-scroll-view-content 是 H5 上 scroll-view 自己生成的那一层，页面样式够不着，所以写在这儿 */
+  .sv-out {
+    margin-right: -10px;
+  }
+
+  .sv-out .uni-scroll-view-content {
+    padding-right: 10px;
+    box-sizing: border-box;
+  }
 </style>
 <style>
 .text-red{

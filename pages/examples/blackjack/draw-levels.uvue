@@ -43,6 +43,9 @@
       <!-- 这儿原先还有颗「终局」。去掉了 —— 终局自己有一张牌子
            （下面那张，带「开启挑战」和「选角色」），
            同一个入口没必要摆两处 -->
+      <view id="md-open-rules" class="top-btn" @click="showRules = true">
+        <text class="top-btn-text">规则</text>
+      </view>
       <view id="md-open-saves" class="top-btn" @click="showSaves = true">
         <text class="top-btn-text">存档</text>
       </view>
@@ -53,7 +56,7 @@
          （对局页顶上横着摆出来）。预先摊开的话，这一页就变成了
          一张作业表：照着它配装、算清楚再上桌，而那恰好把
          「上桌之后才发现它这手有讲究」这件事给删了 -->
-    <scroll-view class="levels" direction="vertical">
+    <scroll-view class="levels sv-out" direction="vertical">
       <view v-if="!allCleared" class="card">
         <view class="card-head">
           <text class="now-id">第 {{ level.id }} 关</text>
@@ -73,6 +76,7 @@
             class="dot"
             :class="{ 'dot-done': one < save.runLevel, 'dot-now': one == save.runLevel }"></view>
         </view>
+        <text id="md-run-meta" class="run-meta">{{ runMeta }}</text>
 
         <!-- 这一轮你是谁。**摆在难度上面** —— 它是比难度更靠前的前提：
              难度定这一关多难，角色定这一整轮你往哪儿走。
@@ -118,6 +122,21 @@
         <!-- 只留口号。机制那段（随机满配、不记账、不推关号……）删了 ——
              「不记账」右上角那个标签已经点出来了，剩下的上桌自然知道 -->
         <text class="card-slogan">使出你的全力向王座发起挑战</text>
+        <!-- 终局难度摆在牌子上，直接开打也按它来。
+             跟角色面板里那一排是同一个值（finalDiff），哪边改都一样 -->
+        <view class="diff-row">
+          <text class="diff-label">难度</text>
+          <view
+            v-for="(name, di) in DIFF_NAMES"
+            :key="'fc-' + di"
+            :id="'md-final-card-diff-' + di"
+            class="diff-btn"
+            :class="{ 'diff-on': di == finalDiff }"
+            @click="pickFinalDiff(di)">
+            <text class="diff-text" :class="{ 'diff-text-on': di == finalDiff }">{{ name }}</text>
+          </view>
+        </view>
+        <text class="diff-note">{{ finalDiffNote }}</text>
         <view class="card-acts">
           <view id="md-final" class="card-btn card-btn-main" @click="goFinal">
             <text class="card-btn-text card-btn-text-dark">开启挑战</text>
@@ -155,14 +174,9 @@
           <text class="skill-box-sub">{{ roleAt < 0 ? DRAW_ROLES.length + ' 个' : '盖住 ' + roleCover(roleAt) + ' 张牌' }}</text>
         </view>
 
-        <!-- 第一步：角色列表。闯关这边加一句话说清「槽是空的」——
-             不然看着满满的槽标签，会以为技能也一起给了 -->
-        <text v-if="roleAt < 0 && roleMode == 'run'" class="skill-box-empty"
-          >选谁就带谁那件常驻特殊技（整轮都在，不占槽）。槽是空的 ——
-          技能要在商店买来嵌进去，所以角色定的是这一轮你往哪个点数攒。
-          这一轮不能换人，输了重开才重选。</text
-        >
-        <scroll-view v-if="roleAt < 0" class="skill-box-body" direction="vertical">
+        <!-- 第一步：角色列表。卡片跟「角色」图鉴那边同一个样子：
+             名字 + 特殊技 + 覆盖张数（锁着的换成门槛），下面是槽、特殊技效果 -->
+        <scroll-view v-if="roleAt < 0" class="skill-box-body sv-out" direction="vertical">
           <view
             v-for="(role, ri) in DRAW_ROLES"
             :key="'rl-' + ri"
@@ -174,18 +188,15 @@
               <text class="my-skill-name">{{ role.name }}</text>
               <text class="my-skill-key">{{ specialNameOf(ri) }}</text>
               <view class="my-skill-gap"></view>
-              <!-- 用 / 分隔**槽**，而槽内部是空格分隔的标签 ——
-                   「6 7 / 8 9」一眼看得出是两个槽、各管一对。
-                   锁着的话这儿换成门槛：报得出数字才叫目标 -->
-              <text class="my-skill-cover">{{ roleOpen(ri) ? role.slots.join(' / ') : roleLock(ri) }}</text>
+              <text class="my-skill-cover">{{ roleOpen(ri) ? roleCover(ri) + ' 张' : roleLock(ri) }}</text>
             </view>
-            <text class="my-skill-desc">{{ role.desc }}</text>
-            <text class="my-skill-level">{{ specialDescOf(ri) }}</text>
+            <text class="my-skill-level">槽：{{ slotsText(ri) }}</text>
+            <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
           </view>
         </scroll-view>
 
         <!-- 第二步：那几个槽。点一个槽进技能列表 -->
-        <scroll-view v-else-if="slotPick < 0" class="skill-box-body" direction="vertical">
+        <scroll-view v-else-if="slotPick < 0" class="skill-box-body sv-out" direction="vertical">
           <text class="skill-box-empty">{{ specialNameOf(roleAt) }}（常驻）：{{ specialDescOf(roleAt) }}</text>
           <!-- 终局自己的难度，**跟闯关那档分开记**（不写存档）——
                终局是不记账的沙盒：你可能想用简单试一套配装、
@@ -198,7 +209,7 @@
               :id="'md-final-diff-' + di"
               class="diff-btn"
               :class="{ 'diff-on': di == finalDiff }"
-              @click="finalDiff = di">
+              @click="pickFinalDiff(di)">
               <text class="diff-text" :class="{ 'diff-text-on': di == finalDiff }">{{ name }}</text>
             </view>
           </view>
@@ -223,7 +234,7 @@
         </scroll-view>
 
         <!-- 第三步：给这个槽挑技能 -->
-        <scroll-view v-else class="skill-box-body" direction="vertical">
+        <scroll-view v-else class="skill-box-body sv-out" direction="vertical">
           <text class="skill-box-empty">嵌进 {{ DRAW_ROLES[roleAt].slots[slotPick] }} 槽（已嵌的会被换掉）</text>
           <view
             v-for="(skill, k) in DRAW_SKILLS"
@@ -264,7 +275,7 @@
       也回答「对面可能是谁」。
 
       每个角色要报三样，缺一样就看不出它的性格：
-        **槽** —— 几个、各管什么（花色槽 13 张、数字槽一格 4 张）；
+        **槽** —— 几个、各管什么（花色槽 12 张 —— J 不触发技能、数字槽一格 4 张）；
         **特殊技** —— 常驻那件，三档效果都列出来；
         **覆盖面** —— 八个角色唯一能横着比的那个数
     -->
@@ -274,26 +285,23 @@
           <text class="skill-box-title">角色</text>
           <text class="skill-box-sub">{{ DRAW_ROLES.length }} 个 · 你和庄家共用</text>
         </view>
-        <text class="skill-box-empty">终局对决里挑一个，往它的槽里嵌技能。庄家也从这几个里摇一个 —— 所以这一页也是「对面可能是谁」。</text>
-        <scroll-view class="skill-box-body" direction="vertical">
+        <!-- 卡片跟选角色那一步同一个样子（见 showCustom 的第一步） -->
+        <scroll-view class="skill-box-body sv-out" direction="vertical">
           <view
             v-for="(role, ri) in DRAW_ROLES"
             :key="'rb-' + ri"
             :id="'md-rolebook-' + ri"
-            class="my-skill my-skill-on">
+            class="my-skill">
             <view class="my-skill-head">
               <text class="my-skill-name">{{ role.name }}</text>
               <text class="my-skill-key">{{ specialNameOf(ri) }}</text>
               <view class="my-skill-gap"></view>
               <text class="my-skill-cover">{{ roleCover(ri) }} 张</text>
             </view>
-            <text class="my-skill-desc">{{ role.desc }}</text>
             <!-- 槽一行：「6 7（8 张） / 8 9（8 张）」—— 斜杠分槽，
                  括号里是这个槽盖住多少张牌 -->
             <text class="my-skill-level">槽：{{ slotsText(ri) }}</text>
-            <!-- 特殊技的三档。终局只用第一档（不升级），但三档都列着 ——
-                 闯关模式以后接上角色卡的话，升级走的就是这三行 -->
-            <text class="my-skill-level">{{ specialNameOf(ri) }}（常驻）：{{ specialDescOf(ri) }}</text>
+            <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
           </view>
         </scroll-view>
       </view>
@@ -307,18 +315,16 @@
         <view class="skill-box-head">
           <!-- 抬头写**角色名**而不是「技能」—— 这一栏问的是「我带着什么」，
                而那句话的主语是角色。没选角色就退回「技能」 -->
-          <text class="skill-box-title">{{ myRoleLine == '' ? '技能' : DRAW_ROLES[save.role].name }}</text>
+          <text class="skill-box-title">技能</text>
           <!-- 查询框有字的时候这儿报**匹配到几件**，不报总数 ——
                筛着的时候「共 N 种」是句废话，而「匹配 3 件」正好是
                你刚敲完那个词想知道的事 -->
-          <text class="skill-box-sub" :class="{ 'own-full': slotCount > 0 && usedSlots >= slotCount }"
-            >槽 {{ usedSlots }}/{{ slotCount }} ·
-            {{ query == '' ? '共 ' + DRAW_SKILLS.length + ' 种' : '匹配 ' + mySkills.length + ' 件' }}</text
+          <text class="skill-box-sub"
+            >{{ query == '' ? '共 ' + DRAW_SKILLS.length + ' 种' : '匹配 ' + mySkills.length + ' 件' }}</text
           >
         </view>
         <!-- 那件常驻特殊技。它不占槽，所以下面那张按槽列的表里没有它 ——
              不单独报一句的话它就彻底看不见了 -->
-        <text v-if="myRoleLine != ''" class="skill-box-empty">{{ myRoleLine }}</text>
 
         <!-- 查询框。原先这儿是一段讲规则的说明（技能在哪买、怎么嵌槽、
              槽满了会换掉里头那件）。换掉的理由是**这一栏要解决的是查找**：
@@ -349,7 +355,7 @@
           class="skill-box-empty"
           >没有匹配「{{ query }}」的技能</text
         >
-        <scroll-view class="skill-box-body" direction="vertical">
+        <scroll-view class="skill-box-body sv-out" direction="vertical">
           <!-- key 用**技能下标**不用数组下标 —— 查询框一筛数组就重排了
                （见 MySkill.skill 那段） -->
           <view
@@ -369,6 +375,22 @@
           </view>
         </scroll-view>
         <text class="skill-box-close" @click.stop="closeSkills">收起来</text>
+      </view>
+    </view>
+
+    <!-- 规则：现行规则一页说清。改规则的时候这儿要跟着改（见 RULES） -->
+    <view v-if="showRules" class="mask" @click="showRules = false">
+      <view class="skill-box" @click.stop="noop">
+        <view class="skill-box-head">
+          <text class="skill-box-title">规则</text>
+        </view>
+        <scroll-view class="skill-box-body sv-out" direction="vertical">
+          <view v-for="(sec, ri) in RULES" :key="'rule-' + ri" :id="'md-rule-' + ri" class="rule-sec">
+            <text class="rule-title">{{ sec.title }}</text>
+            <text v-for="(line, li) in sec.lines" :key="'rl-' + ri + '-' + li" class="rule-line">{{ line }}</text>
+          </view>
+        </scroll-view>
+        <text class="skill-box-close" @click.stop="showRules = false">收起来</text>
       </view>
     </view>
 
@@ -400,6 +422,7 @@
     drawLevelById,
     levelForDiff,
     DIFF_NAMES,
+    maxLivesOf,
     DIFF_EASY,
     DIFF_NORMAL,
     DIFF_HARD
@@ -489,9 +512,11 @@
     save.value = loadDrawSave()
     slotIndex.value = drawSaveSlot()
     diff.value = difficultyOf(slotIndex.value)
-    // 终局那档默认跟着闯关的 —— 进来就是你习惯的难度，
-    // 想换在角色面板里改（那一改不写存档，见 finalDiff）
-    finalDiff.value = diff.value
+    // 终局那档默认跟着闯关的 —— 进来就是你习惯的难度。
+    // 手动选过就不再跟（不然打一局回来 onShow 一刷新，选的就被冲掉了）
+    if (!finalDiffPicked) {
+      finalDiff.value = diff.value
+    }
     const list : SlotView[] = []
     for (let i = 1; i <= DRAW_SLOT_COUNT; i++) {
       list.push({ index: i, data: loadDrawAt(i) })
@@ -593,44 +618,35 @@
     return one.key.toLowerCase().indexOf(q) >= 0
   }
 
-  // 技能图鉴。全表都列，**嵌在槽里的那几件描亮并报它落在哪个槽**。
-  //
-  // 「拥有」这个状态没了 —— 买技能必须当场嵌进一个槽（见商店的
-  // buySkill → onPickSlot），所以「有但没装上」那种中间态不存在了。
-  // 于是这一栏的 owned 现在就是「嵌着没有」，cover 就是那个槽的标签。
+  // 技能图鉴：**跟这一轮无关**，全表一视同仁地列（名字、价钱、效果）。
+  // 这一轮带着什么、装在哪，去「技能库」看（商店页的只管理模式）。
   //
   // 查询框有字的时候筛一道 —— **筛在这儿不在模板里**：
   // 「匹配到几件」那句提示读的是 mySkills.length，筛在模板里它就永远是 29
   const mySkills = computed<MySkill[]>(() : MySkill[] => {
-    const data = save.value
     const out : MySkill[] = []
     for (let k = 0; k < DRAW_SKILLS.length; k++) {
       if (!matches(k)) {
         continue
       }
-      // 它嵌在第几个槽（-1 = 没嵌）
-      let at = -1
-      for (let i = 0; i < data.slotSkills.length; i++) {
-        if (data.slotSkills[i] == k) {
-          at = i
-          break
-        }
-      }
-      const label = at < 0 ? '' : slotLabelAt(data, at)
       out.push({
         skill: k,
-        owned: at >= 0,
-        // 没嵌的报它的解锁价（那是它的样子 —— 你能等到什么、要多少钱）；
-        // 嵌着的报那个槽印的标签，那才是它实际管的牌
-        cover: at < 0 ? DRAW_SKILLS[k].unlock + ' 金币' : label,
+        owned: true,
+        cover: DRAW_SKILLS[k].unlock + ' 金币',
         name: DRAW_SKILLS[k].name,
-        level: at < 0 ? '未嵌' : '第 ' + (at + 1) + ' 槽',
+        level: '',
         desc: DRAW_SKILLS[k].desc,
         first: DRAW_SKILLS[k].first
       } as MySkill)
     }
+    // 按价格从低到高；同价的照技能表的先后
+    out.sort((x : MySkill, y : MySkill) : number => {
+      const d = DRAW_SKILLS[x.skill].unlock - DRAW_SKILLS[y.skill].unlock
+      return d != 0 ? d : x.skill - y.skill
+    })
     return out
   })
+
 
   // 这一轮的角色有几个槽、嵌了几件（弹层抬头报「槽 N/M」）
   const slotCount = computed<number>(() : number => {
@@ -749,7 +765,7 @@
   // 正常模式里一局的分量很重（输一次十二关白打），所以人会保守地打；
   // 终局不记账，于是你敢拿任何疯招去试。它卖的就是这个
   function goFinal() {
-    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing?mode=final' })
+    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing?mode=final&diff=' + finalDiff.value })
   }
 
   // ---------- 终局：选角色卡 + 嵌技能 ----------
@@ -875,10 +891,75 @@
   // 角色图鉴那个面板开着没有
   const showRoles = ref<boolean>(false)
 
+  // ---- 规则弹窗 ----
+  //
+  // 写死的文字。规则改了这儿要跟着改 —— 数字（手牌 4 张、生命、技能库上限……）
+  // 跟代码里的常量对应：HAND_SIZE（ap-fishing）、DIFF_LIVES / LIBRARY_CAPS / DIFF_REWARD_RATE
+  //（draw-levels），利息档位见 interestOf
+  type RuleSec = {
+    title : string
+    lines : string[]
+  }
+  const showRules = ref<boolean>(false)
+  const RULES : RuleSec[] = [
+    { title: '对局', lines: [
+      '一副 52 张。双方开局各 4 张手牌，庄家先手，轮流每回合打 1 张，回合末补足 4 张。',
+      '牌库和双方手牌都空了，积分高的赢。堆里剩下的牌不算分。'
+    ] } as RuleSec,
+    { title: '出一张牌的顺序', lines: [
+      '① 进场：牌落到堆上（沉底的落堆底），先受场上效果影响（压邻、封色、分水……）。',
+      '② 发动这张牌的技能：同一张牌有几个效果时，先执行带「优先」的。',
+      '③ 匹配：这张牌还在堆上的话，跟堆里同点数的牌对上，就收走从那张到堆顶的整段。收走几张记几分。'
+    ] } as RuleSec,
+    { title: 'J', lines: [
+      'J 只有通吃：堆上有牌时打 J，整堆收走；空堆上打 J 只收走它自己。',
+      'J 不触发任何技能；让牌「没有点数」的场上效果也挡不住它通吃。'
+    ] } as RuleSec,
+    { title: '角色和技能', lines: [
+      '每一轮开局选一张角色卡：它带一件常驻特殊技，还有几个印着点数或花色的槽。',
+      '技能装进槽才生效：打出的牌落在槽上印的点数或花色上，就触发那个槽里的技能。',
+      '技能是通用的，装进哪个槽都行；管哪些牌由槽决定（花色槽 12 张，点数一个 4 张）。'
+    ] } as RuleSec,
+    { title: '闯关', lines: [
+      '一轮 12 关。赢了拿金币（过关奖励 + 胜分，胜分最多 +10），然后进商店。',
+      '没花完的钱每关生利息：攒到 30 给 3，之后每 40 给 5，最多 25。',
+      '输一关扣 1 点生命，退回上一个商店（金币、技能、货架都是那时的样子）；第 1 关输了就重打。生命用完，这一轮作废，从第 1 关重来。',
+      '平局重打这一关，不扣生命。'
+    ] } as RuleSec,
+    { title: '商店和技能库', lines: [
+      '买来的技能先放进技能库，再装进槽。装上、卸下、换槽都不花钱。',
+      '技能库满了就买不了技能，得先卖掉一件；卖出拿回买价的一半。',
+      '道具买了立刻用；货架可以花钱换一批，价钱翻倍涨。'
+    ] } as RuleSec,
+    { title: '难度（一轮开始前选）', lines: [
+      '简单：庄家前 4 关随机出牌、之后不记牌；过关金币 ×1.5；生命 3；技能库 8 件。',
+      '普通：庄家第 1 关随机出牌、第 3 关起记牌；过关金币 ×1；生命 2；技能库 6 件。',
+      '困难：庄家每一关都记牌；过关金币 ×0.75（第 1 关保底 80）；生命 1；技能库 5 件。'
+    ] } as RuleSec,
+    { title: '终局对决', lines: [
+      '一局定胜负，不记账：不发金币、不推关号、不动存档。',
+      '可以自定义角色和技能，也可以随机。难度只管庄家怎么出牌、配装多满。'
+    ] } as RuleSec
+  ]
+
   // 终局那一局的难度。**不写存档** —— 终局是不记账的沙盒，
   // 它的难度也该是一次性的。默认跟着闯关那档（见 refresh），
   // 在角色面板里随时能改
   const finalDiff = ref<number>(DIFF_NORMAL)
+
+  // 卡片上那一行：现有金币 / 生命。生命 0 = 这一轮还没开打，报满的
+  const runMeta = computed<string>(() : string => {
+    const max = maxLivesOf(diff.value)
+    const lives = save.value.lives > 0 ? save.value.lives : max
+    return '金币 ' + save.value.gold + ' · 生命 ' + lives + '/' + max
+  })
+  // 这一页里手动选过终局难度没有（见 refresh）
+  let finalDiffPicked : boolean = false
+
+  function pickFinalDiff(d : number) {
+    finalDiff.value = d
+    finalDiffPicked = true
+  }
 
   // 难度在终局管两件事：庄家怎么出牌、它的槽嵌满没有。
   //
@@ -1206,6 +1287,30 @@
   /* .card-note（牌子上那段机制说明）用完就没了，样式一起删 */
 
   /* 牌子底下那排按钮：主按钮金底，次的只描边 */
+  .rule-sec {
+    margin-bottom: 12px;
+  }
+
+  .rule-title {
+    color: #e8b23a;
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  .rule-line {
+    color: #e6f4ec;
+    font-size: 12px;
+    line-height: 19px;
+    margin-top: 2px;
+  }
+
+  .run-meta {
+    color: #ff9e80;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+
   .card-acts {
     flex-direction: row;
     margin-top: 12px;
@@ -1463,6 +1568,7 @@
     padding: 1px 5px;
     border-radius: 7px;
     margin-left: 5px;
+    margin-right: 8px;
   }
 
   .my-skill-desc {

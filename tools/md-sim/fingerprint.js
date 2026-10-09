@@ -28,14 +28,19 @@ const WATCH = [
   {
     file: 'ap-fishing.uvue',
     group: '钓牌判定与出牌',
-    names: ['catchStart', 'canCatch', 'playFor', 'afterPlay', 'valuesOf', 'cardVals',
-      'anyEquals', 'guardedAgainst', 'finishCatch', 'pushPile', 'unshiftPile',
-      'suitifyFor', 'pileValsAt', 'pileSuitAt', 'pileRed']
+    // 「先结算技能、再匹配」那次重构把 afterPlay 拆成了 head / tail 两段，
+    // 匹配挪进了 resolveMatch —— 这几个都得盯着
+    names: ['catchStart', 'canCatch', 'playFor', 'resolveMatch', 'removePileAt',
+      'afterPlay', 'afterPlayHead', 'afterPlayTail', 'measureFor', 'valuesOf',
+      'landVals', 'cardVals', 'anyEquals', 'guardedAgainst', 'finishCatch',
+      'pushPile', 'unshiftPile', 'suitifyFor', 'pileValsAt', 'pileSuitAt', 'pileRed']
   },
   {
     file: 'ap-fishing.uvue',
     group: '技能结算',
-    names: ['lowTideFor', 'floodFor', 'peekFor', 'doPickDeck', 'sinkTops',
+    names: ['lowTideFor', 'ebbTideFor', 'ebbFor', 'dropPile', 'dropVals', 'anyLive',
+      'floodFor', 'hueFor', 'castFor', 'harvestIndices', 'harvestCount',
+      'dumpFor', 'spillFor', 'peekFor', 'doPickDeck', 'sinkTops',
       'topCards', 'shuffleBack', 'doFreeze', 'expireHeld', 'heldOn', 'isFrozen',
       'inPile', 'foeOpen', 'foeKnows']
   },
@@ -69,10 +74,16 @@ const CONSTS = [
   { file: 'ap-fishing.uvue', name: 'HAND_SIZE' },
   { file: 'ap-fishing.uvue', name: 'TIDE_LOOK' },
   { file: 'ap-fishing.uvue', name: 'PICK_LOOK' },
+  { file: 'ap-fishing.uvue', name: 'LOW_TIDE_STEP' },
+  { file: 'ap-fishing.uvue', name: 'CLEAR_OPEN' },
+  { file: 'ap-fishing.uvue', name: 'FIRM_GUARD' },
+  { file: 'ap-fishing.uvue', name: 'DEEP_EXTRA' },
+  { file: 'draw-skills.uts', name: 'DUMP_COUNT' },
+  { file: 'draw-skills.uts', name: 'SPILL_COUNT' },
+  { file: 'draw-skills.uts', name: 'EBB_COUNT' },
   // SUIT_CAPACITY 删了（花色槽砍成了一个特殊技能槽），所以这儿也撤掉 ——
   // 留着只会每次都报一条 MISSING，而噪音多了就没人看警报了
   { file: 'draw-skills.uts', name: 'RANK_CAPACITY' },
-  { file: 'draw-skills.uts', name: 'MEASURE_MIN' },
   { file: 'draw-skills.uts', name: 'BAIT_COUNT' }
 ]
 

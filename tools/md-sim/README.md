@@ -99,12 +99,15 @@ node sim.js role night               # 夜钓打满槽
 
 | 模拟器 | 源码（`ap-fishing.uvue` 除外另注） |
 |---|---|
-| `rules.catchStart` | `catchStart`（含 sink 镜像、J、顺色、磁钩、钩顶 near） |
-| `rules.playFor` | `playFor` + `finishCatch`（动画那段去掉，直接结算） |
-| `rules.afterPlay` | `afterPlay`（技能顺序一字不差照搬） |
-| `rules.valuesOf` / `cardVals` / `anyEquals` | 同名 |
-| `rules.lowTideFor` / `floodFor` / `stirFor` / `peekFor` | 同名 |
-| `rules.suitifyFor` | `suitifyFor`（染水〔优先〕，在判定之前） |
+| `rules.catchStart` | `catchStart`（含 sink 镜像、J、顺色、磁钩；量水那支是落堆前的估算，+1 含自己） |
+| `rules.playFor` | `playFor`（只落堆 + 染水）→ `afterPlay` → `resolveMatch`，最后 `passTurn` |
+| `rules.resolveMatch` / `finishCatch` / `removePileAt` | 同名（「先结算技能、再匹配」：拿下来、对剩下的堆判、放回去；动画去掉） |
+| `rules.afterPlay` | `afterPlay` + `afterPlayHead` + `afterPlayTail`（源码靠定时器接力，这边顺着跑；技能顺序一字不差） |
+| `rules.measureFor` | `measureFor`（量水：数张数含它自己） |
+| `rules.valuesOf` / `landVals` / `cardVals` / `anyEquals` | 同名 |
+| `rules.lowTideFor` / `ebbTideFor` / `ebbFor` / `dropPile` / `dropVals` / `anyLive` | 同名（见底、干塘收归零的走 `harvestPile`，源码是 `startSweep`） |
+| `rules.floodFor` / `hueFor` / `castFor` / `harvestCount` / `peekFor` / `dumpFor` / `spillFor` | 同名 |
+| `rules.suitifyFor` | `suitifyFor`（染水〔优先〕：落堆之后、其余技能之前） |
 | `rules.doPickDeck` / `sinkTops` / `topCards` / `shuffleBack` | 同名 |
 | `rules.refill` / `expireGuards` / `checkOver` / `passTurn` | 同名 |
 | `rules.triggersOf` / `kitFromRole` / `slotLabels` / `slotCover` / `roleCover` / `baitRankOf` | `draw-skills.uts` 同名 |

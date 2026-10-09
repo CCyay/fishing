@@ -121,7 +121,10 @@ export const DRAW_RUN_LENGTH : number = 12
 // 所以老档整个当没有。这是这次改动唯一的实际代价
 // md9：花色槽砍掉，suitOwner 那两段没了（见 loadDrawAt 里那段）。
 // 不留老版号常量了 —— md9 一个都不兼容，留着没用
-const VERSION : string = 'md10'
+// md11：多了技能库（library）和生命（lives）两段，插在 label 前面。
+// md10 照读：技能库 = 当时槽上嵌着的那几件，生命按难度给满
+const VERSION : string = 'md11'
+const VERSION_MD10 : string = 'md10'
 const KEY_PREFIX : string = 'md_save_'
 const KEY_SLOT : string = 'md_slot'
 
@@ -185,6 +188,13 @@ export type DrawSave = {
   // 本轮：打赢一关、还没离开商店。从商店「退出」之后再开启挑战，
   // 先回商店而不是直接开下一关（商店里点「开始下一关」才清掉）
   inShop : boolean
+  // 本轮：技能库 —— 拥有的全部技能（DRAW_SKILLS 下标），**装在槽上的也在里头**。
+  // 买来的技能先进这儿，再装进槽（slotSkills 里放的是从库里挑出来装上的那几件）。
+  // 上限按难度（见 draw-levels 的 libraryCapOf），满了买不了
+  library : number[]
+  // 本轮：还剩几点生命。输一关扣 1 点、退回上一个商店；扣光了整轮作废。
+  // 0 = 还没开打（新档 / 刚重开一轮），开局时按难度补满（见 ensureLives）
+  lives : number
   // 本轮：**当前这一关庄家那几个槽上摇出来的标签**。
   //
   // 庄家角色本身不用存 —— 它由关号定死（DRAW_FOE_ROLES 按关号下标），
@@ -228,7 +238,9 @@ export function emptyDrawSave() : DrawSave {
     flatReroll: false,
     inShop: false,
     // 空的 = 还没摇过。进对局的时候按关号补摇（ensureFoeKit）
-    foeSlots: [] as string[]
+    foeSlots: [] as string[],
+    library: [] as number[],
+    lives: 0
   }
 }
 
@@ -262,6 +274,9 @@ export function resetDrawRun(data : DrawSave) {
   data.bonusCard = 0
   data.flatReroll = false
   data.inShop = false
+  // 技能库、生命都是本轮的：清空（生命在下一轮开局时按难度补满，见 ensureLives）
+  data.library = [] as number[]
+  data.lives = 0
   // 庄家那一套也重摇 —— 新一轮就是新的十二道题。
   // 不重摇的话上一轮第 12 关那套会跟到新一轮的第 1 关
   rollFoeKit(data, 1)
@@ -487,8 +502,9 @@ export function loadDrawAt(index : number) : DrawSave {
   // **md10 又缩了三段**：玩家的 levels / loadout 换成了「角色 + 每槽嵌什么」
   // 两段（装备能从这两样 derive），庄家的两段换成一段「摇出来的标签」
   //（角色由关号定死，不用存）。十六段缩到十三段
-  const labelAt = 13
-  if (parts.length < labelAt + 1 || parts[0] != VERSION) {
+  const old = parts[0] == VERSION_MD10
+  const labelAt = old ? 13 : 15
+  if (parts.length < labelAt + 1 || (parts[0] != VERSION && !old)) {
     return emptyDrawSave()
   }
   // label 是最后一段，而它可能自带 | 号 —— 所以从 labelAt 起全拼回去
@@ -511,8 +527,43 @@ export function loadDrawAt(index : number) : DrawSave {
     bonusCard: toInt(parts[9], 0),
     flatReroll: parts[10] == '1',
     inShop: parts[11] == '1',
-    foeSlots: textToList(parts[12])
+    foeSlots: textToList(parts[12]),
+    // md10 没有技能库：照当时槽上嵌着的那几件算
+    library: old ? equippedOf(textToOwner(parts[5], roleSlotsOf(parts[4])))
+      : textToSkills(parts[13]),
+    lives: old ? 0 : toInt(parts[14], 0)
   }
+}
+
+// 一串技能 key（逗号分隔）读成下标。读不出来的（删掉的技能）跳过
+function textToSkills(text : string) : number[] {
+  const out : number[] = []
+  const keys = textToList(text)
+  for (let i = 0; i < keys.length; i++) {
+    const k = skillIndexOf(keys[i])
+    if (k >= 0 && out.indexOf(k) < 0) {
+      out.push(k)
+    }
+  }
+  return out
+}
+
+function skillsToText(list : number[]) : string {
+  const keys : string[] = []
+  for (let i = 0; i < list.length; i++) {
+    keys.push(skillKeyAt(list[i]))
+  }
+  return listToText(keys)
+}
+
+function equippedOf(slots : number[]) : number[] {
+  const out : number[] = []
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i] >= 0 && out.indexOf(slots[i]) < 0) {
+      out.push(slots[i])
+    }
+  }
+  return out
 }
 
 // 这个角色 key 有几个槽。读档时要用它定 slotSkills 的长度 ——
@@ -541,6 +592,8 @@ export function writeDrawAt(index : number, data : DrawSave) {
     // 庄家只存摇出来的标签（角色由关号定死，不用存）。
     // 一个槽一段，段内空格分隔 —— listToText 用逗号分段，不冲突
     + '|' + listToText(data.foeSlots)
+    + '|' + skillsToText(data.library)
+    + '|' + data.lives
     + '|' + data.label
   uni.setStorageSync(KEY_PREFIX + index, text)
 }
@@ -1037,13 +1090,107 @@ export function markSold(data : DrawSave, index : number) {
 //
 // 从前问的是「拥有吗」（data.levels[k] >= 0），那会儿「拥有」和「装上」
 // 是两件事。现在只有一件 —— 在槽里就是有，不在就是没有
+// 拥有这件技能吗（在技能库里；装没装在槽上都算）
 export function hasSkill(data : DrawSave, skill : number) : boolean {
+  return data.library.indexOf(skill) >= 0
+}
+
+// ---------- 技能库 ----------
+//
+// 买来的技能先进库，再从库里挑去装槽。装上 / 卸下随时换，不花钱；
+// 卖出是从库里拿掉（装着的先卸下），退买价的一半（见 sellPriceOf）
+
+export function libraryFull(data : DrawSave, cap : number) : boolean {
+  return data.library.length >= cap
+}
+
+// 买来 / 开包拿到：放进库。已经有了就不重复放
+export function addToLibrary(data : DrawSave, skill : number) {
+  if (skill >= 0 && data.library.indexOf(skill) < 0) {
+    data.library = data.library.concat([skill])
+  }
+}
+
+// 这件装在第几个槽，没装就 -1
+export function slotOfSkill(data : DrawSave, skill : number) : number {
   for (let i = 0; i < data.slotSkills.length; i++) {
     if (data.slotSkills[i] == skill) {
-      return true
+      return i
     }
   }
-  return false
+  return -1
+}
+
+// 把库里的一件装到第 at 个槽。它原先装在别的槽就从那儿挪过来；
+// 那个槽里原来那件卸下（留在库里，不卖）
+export function equipSkill(data : DrawSave, skill : number, at : number) : string {
+  if (at < 0 || at >= data.slotSkills.length || !hasSkill(data, skill)) {
+    return ''
+  }
+  const from = slotOfSkill(data, skill)
+  const next = data.slotSkills.slice(0)
+  if (from >= 0) {
+    next[from] = -1
+  }
+  const was = next[at]
+  next[at] = skill
+  data.slotSkills = next
+  const label = slotLabelAt(data, at)
+  const name = DRAW_SKILLS[skill].name
+  if (was >= 0 && was != skill) {
+    return name + ' 装进 ' + label + ' 槽，' + DRAW_SKILLS[was].name + ' 卸回技能库'
+  }
+  return name + ' 装进 ' + label + ' 槽'
+}
+
+// 卸下第 at 个槽里那件（回技能库）。返回卸下的是哪件，空槽返回 -1
+export function unequipAt(data : DrawSave, at : number) : number {
+  if (at < 0 || at >= data.slotSkills.length) {
+    return -1
+  }
+  const was = data.slotSkills[at]
+  const next = data.slotSkills.slice(0)
+  next[at] = -1
+  data.slotSkills = next
+  return was
+}
+
+// 从库里拿掉（卖出）。装着的一并卸下。钱由调用方加（它知道卖价）
+export function dropFromLibrary(data : DrawSave, skill : number) {
+  const at = slotOfSkill(data, skill)
+  if (at >= 0) {
+    unequipAt(data, at)
+  }
+  const keep : number[] = []
+  for (let i = 0; i < data.library.length; i++) {
+    if (data.library[i] != skill) {
+      keep.push(data.library[i])
+    }
+  }
+  data.library = keep
+}
+
+// ---------- 生命 ----------
+
+// 开局时补满（新档、刚重开一轮的生命是 0）
+export function ensureLives(data : DrawSave, max : number) : boolean {
+  if (data.lives > 0) {
+    return false
+  }
+  data.lives = max
+  return true
+}
+
+// 输了一关：扣 1 点生命。还有剩就退回上一个商店（第 1 关前面没有商店，就重打第 1 关），
+// 返回 true；扣光了整轮作废（resetDrawRun），返回 false
+export function settleLoss(data : DrawSave) : boolean {
+  data.lives = data.lives - 1
+  if (data.lives <= 0) {
+    resetDrawRun(data)
+    return false
+  }
+  data.inShop = data.runLevel > 1
+  return true
 }
 
 // 嵌了几件（空槽不算）。商店抬头报「槽 N/M」用它

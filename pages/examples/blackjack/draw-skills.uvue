@@ -8,13 +8,8 @@
              看得见不掏的回报。摆在结算页就太晚了 —— 那时候钱已经花完了。
              它还顺带把档位说清楚：买掉 30 块掉一档的话，这个数当场就变 -->
         <text id="md-skill-gold" class="gold">金币 {{ save.gold }}{{ interestText }}</text>
-        <!-- 槽。原先报的是「技能名额 N/4」，现在报槽 ——
-             **槽数本身就是上限**（角色卡定死几个槽，一个槽一件技能），
-             所以从前那个独立的名额上限没有存在的理由了，连带库存也没了。
-             这个数得一直摆在眼前：槽满了之后买技能只能是「换掉一件」 -->
-        <text id="md-skill-own" class="own" :class="{ 'own-full': noSlots }"
-          >槽 {{ usedSlots }}/{{ slotCount }}</text
-        >
+        <!-- 生命跟金币同一行。技能库几件、槽装了几个，下面那两栏自己报，这儿不重复 -->
+        <text id="md-lives" class="lives">♥ {{ livesNow }}</text>
       </view>
     </view>
     <!-- 这一页两栏货 + 一份家当清单：
@@ -22,7 +17,7 @@
          「把技能摆到哪个格子」那套手动分配取消了，摇位置那套也取消了 ——
          **槽上印死标签**，你选的是「这件技能嵌哪个槽」（见 slotViews） -->
 
-    <scroll-view class="body" direction="vertical">
+    <scroll-view class="body sv-out" direction="vertical">
       <!-- ---------- 下一关的庄家 ---------- -->
       <!--
         **花色公开，点数藏着**（见 draw-skills 的 coverageHint）。
@@ -70,7 +65,11 @@
         那几个点数的牌变多，你的技能触发率跟着上去，而对方的技能
         摇在别的点数上，这笔改造对它没用
       -->
-      <text class="section">道具</text>
+      <view class="shelf-head">
+        <text class="section">道具</text>
+        <!-- 看现在的牌组：改造道具改的就是它，买之前得知道它长什么样 -->
+        <text id="md-deck" class="reroll" @click="showDeck = true">牌组 {{ deckSize }} 张</text>
+      </view>
       <!-- 新手引导第二步：就地提示，不盖遮罩（要让人点得到下面那件货） -->
       <view v-if="guideStep == GUIDE_BUY" id="md-guide-tip" class="guide-tip">
         <text class="guide-tip-text">点下面金框的「技能二选一」买下它，从两个技能里挑一个带进下一关</text>
@@ -95,13 +94,9 @@
             'goods-guide': guideStep == GUIDE_BUY && one.at == guidePackAt
           }"
           @click="tapGoods(one.at)">
-          <view class="goods-main">
-            <view class="goods-head">
-              <text class="goods-name">{{ one.name }}</text>
-              <text class="fix-tier">{{ one.tier }}</text>
-            </view>
-            <text class="goods-desc">{{ one.desc }}</text>
-          </view>
+          <!-- 横排小卡片：名字、档位、价钱。说明点开详情看 -->
+          <text class="goods-name">{{ one.name }}</text>
+          <text class="fix-tier">{{ one.tier }}</text>
           <text class="goods-price">{{ one.price }}</text>
         </view>
       </view>
@@ -137,6 +132,7 @@
         </view>
       </view>
 
+
       <!-- 本轮的槽。
            **按槽列，不按技能列** —— 从前这一栏是「我拥有的技能」，
            每一行报它装在哪、管什么。现在倒过来了：槽是角色卡印死的、
@@ -147,34 +143,52 @@
         <text id="md-role-line" class="role-line">{{ roleLine }}</text>
       </view>
       <text v-if="slotViews.length == 0" class="empty">还没选角色</text>
-      <view
-        v-for="(one, mi) in slotViews"
-        :key="'slot-' + mi"
-        :id="'md-slot-' + mi"
-        class="skill"
-        :class="{ 'skill-empty': one.now < 0 }">
-        <view class="skill-head">
-          <!-- 槽上印的标签在最前。跟庄家预告和对局页技能栏一个规矩：
-               你问的是「哪些牌会触发」，所以先给锚点 -->
+      <!-- 只展示：一排小标签「槽上印的点数 · 装着哪件」。装上、卸下、卖出都在下面技能库里 -->
+      <view class="slot-chips">
+        <view
+          v-for="(one, mi) in slotViews"
+          :key="'slot-' + mi"
+          :id="'md-slot-' + mi"
+          class="slot-chip"
+          :class="{ 'skill-empty': one.now < 0 }">
           <text class="slot-label">{{ one.label }}</text>
-          <text class="skill-name">{{ one.now < 0 ? '空着' : DRAW_SKILLS[one.now].name }}</text>
-          <!-- 「优先」是个关键字（效果在钓牌判定之前结算）。
-               描在名字旁边而不是塞进说明里 —— 它是一类标记，
-               将来还会有别的关键字，得有个固定的位置 -->
-          <text v-if="one.now >= 0 && DRAW_SKILLS[one.now].first" class="skill-key"
-            >{{ KEYWORD_FIRST }}</text
-          >
-          <text class="skill-level">盖 {{ one.cover }} 张</text>
+          <text class="slot-row-name">{{ one.now < 0 ? '空着' : DRAW_SKILLS[one.now].name }}</text>
         </view>
-        <text class="skill-desc">{{
-          one.now < 0 ? '买一件技能嵌进来，它从此管这个槽上印的点数' : DRAW_SKILLS[one.now].desc
-        }}</text>
-        <!-- 卖出按槽走：清空这个槽，退解锁价的一半。
-             空槽不给按钮 —— 没东西可卖 -->
-        <view v-if="one.now >= 0" class="skill-foot">
-          <text class="skill-cover">管 {{ one.label }}</text>
-          <view :id="'md-sell-' + mi" class="sell-btn" @click.stop="sellSlot(one.at)">
-            <text class="sell-text">卖出 +{{ sellPriceOf(one.now) }}</text>
+      </view>
+
+      <!-- 技能库：拥有的全部技能（装着的也在）。装上 / 换槽、卖出都在这儿，随时能做。
+           买来的技能先进这儿；满了就买不了，得先卖掉一件 -->
+      <view class="my-head">
+        <text class="section">技能库</text>
+        <text id="md-lib-count" class="role-line" :class="{ 'own-full': libFull }"
+          >{{ save.library.length }}/{{ libCap }}</text
+        >
+      </view>
+      <text v-if="save.library.length == 0" class="empty">还没有技能</text>
+      <view
+        v-for="k in save.library"
+        :key="'lib-' + k"
+        :id="'md-lib-' + k"
+        class="skill">
+        <view class="skill-head">
+          <text class="skill-name">{{ DRAW_SKILLS[k].name }}</text>
+          <text v-if="DRAW_SKILLS[k].first" class="skill-key">{{ KEYWORD_FIRST }}</text>
+        </view>
+        <text class="skill-desc">{{ DRAW_SKILLS[k].desc }}</text>
+        <view class="skill-foot">
+          <text class="skill-cover">{{ libWhere(k) }}</text>
+          <view
+            v-if="slotOfSkill(save, k) >= 0"
+            :id="'md-unequip-' + k"
+            class="sell-btn equip-btn"
+            @click.stop="unequipSlot(slotOfSkill(save, k))">
+            <text class="equip-text">卸下</text>
+          </view>
+          <view :id="'md-equip-' + k" class="sell-btn equip-btn" @click.stop="openEquip(k)">
+            <text class="equip-text">{{ slotOfSkill(save, k) >= 0 ? '换槽' : '装上' }}</text>
+          </view>
+          <view :id="'md-libsell-' + k" class="sell-btn" @click.stop="sellSkill(k)">
+            <text class="sell-text">卖出 +{{ sellPriceOf(k) }}</text>
           </view>
         </view>
       </view>
@@ -189,6 +203,36 @@
       </view>
       <view id="md-next" class="back-btn" @click="goNext">
         <text class="back-text">开始下一关</text>
+      </view>
+    </view>
+
+    <!-- 现有牌组：只看不改。按点数一行，贴过点数卡的描金边 -->
+    <view v-if="showDeck" class="mask" @click="showDeck = false">
+      <view class="pick-box" @click.stop="noop">
+        <view class="pick-head">
+          <text class="pick-title">现有牌组</text>
+          <text class="pick-sub">{{ deckSize }} 张</text>
+        </view>
+        <scroll-view class="pick-body sv-out" direction="vertical">
+          <view v-for="(row, ri) in deckRows" :key="'dv-' + ri" class="pick-line">
+            <text class="pick-rank">{{ row.rank }}</text>
+            <view class="pick-cards">
+              <view
+                v-for="(one, ci) in row.items"
+                :key="'dvc-' + ri + '-' + ci"
+                class="pick-card"
+                :class="{ 'pick-card-pip': one.pipped }">
+                <text
+                  class="pick-card-text"
+                  :class="{ 'fix-red': one.red, 'pick-text-pip': one.pipped }"
+                  >{{ one.text }}</text
+                >
+              </view>
+              <text v-if="row.items.length == 0" class="deck-none">没有</text>
+            </view>
+          </view>
+        </scroll-view>
+        <text id="md-deck-close" class="pick-close" @click.stop="showDeck = false">收起来</text>
       </view>
     </view>
 
@@ -251,7 +295,7 @@
              原先这儿是砺钩和洗点的「挑技能」（挑一件去升级 / 重摇位置），
              两件道具都删了 —— 位置是印的，没有可摇的；没有等级，没有可升的。
              现在这块变成「这件技能嵌哪个槽」，是买技能的第二步 -->
-        <scroll-view v-if="picksSlot" class="pick-body" direction="vertical">
+        <scroll-view v-if="picksSlot" class="pick-body sv-out" direction="vertical">
           <view
             v-for="(one, si) in slotViews"
             :key="'ps-' + si"
@@ -268,7 +312,7 @@
           </view>
         </scroll-view>
 
-        <scroll-view v-else class="pick-body" direction="vertical">
+        <scroll-view v-else class="pick-body sv-out" direction="vertical">
           <view v-for="(row, ri) in deckRows" :key="'dr-' + ri" class="pick-line">
             <text class="pick-rank">{{ row.rank }}</text>
             <view class="pick-cards">
@@ -309,7 +353,7 @@
 
         <!-- 技能包：点一下只是**选中**（描金边），再点底下的钮才拿走 ——
              钱已经扣了、只能挑一次，一下误触就拿错了 -->
-        <scroll-view v-if="packSkills.length > 0" class="pick-body" direction="vertical">
+        <scroll-view v-if="packSkills.length > 0" class="pick-body sv-out" direction="vertical">
           <view
             v-for="(k, si) in packSkills"
             :key="'pk-' + si"
@@ -328,7 +372,7 @@
           </view>
         </scroll-view>
 
-        <scroll-view v-else class="pick-body" direction="vertical">
+        <scroll-view v-else class="pick-body sv-out" direction="vertical">
           <view class="pack-cards">
             <view
               v-for="(one, ci) in packCardViews"
@@ -404,8 +448,12 @@
     rerollTimes,
     countOfRank,
     // 买技能 = 嵌进一个槽；卖技能 = 把那个槽清空
-    embedSkill,
-    clearSlotAt,
+    equipSkill,
+    unequipAt,
+    addToLibrary,
+    dropFromLibrary,
+    libraryFull,
+    slotOfSkill,
     slotLabelAt,
     hasSkill,
     filledSlots,
@@ -432,6 +480,8 @@
   import {
     drawLevelById,
     levelForDiff,
+    libraryCapOf,
+    maxLivesOf,
     foeCoverOf,
     // 庄家预告里「固定的那层」：角色名 + 特殊技全文
     foeRoleAt,
@@ -601,6 +651,20 @@
   // 这一轮的角色有几个槽、嵌了几件（抬头报「槽 N/M」）
   const slotCount = computed<number>(() : number => {
     return save.value.slotSkills.length
+  })
+
+  // 技能库上限、生命上限都按难度（见 draw-levels 的 libraryCapOf / maxLivesOf）
+  const libCap = computed<number>(() : number => {
+    return libraryCapOf(difficultyOf(drawSaveSlot()))
+  })
+
+  const libFull = computed<boolean>(() : boolean => {
+    return libraryFull(save.value, libCap.value)
+  })
+
+  // 生命 0 = 这一轮还没开打（开局才补满），这时候报满的
+  const livesNow = computed<number>(() : number => {
+    return save.value.lives > 0 ? save.value.lives : maxLivesOf(difficultyOf(drawSaveSlot()))
   })
 
   const usedSlots = computed<number>(() : number => {
@@ -836,6 +900,8 @@
     let block = ''
     if (save.value.gold < item.price) {
       block = '金币不够'
+    } else if ((item.key == 'pack2' || item.key == 'pack5') && libFull.value) {
+      block = '技能库满了（' + libCap.value + ' 件），先卖掉一件'
     } else if ((item.key == 'pack2' || item.key == 'pack5') && noSlots.value) {
       // 开出来没处放。**不拦「槽满了」** —— 满了也能开，嵌进去换掉一件
       block = '还没选角色 —— 没有槽可嵌'
@@ -863,9 +929,11 @@
       block = '还没选角色 —— 没有槽可嵌'
     } else if (save.value.gold < one.unlock) {
       block = '金币不够'
+    } else if (libFull.value) {
+      block = '技能库满了（' + libCap.value + ' 件），先卖掉一件'
     } else if (hasSkill(save.value, k)) {
       // 同一件技能嵌两个槽毫无意义（触发时只算一次，见 triggersOf 的去重）
-      block = '已经嵌在槽里了'
+      block = '已经在技能库里了'
     }
     // 原先这儿报「能升到几级」和「点数槽有没有空位」。
     // 等级没了，而「有没有空位」也不再是闸 —— 满了照样买得动，
@@ -876,12 +944,12 @@
     // 挑完槽才知道有没有，而这儿还不知道你会挑哪个。
     // 按全价要是严了一点，那是对的方向：它顺带保证 onPickSlot
     // 扣完钱不会把金币扣成负的
-    const free = slotCount.value - usedSlots.value
-    const where = free > 0 ? free + ' 个空槽' : '槽满了 · 换掉一件（退它一半）'
+    const where = '进技能库 · 现有 ' + save.value.library.length + '/' + libCap.value
     return {
       ok: true,
       name: one.name,
-      tag: where,
+      // 带「优先」的报一句它是什么意思 —— 只摆个标签的话没人知道
+      tag: one.first ? where + ' · 优先：同一张牌上有几个效果时，先结算它' : where,
       desc: one.desc,
       price: one.unlock,
       first: one.first,
@@ -1032,7 +1100,11 @@
       return
     }
     if (noSlots.value) {
-      uni.showToast({ title: '还没选角色 —— 没有槽可嵌', icon: 'none' })
+      uni.showToast({ title: '还没选角色 —— 没有槽可装', icon: 'none' })
+      return
+    }
+    if (libFull.value) {
+      uni.showToast({ title: '技能库满了（' + libCap.value + ' 件），先卖掉一件', icon: 'none' })
       return
     }
     const price = DRAW_SKILLS[k].unlock
@@ -1040,13 +1112,77 @@
       uni.showToast({ title: '金币不够', icon: 'none' })
       return
     }
-    pickMode.value = 'slot'
-    // 借 pickStep 装「要嵌哪件技能」（两种模式不会同时开，见 pickTip）
-    pickStep.value = k
-    pickAt.value = at
-    pickPrice.value = price
-    pickFirst.value = -1
+    const data = loadDrawSave()
+    data.gold = data.gold - price
+    addToLibrary(data, k)
+    markSold(data, at)
+    commit(data)
+    // 买到手了，顺手问一句装哪个槽 —— 不装也行，取消就留在技能库里
+    askEquip(k, false)
   }
+
+  // 弹「装进哪个槽」。forced = 不许取消（新手引导里那一次）
+  function askEquip(k : number, forced : boolean) {
+    pickMode.value = 'slot'
+    pickStep.value = k
+    pickAt.value = -1
+    pickPrice.value = 0
+    pickFirst.value = -1
+    pickForced.value = forced
+  }
+
+  // 技能库里那件「装上 / 换槽」
+  function openEquip(k : number) {
+    if (noSlots.value) {
+      uni.showToast({ title: '还没选角色 —— 没有槽可装', icon: 'none' })
+      return
+    }
+    askEquip(k, false)
+  }
+
+  // 卸下第 at 个槽里那件：回技能库，不卖
+  function unequipSlot(at : number) {
+    if (guideLock()) {
+      return
+    }
+    const data = loadDrawSave()
+    const was = unequipAt(data, at)
+    if (was < 0) {
+      return
+    }
+    commit(data)
+    uni.showToast({ title: DRAW_SKILLS[was].name + ' 卸回技能库', icon: 'none' })
+  }
+
+  // 卖掉技能库里一件（装着的一并卸下），退买价的一半
+  function sellSkill(k : number) {
+    if (guideLock()) {
+      return
+    }
+    const price = sellPriceOf(k)
+    uni.showModal({
+      title: '卖出' + DRAW_SKILLS[k].name,
+      content: '把【' + DRAW_SKILLS[k].name + '】卖 ' + price + ' 金币？'
+        + (slotOfSkill(save.value, k) >= 0 ? '它装着的那个槽会空出来。' : ''),
+      success: (res) => {
+        if (!res.confirm) {
+          return
+        }
+        const data = loadDrawSave()
+        data.gold = data.gold + price
+        dropFromLibrary(data, k)
+        commit(data)
+        uni.showToast({ title: DRAW_SKILLS[k].name + ' 卖掉了', icon: 'none' })
+      }
+    })
+  }
+
+  // 技能库里那一件装在哪
+  function libWhere(k : number) : string {
+    const at = slotOfSkill(save.value, k)
+    return at >= 0 ? '装在 ' + slotLabelAt(save.value, at) + ' 槽' : '没装'
+  }
+
 
   // ---------- 买了立刻用 ----------
   //
@@ -1073,7 +1209,7 @@
     // 买技能的第二步：挑槽。标题报技能名 —— 弹层里问的是
     // 「它嵌哪儿」，所以得一直看得见「它」是谁
     if (pickMode.value == 'slot') {
-      return '【' + DRAW_SKILLS[pickStep.value].name + '】嵌哪个槽'
+      return '【' + DRAW_SKILLS[pickStep.value].name + '】装进哪个槽'
     }
     // 'sharpen'（砺钩）和 'wash'（洗点）两支删了 —— 两件道具都没了
     return '推 ' + pickStep.value + ' 格'
@@ -1128,8 +1264,8 @@
       return '点一张牌，从牌组里拿掉'
     }
     if (pickMode.value == 'slot') {
-      return '点一个槽，把【' + DRAW_SKILLS[pickStep.value].name
-        + '】嵌进去 —— 它从此管那个槽上印的点数'
+      return '点一个槽装上【' + DRAW_SKILLS[pickStep.value].name
+        + '】，槽里原来那件卸回技能库' + (pickForced.value ? '' : '。取消就先放在技能库里')
     }
     if (pickMode.value == 'pip') {
       return '点一张牌，让它也算 ' + faceOfValue(pickStep.value) + ' 点'
@@ -1145,10 +1281,12 @@
   // 槽那一行底下写什么：空着就报它能管什么，嵌着就报换掉谁、退多少
   function slotNote(one : SlotView) : string {
     if (one.now < 0) {
-      return '空着 · 嵌进来就管 ' + one.label + '（' + one.cover + ' 张）'
+      return '空着 · 装上就管 ' + one.label + '（' + one.cover + ' 张）'
     }
-    return '现在是【' + DRAW_SKILLS[one.now].name + '】—— 换掉它，退你 '
-      + sellPriceOf(one.now) + ' 金币'
+    if (one.now == pickStep.value) {
+      return '它现在就装在这儿'
+    }
+    return '现在是【' + DRAW_SKILLS[one.now].name + '】—— 换下来回技能库'
   }
 
   // 点一个槽：真正把技能嵌进去，钱在这儿扣。
@@ -1169,20 +1307,19 @@
       return
     }
     const data = loadDrawSave()
-    data.gold = data.gold - pickPrice.value
-    // 退款要在 embedSkill **之前**读旧那件 —— 嵌完就查不到它是谁了
-    const was = at >= 0 && at < data.slotSkills.length ? data.slotSkills[at] : -1
-    const back = was >= 0 && was != k ? sellPriceOf(was) : 0
-    data.gold = data.gold + back
-    const note = embedSkill(data, k, at)
-    markSold(data, pickAt.value)
+    const note = equipSkill(data, k, at)
     commit(data)
     clearPick()
-    uni.showToast({
-      title: back > 0 ? note + '，退回 ' + back + ' 金币' : note,
-      icon: 'none'
-    })
+    if (guideStep.value == GUIDE_BUY) {
+      // 新手引导里那一包：装上槽才算完，换成收尾那一页
+      guideStep.value = GUIDE_END
+      return
+    }
+    if (note != '') {
+      uni.showToast({ title: note, icon: 'none' })
+    }
   }
+
 
   // 整副牌按点数摊成 13 行。at 是它在牌组数组里的下标 ——
   // 改造要按下标改，所以得一路带着。
@@ -1201,6 +1338,9 @@
     rank : string
     items : PickItem[]
   }
+
+  // 「现有牌组」弹窗开着没有
+  const showDeck = ref<boolean>(false)
 
   const deckRows = computed<PickRow[]>(() : PickRow[] => {
     const cards = deckOf(save.value)
@@ -1436,6 +1576,10 @@
       uni.showToast({ title: '还没选角色 —— 没有槽可嵌', icon: 'none' })
       return
     }
+    if (libFull.value) {
+      uni.showToast({ title: '技能库满了（' + libCap.value + ' 件），先卖掉一件', icon: 'none' })
+      return
+    }
     // 只摇**槽里还没有的** —— 同一件嵌两个槽毫无意义（触发只算一次）
     const free : number[] = []
     for (let k = 0; k < DRAW_SKILLS.length; k++) {
@@ -1510,18 +1654,10 @@
   // 全满就再问你一次）。摊开之前就报出来 ——
   // 「会换掉一件」这种后果不能等拿完才说
   const packLand = computed<string>(() : string => {
-    const slots = slotViews.value
-    if (slots.length == 0) {
+    if (slotViews.value.length == 0) {
       return '还没选角色，没处放'
     }
-    for (let i = 0; i < slots.length; i++) {
-      if (slots[i].now < 0) {
-        return '会嵌进 ' + slots[i].label + ' 槽（盖 ' + slots[i].cover + ' 张）'
-      }
-    }
-    // 全满：不替你定换掉哪件 —— 挑完候选会再弹一次「挑哪个槽」
-    //（见 takePackSkill）。这儿只是先说一声要做这个决定
-    return '槽全满了 —— 挑完之后你来定换掉哪一件（换掉的退一半）'
+    return '挑完之后你来定嵌进哪个槽'
   })
 
   function pickPackSkill(si : number) {
@@ -1532,24 +1668,14 @@
     if (packPick.value < 0) {
       return
     }
-    // true：槽全满的话问一句「换掉哪一件」—— 丢掉一件已有技能
-    // 是整轮里分量最重的决定之一，不替人定
+    // true：弹「挑哪个槽」让你定嵌在哪
     takePackSkill(packPick.value, true)
   }
 
-  // 从包里挑中一件：**有空槽就嵌第一个空槽，全满才弹「挑哪个槽」**。
+  // 从包里挑中一件：**嵌进哪个槽由你定**，跟货架上买技能一样弹「挑哪个槽」。
+  // 槽上印的点数不一样，嵌哪个结果就不一样 —— 这是个真决定，不替人取第一个空槽。
   //
-  // 两条路分开的理由是「有没有真的选择」：
-  //
-  //   有空槽 —— 嵌哪个空槽**结果不同**（槽上印的点数不一样），可包已经
-  //     让你挑过一次了，再套一层就是两级弹层。所以这儿退一步：
-  //     取第一个空槽，而且 packLand 在摊开候选之前就把落点报出来了，
-  //     于是它是**可预期的**，不是随机的。
-  //   全满 —— 这一下要**丢掉一件已有的技能**，而丢哪件是整轮里
-  //     分量最重的决定之一。替玩家定「丢第 0 槽那件」是不能接受的，
-  //     所以这条路必须问。
-  //
-  // 全满那条借货架那套挑槽弹层（pickMode = 'slot'），但**价钱传 0** ——
+  // 借货架那套挑槽弹层（pickMode = 'slot'），但**价钱传 0** ——
   // 包的钱在摊开那一刻就扣过了（见 openPack）。再扣一次就是双重收费。
   //
   // canAsk = false 是**离开页面那条路**（见 autoTakePack）：那时候弹层
@@ -1567,45 +1693,17 @@
       uni.showToast({ title: '还没选角色 —— 没有槽可嵌', icon: 'none' })
       return
     }
-    let at = -1
-    for (let i = 0; i < data.slotSkills.length; i++) {
-      if (data.slotSkills[i] < 0) {
-        at = i
-        break
-      }
-    }
-    if (at < 0 && canAsk) {
-      // 槽全满：关掉包，转去挑槽。
-      // **引导里走不到这儿**（那一步你一个技能都没有，必有空槽）
-      clearPack()
-      pickMode.value = 'slot'
-      pickStep.value = k
-      // pickAt = -1：这件货早标过卖掉了，markSold(-1) 是空操作
-      pickAt.value = -1
-      pickPrice.value = 0
-      pickFirst.value = -1
-      // 不许取消 —— 钱在摊开候选那一刻就扣了（见 pickForced）
-      pickForced.value = true
-      return
-    }
-    if (at < 0) {
-      // 全满而且问不了：嵌第 0 槽，换掉那件照旧退一半
-      at = 0
-      const was = data.slotSkills[0]
-      if (was >= 0 && was != k) {
-        data.gold = data.gold + sellPriceOf(was)
-      }
-    }
-    const note = embedSkill(data, k, at)
+    addToLibrary(data, k)
     commit(data)
     clearPack()
-    if (guideStep.value == GUIDE_BUY) {
-      // 引导里买的那一个：不弹 toast，换成收尾那一页
-      guideStep.value = GUIDE_END
+    if (canAsk) {
+      askEquip(k, guideStep.value == GUIDE_BUY)
       return
     }
-    uni.showToast({ title: note, icon: 'none' })
+    // 离开页面那条路（autoTakePack）：问不了，就先放在技能库里
+    uni.showToast({ title: DRAW_SKILLS[k].name + ' 放进技能库了', icon: 'none' })
   }
+
 
   // ---------- 新手引导 ----------
   //
@@ -1624,7 +1722,7 @@
       return '过关赢来的金币在这儿花：买技能、买牌、改牌组。没花完的钱每关还会生利息。'
         + '\n\n第一次来，先买一个技能带进下一关吧。'
     }
-    return '技能占着几个花色或点数（写在下面「我的技能」里），打出的牌落在上面就会触发。'
+    return '技能装在槽上才生效：打出的牌落在槽上印的点数上就会触发。没装的放在技能库里，随时能换上去。'
       + '\n\n剩下的钱可以接着逛，也可以攒着吃利息。'
   })
 
@@ -1931,35 +2029,9 @@
   // 所以卖出的真正意义是**把钱拿回来一半**（换掉是直接丢）。
   //
   // at 是槽的下标，不是技能下标 —— 槽才是这一页的主体
-  function sellSlot(at : number) {
-    if (guideLock()) {
-      return
-    }
-    if (at < 0 || at >= save.value.slotSkills.length) {
-      return
-    }
-    const k = save.value.slotSkills[at]
-    if (k < 0) {
-      return
-    }
-    const price = sellPriceOf(k)
-    const label = slotLabelAt(save.value, at)
-    uni.showModal({
-      title: '卖出' + DRAW_SKILLS[k].name,
-      content: '把 ' + label + ' 槽里的【' + DRAW_SKILLS[k].name + '】卖 '
-        + price + ' 金币？那个槽会空出来，等你嵌别的。',
-      success: (res) => {
-        if (!res.confirm) {
-          return
-        }
-        const data = loadDrawSave()
-        data.gold = data.gold + price
-        clearSlotAt(data, at)
-        commit(data)
-        uni.showToast({ title: label + ' 槽空出来了', icon: 'none' })
-      }
-    })
-  }
+  // 原先这儿有 sellSlot（按槽卖出：清空槽、退一半）。技能改成先进技能库之后，
+  // 槽这边只「卸下」（unequipSlot），卖出在技能库那一栏（sellSkill）
+
 
   // 原先这儿有 tapSuit / tapRank（点格子手动分配）、pick（选中技能）、
   // doSharpen（升级）、coverText（「装在哪、管什么」）。
@@ -2062,7 +2134,15 @@
 
   /* 金币和名额竖着摆在右上角 */
   .head-right {
-    align-items: flex-end;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .lives {
+    color: #ff7a7a;
+    font-size: 16px;
+    font-weight: bold;
+    margin-left: 10px;
   }
 
   .gold {
@@ -2178,6 +2258,11 @@
     align-items: center;
   }
 
+  .deck-none {
+    color: #6f9c85;
+    font-size: 11px;
+  }
+
   .reroll {
     color: #e8b23a;
     font-size: 12px;
@@ -2212,6 +2297,7 @@
   /* ---------- 道具那一栏（一件一行） ---------- */
 
   .goods-list {
+    flex-direction: row;
     margin-top: 6px;
   }
 
@@ -2219,10 +2305,10 @@
      **左边那条竖杠**（border-left）是稀有度的位置 —— 四格宽，
      在一列里扫下来对得齐，比整圈描边好认 */
   .goods {
-    flex-direction: row;
+    flex: 1;
     align-items: center;
-    justify-content: space-between;
-    padding: 7px 10px;
+    padding: 7px 4px;
+    margin-right: 6px;
     margin-bottom: 5px;
     border-radius: 8px;
     background-color: #0e6b45;
@@ -2289,7 +2375,7 @@
   .fix-tier {
     color: #9fd9bd;
     font-size: 9px;
-    margin-left: 6px;
+    margin-top: 1px;
   }
 
   .goods-rare .fix-tier {
@@ -2311,7 +2397,7 @@
     color: #fff3c4;
     font-size: 13px;
     font-weight: bold;
-    margin-left: 10px;
+    margin-top: 2px;
   }
 
   /* 买牌那几格：白底，像张牌 */
@@ -2328,10 +2414,6 @@
 
   .fix-card .fix-name {
     color: #1a1a1a;
-  }
-
-  .fix-red {
-    color: #d33b3b;
   }
 
   .fix-price {
@@ -2742,6 +2824,38 @@
     margin-top: 4px;
   }
 
+  .slot-chips {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+
+  .slot-chip {
+    flex-direction: row;
+    align-items: center;
+    padding: 5px 8px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background-color: #0e6b45;
+  }
+
+  .slot-row-name {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: bold;
+    margin-left: 6px;
+  }
+
+  .equip-btn {
+    border-color: #e8b23a;
+  }
+
+  .equip-text {
+    color: #e8b23a;
+    font-size: 12px;
+  }
+
   .skill-foot {
     flex-direction: row;
     justify-content: space-between;
@@ -2764,7 +2878,13 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: flex-end;
-    margin-top: 10px;
+    margin-top: 4px;
+    margin-bottom: 6px;
+  }
+
+  /* .section 自带 margin-top，跟 .my-head 的叠在一起就空太多了 */
+  .my-head .section {
+    margin-top: 0;
   }
 
   .role-line {
@@ -2819,5 +2939,17 @@
 
   .back-text-plain {
     color: #9fd9bd;
+  }
+
+  /* 红桃、方块描红。**摆在最后**：牌面文字的几个类（.pick-card-text、.pack-card-text）
+     自带黑色，排在它后面的话会把红色盖掉 */
+  .fix-red {
+    color: #d33b3b;
+  }
+
+  /* 货架上的卡牌：.fix-card .fix-name 把牌名描黑，优先级比单个 .fix-red 高，
+     所以这儿要用同样的写法再盖回红色 */
+  .fix-card .fix-red {
+    color: #d33b3b;
   }
 </style>

@@ -128,13 +128,17 @@ function pickCard(G, side) {
       || R.has(skills, SK.VOID) || R.has(skills, SK.HUEVOID)
       || R.has(skills, SK.ODD)
       || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
+      // 退潮自己算 0 点，永远钓不到 —— 拿它当饵是它唯一的用法
+      || R.has(skills, SK.EBB)
     if (wants && score <= fewest + 1) {
       score = score - 1.5
     }
     // 抹点数那四件自己**没有点数**（分水有），所以当饵格外安全 ——
-    // 落堆之后没人按点数钓得上它。那正是这一族「堆冻住、让它长厚」的根基
+    // 落堆之后没人按点数钓得上它。那正是这一族「堆冻住、让它长厚」的根基。
+    // 退潮也在这儿：0 点互不匹配，按点数一样钓不上它
     if (R.has(skills, SK.VOID) || R.has(skills, SK.HUEVOID)
-      || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)) {
+      || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
+      || R.has(skills, SK.EBB)) {
       score = score - 1.0
     }
     // **沉底空钩是最危险的下饵**：那张躺在堆底，谁匹配到它就通吃整堆

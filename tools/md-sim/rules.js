@@ -52,8 +52,8 @@ const SK = {
   SWAPCARD: 19, NARROW: 20, CREEL: 21, TWIN: 22, SUITFIND: 23,
   // 第三批五件：**抹点数那一族**（压底路线）
   VOID: 24, DUMP: 25, SPILL: 26, ODD: 27, HUEVOID: 28,
-  // 第四批一件：**主动控堆**那条新轴
-  MEASURE: 29
+  // 第四批两件：**主动控堆**那条新轴
+  EBB: 29, MEASURE: 30
 }
 // 删掉的三件：护饵（guard）、钩顶（top）、搅水（stir）。
 // 删它们的时候这边的下标全前移了三位 —— 那正是源码改成 key 认身份
@@ -62,9 +62,10 @@ const SK = {
 // 掏手、掏库各掏几张。2 是按手牌 4 张定的 —— 掏一半
 const DUMP_COUNT = 2
 const SPILL_COUNT = 2
-
-// 【量水】要求牌堆至少这么厚（照 draw-skills 的 MEASURE_MIN）
-const MEASURE_MIN = 3
+// 退潮：左侧几张（连自己）各减它的牌面点数（照 draw-skills 的 EBB_COUNT）
+const EBB_COUNT = 2
+// 见底：整堆压几点（照 ap-fishing 的 LOW_TIDE_STEP）
+const LOW_TIDE_STEP = 1
 
 // 和 DRAW_SKILLS 对齐。name 只用来打印报表。
 //
@@ -102,6 +103,7 @@ const SKILLS = [
   { key: 'spill', name: '掏库' },
   { key: 'odd', name: '分水' },
   { key: 'huevoid', name: '封色' },
+  { key: 'ebb', name: '退潮' },
   { key: 'measure', name: '量水' }
 ]
 
@@ -346,6 +348,8 @@ function baitRankOf(role) {
 // 打这张牌会触发哪几个技能（照 triggersOf）。最多两个：花色槽一个、点数槽一个
 function triggersOf(lo, card) {
   const out = []
+  // J 只有通吃，不触发任何技能（照 draw-skills 的 triggersOf）
+  if (card.rank === JACK) return out
   const s = SUITS.indexOf(card.suit)
   if (s >= 0 && lo.suitOwner[s] >= 0) {
     out.push(lo.suitOwner[s])
@@ -426,9 +430,7 @@ function newGame(opts) {
     ],
     // 这一方会不会记牌（关卡表的 smart）
     smart: [opts.mineSmart !== false, opts.foeSmart !== false],
-    // 这一方这一局已经往堆上落了几张 —— 【稳钩】要用（前 4 张自带护）
-    landed: [0, 0],
-    // 统计
+    // 统计。plays 兼作【稳钩】的计数（照源码 myPlayed / foePlayed）
     stat: {
       plays: [0, 0], catches: [0, 0], caught: [0, 0],
       jackCatches: [0, 0], skillCatch: [0, 0], turns: 0
@@ -540,6 +542,11 @@ function valuesOf(G, card, skills) {
     || has(skills, SK.VOID) || has(skills, SK.DUMP)
     || has(skills, SK.SPILL) || has(skills, SK.HUEVOID)) {
     return []
+  }
+  // 退潮和见底：它们自己也归 0（在自己造的那阵退潮里），盖掉点数卡贴的那几个。
+  // 0 点谁也钓不上 —— 这一手是用来施工的
+  if (has(skills, SK.EBB) || has(skills, SK.LOWTIDE)) {
+    return [0]
   }
   // 齐顶：算堆上最大的那个点数，覆盖掉牌面和点数卡。空堆算 0（白打一张）
   if (has(skills, SK.PEAK)) {
@@ -662,7 +669,9 @@ function catchStart(G, card, side, skills, sink) {
   const mine = valuesOf(G, card, skills)
   // 量水：点数正好等于牌堆张数 → 整堆。判在遍历之前（它收得最多）。
   // 被护着的牌挡得住它 —— 绕过一张就不叫整堆了
-  if (has(skills, SK.MEASURE) && size >= MEASURE_MIN && anyEquals(mine, [size], 0)) {
+  // 这一支只剩**估算**用（AI 挑牌、逆流选落点 —— 都在落堆之前，堆里还没有这张，
+  // 所以 +1 把它自己算上）。真正的量水在 measureFor，resolveMatch 匹配时会把它剔掉
+  if (has(skills, SK.MEASURE) && anyEquals(mine, [size + 1], 0)) {
     let blocked = false
     for (let i = 0; i < size; i++) {
       if (guardedAgainst(G, i, side)) { blocked = true; break }
@@ -742,82 +751,113 @@ function wantReverse(G, side, card, skills) {
   return sGain > nGain
 }
 
-// 【稳钩】：这一方每局**前 FIRM_GUARD 张**落堆的牌自带护，对方钓不走。
-// 返回写进 pileGuard 的那个值（GUARD_ME / GUARD_FOE / GUARD_NONE）。
+/// 【稳钩】：这一方每局**前 FIRM_GUARD 张**打出的牌，没钓到、落下时自带护，
+// 对方钓不走。返回写进 pileGuard 的那个值（GUARD_ME / GUARD_FOE / GUARD_NONE）。
 //
-// 数的是「落堆过几张」（G.landed），不是「出过几张牌」—— 钓到牌的那几张
-// 没有留在堆上，护不护都没意义
+// 数的是「打出过几张」（照源码 myPlayed / foePlayed，在 playFor 开头 +1），
+// 所以钓到牌的那几张也占名额 —— 跟源码一样
 function firmGuardFor(G, side) {
   if (!hasSpecial(G, side, SP.FIRMHOOK)) return GUARD_NONE
-  if (G.landed[side] >= FIRM_GUARD) return GUARD_NONE
+  if (G.stat.plays[side] > FIRM_GUARD) return GUARD_NONE
   return side === ME ? GUARD_ME : GUARD_FOE
 }
 
-// ---------- 打出一张（照 playFor） ----------
+// ---------- 打出一张（照 playFor → afterPlay → resolveMatch） ----------
 //
-// 返回收走了几张（0 = 没钓到）。源码里收牌要放动画，这边直接结算
+// 顺序是「**先结算这张牌的技能，再拿它去匹配**」：
+//   1. 落堆（沉底的落堆底），落的那一刻受场上抹点数效果管（landVals）；
+//   2. 「优先」的【染水】最先发动（它自己已经在堆上了）；
+//   3. afterPlay 那一串技能 —— 量水、收色、撒网、见底可能连它一起收走；
+//   4. resolveMatch：它还在堆上的话拿下来、对剩下的堆判匹配、再放回去。
+//
+// 源码里收牌要演特效（startSweep / startCatch 定时器），这边直接结算
 function playFor(G, side, index, ai) {
   const card = takeFromHand(G, side, index)
   const skills = triggersOf(G.loadouts[side], card)
   G.stat.plays[side]++
-  // ---- 带「优先」的两件在钓牌判定**之前**结算 ----
-  // 先染水（定花色），再沉底（定落点）
+  // 「往堆底落」有两条来路：点数槽的【沉底】（强制）和角色的【逆流】（可选）。
+  // 源码那边还有第三条（闯关庄家的【偏流】），模拟器不跑闯关关卡规矩。
+  // 逆流是在落堆**之前**估的（照 wantSink），那时堆里还没有这张
+  const sink = has(skills, SK.SINK) || wantReverse(G, side, card, skills)
+  const worth = landVals(G, card, skills, sink)
+  if (sink) {
+    unshiftPile(G, card, side, GUARD_NONE, worth)
+  } else {
+    pushPile(G, card, side, GUARD_NONE, worth)
+  }
+  // 【染水】〔优先〕：整堆的花色改掉，后面那些效果和匹配都按染过的算
   if (has(skills, SK.SUITIFY)) {
     suitifyFor(G, card)
   }
-  // 「往堆底落」有两条来路：点数槽的【沉底】（强制）和角色的【逆流】（可选）。
-  // 源码那边还有第三条（闯关庄家的【偏流】），模拟器不跑闯关关卡规矩
-  const sink = has(skills, SK.SINK) || wantReverse(G, side, card, skills)
-  // 判定走 valuesOf（照源码 catchStart），落堆走 landVals
+  afterPlay(G, side, skills, card, ai)
+  resolveMatch(G, side, card, skills, sink)
+  passTurn(G, side)
+}
+
+// 技能都结算完了，拿这张牌去匹配（照 resolveMatch）。
+//
+// 已经被技能收走了（量水 / 收色 / 撒网 / 见底）就没得匹配。
+// 还在堆上的话：先拿下来，对**剩下的堆**判匹配，再放回去 ——
+// 普通的放回堆顶、沉底的放回堆底（洪水之类可能往它上面又垫了牌，
+// 放回去之后那几张也在「匹配那张 → 堆顶」这一段里）。
+// 它身上的点数照技能结算完的样子带回去
+function resolveMatch(G, side, card, cardSkills, sink) {
+  const at0 = pileIndexOf(G, card)
+  if (at0 < 0) return
+  const vals = pileValsAt(G, at0)
+  removePileAt(G, at0)
+  // 量水是技能，已经在 afterPlay 里结算过了 —— 匹配这一步不再算它
+  const skills = cardSkills.filter(function (s) { return s !== SK.MEASURE })
+  // J 落在空堆上：没有可通吃的，就只勾走它自己（记 1 分）
+  if (card.rank === JACK && G.pile.length === 0) {
+    pushPile(G, card, side, GUARD_NONE, vals)
+    finishCatch(G, side, 0, 1, card, skills)
+    return
+  }
   const at = catchStart(G, card, side, skills, sink)
-  const worth = landVals(G, card, skills, sink)
   if (at < 0) {
-    // 没钓到：往堆底落的插堆底，普通的落堆顶。
-    // guard 这一位从前是【护饵】写的，那件技能删了 ——
-    // 现在写它的是角色的【稳钩】（每局前 FIRM_GUARD 张落堆自带护）
+    // 没钓到：落下。【稳钩】的头几张在这时候护上
     const guard = firmGuardFor(G, side)
     if (sink) {
-      unshiftPile(G, card, side, guard, worth)
+      unshiftPile(G, card, side, guard, vals)
     } else {
-      pushPile(G, card, side, guard, worth)
+      pushPile(G, card, side, guard, vals)
     }
-    G.landed[side]++
-    afterPlay(G, side, skills, card, ai)
-    return 0
+    return
   }
-  // 钓到了。收走的那一段往哪边算，由落点决定（照 playFor 后半）
-  let from = at
-  let count = 0
+  // 钓到了。收走的那一段往哪边算，由落点决定：
+  //   普通 —— 落堆顶，收「匹配那张 → 堆顶」；
+  //   沉底 —— 落堆底，收「堆底 → 匹配那张」（插在 0，原来的 at 往后挪一格）
   if (sink) {
-    unshiftPile(G, card, side, GUARD_NONE, worth)
-    from = 0
-    count = at + 2
+    unshiftPile(G, card, side, GUARD_NONE, vals)
+    finishCatch(G, side, 0, at + 2, card, skills)
   } else {
-    pushPile(G, card, side, GUARD_NONE, worth)
-    count = G.pile.length - at
+    pushPile(G, card, side, GUARD_NONE, vals)
+    finishCatch(G, side, at, G.pile.length - at, card, skills)
   }
+}
+
+// 钓到之后：收那一段、【深钩】再捞堆底、记统计（照 finishCatch）
+function finishCatch(G, side, from, count, card, skills) {
   collect(G, side, from, count)
   // 【深钩】：在上面那一段收完之后才收，所以数的是**剩下的**堆 ——
-  // 刚才那一钩可能已经把堆底拿走了，那就少收或者收不着（照源码 finishCatch）
+  // 刚才那一钩可能已经把堆底拿走了，那就少收或者收不着
   let extra = 0
   if (hasSpecial(G, side, SP.DEEPHOOK)) {
     extra = Math.min(DEEP_EXTRA, G.pile.length)
     if (extra > 0) collect(G, side, 0, extra)
   }
-  count = count + extra
   G.stat.catches[side]++
-  G.stat.caught[side] += count
+  G.stat.caught[side] += count + extra
   if (card.rank === JACK) {
     G.stat.jackCatches[side]++
   } else if (has(skills, SK.HOOK) || has(skills, SK.SUITED)) {
     // 这一钓是靠技能才成立的吗 —— 粗略记一笔，报表里看技能到底在不在起作用
     G.stat.skillCatch[side]++
   }
-  afterPlay(G, side, skills, card, ai)
-  return count
 }
 
-// 把 [from, from+count) 这一段收走记分（照 finishCatch）
+// 把 [from, from+count) 这一段收走记分
 function collect(G, side, from, count) {
   for (let i = from; i < from + count && i < G.pile.length; i++) {
     G.gone.push(G.pile[i].rank)
@@ -831,37 +871,48 @@ function collect(G, side, from, count) {
   G.score[side] += count
 }
 
-// 染水〔优先〕：把场上所有牌的花色改成跟它一样（照 suitifyFor）
+// 按下标从堆上拿掉一张，**不记分**（照 removePileAt）
+function removePileAt(G, at) {
+  G.pile.splice(at, 1)
+  G.pileByFoe.splice(at, 1)
+  G.pileGuard.splice(at, 1)
+  G.pileVals.splice(at, 1)
+  G.pileSuit.splice(at, 1)
+}
+
+// 染水〔优先〕：把场上所有牌的花色改成跟它一样（照 suitifyFor）。
+// 它自己已经在堆上了
 function suitifyFor(G, card) {
   for (let i = 0; i < G.pileSuit.length; i++) {
     G.pileSuit[i] = card.suit
   }
 }
 
-// ---------- 打出之后的技能（照 afterPlay） ----------
+// ---------- 打出之后的技能（照 afterPlay / afterPlayHead / afterPlayTail） ----------
 //
-// 顺序严格照源码：窥视 → 搅水 → 照水 → 见底 → 洪水 → 冻结 → 换水 → 择饵 → 观潮。
-// 源码里玩家那几件要停下来等人选（freezePending 等），模拟里两侧都走 AI 的启发式
+// 顺序严格照源码：
+//   量水 → 窥视 → 照水 → 压邻 / 封色 / 分水 → 掏手 → 掏库 → 窄口 → 满篓
+//   → 干塘 或 见底 → 退潮 → 洪水 → 收色 → 撒网 → 对换 / 摘钩 / 压舱
+//   → 冻结 → 换水 → 择饵 → 同花 → 同号 → 观潮
+// 源码里收牌要演特效，拆成了 head / tail 两段靠定时器接力；这边直接顺着跑。
+// 玩家那几件要停下来等人选（freezePending 等），模拟里两侧都走 AI 的启发式。
+//
+// 这时候打出那张**已经在堆上**，所以挂效果的那几件（inPile）一般都挂得上 ——
+// 除非量水先把它收走了。挂上之后它要是在匹配那一步钓到牌，效果跟着失效
 function afterPlay(G, side, skills, played, ai) {
-  // 连竿只在这儿**记个账**，兑现在 passTurn 最前面 ——
-  // 它要等这一手所有效果都结算完（跟「优先」正好两头）
+  // 连竿只在这儿**记个账**，兑现在 passTurn 最前面
   if (has(skills, SK.AGAIN) && !G.againUsed) {
     G.againPending = true
+  }
+  // 量水排在所有技能的最前面：它收整堆，排在后面的话前面那些技能改过的堆就白改了
+  if (has(skills, SK.MEASURE)) {
+    measureFor(G, side, skills, played)
   }
   if (has(skills, SK.PEEK)) {
     peekFor(G, side)
   }
-  // 挂效果的那几件都要求那张牌**还在堆上** —— 钓到牌的话它自己也被收走了，
-  // 效果压根挂不上。所以挂效果得用一张钓不到牌的
   if (has(skills, SK.LANTERN) && inPile(G, played)) {
     G.held.push({ source: played, skill: SK.LANTERN, target: null, side: side })
-  }
-  // 窄口（削对方手牌上限）、满篓（抬自己的），都挂在刚打那张上
-  if (has(skills, SK.NARROW) && inPile(G, played)) {
-    G.held.push({ source: played, skill: SK.NARROW, target: null, side: side })
-  }
-  if (has(skills, SK.CREEL) && inPile(G, played)) {
-    G.held.push({ source: played, skill: SK.CREEL, target: null, side: side })
   }
   // ---- 抹点数那一族的三件在场效果 ----
   //
@@ -884,8 +935,23 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.SPILL)) {
     spillFor(G, side)
   }
-  if (has(skills, SK.LOWTIDE)) {
+  // 窄口（削对方手牌上限）、满篓（抬自己的），都挂在刚打那张上
+  if (has(skills, SK.NARROW) && inPile(G, played)) {
+    G.held.push({ source: played, skill: SK.NARROW, target: null, side: side })
+  }
+  if (has(skills, SK.CREEL) && inPile(G, played)) {
+    G.held.push({ source: played, skill: SK.CREEL, target: null, side: side })
+  }
+  // 组合技【干塘】：退潮 × 见底撞在同一张牌上时不分别结算 ——
+  // 整堆各减这张的牌面点数，收走归零的
+  const combo = has(skills, SK.EBB) && has(skills, SK.LOWTIDE)
+  if (combo) {
+    ebbTideFor(G, side, played)
+  } else if (has(skills, SK.LOWTIDE)) {
     lowTideFor(G, side)
+  }
+  if (!combo && has(skills, SK.EBB)) {
+    ebbFor(G, played)
   }
   if (has(skills, SK.FLOOD)) {
     floodFor(G, side)
@@ -897,7 +963,7 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.CAST)) {
     castFor(G, side, played)
   }
-  // 动对方手牌那三件，排在冻结**前面**（照「贵的赢」，见源码 afterPlay 那段）
+  // 动对方手牌那三件，排在冻结**前面**（照「贵的赢」，见源码 afterPlayTail 那段）
   if (has(skills, SK.SWAPCARD) || has(skills, SK.UNHOOK) || has(skills, SK.PRESS)) {
     const which = has(skills, SK.SWAPCARD) ? SK.SWAPCARD
       : (has(skills, SK.UNHOOK) ? SK.UNHOOK : SK.PRESS)
@@ -924,12 +990,9 @@ function afterPlay(G, side, skills, played, ai) {
       shuffleBack(G, takeFromHand(G, side, at))
     }
   }
-  // 择饵赢过观潮：两件撞在同一张牌上时只走择饵（源码对两侧都加了这道闸）
-  let pickDone = false
   if (has(skills, SK.PICK) && G.deck.length > 1) {
     const tops = topCards(G, PICK_LOOK)
     doPickDeck(G, ai.pickDeck(G, tops), tops.length)
-    pickDone = true
   }
   // 同花：翻牌库顶拿第一张同花色的，翻过的洗回去。不停人
   if (has(skills, SK.SUITFIND) && G.deck.length > 0) {
@@ -942,13 +1005,28 @@ function afterPlay(G, side, skills, played, ai) {
       pullFromDeck(G, side, pool[ai.twinPick(G, side, pool)])
     }
   }
-  if (has(skills, SK.TIDE) && !pickDone && G.deck.length > 1) {
+  // 择饵赢过观潮：两件撞在同一张牌上时只走择饵（源码对两侧都加了这道闸）
+  if (has(skills, SK.TIDE) && !has(skills, SK.PICK) && G.deck.length > 1) {
     const tops = topCards(G, TIDE_LOOK)
     if (ai.tideSink(G, tops)) {
       sinkTops(G, tops.length)
     }
   }
-  passTurn(G, side)
+}
+
+// 量水：点数正好等于**堆上张数（含它自己）** → 整堆连它一起收走（照 measureFor）。
+// 护着的牌是网里的洞：堆上只要有一张钓不走的，这一网就撒不下去
+function measureFor(G, side, skills, played) {
+  const at = pileIndexOf(G, played)
+  if (at < 0) return
+  const size = G.pile.length
+  if (!anyEquals(valuesOf(G, played, skills), [size], 0)) return
+  for (let i = 0; i < size; i++) {
+    if (i !== at && guardedAgainst(G, i, side)) return
+  }
+  G.stat.catches[side]++
+  G.stat.caught[side] += size
+  collect(G, side, 0, size)
 }
 
 // 牌库顶往下数 n 张（照 topCards）。第 0 个是最顶上那张
@@ -1025,59 +1103,86 @@ function spillFor(G, side) {
   }
 }
 
-// 见底：整堆点数往下压 N（N = 场上黑牌张数），收走压到 0 的那些（照 lowTideFor）
+/// ---------- 减点数那一族（照 dropVals / anyLive / dropPile） ----------
+
+// 每个点数各减 by，减到 0 为止、去重。**空列表原样返回** ——
+// 没有点数的牌不在点数这条轴上，减点数的一概跳过它
+function dropVals(was, by) {
+  if (was.length === 0) return was
+  const now = []
+  for (let k = 0; k < was.length; k++) {
+    const v = Math.max(0, was[k] - by)
+    if (now.indexOf(v) < 0) now.push(v)
+  }
+  return now
+}
+
+// 还剩一个非零点数吗。贴过点数卡的牌因此更难被压到底
+function anyLive(vals) {
+  for (let k = 0; k < vals.length; k++) {
+    if (vals[k] !== 0) return true
+  }
+  return false
+}
+
+// 整堆各减 step，**当场写回**，返回减完一个非零点数都不剩的那几张的下标
+function dropPile(G, step) {
+  const taken = []
+  for (let i = 0; i < G.pile.length; i++) {
+    const now = dropVals(pileValsAt(G, i), step)
+    G.pileVals[i] = now
+    if (now.length > 0 && !anyLive(now)) taken.push(i)
+  }
+  return taken
+}
+
+// 把下标列表变成 harvestPile 要的 wanted 数组
+function wantedOf(G, list) {
+  const wanted = []
+  for (let i = 0; i < G.pile.length; i++) wanted.push(list.indexOf(i) >= 0)
+  return wanted
+}
+
+// 见底：整堆点数往下压 LOW_TIDE_STEP，收走压到 0 的（照 lowTideFor）。
+// 它自己是 0 点（valuesOf），而且就在堆上，所以**连自己一起收走** —— 保底 +1
 function lowTideFor(G, side) {
-  let n = 0
-  for (let i = 0; i < G.pile.length; i++) {
-    if (!pileRed(G, i)) n++
-  }
-  if (n === 0 || G.pile.length === 0) return
-  const keep = { cards: [], byFoe: [], guard: [], vals: [], suit: [] }
-  let taken = 0
-  for (let i = 0; i < G.pile.length; i++) {
-    const was = pileValsAt(G, i)
-    // 一个点数都没有的不参与（顺色那张就是这样）
-    if (was.length === 0) {
-      keep.cards.push(G.pile[i]); keep.byFoe.push(G.pileByFoe[i])
-      keep.guard.push(G.pileGuard[i]); keep.vals.push(was)
-      keep.suit.push(pileSuitAt(G, i))
-      continue
-    }
-    // 每个点数各自往下压，压到 0 的从列表里掉出来。
-    // 贴过点数卡的牌因此更难被压走 —— 还剩一个点数就还在场上
-    const now = []
-    for (let k = 0; k < was.length; k++) {
-      const v = was[k] - n
-      if (v > 0) now.push(v)
-    }
-    if (now.length === 0) {
-      G.gone.push(G.pile[i].rank)
-      taken++
-      continue
-    }
-    keep.cards.push(G.pile[i]); keep.byFoe.push(G.pileByFoe[i])
-    keep.guard.push(G.pileGuard[i]); keep.vals.push(now)
-    keep.suit.push(pileSuitAt(G, i))
-  }
-  G.pile = keep.cards; G.pileByFoe = keep.byFoe; G.pileGuard = keep.guard
-  G.pileVals = keep.vals; G.pileSuit = keep.suit
-  expireHeld(G)
-  if (taken > 0) {
-    G.score[side] += taken
-    G.stat.catches[side]++
-    G.stat.caught[side] += taken
+  if (G.pile.length === 0) return
+  const taken = dropPile(G, LOW_TIDE_STEP)
+  if (taken.length > 0) harvestPile(G, side, wantedOf(G, taken))
+}
+
+// 组合技【干塘】：退潮 × 见底。整堆各减这张的**牌面点数**，收走归零的（照 ebbTideFor）
+function ebbTideFor(G, side, card) {
+  const step = card.value
+  if (step <= 0 || G.pile.length === 0) return
+  const taken = dropPile(G, step)
+  if (taken.length > 0) harvestPile(G, side, wantedOf(G, taken))
+}
+
+// 退潮：左侧 EBB_COUNT 张**连自己**，各减这张的牌面点数。**不收牌**（照 ebbFor）。
+// 读牌面点数，不读 valuesOf（那是 0，减 0 等于没减）。
+// 落在堆底（沉底）的时候左边没牌，什么也不发生
+function ebbFor(G, card) {
+  const at = pileIndexOf(G, card)
+  if (at <= 0) return
+  const step = card.value
+  if (step <= 0) return
+  const from = Math.max(0, at - EBB_COUNT)
+  for (let i = from; i <= at; i++) {
+    G.pileVals[i] = dropVals(pileValsAt(G, i), step)
   }
 }
 
 // 洪水：从牌库一张张往堆上翻，直到撞上点数（照 floodFor）。
-// 判撞在落堆之前，翻上去的牌不带技能，翻空了就是白打
+// 判撞在落堆之前，翻上去的牌不带技能，翻空了就是白打。
+// 打出那张这时候还在堆上，所以它也可能被这一下收走
 function floodFor(G, side) {
   let hitAt = -1
   let flipped = 0
   while (G.deck.length > 0) {
     const card = G.deck.pop()
     const at = catchStart(G, card, side, [], false)
-    // 翻上去的牌不带技能，但场上的抹点数效果照样管它（照源码第 2180 行）
+    // 翻上去的牌不带技能，但场上的抹点数效果照样管它
     pushPile(G, card, side, GUARD_NONE, landVals(G, card, [], false))
     flipped++
     if (at >= 0) { hitAt = at; break }
@@ -1089,7 +1194,7 @@ function floodFor(G, side) {
   G.stat.caught[side] += count
 }
 
-// ---------- 收色 / 撒网（照 harvestPile、hueFor、castFor） ----------
+// ---------- 收色 / 撒网（照 harvestIndices、hueFor、castFor） ----------
 
 function harvestPile(G, side, wanted) {
   const keep = { cards: [], byFoe: [], guard: [], vals: [], suit: [] }
@@ -1129,20 +1234,27 @@ function hueFor(G, side, card) {
   harvestPile(G, side, wanted)
 }
 
-// 撒网：堆上同奇偶的一起收走。自己的奇偶按**牌面点数**算，
-// 堆上那些按现在的点数算（0 算偶数，一个点数都没有的不算）
+// 同奇偶吗：任一个点数跟 odd 同奇偶就算（0 算偶数，一个点数都没有的不算）
+function sameParity(vals, odd) {
+  for (let k = 0; k < vals.length; k++) {
+    if ((vals[k] % 2 === 1) === odd) return true
+  }
+  return false
+}
+
+// 撒网：从它自己起**往左连续**比奇偶，同奇偶就收，遇到不同的就停。
+// 它不在堆上了（被前面的技能收走）就从堆顶起算。
+// 自己的奇偶按**牌面点数**算，堆上那些按现在的点数算
 function castFor(G, side, card) {
   const odd = card.value % 2 === 1
-  const wanted = []
+  const wanted = G.pile.map(function () { return false })
+  const at = pileIndexOf(G, card)
+  const from = at >= 0 ? at : G.pile.length - 1
   let hits = 0
-  for (let i = 0; i < G.pile.length; i++) {
-    const vals = pileValsAt(G, i)
-    let hit = false
-    for (let k = 0; k < vals.length; k++) {
-      if ((vals[k] % 2 === 1) === odd) { hit = true; break }
-    }
-    if (hit) hits++
-    wanted.push(hit)
+  for (let i = from; i >= 0; i--) {
+    if (!sameParity(pileValsAt(G, i), odd)) break
+    wanted[i] = true
+    hits++
   }
   if (hits <= 1) return
   harvestPile(G, side, wanted)
@@ -1215,20 +1327,30 @@ function suitFindFor(G, side, card) {
 }
 
 // 这张打出去，收色 / 撒网能扫走几张（含它自己）。两件都没带就是 0。
-// 口径跟 hueFor / castFor 一致 —— AI 挑牌要用（照源码的 harvestCount）
+// AI 挑牌要用（照源码的 harvestCount）。估在落堆之前，堆里还没有这张：
+// 撒网从堆顶往左连续数，收色数同花色的
 function harvestCount(G, card, skills, side) {
   const hue = has(skills, SK.HUE)
   const cast = has(skills, SK.CAST)
   if (!hue && !cast) return 0
+  const size = G.pile.length
   const odd = card.value % 2 === 1
-  let n = 0
-  for (let i = 0; i < G.pile.length; i++) {
-    if (hue && sameSuit(G, pileSuitAt(G, i), card.suit, side)) { n++; continue }
-    if (!cast) continue
-    const vals = pileValsAt(G, i)
-    for (let k = 0; k < vals.length; k++) {
-      if ((vals[k] % 2 === 1) === odd) { n++; break }
+  const marked = []
+  for (let i = 0; i < size; i++) marked.push(false)
+  if (hue) {
+    for (let i = 0; i < size; i++) {
+      if (sameSuit(G, pileSuitAt(G, i), card.suit, side)) marked[i] = true
     }
+  }
+  if (cast) {
+    for (let i = size - 1; i >= 0; i--) {
+      if (!sameParity(pileValsAt(G, i), odd)) break
+      marked[i] = true
+    }
+  }
+  let n = 0
+  for (let i = 0; i < size; i++) {
+    if (marked[i]) n++
   }
   return n > 0 ? n + 1 : 0
 }

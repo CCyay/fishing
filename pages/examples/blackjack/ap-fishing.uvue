@@ -3,6 +3,11 @@
     <!-- 顶栏：双方积分 + 牌库 / 牌堆各剩几张。积分就是收走的牌数。
          三样数并在这一行，所以下面那两块的标题（「庄家手牌 N 张」、
          「牌堆 N 张」）都去掉了 —— 牌都摆在那儿，标题只是重复一遍 -->
+    <!-- 关卡条：第几关（终局报难度）+ 生命。生命只在闯关里有 -->
+    <view class="level-bar">
+      <text id="ap-level" class="level-text">{{ levelTitle }}</text>
+      <text v-if="livesText != ''" id="ap-lives" class="lives-text">{{ livesText }}</text>
+    </view>
     <view class="score-bar">
       <view class="score-cell">
         <text class="score-label">你</text>
@@ -84,7 +89,7 @@
          张数在顶栏（库 / 堆），所以这儿不要标题 ——
          牌堆是这一页最该占地方的东西，标题只会挤它 -->
     <view class="pile-area">
-      <scroll-view class="board">
+      <scroll-view class="board sv-out">
         <view class="board-row">
           <text v-if="pile.length == 0" class="dim-tip">空堆</text>
           <view
@@ -95,8 +100,8 @@
               'card-from-foe': pileByFoe[index],
               'card-from-me': !pileByFoe[index],
               'card-guarded': pileGuard[index] != GUARD_NONE,
-              'card-caught': catching && index >= catchFrom && index <= catchTo,
-              'card-flying': flyOn && index >= catchFrom && index <= catchTo
+              'card-caught': catching && inCatch(index),
+              'card-flying': flyOn && inCatch(index)
             }">
             <!-- 点数和花色写的都是它**现在**算什么，不是牌面 ——
                  点数会被顺色抹掉、被见底压下去；花色会被染水整堆改掉。
@@ -361,7 +366,7 @@
           <text class="left-sub">牌库 {{ deck.length }} + 庄家手里 {{ foeHand.length }}</text>
         </view>
         <text class="left-note">庄家也是按这份账记牌的。它手里那几张混在里头 —— 分不出来是有意的。</text>
-        <scroll-view class="left-body" direction="vertical">
+        <scroll-view class="left-body sv-out" direction="vertical">
           <view v-for="(row, ri) in outsideRows" :key="'lf-' + ri" class="left-row">
             <text class="left-rank" :class="{ 'left-rank-mine': row.mine }">{{ row.rank }}</text>
             <text class="left-num">{{ row.left }}</text>
@@ -381,6 +386,18 @@
         <text id="ap-result" class="result-title">{{ resultText }}</text>
         <text class="result-sub">你 {{ myScore }} : {{ foeScore }} 庄家</text>
         <text id="ap-reward" class="result-reward">{{ rewardText }}</text>
+        <!-- 输了：一排红心，失去的那一颗放大、变灰、淡掉（见 loseHeart） -->
+        <view v-if="heartMax > 0" id="ap-hearts" class="hearts">
+          <text
+            v-for="h in heartList"
+            :key="'ht-' + h"
+            :id="'ap-heart-' + h"
+            class="heart"
+            :class="{
+              'heart-empty': h > heartBefore,
+              'heart-lost': heartBroken && h == heartBefore
+            }">♥</text>
+        </view>
         <!-- 原先这儿有一行 skillText（「过关掉了什么技能」）。
              技能改成商店买了，结算不再发技能，这一行整条删掉 -->
         <!-- 赢了不再让你挑「下一关 / 去商店」：结算框亮一下就自己进商店，
@@ -400,6 +417,13 @@
           class="result-btn"
           @click="goBack">
           <text class="result-btn-text">回关卡选角色</text>
+        </view>
+        <!-- 输了还有生命：回上一个商店（第 1 关前面没有商店，就重打） -->
+        <view v-if="outcome == OUT_RETRY && save.inShop" id="ap-retry-shop" class="result-btn" @click="goShop">
+          <text class="result-btn-text">回到商店</text>
+        </view>
+        <view v-if="outcome == OUT_RETRY && !save.inShop" id="ap-retry" class="result-btn" @click="newGame">
+          <text class="result-btn-text">重打这一关</text>
         </view>
         <view v-if="outcome == OUT_DRAW" id="ap-replay" class="result-btn" @click="newGame">
           <text class="result-btn-text">重打这一关</text>
@@ -458,7 +482,6 @@
     SK_HUEVOID,
     SK_EBB,
     SK_MEASURE,
-    MEASURE_MIN,
     DUMP_COUNT,
     SPILL_COUNT,
     EBB_COUNT,
@@ -481,6 +504,7 @@
     SP_CLEAR,
     SP_DEEPHOOK,
     SP_FIRMHOOK,
+    SP_REVERSE,
     SP_LIVEWATER,
     SP_BAIT,
     SP_TWOCOLOR,
@@ -493,6 +517,7 @@
     interestOf,
     drawLevelById,
     levelForDiff,
+    maxLivesOf,
     // 终局也分难度了（见 finalLevel / rollRoleKit）
     DIFF_EASY,
     DIFF_NORMAL,
@@ -514,6 +539,8 @@
     difficultyOf,
     settleWin,
     resetDrawRun,
+    settleLoss,
+    ensureLives,
     ensureFoeKit,
     foeKitOf,
     // 【封竿】封的那个点数（庄家特殊技）
@@ -594,6 +621,9 @@
   const FOE_DELAY_MS : number = 600
   // 赢了之后结算框停多久再自动进商店 —— 够看清拿了多少金币就行
   const SHOP_DELAY_MS : number = 1200
+  // 输了：结算框亮出来多久之后那颗心碎掉；碎完再过多久退回商店
+  const HEART_BREAK_MS : number = 500
+  const LOSE_SHOP_MS : number = 1200
   // 收牌特效分三拍：被收的那段亮起来停一下 → 往上飘走 → 积分跳一下。不弹横幅，
   // 只靠牌本身和积分说话。亮的时长照钓鱼游戏的 CATCH_DELAY（560ms）取整
   const CATCH_SHOW_MS : number = 500
@@ -609,6 +639,14 @@
   const level = ref<DrawLevel>(drawLevelById(1))
   const myLevels = ref<number[]>([] as number[])
   const myLoadout = ref<DrawLoadout>(emptyLoadout())
+  // 庄家那一套，跟上面 myLevels / myLoadout 对称。
+  //
+  // 原先塞在 level 里（level.value.levels / .loadout），可关卡表的那两个字段
+  // 已经删了（庄家配装搬到 DRAW_FOE_ROLES，见 draw-levels 的 DrawLevel）——
+  // 再往 DrawLevel 里塞，H5 构造对象时会把不认识的字段丢掉，庄家配装就成了 undefined。
+  // 所以单独放：level 只管「这一关叫什么、怎么出牌、给多少钱」
+  const foeLevels = ref<number[]>([] as number[])
+  const foeLoadout = ref<DrawLoadout>(emptyLoadout())
 
   const deck = ref<PlainCard[]>([])
   const hand = ref<PlainCard[]>([])
@@ -698,6 +736,8 @@
   // 它不是一种胜负，所以单独一档 —— 借 OUT_LOSE 的话结算框会按
   // 0:0 的比分报「平局」
   const OUT_NOROLE : number = 6
+  // 输了但还有生命：退回上一个商店（第 1 关就重打这一关）
+  const OUT_RETRY : number = 7
   const outcome = ref<number>(OUT_NONE)
 
   // 终局模式：双方随机满配，一局定胜负，跟本轮进度毫无关系。
@@ -822,6 +862,31 @@
   // 【沉底】把方向反过来了（收「堆底 → 匹配那张」），所以得记两头
   const catchFrom = ref<number>(-1)
   const catchTo = ref<number>(-1)
+  // 散着收的那几张（见底 / 干塘）：不连续，所以单独记下标。
+  // 非空时按它算，空的时候按 [catchFrom, catchTo] 那一段算
+  const catchSet = ref<number[]>([] as number[])
+  // 散着收演完之后接着结算的那几件技能，以及从哪一段接着走（见 finishSweep → afterPlayTail）
+  let sweepSkills : number[] = []
+  let sweepNext : number = 0
+  // 打出那张牌带的技能、落没落堆底 —— 技能都结算完之后匹配要用（见 resolveMatch）
+  let matchSkills : number[] = []
+  let matchSink : boolean = false
+  // afterPlayTail 的三段。散着收的技能演完特效，从**它后面那一段**接着走：
+  //   见底 / 干塘 演完 → TAIL_EBB（退潮、洪水、收色……）
+  //   收色 演完       → TAIL_CAST（撒网……）
+  //   撒网 演完       → TAIL_REST（动对方手牌那几件往后）
+  // 量水演完从 TAIL_HEAD 接着走（afterPlayHead：窥视、照水……见底）
+  const TAIL_HEAD : number = -1
+  const TAIL_EBB : number = 0
+  const TAIL_CAST : number = 1
+  const TAIL_REST : number = 2
+
+  function inCatch(index : number) : boolean {
+    if (catchSet.value.length > 0) {
+      return catchSet.value.indexOf(index) >= 0
+    }
+    return index >= catchFrom.value && index <= catchTo.value
+  }
   const catchByFoe = ref<boolean>(false)
   const flyOn = ref<boolean>(false)
   const flashMe = ref<boolean>(false)
@@ -868,6 +933,33 @@
   let catchTimer : number = -1
   let flashTimer : number = -1
   let shopTimer : number = -1
+  // 失去生命的动画：输之前有几颗、上限几颗、那一颗碎没碎
+  const heartMax = ref<number>(0)
+  const heartBefore = ref<number>(0)
+  const heartBroken = ref<boolean>(false)
+  let heartTimer : number = -1
+
+  const heartList = computed<number[]>(() : number[] => {
+    const out : number[] = []
+    for (let i = 1; i <= heartMax.value; i++) {
+      out.push(i)
+    }
+    return out
+  })
+
+  // 结算框亮出来停一拍，再让那颗心碎掉；有上一个商店的话，碎完自己退回去
+  function loseHeart(before : number, max : number, backToShop : boolean) {
+    heartMax.value = max
+    heartBefore.value = before
+    heartBroken.value = false
+    heartTimer = setTimeout(() => {
+      heartTimer = -1
+      heartBroken.value = true
+      if (backToShop) {
+        shopTimer = setTimeout(goShop, LOSE_SHOP_MS)
+      }
+    }, HEART_BREAK_MS)
+  }
 
   const canPlay = computed<boolean>(() : boolean => {
     return myTurn.value && !over.value && !catching.value && !tidePending.value
@@ -945,12 +1037,27 @@
     return '平局'
   })
 
+  // 顶部关卡条那一行
+  const levelTitle = computed<string>(() : string => {
+    if (level.value.id == 0) {
+      return '终局 · ' + level.value.name
+    }
+    return '第 ' + level.value.id + ' 关「' + level.value.name + '」'
+  })
+
+  const livesText = computed<string>(() : string => {
+    if (level.value.id == 0 || save.value.lives <= 0) {
+      return ''
+    }
+    return '生命 ' + save.value.lives + '/' + maxLivesOf(difficultyOf(drawSaveSlot()))
+  })
+
   const myChips = computed<SkillChip[]>(() : SkillChip[] => {
     return chipsOf(myLoadout.value, myLevels.value)
   })
 
   const foeChips = computed<SkillChip[]>(() : SkillChip[] => {
-    return chipsOf(level.value.loadout, level.value.levels)
+    return chipsOf(foeLoadout.value, foeLevels.value)
   })
 
   // levels 这个参数留着没删：调用处（myChips / foeChips）两边都有现成的，
@@ -1252,7 +1359,7 @@
   })
 
   function loadoutOf(byFoe : boolean) : DrawLoadout {
-    return byFoe ? level.value.loadout : myLoadout.value
+    return byFoe ? foeLoadout.value : myLoadout.value
   }
 
   function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
@@ -1387,15 +1494,17 @@
     // 判在遍历**之前**，因为它收得最多（整堆）—— 先走普通判定的话，
     // 随便命中一张浅的就把量水盖掉了。
     //
-    // 堆超过 13 张它自己就触发不了（点数最大 13），那个上限不用判；
-    // 「至少 MEASURE_MIN 张」那条闸的理由写在 draw-skills 的注释里
+    // 堆超过 13 张它自己就触发不了（点数最大 13），那个上限不用判。
+    // 下限没有：堆上 1 张打 A、2 张打 2 也算（原先那条「至少 3 张」去掉了）
     //
     // 走 anyEquals 而不是直接比 card.value，是为了跟周围那两条判定一致 ——
     // 它顺带白拿了两条：点数贴能让一张牌算好几个点数（多一次命中机会），
     // 而**分水降成的 0 点不算**（anyEquals 里 gap==0 时跳过 0）。
     // 0 点的牌通吃全堆没道理
-    if (hasTrigger(skills, SK_MEASURE) && size >= MEASURE_MIN) {
-      const want : number[] = [size]
+    // 这儿是**落堆之前**估的（庄家挑牌、手牌高亮），堆里还没有这张 ——
+    // 量水数张数要算上它自己，所以 +1
+    if (hasTrigger(skills, SK_MEASURE)) {
+      const want : number[] = [size + 1]
       if (anyEquals(mine, want, 0)) {
         // 一网打尽，而**护着的牌是网里的洞** —— 堆上只要有一张钓不走的，
         // 这一网就撒不下去。顺带给【稳钩】和【硬壳】各添了一个用处。
@@ -1957,8 +2066,9 @@
   function suitifyFor(byFoe : boolean, card : PlainCard) : string {
     const suit = card.suit
     const who = byFoe ? ' 庄家染水：' : ' 染水：'
-    if (pile.value.length == 0) {
-      return who + '场上没牌，染了个空。'
+    // 它自己已经进场了，所以堆上只有 1 张就是「只有它自己」
+    if (pile.value.length <= 1) {
+      return who + '场上只有它自己，染了个空。'
     }
     let changed = 0
     const next : string[] = []
@@ -2149,7 +2259,12 @@
 
   // 打出一张手牌：先落堆，撞上了就开始收牌特效。返回要收走几张（0 = 没钓到）。
   // 钓到时牌不是马上拿掉的 —— 特效放完才拿掉、才记分，然后由 finishCatch 接着结算技能、交回合
-  function playFor(byFoe : boolean, index : number) : number {
+  // 出一张牌：**只落堆，不判匹配**。
+  //
+  // 顺序是「先结算这张牌的技能，再拿它去匹配」（见 afterPlay → resolveMatch）：
+  // 牌先落到堆上（沉底的落堆底），技能在它落着的时候结算 ——
+  // 量水、收色、撒网、见底可能连它一起收走，那它就不再匹配了
+  function playFor(byFoe : boolean, index : number) {
     const card = takeFromHand(byFoe, index)
     const skills = skillsOf(byFoe, card)
     // 数一下这一方打到第几张了 —— 【稳钩】要「前 N 张」
@@ -2165,7 +2280,7 @@
     //
     // 沉底在这儿只是**读出来**，真正落堆在下面 —— 因为落堆的位置
     // 还要分「钓到了 / 没钓到」两条路走
-    firstNote = hasTrigger(skills, SK_SUITIFY) ? suitifyFor(byFoe, card) : ''
+    firstNote = ''
     // 「往堆底落」有三条来路，名字各不相同：
     //   点数槽的【沉底】—— 打出覆盖面里的牌就**强制**落堆底；
     //   角色的【逆流】 —— **每回合你自己选**（开关见 sinkOn / wantSink）；
@@ -2182,7 +2297,6 @@
     if (sink) {
       firstNote = firstNote + (byFoe ? ' 庄家那张打到了堆底。' : ' 这张打到了堆底。')
     }
-    const at = catchStart(card, byFoe, skills, sink)
     // 【封竿】挡住的那一下**要说出来**。
     //
     // 不说的话它就是「这张莫名其妙钓不到」—— 而封的那个点数
@@ -2196,55 +2310,116 @@
     }
     pendingSkills = skills
     lastPlayed = card
-    // 落堆算几点：先是它自己的（valuesOf），再让场上挂着的
-    // 压邻 / 封色 / 分水 改一遍（landVals）。
-    //
-    // **钓牌判定（上面那行 catchStart）读的不是这个** —— 判定问的是
-    // 「我这张够不着谁」，那是它打出去那一刻的事；抹点数抹的是
-    // 「它躺在堆上值几点」。所以一张被封色抹掉的牌照样钓得到东西，
-    // 只是钓完要是没走、留在堆上，它就成了死牌
+    // 匹配那一步要用的：这张带的技能、落没落堆底（见 resolveMatch）
+    matchSkills = skills
+    matchSink = sink
+    // ---- 进场 ----
+    // 落堆的那一刻先受场上效果牌的影响（压邻、封色、分水……都在 landVals 里），
+    // 然后才发动它自己的效果
     const worth = landVals(card, skills, sink)
-    // J 打在空堆上：没有可通吃的，就**只勾走它自己**（记 1 分）。
-    //
-    // 不改 catchStart（那边空堆照旧返回 -1）：庄家挑牌、手牌高亮都读它，
-    // 让它们把这一下当「钓到了」，庄家就会把 J 白白花在空堆上换 1 分；
-    // 洪水从牌库翻上来的 J 也不算打出，不该吃这条
-    if (card.rank == JACK && pile.value.length == 0) {
+    if (sink) {
+      unshiftPile(card, byFoe, GUARD_NONE, worth)
+    } else {
       pushPile(card, byFoe, GUARD_NONE, worth)
-      startCatch(byFoe, 0, 0)
-      return 1
     }
+    // ---- 进场之后：「优先」效果最先发动 ----
+    // 【染水】改的是整堆的花色（它自己已经在堆上了），后面那些效果和匹配都按染过的算
+    if (hasTrigger(skills, SK_SUITIFY)) {
+      firstNote = firstNote + suitifyFor(byFoe, card)
+    }
+  }
+
+  // 技能都结算完了，拿这张牌去匹配，然后交回合。
+  //
+  // 这张要是已经被技能收走了（量水 / 收色 / 撒网 / 见底），就没得匹配，直接交回合。
+  // 还在堆上的话：先把它从堆上拿下来，对**剩下的堆**判匹配，再放回去 ——
+  // 普通的放回堆顶、沉底的放回堆底（技能阶段洪水之类可能往它上面又垫了牌，
+  // 放回去之后那几张也在「匹配那张 → 堆顶」这一段里）。
+  // 它身上的点数、花色照技能结算完的样子带回去（见底压过的就是压过的）
+  function resolveMatch(byFoe : boolean) {
+    const card = lastPlayed
+    const at0 = card == null ? -1 : pileIndexOf(card!)
+    if (at0 < 0) {
+      passTurn(byFoe)
+      return
+    }
+    const vals = pileValsAt(at0)
+    removePileAt(at0)
+    // 量水是技能，已经在 afterPlay 里结算过了 —— 匹配这一步不再算它
+    const skills = withoutSkill(matchSkills, SK_MEASURE)
+    const sink = matchSink
+    // J 落在空堆上：没有可通吃的，就**只勾走它自己**（记 1 分）
+    if (card!.rank == JACK && pile.value.length == 0) {
+      pushPile(card!, byFoe, GUARD_NONE, vals)
+      startCatch(byFoe, 0, 0)
+      message.value = message.value + (byFoe ? ' 庄家钓走 1 张。' : ' 钓走 1 张！')
+      return
+    }
+    const at = catchStart(card!, byFoe, skills, sink)
     if (at < 0) {
-      // 没钓到：沉底的插到堆底，普通的落堆顶。
-      //
-      // guard 这一位从前是【护饵】写的，那件技能删了 —— 现在写它的是
-      // 角色的【稳钩】：**每局前 FIRM_GUARD 张**落堆的牌自带护
-      //（对方下一回合钓不走）
+      // 没钓到：落下。【稳钩】的头几张在这时候护上
       const played = byFoe ? foePlayed : myPlayed
       const guard = played <= FIRM_GUARD && hasSpecial(byFoe, SP_FIRMHOOK)
         ? (byFoe ? GUARD_FOE : GUARD_ME) : GUARD_NONE
       if (sink) {
-        unshiftPile(card, byFoe, guard, worth)
+        unshiftPile(card!, byFoe, guard, vals)
       } else {
-        pushPile(card, byFoe, guard, worth)
+        pushPile(card!, byFoe, guard, vals)
       }
-      return 0
+      if (!byFoe) {
+        message.value = message.value + ' 落在堆上。'
+      }
+      passTurn(byFoe)
+      return
     }
-    // ---- 钓到了。收走的那一段往哪边算，由沉底决定 ----
-    //
-    // 普通：这张落**堆顶**，收走「匹配那张 → 堆顶」。
-    // 沉底：这张落**堆底**，收走「堆底 → 匹配那张」。
-    //
-    // 两条都是「一段连续的牌，包括我这张」，只是方向相反。
-    // 下标跟着变：沉底插在 0，所以原来的 at 要往后挪一格
+    // 钓到了。收走的那一段往哪边算，由沉底决定：
+    //   普通 —— 这张落堆顶，收走「匹配那张 → 堆顶」；
+    //   沉底 —— 这张落堆底，收走「堆底 → 匹配那张」（插在 0，原来的 at 往后挪一格）
+    let caught = 0
     if (sink) {
-      unshiftPile(card, byFoe, GUARD_NONE, worth)
+      unshiftPile(card!, byFoe, GUARD_NONE, vals)
       startCatch(byFoe, 0, at + 1)
-      return at + 2
+      caught = at + 2
+    } else {
+      pushPile(card!, byFoe, GUARD_NONE, vals)
+      startCatch(byFoe, at, pile.value.length - 1)
+      caught = pile.value.length - at
     }
-    pushPile(card, byFoe, GUARD_NONE, worth)
-    startCatch(byFoe, at, pile.value.length - 1)
-    return pile.value.length - at
+    message.value = message.value + (byFoe ? ' 庄家钓走 ' + caught + ' 张。' : ' 钓走 ' + caught + ' 张！')
+  }
+
+  // 按下标从堆上拿掉一张（五条并行数组一起删，见 pushPile）
+  function removePileAt(at : number) {
+    const keepCards : PlainCard[] = []
+    const keepByFoe : boolean[] = []
+    const keepGuard : number[] = []
+    const keepVals : number[][] = []
+    const keepSuit : string[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i == at) {
+        continue
+      }
+      keepCards.push(pile.value[i])
+      keepByFoe.push(pileByFoe.value[i])
+      keepGuard.push(pileGuard.value[i])
+      keepVals.push(pileValsAt(i))
+      keepSuit.push(pileSuitAt(i))
+    }
+    pile.value = keepCards
+    pileByFoe.value = keepByFoe
+    pileGuard.value = keepGuard
+    pileVals.value = keepVals
+    pileSuit.value = keepSuit
+  }
+
+  function withoutSkill(skills : number[], skill : number) : number[] {
+    const out : number[] = []
+    for (let i = 0; i < skills.length; i++) {
+      if (skills[i] != skill) {
+        out.push(skills[i])
+      }
+    }
+    return out
   }
 
   // 收牌特效：亮起 [from, to] 这一段（两端都含），放完由 finishCatch 真拿掉
@@ -2364,7 +2539,8 @@
     if (byFoe && hasFoeSpecial('again') && !againUsed.value && foeHand.value.length > 0) {
       againPending = true
     }
-    afterPlay(byFoe)
+    // 技能在匹配之前就结算完了（见 afterPlay → resolveMatch），所以这儿直接交回合
+    passTurn(byFoe)
   }
 
   // 【守滩】垫牌：从庄家手里挑一张最不容易被你钓走的，垫到堆上。
@@ -2430,6 +2606,50 @@
     if (hasTrigger(skills, SK_AGAIN) && !againUsed.value) {
       againPending = true
     }
+    // 量水排在**所有技能的最前面**：它收整堆，排在后面的话前面那些
+    // 技能改过的堆就白改了。演收牌特效的话先停在这儿，演完从 afterPlayHead 接着走
+    if (measureFor(byFoe, skills)) {
+      return
+    }
+    afterPlayHead(byFoe, skills)
+  }
+
+  // 量水：这张的点数正好等于**堆上张数（含它自己）** → 整堆连它一起收走。
+  // 它发动的时候已经进场了，所以数张数时把它自己也算上
+  //
+  // 护着的牌（护饵、硬壳）是网里的洞：堆上只要有一张钓不走的，这一网就撒不下去。
+  // 开演收牌特效了返回 true
+  function measureFor(byFoe : boolean, skills : number[]) : boolean {
+    if (!hasTrigger(skills, SK_MEASURE) || lastPlayed == null) {
+      return false
+    }
+    const at = pileIndexOf(lastPlayed!)
+    const size = pile.value.length
+    if (at < 0) {
+      return false
+    }
+    const want : number[] = [size]
+    if (!anyEquals(valuesOf(lastPlayed!, skills), want, 0)) {
+      return false
+    }
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i != at && (guardedAgainst(i, byFoe) || shelled(i, byFoe))) {
+        message.value = message.value + (byFoe ? ' 庄家量水：' : ' 量水：')
+          + '堆上有护着的牌，这一网撒不下去。'
+        return false
+      }
+    }
+    const all : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      all.push(i)
+    }
+    message.value = message.value + (byFoe ? ' 庄家量水：' : ' 量水：')
+      + '堆上正好 ' + size + ' 张（含它自己），整堆收走。'
+    return startSweep(byFoe, all, skills, TAIL_HEAD)
+  }
+
+  // afterPlay 的前半段：从窥视到见底 / 干塘。量水演完特效从这儿接着走
+  function afterPlayHead(byFoe : boolean, skills : number[]) {
     if (hasTrigger(skills, SK_PEEK)) {
       peekFor(byFoe)
     }
@@ -2550,42 +2770,62 @@
     //                  而 ♣K **只有一张**，所以一局最多响一次。
     // 对比 J 通吃（4 张、无条件），这一下要你把两件技能分别插对两个槽、
     // 还要正好摸到那张交集牌
+    // 见底 / 干塘收牌要演收牌特效（跟钓牌一样：亮起 → 飘走 → 积分跳）。
+    // 开演了就先停在这儿，演完由 finishSweep 从 afterPlayTail 接着走
     if (hasTrigger(skills, SK_EBB) && hasTrigger(skills, SK_LOWTIDE)
       && lastPlayed != null) {
-      ebbTideFor(byFoe, lastPlayed!)
-    } else {
-      // 见底：整堆点数往下压 1，减到 0 为止（不收牌）
-      if (hasTrigger(skills, SK_LOWTIDE)) {
-        lowTideFor(byFoe)
+      if (ebbTideFor(byFoe, lastPlayed!, skills)) {
+        return
       }
-      // 退潮：左侧 EBB_COUNT 张连自己，各减这张的牌面点数。
-      //
-      // 排在见底后面，但**这两件的先后其实无所谓** —— 两件都是
-      // 「减一个数、clamp 到 0」，而带 clamp 的减法是可交换的：
-      // (9−1)−5 和 (9−5)−1 都是 3，(2−1)−5 和 (2−5)−1 都是 0。
-      //
-      // 这一点原先不成立：见底那会儿会**收走**压到 0 的牌，
-      // 所以先见底还是先退潮决定了那几张在不在堆上。
-      // 见底改成不收牌之后那个顺序依赖没了 —— 记在这儿，
-      // 免得哪天有人把见底改回「收牌」却没注意这儿的顺序又有意义了。
-      //
-      // 两件都在同一张牌上的那条路现在走不到这儿了（上面那个分支接走了），
-      // 但这段推理对「将来又多一件减点数的技能」仍然有效
-      if (hasTrigger(skills, SK_EBB) && lastPlayed != null) {
-        ebbFor(byFoe, lastPlayed!)
+    } else if (hasTrigger(skills, SK_LOWTIDE)) {
+      // 见底：整堆点数往下压 1，压到 0 的收走
+      if (lowTideFor(byFoe, skills)) {
+        return
       }
+    }
+    afterPlayTail(byFoe, skills, TAIL_EBB)
+  }
+
+  // afterPlay 的后半段：从退潮往后。from 是从哪一段接着走（TAIL_*）。
+  //
+  // 拆出来是因为见底 / 干塘收牌要演特效 —— 特效是定时器驱动的，
+  // 演完（finishSweep）得从这儿接着结算剩下的技能。
+  // 不演（没收到牌）的时候 afterPlay 直接调它，跟拆开之前一个顺序
+  function afterPlayTail(byFoe : boolean, skills : number[], from : number) {
+    const combo = hasTrigger(skills, SK_EBB) && hasTrigger(skills, SK_LOWTIDE)
+      && lastPlayed != null
+    // 退潮：左侧 EBB_COUNT 张连自己，各减这张的牌面点数。
+    //
+    // 排在见底后面，但**这两件的先后其实无所谓** —— 两件都是
+    // 「减一个数、clamp 到 0」，而带 clamp 的减法是可交换的：
+    // (9−1)−5 和 (9−5)−1 都是 3，(2−1)−5 和 (2−5)−1 都是 0。
+    //
+    // 这一点原先不成立：见底那会儿会**收走**压到 0 的牌，
+    // 所以先见底还是先退潮决定了那几张在不在堆上。
+    // 见底改成不收牌之后那个顺序依赖没了 —— 记在这儿，
+    // 免得哪天有人把见底改回「收牌」却没注意这儿的顺序又有意义了。
+    //
+    // 两件都在同一张牌上的那条路现在走不到这儿了（上面那个分支接走了），
+    // 但这段推理对「将来又多一件减点数的技能」仍然有效
+    if (from <= TAIL_EBB && !combo && hasTrigger(skills, SK_EBB) && lastPlayed != null) {
+      ebbFor(byFoe, lastPlayed!)
     }
     // 洪水：从牌库一张张往堆上翻，直到撞上点数
-    if (hasTrigger(skills, SK_FLOOD)) {
+    if (from <= TAIL_EBB && hasTrigger(skills, SK_FLOOD)) {
       floodFor(byFoe)
     }
-    // 收色：堆上同花色的一起收走（含它自己）。散着收，不走飞牌特效
-    if (hasTrigger(skills, SK_HUE) && lastPlayed != null) {
-      hueFor(byFoe, lastPlayed!)
+    // 收色：堆上同花色的一起收走（含它自己）。散着收，演收牌特效 ——
+    // 开演了就停在这儿，演完从撒网那一段接着走
+    if (from <= TAIL_EBB && hasTrigger(skills, SK_HUE) && lastPlayed != null) {
+      if (hueFor(byFoe, lastPlayed!, skills)) {
+        return
+      }
     }
-    // 撒网：堆上同奇偶的一起收走
-    if (hasTrigger(skills, SK_CAST) && lastPlayed != null) {
-      castFor(byFoe, lastPlayed!)
+    // 撒网：堆上同奇偶的一起收走。同上，演完从下一段接着走
+    if (from <= TAIL_CAST && hasTrigger(skills, SK_CAST) && lastPlayed != null) {
+      if (castFor(byFoe, lastPlayed!, skills)) {
+        return
+      }
     }
     // ---- 动对方手牌那三件：排在冻结**前面** ----
     //
@@ -2728,7 +2968,8 @@
           + tops.length + ' 张沉了下去。'
       }
     }
-    passTurn(byFoe)
+    // 技能都结算完了，轮到这张牌去匹配（见 resolveMatch）
+    resolveMatch(byFoe)
   }
 
   // 牌库顶往下数 n 张（不够就有几张算几张）。
@@ -2783,7 +3024,7 @@
       sinkTops(tideTops().length)
       message.value = '你把 ' + tideName.value + ' 沉到了牌库底。'
     }
-    passTurn(false)
+    resolveMatch(false)
   }
 
   // 择饵落地：顶上那 n 张里留第 keep 张，其余沉到底。
@@ -2815,7 +3056,7 @@
     pickPending.value = false
     pickTops.value = [] as PlainCard[]
     doPickDeck(false, index)
-    passTurn(false)
+    resolveMatch(false)
   }
 
   // 庄家从那几张里挑哪一张。
@@ -2879,7 +3120,7 @@
     } else {
       message.value = '你没冻。'
     }
-    passTurn(false)
+    resolveMatch(false)
   }
 
   // 点庄家手牌那一排：按现在在等哪件技能分路。
@@ -2908,7 +3149,7 @@
     takeSkill.value = -1
     if (index < 0) {
       message.value = '你放过了。'
-      passTurn(false)
+      resolveMatch(false)
       return
     }
     doTakeFrom(false, which, index)
@@ -2916,7 +3157,7 @@
     if (giveBack.value >= 0) {
       return
     }
-    passTurn(false)
+    resolveMatch(false)
   }
 
   // 对换第二步：你点了自己第 index 张还给庄家（-1 = 不还，那就是白拿一张）。
@@ -2934,7 +3175,7 @@
     } else {
       doGiveBack(false, index)
     }
-    passTurn(false)
+    resolveMatch(false)
   }
 
   // 同号：你从那几张同点数的里点了第 index 张（-1 = 不要）
@@ -2950,7 +3191,7 @@
     } else {
       message.value = message.value + ' 同号：你一张都没要。'
     }
-    passTurn(false)
+    resolveMatch(false)
   }
 
   // 庄家冻你哪张：**看得见的里头挑点数最大的，一张都看不见就随机**。
@@ -3010,16 +3251,68 @@
   // 等于零风险白赚；见底不一样：它的 0 点是写在效果里的，自收那一张
   // 就是它的收成下限。要不要加闸等模拟器量过再说。
   //
-  // 不走收牌特效：那套演的是「从第几张到堆顶」这种**连续段**，
-  // 而这儿收的是散在堆里的 0 点牌。直接结算 + 播报，跟搅水一个路子
+  // 收牌特效照钓牌那套演（亮起 → 飘走 → 积分跳），只是收的是散在堆里的
+  // 0 点牌、不是连续段 —— 所以走 startSweep / catchSet，见 dropPile 下面那几个
   const LOW_TIDE_STEP : number = 1
 
-  function lowTideFor(byFoe : boolean) {
+  // 开演收牌特效了返回 true（afterPlay 停下，演完由 finishSweep 接着走）
+  function lowTideFor(byFoe : boolean, skills : number[]) : boolean {
     const n = LOW_TIDE_STEP
     if (pile.value.length == 0) {
       message.value = message.value + ' 见底：场上没有牌，水位没动。'
-      return
+      return false
     }
+    const taken = dropPile(n)
+    message.value = message.value + (byFoe ? ' 庄家见底：' : ' 见底：')
+      + '整堆 −' + n
+      + (taken.length > 0 ? '，收走见底的 ' + taken.length + ' 张。' : '，没有牌被压到底。')
+    return startSweep(byFoe, taken, skills, TAIL_EBB)
+  }
+
+  // 整堆各减 step（dropVals：减到 0 为止、去重、空列表原样返回），**当场写回**，
+  // 返回减完之后一个非零点数都不剩的那几张的下标 —— 见底 / 干塘要收的就是它们。
+  //
+  // 那几张**先不拿掉**：留在堆上显示成 0 点，演完收牌特效再拿（见 finishSweep）。
+  // 没有点数的牌（顺色那张）原样留着，也不会被收：它不在点数这条轴上。
+  // 还剩一个非零点数就不算归零（anyLive）：贴过点数卡的牌因此更难被收走
+  function dropPile(step : number) : number[] {
+    const vals : number[][] = []
+    const taken : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      const now = dropVals(pileValsAt(i), step)
+      vals.push(now)
+      if (now.length > 0 && !anyLive(now)) {
+        taken.push(i)
+      }
+    }
+    pileVals.value = vals
+    return taken
+  }
+
+  // 散着收：那几张亮起 → 飘走 → 拿掉、记分、积分跳一下，跟钓牌（startCatch）同一套。
+  // 没有要收的就返回 false，调用方接着往下走
+  function startSweep(byFoe : boolean, taken : number[], skills : number[], next : number) : boolean {
+    if (taken.length == 0) {
+      return false
+    }
+    sweepSkills = skills
+    sweepNext = next
+    catching.value = true
+    catchSet.value = taken
+    catchByFoe.value = byFoe
+    flyOn.value = false
+    catchTimer = setTimeout(sweepFly, CATCH_SHOW_MS)
+    return true
+  }
+
+  function sweepFly() {
+    flyOn.value = true
+    catchTimer = setTimeout(finishSweep, CATCH_FLY_MS)
+  }
+
+  function finishSweep() {
+    catchTimer = -1
+    const set = catchSet.value
     // 要移除牌，所以**五条并行数组一起重建** —— 漏一条就错位
     //（pile / pileByFoe / pileGuard / pileVals / pileSuit，见 pushPile）
     const keepCards : PlainCard[] = []
@@ -3030,12 +3323,7 @@
     const gone = goneRanks.value.slice(0)
     let taken = 0
     for (let i = 0; i < pile.value.length; i++) {
-      // 减法走 dropVals：减到 0 为止、去重、空列表原样返回。
-      // 没有点数的牌（顺色那张）因此原样留着 —— 它不在点数这条轴上，
-      // 所以也**不会**被见底收走
-      const now = dropVals(pileValsAt(i), n)
-      if (now.length > 0 && !anyLive(now)) {
-        // 一个非零点数都不剩 = 这张见底了，收走
+      if (set.indexOf(i) >= 0) {
         gone.push(pile.value[i].rank)
         taken = taken + 1
         continue
@@ -3043,7 +3331,7 @@
       keepCards.push(pile.value[i])
       keepByFoe.push(pileByFoe.value[i])
       keepGuard.push(pileGuard.value[i])
-      keepVals.push(now)
+      keepVals.push(pileValsAt(i))
       keepSuit.push(pileSuitAt(i))
     }
     pile.value = keepCards
@@ -3054,16 +3342,25 @@
     goneRanks.value = gone
     // 收走的那几张里可能有谁的效果牌
     expireHeld()
-    if (taken > 0) {
-      if (byFoe) {
-        foeScore.value = foeScore.value + taken
-      } else {
-        myScore.value = myScore.value + taken
-      }
+    const byFoe = catchByFoe.value
+    if (byFoe) {
+      foeScore.value = foeScore.value + taken
+      flashFoe.value = true
+    } else {
+      myScore.value = myScore.value + taken
+      flashMe.value = true
     }
-    message.value = message.value + (byFoe ? ' 庄家见底：' : ' 见底：')
-      + '整堆 −' + n
-      + (taken > 0 ? '，收走见底的 ' + taken + ' 张。' : '，没有牌被压到底。')
+    flashTimer = setTimeout(flashOff, SCORE_FLASH_MS)
+    catching.value = false
+    flyOn.value = false
+    catchSet.value = [] as number[]
+    const skills = sweepSkills
+    sweepSkills = []
+    if (sweepNext == TAIL_HEAD) {
+      afterPlayHead(byFoe, skills)
+    } else {
+      afterPlayTail(byFoe, skills, sweepNext)
+    }
   }
 
   // ---------- 组合技【干塘】：退潮 × 见底 ----------
@@ -3079,63 +3376,25 @@
   // 只差一个幅度。没合成一个函数是因为播报和那几句解释完全不同，
   // 合起来会变成一堆 if (isCombo) —— 而减法本身已经共用 dropVals 了。
   //
-  // 口径照 harvestPile：收走的算发动方的分（积分永远等于张数，铁律没破）
-  function ebbTideFor(byFoe : boolean, card : PlainCard) {
+  // 口径跟收色 / 撒网一样：收走的算发动方的分（积分永远等于张数，铁律没破）
+  // 开演收牌特效了返回 true（同 lowTideFor）
+  function ebbTideFor(byFoe : boolean, card : PlainCard, skills : number[]) : boolean {
     const who = byFoe ? ' 庄家干塘：' : ' 干塘：'
     // 牌面点数。和退潮同一个口径：不读 valuesOf（那是 0，减 0 等于没减），
     // 也不算点数卡贴的那几个（一张 ♠3+9 该减 3 还是 12 没有自然答案）
     const step = card.value
     if (step <= 0) {
       message.value = message.value + who + '这张没有点数，水退不下去。'
-      return
+      return false
     }
     if (pile.value.length == 0) {
       message.value = message.value + who + '场上没有牌。'
-      return
+      return false
     }
-    const keepCards : PlainCard[] = []
-    const keepByFoe : boolean[] = []
-    const keepGuard : number[] = []
-    const keepVals : number[][] = []
-    const keepSuit : string[] = []
-    const gone = goneRanks.value.slice(0)
-    let taken = 0
-    for (let i = 0; i < pile.value.length; i++) {
-      // 减法走 dropVals（减到 0 为止、去重、空列表原样返回）。
-      // 没有点数的牌因此原样留着，也**不会**被「点数为 0」收走 ——
-      // 它压根不在点数这条轴上。顺色、收色留下的那些就这么躺着。
-      //
-      // **还剩一个非零点数就不算归零**（anyLive）：贴过点数卡的牌
-      // 因此更难被干塘收走 —— 一张 ♠A+9 减 3 剩 [0,6]，那个 6 还钓得上人
-      const now = dropVals(pileValsAt(i), step)
-      if (now.length > 0 && !anyLive(now)) {
-        gone.push(pile.value[i].rank)
-        taken = taken + 1
-        continue
-      }
-      keepCards.push(pile.value[i])
-      keepByFoe.push(pileByFoe.value[i])
-      keepGuard.push(pileGuard.value[i])
-      keepVals.push(now)
-      keepSuit.push(pileSuitAt(i))
-    }
-    pile.value = keepCards
-    pileByFoe.value = keepByFoe
-    pileGuard.value = keepGuard
-    pileVals.value = keepVals
-    pileSuit.value = keepSuit
-    goneRanks.value = gone
-    // 收走的那几张里可能有谁的效果牌
-    expireHeld()
-    if (taken > 0) {
-      if (byFoe) {
-        foeScore.value = foeScore.value + taken
-      } else {
-        myScore.value = myScore.value + taken
-      }
-    }
+    const taken = dropPile(step)
     message.value = message.value + who + '整堆 −' + step
-      + (taken > 0 ? '，归零的 ' + taken + ' 张全收走。' : '，一张都没归零。')
+      + (taken.length > 0 ? '，归零的 ' + taken.length + ' 张全收走。' : '，一张都没归零。')
+    return startSweep(byFoe, taken, skills, TAIL_EBB)
   }
 
   // ---------- 退潮：它底下 N 张各减掉它的牌面点数 ----------
@@ -3315,42 +3574,16 @@
   //
   // 两件共用这一个：pick 回答「堆上第 i 张要不要收」。
   // 收走的算发动方的分（积分永远等于张数，铁律没破）
-  function harvestPile(byFoe : boolean, wanted : boolean[]) : number {
-    const keepCards : PlainCard[] = []
-    const keepByFoe : boolean[] = []
-    const keepGuard : number[] = []
-    const keepVals : number[][] = []
-    const keepSuit : string[] = []
-    const gone = goneRanks.value.slice(0)
-    let taken = 0
-    for (let i = 0; i < pile.value.length; i++) {
-      if (i < wanted.length && wanted[i]) {
-        gone.push(pile.value[i].rank)
-        taken = taken + 1
-        continue
-      }
-      keepCards.push(pile.value[i])
-      keepByFoe.push(pileByFoe.value[i])
-      keepGuard.push(pileGuard.value[i])
-      keepVals.push(pileValsAt(i))
-      keepSuit.push(pileSuitAt(i))
-    }
-    pile.value = keepCards
-    pileByFoe.value = keepByFoe
-    pileGuard.value = keepGuard
-    pileVals.value = keepVals
-    pileSuit.value = keepSuit
-    goneRanks.value = gone
-    // 收走的那几张里可能有谁的效果牌
-    expireHeld()
-    if (taken > 0) {
-      if (byFoe) {
-        foeScore.value = foeScore.value + taken
-      } else {
-        myScore.value = myScore.value + taken
+  // 收色 / 撒网要收的那几张的下标。拿掉、记分、积分跳都在收牌特效演完之后
+  //（startSweep → finishSweep），跟见底一套
+  function harvestIndices(wanted : boolean[]) : number[] {
+    const out : number[] = []
+    for (let i = 0; i < pile.value.length && i < wanted.length; i++) {
+      if (wanted[i]) {
+        out.push(i)
       }
     }
-    return taken
+    return out
   }
 
   // 收色：堆上所有同花色的牌一起收走，连它自己。
@@ -3360,7 +3593,8 @@
   //
   // 跟顺色的区别：顺色收「最深那张 → 堆顶」一整段连续的牌，
   // 收色只收同花色那几张，中间的不动
-  function hueFor(byFoe : boolean, card : PlainCard) {
+  // 开演收牌特效了返回 true（afterPlayTail 停下，演完从撒网那一段接着走）
+  function hueFor(byFoe : boolean, card : PlainCard, skills : number[]) : boolean {
     const wanted : boolean[] = []
     let hits = 0
     for (let i = 0; i < pile.value.length; i++) {
@@ -3381,11 +3615,12 @@
     if (hits <= 1) {
       message.value = message.value + (byFoe ? ' 庄家收色：' : ' 收色：')
         + '堆上没有别的 ' + card.suit + '，白打一张（它没有点数，就那么躺着）。'
-      return
+      return false
     }
-    const taken = harvestPile(byFoe, wanted)
+    const taken = harvestIndices(wanted)
     message.value = message.value + (byFoe ? ' 庄家收色：' : ' 收色：')
-      + '堆上 ' + card.suit + ' 的牌收走 ' + taken + ' 张。'
+      + '堆上 ' + card.suit + ' 的牌收走 ' + taken.length + ' 张。'
+    return startSweep(byFoe, taken, skills, TAIL_CAST)
   }
 
   // 撒网：从它自己起**往左连续**比奇偶，同奇偶就收，遇到不同的就停。
@@ -3419,7 +3654,8 @@
   // 牌可能奇偶双属性，那是点数卡本来就有的后果），
   // 一个点数都没有的（顺色、洪水留下的）**直接断链** —— 它们不在点数
   // 这条轴上，既然比不出奇偶，连续段就到这儿为止
-  function castFor(byFoe : boolean, card : PlainCard) {
+  // 开演收牌特效了返回 true（afterPlayTail 停下，演完从下一段接着走）
+  function castFor(byFoe : boolean, card : PlainCard, skills : number[]) : boolean {
     const odd = card.value % 2 == 1
     const size = pile.value.length
     const wanted : boolean[] = []
@@ -3450,11 +3686,12 @@
     if (hits <= 1) {
       message.value = message.value + (byFoe ? ' 庄家撒网：' : ' 撒网：')
         + '左边第一张就不是' + (odd ? '奇' : '偶') + '数，这一网只网住自己。'
-      return
+      return false
     }
-    const taken = harvestPile(byFoe, wanted)
+    const taken = harvestIndices(wanted)
     message.value = message.value + (byFoe ? ' 庄家撒网：' : ' 撒网：')
-      + '往左连着收了 ' + taken + ' 张' + (odd ? '奇' : '偶') + '数。'
+      + '往左连着收了 ' + taken.length + ' 张' + (odd ? '奇' : '偶') + '数。'
+    return startSweep(byFoe, taken, skills, TAIL_REST)
   }
 
   // ---------- 压舱 / 摘钩 / 对换：动对方一张手牌 ----------
@@ -3701,7 +3938,7 @@
     } else {
       message.value = '你没换牌。'
     }
-    passTurn(false)
+    resolveMatch(false)
   }
 
   // 把一张牌塞回牌库并**真洗进去**。
@@ -3854,6 +4091,10 @@
     if (shopTimer >= 0) {
       clearTimeout(shopTimer)
       shopTimer = -1
+    }
+    if (heartTimer >= 0) {
+      clearTimeout(heartTimer)
+      heartTimer = -1
     }
   }
 
@@ -4086,11 +4327,23 @@
       return
     }
     if (myScore.value < foeScore.value) {
-      resetDrawRun(data)
+      // 扣 1 点生命。还有剩就退回上一个商店（金币、技能、货架都是那时候的样子），
+      // 第 1 关前面没有商店就重打第 1 关；扣光了整轮作废（见 draw-save 的 settleLoss）
+      const before = data.lives
+      const max = maxLivesOf(difficultyOf(drawSaveSlot()))
+      const alive = settleLoss(data)
       saveDraw(data)
       save.value = data
+      if (alive) {
+        outcome.value = OUT_RETRY
+        rewardText.value = '生命 −1，还剩 ' + data.lives + ' 点'
+          + (data.inShop ? ' · 回到上一个商店' : ' · 重打这一关')
+        loseHeart(before, max, data.inShop)
+        return
+      }
+      loseHeart(before, max, false)
       outcome.value = OUT_LOSE
-      rewardText.value = '止步第 ' + id + ' 关，技能和金币清空 · 最远 ' + data.best + '/' + DRAW_RUN_LENGTH
+      rewardText.value = '生命用完，止步第 ' + id + ' 关，技能和金币清空 · 最远 ' + data.best + '/' + DRAW_RUN_LENGTH
       return
     }
     const margin = Math.min(myScore.value - foeScore.value, MARGIN_BONUS_CAP)
@@ -4211,13 +4464,9 @@
     }
     const card = hand.value[index]
     newIndex.value = -1
-    const caught = playFor(false, index)
-    if (caught > 0) {
-      message.value = '你打出 ' + cardName(card) + '，钓走 ' + caught + ' 张！'
-      // 特效放完由 finishCatch 结算技能、交回合
-      return
-    }
-    message.value = '你打出 ' + cardName(card) + '，落在堆上。'
+    playFor(false, index)
+    message.value = '你打出 ' + cardName(card) + '。'
+    // 先结算技能，最后匹配（见 resolveMatch）
     afterPlay(false)
   }
 
@@ -4248,11 +4497,7 @@
       return
     }
     const card = foeHand.value[index]
-    const caught = playFor(true, index)
-    if (caught > 0) {
-      message.value = '庄家打出 ' + cardName(card) + '，钓走 ' + caught + ' 张。'
-      return
-    }
+    playFor(true, index)
     message.value = '庄家打出 ' + cardName(card) + '。'
     afterPlay(true)
   }
@@ -4589,6 +4834,11 @@
     catchFrom.value = -1
     catchTo.value = -1
     flyOn.value = false
+    catchSet.value = [] as number[]
+    sweepSkills = []
+    sweepNext = TAIL_EBB
+    matchSkills = []
+    matchSink = false
     flashMe.value = false
     flashFoe.value = false
     tidePending.value = false
@@ -4638,7 +4888,9 @@
         myRole.value = mine.role
         // 庄家按难度摇：困难只摇覆盖面最大的角色、简单只嵌一半的槽
         const foe = rollRoleKit(finalDiff)
-        level.value = finalLevel(foe)
+        foeLevels.value = foe.levels
+        foeLoadout.value = foe.loadout
+        level.value = finalLevel()
         foeRole.value = foe.role
       } else {
         // 不选角色就开打：**双方各摇一张角色卡**。
@@ -4652,7 +4904,9 @@
         myLoadout.value = mine.loadout
         myRole.value = mine.role
         const foe = rollRoleKit(finalDiff)
-        level.value = finalLevel(foe)
+        foeLevels.value = foe.levels
+        foeLoadout.value = foe.loadout
+        level.value = finalLevel()
         foeRole.value = foe.role
       }
     } else {
@@ -4674,6 +4928,9 @@
         message.value = '新一轮要先选角色 —— 它给你那几个槽，技能才有地方嵌。'
         return
       }
+      if (ensureLives(data, maxLivesOf(difficultyOf(drawSaveSlot())))) {
+        saveDraw(data)
+      }
       // 打的永远是本轮现在这一关。整轮打通了（runLevel 超过 12）的档不该进到这里，
       // 关卡页会先让它重开一轮；万一进来了就从第 1 关打
       // 庄家怎么出牌、过关给多少，按这个存档选的难度来（见 levelForDiff）
@@ -4690,7 +4947,9 @@
         saveDraw(data)
       }
       const foeKit = foeKitOf(data, base.id)
-      level.value = withFoeKit(base, foeKit.levels, foeKit.loadout)
+      level.value = base
+      foeLevels.value = foeKit.levels
+      foeLoadout.value = foeKit.loadout
       // 存**关号**，不是 foeKit.role —— 那个字段在这条路上装的是关号 - 1，
       // 拿去查 DRAW_ROLES 会读到一张完全无关的玩家角色卡（见 foeAt 那段）
       foeAt.value = base.id
@@ -4731,6 +4990,8 @@
     foeScore.value = 0
     over.value = false
     rewardText.value = ''
+    heartMax.value = 0
+    heartBroken.value = false
     outcome.value = OUT_NONE
     // 开局双方各发满手牌，庄家先发、轮流来；然后庄家先手。
     // 之后每个回合结束各自补足回这个数（见 passTurn）。
@@ -4790,25 +5051,11 @@
   // 对局逻辑一路都在读 level.value.loadout / .levels（见 loadoutOf、chipsOf），
   // 给它造一个长得正常的关卡，比在那十几处各加一个 if 干净得多。
   // id 给 0 —— 真关卡从 1 起，0 一眼就看得出不是正经关卡
-  // 把存档里摇定的那套庄家配装塞进关卡对象，**别的字段原样留着**
-  //（关号、关名、会不会记牌、过关给多少都还是关卡表 + 难度算出来的）。
-  //
-  // 跟 finalLevel 同一个手法：对局逻辑一路在读 level.value.loadout / .levels，
-  // 换掉这两个字段比在那十几处各加一个 if 干净
-  function withFoeKit(lv : DrawLevel, levels : number[], lo : DrawLoadout) : DrawLevel {
-    return {
-      id: lv.id,
-      chapter: lv.chapter,
-      name: lv.name,
-      smart: lv.smart,
-      random: lv.random,
-      levels: levels,
-      loadout: lo,
-      reward: lv.reward
-    } as DrawLevel
-  }
+  // 原先这儿有个 withFoeKit（把庄家配装塞进关卡对象）。DrawLevel 没有
+  // levels / loadout 了，庄家配装改放 foeLevels / foeLoadout，它跟着删
 
-  function finalLevel(kit : DrawKit) : DrawLevel {
+  // 终局的「关卡」：只管名字和打法。庄家配装在 foeLevels / foeLoadout 里
+  function finalLevel() : DrawLevel {
     // 打法按难度来，规矩照闯关那套（见 draw-levels 的 levelForDiff）：
     //   简单 —— 随手出牌（钓得到也不挑）
     //   普通 / 困难 —— 记牌
@@ -4822,8 +5069,6 @@
       name: easy ? '对决 · 简单' : (finalDiff == DIFF_HARD ? '对决 · 困难' : '对决'),
       smart: !easy,
       random: easy,
-      levels: kit.levels,
-      loadout: kit.loadout,
       reward: 0
     } as DrawLevel
   }
@@ -4899,7 +5144,7 @@
   // 其余情况只在还没开打（结算框开着）时刷新技能栏，对局进行中不动。
   // 终局模式用的是摇出来的那套，不能让存档里的盖掉
   onShow(() => {
-    if (shopped && over.value && outcome.value == OUT_WIN) {
+    if (shopped && over.value && (outcome.value == OUT_WIN || outcome.value == OUT_RETRY)) {
       shopped = false
       // 商店的「开始下一关」已经清过 inShop；按系统返回键回来的没清，这儿兜一道
       const data = loadDrawSave()
@@ -4935,28 +5180,51 @@
 
   /* 记分时数字会放大 1.5 倍（.score-flash），view 默认 overflow: hidden
      会把超出格子的那截裁掉，所以这两层都放开 */
+  .level-bar {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px 6px 4px;
+  }
+
+  .level-text {
+    color: #e8b23a;
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  .lives-text {
+    color: #ff9e80;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  /* 拍平成一行：每格「标签 数字」并排，整条栏只有一行高 */
   .score-bar {
     flex-direction: row;
     justify-content: space-between;
-    padding: 8px 12px;
+    align-items: center;
+    padding: 6px 12px;
     border-radius: 10px;
     background-color: #0e3a28;
     overflow: visible;
   }
 
   .score-cell {
+    flex-direction: row;
     align-items: center;
     overflow: visible;
   }
 
   .score-label {
     color: #9fd9bd;
-    font-size: 11px;
+    font-size: 12px;
+    margin-right: 6px;
   }
 
   .score-num {
     color: #e8b23a;
-    font-size: 22px;
+    font-size: 18px;
     font-weight: bold;
     transition-property: transform, color;
     transition-duration: 200ms;
@@ -5627,6 +5895,33 @@
     color: #ffffff;
     font-size: 14px;
     margin-top: 6px;
+  }
+
+  .hearts {
+    flex-direction: row;
+    justify-content: center;
+    margin-top: 10px;
+    overflow: visible;
+  }
+
+  .heart {
+    color: #ff5c5c;
+    font-size: 26px;
+    margin: 0 5px;
+    transition-property: transform, opacity, color;
+    transition-duration: 600ms;
+  }
+
+  /* 本来就没了的那几颗 */
+  .heart-empty {
+    color: #4a5a52;
+  }
+
+  /* 刚失去的那一颗：放大、变灰、淡掉 */
+  .heart-lost {
+    color: #4a5a52;
+    opacity: 0.25;
+    transform: scale(1.8);
   }
 
   .result-reward {

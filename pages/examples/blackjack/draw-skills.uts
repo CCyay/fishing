@@ -43,8 +43,10 @@ export const SUIT_COUNT : number = 4
 //   【染水】把整堆的花色换掉 → 顺色拿什么去匹配，变了
 //   【沉底】把这张打到堆底   → 从哪儿往哪儿收，变了
 //
-// 这两件要是排在判定之后，同一张牌上的组合当场就失效了。所以它们
-// 带「优先」，调用点在 playFor 里（catchStart 之前），不在 afterPlay 里。
+// 规则（现行）：**一张牌上有多个效果时，先执行带「优先」的那个**，其余照常。
+// 现在所有技能都先于匹配结算（见 ap-fishing 的 afterPlay → resolveMatch），
+// 优先管的是同一张牌上那几个效果之间的先后。调用点在 playFor 里，
+// 落堆之前、afterPlay 里那一串之前。
 //
 // 玩家侧它是一个**看得见的标签**：技能卡和图鉴上描一个「优先」，
 // 意思是「这件先算」。同一张牌上两件都带优先的，按表里的先后来
@@ -710,7 +712,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 覆盖面一能扩就等于「更多牌能触发这一下」，那比效果本身强得多
     key: 'dump', name: '掏手', unlock: 150,
     first: false,
-    desc: '它自己没有点数；打出后从对方手里掏 2 张，当 0 点扔到牌堆上（只能放点数槽，不能升级）'
+    desc: '它自己没有点数；打出后从对方手里掏 2 张，当 0 点扔到牌堆上'
   },
   {
     // 掏库〔无点数〕：从牌库顶掏 SPILL_COUNT 张，当 0 点扔到堆上。
@@ -732,7 +734,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 掏库是关灯走人
     key: 'spill', name: '掏库', unlock: 140,
     first: false,
-    desc: '它自己没有点数；打出后从牌库顶掏 2 张，当 0 点扔到牌堆上（只能放点数槽，不能升级）'
+    desc: '它自己没有点数；打出后从牌库顶掏 2 张，当 0 点扔到牌堆上'
   },
   {
     // 分水：在场时，**跟它奇偶不同**的牌打出来就是 0 点。
@@ -874,21 +876,16 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //   **顺色、洪水、封色那几件让它失效** —— 那些牌没有点数（valuesOf
     //     返回空），没有点数就没有「等于堆张数」这回事。
     //
-    // 额外加的只有一条：**堆至少 MEASURE_MIN 张**。不然堆上 1 张打 A、
-    // 2 张打 2 太容易白捡，它就变成了「小额但频繁」—— 那恰好是
-    // 清场型不该有的手感。
+    // 原先还有一条「堆至少 3 张」（MEASURE_MIN），去掉了：堆上 1 张打 A、
+    // 2 张打 2 也算数。
     //
     // 还有一条联动：**被护着的牌挡得住它**（见 ap-fishing 的 catchStart）。
     // 一网打尽，而护着的牌是网里的洞。于是【稳钩】多了一个用处
     key: 'measure', name: '量水', unlock: 150,
     first: false,
-    desc: '这张的点数正好等于牌堆张数时（至少 3 张），整堆连它一起收走'
+    desc: '这张的点数正好等于牌堆张数（含它自己）时，整堆收走'
   }
 ]
-
-// 【量水】要求牌堆至少这么厚。
-// 低于它不触发 —— 堆上 1 张打 A、2 张打 2 太容易白捡
-export const MEASURE_MIN : number = 3
 
 // ---------- key ↔ 下标 ----------
 //
@@ -1466,12 +1463,12 @@ export function slotLabels(slot : string) : string[] {
   return out
 }
 
-// 一个槽盖住多少张牌：花色 13 张、点数 4 张
+// 一个槽盖住多少张牌：花色 12 张（J 只有通吃，不触发技能，所以不算）、点数 4 张
 export function slotCover(slot : string) : number {
   const labels = slotLabels(slot)
   let n = 0
   for (let i = 0; i < labels.length; i++) {
-    n = n + (isSuitSlot(labels[i]) ? 13 : 4)
+    n = n + (isSuitSlot(labels[i]) ? 12 : 4)
   }
   return n
 }
@@ -1820,6 +1817,11 @@ export function rankSlotIndex(rank : string) : number {
 //   所以你会围着它构筑点数技能，而不是祈祷两件技能撞在同一张牌上
 export function triggersOf(lo : DrawLoadout, suit : string, rank : string) : number[] {
   const list : number[] = []
+  // **J 只有通吃**：它不触发任何技能，花色槽也不收它。
+  // 点数槽本来就不收 J（SKILL_RANKS 里没有），这儿把花色槽那条路也堵上
+  if (rank == 'J') {
+    return list
+  }
   // 花色槽先 —— 角色卡上印花色的那几格（见 DRAW_ROLES）
   const s = SUITS.indexOf(suit)
   if (s >= 0 && lo.suitOwner[s] >= 0) {
