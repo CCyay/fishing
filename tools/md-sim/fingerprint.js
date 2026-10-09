@@ -35,7 +35,7 @@ const WATCH = [
   {
     file: 'ap-fishing.uvue',
     group: '技能结算',
-    names: ['lowTideFor', 'floodFor', 'stirFor', 'peekFor', 'doPickDeck', 'sinkTops',
+    names: ['lowTideFor', 'floodFor', 'peekFor', 'doPickDeck', 'sinkTops',
       'topCards', 'shuffleBack', 'doFreeze', 'expireHeld', 'heldOn', 'isFrozen',
       'inPile', 'foeOpen', 'foeKnows']
   },
@@ -47,9 +47,20 @@ const WATCH = [
       'foeSwapPick', 'foePickDeck', 'foeFreezePick', 'randomFree', 'buildRankTotals']
   },
   {
+    file: 'ap-fishing.uvue',
+    group: '角色与特殊技能',
+    names: ['hasSpecial', 'sameSuit', 'wantSink', 'baitFor', 'handLimit',
+      'playableCount']
+  },
+  {
     file: 'draw-skills.uts',
     group: '配装规则',
-    names: ['triggersOf', 'rankSizeOf', 'suitSizeOf', 'partnerSuit', 'rankCapOf']
+    // rankSizeOf / suitSizeOf / partnerSuit / rankCapOf 都删了
+    //（那是「技能自带覆盖面 + 等级占几格」那套旧模型）。
+    // 现在盯的是角色卡那一层：槽怎么解析、怎么摊进 loadout
+    names: ['triggersOf', 'kitFromRole', 'kitFromSlots', 'slotLabels',
+      'slotCover', 'isSuitSlot', 'roleCover', 'baitRankOf', 'specialIndexOf',
+      'roleIndexOf', 'rollRoleKit']
   }
 ]
 
@@ -58,8 +69,11 @@ const CONSTS = [
   { file: 'ap-fishing.uvue', name: 'HAND_SIZE' },
   { file: 'ap-fishing.uvue', name: 'TIDE_LOOK' },
   { file: 'ap-fishing.uvue', name: 'PICK_LOOK' },
-  { file: 'draw-skills.uts', name: 'SUIT_CAPACITY' },
-  { file: 'draw-skills.uts', name: 'RANK_CAPACITY' }
+  // SUIT_CAPACITY 删了（花色槽砍成了一个特殊技能槽），所以这儿也撤掉 ——
+  // 留着只会每次都报一条 MISSING，而噪音多了就没人看警报了
+  { file: 'draw-skills.uts', name: 'RANK_CAPACITY' },
+  { file: 'draw-skills.uts', name: 'MEASURE_MIN' },
+  { file: 'draw-skills.uts', name: 'BAIT_COUNT' }
 ]
 
 const cache = {}
@@ -116,9 +130,12 @@ function constOf(text, name) {
   return m ? m[1] : null
 }
 
-// 技能表的 key 顺序。**下标就是存档里的技能编号**，顺序一变，
-// 老档和关卡表全错位（draw-skills.uts 文件头那段警告说的就是这个），
-// 模拟器的 SK 常量也跟着全错
+// draw-skills.uts 里所有 `key: 'x', name:` 的顺序。
+//
+// 它一次抓三张表（DRAW_SKILLS、SPECIAL_SKILLS、DRAW_ROLES），因为三张
+// 都是这个写法 —— 而那正好是我们要的：模拟器的 SK 是写死的下标表，
+// 点数技能的表序一变它就全错；特殊技能和角色虽然按 key 查（删一件不会错位），
+// 但增删本身也该报出来，好去核对 rules.js 那边的 SP / DRAW_ROLES
 function skillKeys() {
   const text = read('draw-skills.uts')
   const out = []

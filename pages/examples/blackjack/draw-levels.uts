@@ -1,24 +1,37 @@
-// 摸打钓鱼的 12 关。三章各 4 关，庄家的技能一章比一章多：
-//   浅滩 1–4：没有技能（1–2 随手出牌，3–4 会记牌）
-//   河湾 5–8：1 个技能，后两关升过级
-//   深海 9–12：2 个槽都用上，最后两关接近满装
+// 摸打钓鱼的 12 关。**12 关 = 12 个庄家角色**（见 DRAW_FOE_ROLES）：
+//   浅滩 1–4：不带技能（1–2 随手出牌，3–4 会记牌，第 4 关上第一条特殊技）
+//   河湾 5–8：一关一个主题，两两成对（淤滩→硬壳、掐口→偏流），盖 4–13 张
+//   深海 9–12：每关换一种压力（信息 / 清场 / 压底 / 满配），盖 16–21 张
 // 一轮要连胜 12 关，输一次从第 1 关重来（照排竿）。
-// 为什么 12 关、金币怎么定，见根目录《摸打钓鱼-技能与关卡设计.md》
+//
+// 关卡表本身只剩 7 个字段（原先那两个写死庄家配装的 levels / loadout 删了）
+// —— 庄家配装现在来自角色表，而标签每一轮重摇（见 draw-save 的 rollFoeKit）。
+//
+// 为什么 12 关、金币怎么定，见根目录《摸打钓鱼-技能与关卡设计.md》；
+// 十二个庄家角色为什么这么排，见《摸打钓鱼-庄家角色设计.md》
 
 import {
-  DrawLoadout,
-  DRAW_SKILLS,
-  SKILL_RANKS,
-  SK_GUARD,
+  // 覆盖面的尺子：点数标签 4 张、花色标签 13 张
+  RANK_CELL_COVER,
+  SUIT_CELL_COVER,
+  // 十二个庄家角色各自带的那几件技能（见 DRAW_FOE_ROLES）
   SK_HOOK,
   SK_TIDE,
-  SK_PEEK,
-  SK_TOP,
-  SK_STIR,
-  // 砺钩的标价。常量定在 draw-skills 那边（技能的事），这儿只引用 ——
-  // 反过来会成环：那边已经在引这边的东西了
-  UPGRADE_PRICE,
-  emptyLoadout
+  SK_SUITED,
+  SK_LANTERN,
+  SK_FREEZE,
+  SK_LOWTIDE,
+  SK_SUITIFY,
+  SK_SPILL,
+  SK_ODD,
+  SK_HUEVOID,
+  SK_VOID
+  // 原先这儿还引着：
+  //   UPGRADE_PRICE —— 砺钩的标价。砺钩删了。
+  //   DrawLoadout / DRAW_SKILLS / SKILL_RANKS / emptyLoadout / FULL_COVER
+  //     —— 关卡表里那两个写死的 levels / loadout 字段用的，字段删了。
+  //   DrawKit / KitSlot / kitFromSlots / rollLabels —— rollFoeKitFor 用的，
+  //     那个函数删了（见下面那块墓碑：摇和落盘必须是两步）。
 } from '@/pages/examples/blackjack/draw-skills.uts'
 
 export type DrawLevel = {
@@ -30,11 +43,16 @@ export type DrawLevel = {
   // 庄家完全随机出牌：钓得到也不挑，手里随便打一张。只给第 1 关 ——
   // 新手关，让人先把「怎么钓」摸熟
   random : boolean
-  // 庄家每个技能的等级，-1 表示没有
-  levels : number[]
-  loadout : DrawLoadout
   // 过关给多少金币（再加胜分奖励）
   reward : number
+
+  // ---- 原先这儿有 levels / loadout（庄家带什么，写死在表里）----
+  //
+  // 它们早就是死数据了（对局页读出来之后立刻被摇出来的那套覆盖掉），
+  // 现在**庄家配装整个搬到 DRAW_FOE_ROLES 上**了，所以两个字段一起删。
+  //
+  // 关卡表现在只管「这一关叫什么、庄家怎么出牌、过关给多少钱」——
+  // 带什么技能查 foeRoleAt(关号)
 }
 
 // 赢多少分额外给多少金币，最多这么多
@@ -55,7 +73,7 @@ export const MARGIN_BONUS_CAP : number = 10
 //
 // 三档。**档位越高越难摇到，但概率随关号往上走**（见 rareWeight）。
 //
-// 为什么要分档：十二种道具平摊权重的话，「这一关刷到什么」就是一次
+// 为什么要分档：十一种道具平摊权重的话，「这一关刷到什么」就是一次
 // 均匀抽样 —— 后期和前期看见的东西没区别，而这个玩法是**一轮十二关
 // 越往后家当越厚**。稀有度把货架变成一条曲线：前期摆的是零件
 //（推点数、买牌、弃饵），后期才见得着翻盘的那几件。
@@ -83,16 +101,20 @@ export function rareName(rare : number) : string {
 //   稀有        18           53           95
 //   史诗         3           23           47
 //
-// 按件数折成「一次上货里摆得出史诗」的概率
-//（表里普通 6 件、稀有 6 件、史诗 2 件，一次摆 3 种）：
+// 按件数折成「一次上货里摆得出某档」的概率。
+// 删掉砺钩 / 洗点 / 加权之后表是 **11 件：普通 5、稀有 5、史诗 1**，一次摆 3 种：
 //
-//   第 1 关   约 2.5%   —— 基本见不着
-//   第 6 关   约 14%    —— 偶尔撞上
-//   第 12 关  约 21%    —— 五次进店见一次
+//             史诗        稀有
+//   第 1 关    约 1.5%     约 39%
+//   第 6 关    约 8.5%     约 71%
+//   第 12 关   约 13%      约 85%
 //
-// 那正是想要的形状 —— 不是「后期必出」，是「后期值得期待」。
-// 顺带算一下稀有：第 1 关一次上货里约有四成摆得出一件，
-// 第 12 关接近八成，所以砺钩那条升级线前期紧、后期顺。
+// 史诗现在**只有【技能五选一】一件**，所以那一列就是「这一关摆不摆得出
+// 五选一」—— 整轮期望一次上下，正合它「一轮大概见一次、见着就买得起」
+// 那个定位（它降价到 120 就是为这个）。
+//
+// 稀有后期接近八成，意味着四件稀有（推三格、同化、技能二选一、加栏、加架）
+// 后期基本每店都有一件 —— 它们是「刷到就赚」的那一类，常见是对的。
 //
 // 这几个数跟表的件数绑着 —— 往某一档加货会把别的档摊薄，
 // 加完记得回来重算一遍
@@ -123,52 +145,37 @@ export type FixItem = {
   // 稀有度（RARE_*）
   rare : number
   // **唯一**：一轮之内只能买一次，买过就不再上货。
-  // 四件扩容道具（加栏、加架、加权、平价）是这一类 —— 它们改的是规则本身，
-  // 能叠买的话「攒钱买到槽满」会变成唯一的正解
+  // 三件扩容道具（加栏、加架、平价）是这一类 —— 它们改的是规则本身，
+  // 能叠买的话「攒钱买到满」会变成唯一的正解
   once : boolean
-  // **保底份额**：这件货在上货池里至少占多少权重（0~1），0 表示不保底。
-  //
-  // ---- 为什么是「份额」而不是「权重」 ----
-  //
-  // 纯权重保底压不住后期：稀有和史诗的权重是往上爬的（见 rareWeight），
-  // 池子总量跟着涨，同一个固定权重的**份额**会被越稀释。
-  // 份额保底才能让一件货在整轮十二关里出现率恒定。
-  //
-  // ---- 谁需要它 ----
-  //
-  // 两件：【砺钩】（升级的唯一通道）和【洗点】（位置摇定的唯一救济口）。
-  //
-  // 它们俩的问题是一样的：**档位决定出现率，可它们是「通道」不是「奖励」**。
-  // 砺钩按稀有算，整轮期望只出两次上下 —— 而点数槽 6 格正好被
-  // 「4 个技能占 4 格 + 升 2 级占 2 格」填满，槽容量和砺钩产量对死了。
-  // 后果是绝大多数轮次技能停在初始级，而初始点数技触发率只有 28%
-  //（见设计文档第三节），「满级才和颜色技一样常用」那个状态根本到不了。
-  //
-  // 0.09 这个数是倒推的：一次上货摆 3 种，要让「这一关摆得出砺钩」
-  // 落在 27% 上下，它就得占池子的一成 —— 份额 0.09 加上
-  // 「抬完之后总量也变大」那一层，正好是一成。
-  // 于是整轮期望从约 2 次涨到约 3.3 次，刚好够把槽填满（含加权那第 7 格）
-  floor : number
 }
 
-// 保底份额：砺钩和洗点用这个数（理由见 FixItem.floor）
-export const FLOOR_SHARE : number = 0.09
+// ---- 这儿原先有个 floor 字段和 FLOOR_SHARE（保底份额） ----
+//
+// 机制是：一件货在上货池里至少占多少**份额**（不是权重 —— 纯权重压不住后期，
+// 因为稀有和史诗的权重往上爬、池子总量跟着涨，固定权重的份额会被稀释）。
+//
+// 全表只有两件需要它：【砺钩】（升级的唯一通道）和【洗点】（唯一的救济口）。
+// 那两件都跟角色卡结构冲突、已经删了，于是**保底这套机制没有服务对象了**
+//（weightsFor 跟着删，rollFixKeys 回到纯 rareWeight 加权抽）。
+//
+// 别的货都是「刷到就赚、刷不到算了」—— 它们不是通道，没有保底的理由
 
 export const FIX_ITEMS : FixItem[] = [
   // 推点数那三件：一格、两格便宜又常见（普通），三格跨度大 —— 它能
   // 把一张 4 直接推到你技能管着的 7 上，那是精确调牌，所以压成稀有
   { key: 'push1', name: '推一格', desc: '挑一张牌，点数 ±1', price: 30,
-    step: 1, rare: RARE_COMMON, once: false, floor: 0 } as FixItem,
+    step: 1, rare: RARE_COMMON, once: false } as FixItem,
   { key: 'push2', name: '推两格', desc: '挑一张牌，点数 ±2', price: 50,
-    step: 2, rare: RARE_COMMON, once: false, floor: 0 } as FixItem,
+    step: 2, rare: RARE_COMMON, once: false } as FixItem,
   { key: 'push3', name: '推三格', desc: '挑一张牌，点数 ±3', price: 70,
-    step: 3, rare: RARE_RARE, once: false, floor: 0 } as FixItem,
+    step: 3, rare: RARE_RARE, once: false } as FixItem,
   // 同化：右边那张完全变成左边那张（点数和花色都一样）。
   // 于是牌组里出现两张一模一样的牌，那两张必然互相钓得上
   //
   // 稀有：造一对必然互钓的牌是整张表里最直接的「加分结构」
   { key: 'same', name: '同化', desc: '挑两张牌，右边那张完全变成左边那张', price: 100,
-    step: 0, rare: RARE_RARE, once: false, floor: 0 } as FixItem,
+    step: 0, rare: RARE_RARE, once: false } as FixItem,
   // 弃饵：从牌组里拿掉一张。
   //
   // ---- 它的用处是**提纯**，不是针对对手 ----
@@ -194,58 +201,31 @@ export const FIX_ITEMS : FixItem[] = [
   // 普通：它是「清出去」那条轴上唯一的一件，得常见得够你真能提纯一副牌
   //（删四张要刷到它四次）
   { key: 'drop', name: '弃饵', desc: '挑一张牌，从牌组里拿掉', price: 50,
-    step: 0, rare: RARE_COMMON, once: false, floor: 0 } as FixItem,
-  // 砺钩：挑一个手里的技能，升一级。
+    step: 0, rare: RARE_COMMON, once: false } as FixItem,
+  // ---- 这儿原先有【砺钩】和【洗点】，跟角色卡那套结构**冲突，整件删掉** ----
   //
-  // ---- 升级从「攒够钱就能升」改成「等得到这件货」 ----
+  // 砺钩是「挑一个技能升一级」。可角色卡的槽上**印死了标签**，
+  // 一槽一技能 —— 技能的覆盖面由槽决定，它自己没有等级可升，
+  // 也没有格子可扩。而特殊技**不可升级**（那是定下来的），
+  // 所以砺钩连第二个用处都没有。
   //
-  // 从前技能卡上挂着一颗「升级 90」的按钮，有钱就点。那让升级变成了
-  // 一道算术：攒 240 就能把磁钩升满，照着存钱条走就行。
+  // 洗点是「把技能占的位置重摇一遍」。位置现在是**印**的，
+  // 压根没有可摇的东西 —— 这一件是「摇位置」那条规矩的救济口，
+  // 规矩没了，救济口跟着没。
   //
-  // 改成道具之后它变成**机会**：这一关货架上出不出砺钩不由你定，
-  // 出了就得当场决定升哪个。跟「技能掉什么不由你挑」、「位置摇定」
-  // 是同一条思路 —— 这个玩法的主题是适应摇出来的东西，不是执行计划。
+  // 它俩一起带走了**保底份额**那套机制（FixItem.floor / FLOOR_SHARE / weightsFor）：
+  // 全表只有这两件需要保底（一件是升级的唯一通道，一件是唯一的救济口），
+  // 别的货都是「刷到就赚、刷不到算了」。
   //
-  // ---- 价钱为什么拍平成一个数 ----
+  // 顺带带走的还有 UPGRADE_PRICE（砺钩的标价是它唯一的用处）
+  // 和技能的等级概念（见 draw-skills 里那几段墓碑注释）。
   //
-  // 技能表里原来按级定价（升 1 级 90、升 2 级 150）。现在一律 100：
-  // 稀缺性替掉了价格梯度 —— 升到 2 级不比升到 1 级贵，
-  // 但你得**等货架上再出一个**。
+  // ---- 这一下换来的是什么 ----
   //
-  // 卖出价跟着改（见 draw-skills 的 investedOf）：一个技能值
-  // 解锁价 + UPGRADE_PRICE×等级
-  //
-  // ---- 它**带保底份额**，档位只管显示 ----
-  //
-  // 原先它只是「稀有」，整轮期望出两次上下。可它是升级的**唯一通道**，
-  // 而点数槽 6 格正好被「4 个技能 + 升 2 级」填满 —— 槽容量和砺钩产量
-  // 对死了，结果绝大多数轮次技能停在初始级（点数技触发率只有 28%）。
-  //
-  // 那不是稀缺，那是把一条路堵死。所以给它 FLOOR_SHARE 保底：
-  // 每关约 27% 摆得出来，整轮期望约 3.3 次 —— 刚够把槽填满。
-  // 它仍然标「稀有」，因为那个标签说的是分量，不是掉率
-  { key: 'sharpen', name: '砺钩', desc: '挑一个技能升一级（要点数槽有空格）',
-    price: UPGRADE_PRICE, step: 0, rare: RARE_RARE, once: false,
-    floor: FLOOR_SHARE } as FixItem,
-  // 洗点：挑一个技能，把它占的点数（或花色）**重摇一遍**。
-  //
-  // 这是「位置摇定」那条规矩唯一的救济口。摇定是核心设计，但偶尔会
-  // 摇出没法用的一手 —— 技能落在 A、2 上，而那两个点数一局碰不上几次。
-  //
-  // 它给的不是「改成我要的」，是**再摇一次的机会** —— 结果照旧随机，
-  // 可能洗得更烂。所以它救急而不破规矩，定价也按「赌一把」来：
-  // 70，跟推三格同价，比保证生效的砺钩（100）便宜。
-  //
-  // 普通：它是救济口。救济口稀有就不成救济 —— 摇出一手废位置的时候
-  // 你需要它**现在**在货架上，不是「等等看后面刷不刷到」。
-  //
-  // 它也**带保底份额**。普通的权重恒定 100，看着够常见，可池子总量
-  // 往后涨（稀有和史诗的权重在爬），所以它的份额越往后越薄：
-  // 第 1 关一次上货有三成多摆得出来，第 12 关只剩两成。
-  // 一个救济口不该在最需要它的后期变稀 —— 保底之后整轮恒定 27% 上下
-  { key: 'wash', name: '洗点', desc: '挑一个技能，把它占的位置重摇一遍（可能更烂）',
-    price: 70, step: 0, rare: RARE_COMMON, once: false,
-    floor: FLOOR_SHARE } as FixItem,
+  // 一轮之内**没有数值成长了，只有结构选择**：哪件技能嵌哪个槽、牌组怎么改。
+  // 那是角色卡那次改动本来就想要的 —— 它把「攒钱把磁钩升满」那条
+  // 算术题换成了「这件技能配哪个数字」那道组合题
+
   // ---- 三个「包」：买下来当场摊开 N 个随机候选，挑 1 个 ----
   //
   // 它们跟货架上直接摆着的技能/卡牌是两种买法：
@@ -264,7 +244,7 @@ export const FIX_ITEMS : FixItem[] = [
   // 稀有度照「挑的面」排：牌六选一是零件（普通），技能二选一是一次
   // 像样的选择（稀有），五选一基本等于「这一关我点一个技能」—— 史诗
   { key: 'pack2', name: '技能二选一', desc: '当场摊 2 个没有的技能，挑 1 个',
-    price: 80, step: 0, rare: RARE_RARE, once: false, floor: 0 } as FixItem,
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
   // 五选一**留在史诗，但降到 120**。
   //
   // 它不是唯一道具，定位是「这一关我要定一个技能」，可史诗一轮期望
@@ -275,9 +255,9 @@ export const FIX_ITEMS : FixItem[] = [
   // 再降档这一层档位就空了，rareWeight 里史诗那条曲线成了死代码。
   // 而「一轮大概见一次、见着就买得起」正好是这件货该有的手感
   { key: 'pack5', name: '技能五选一', desc: '当场摊 5 个没有的技能，挑 1 个',
-    price: 120, step: 0, rare: RARE_EPIC, once: false, floor: 0 } as FixItem,
+    price: 120, step: 0, rare: RARE_EPIC, once: false } as FixItem,
   { key: 'cards6', name: '牌六选一', desc: '当场摊 6 张随机牌，挑 1 张加进牌组',
-    price: 60, step: 0, rare: RARE_COMMON, once: false, floor: 0 } as FixItem,
+    price: 60, step: 0, rare: RARE_COMMON, once: false } as FixItem,
   // ---- 下面四件是永久扩容。都是**唯一**：一轮只买得到一次 ----
   //
   // 它们跟表里别的货不是一类东西。别的货改的是「这一关我手里多了什么」，
@@ -304,33 +284,17 @@ export const FIX_ITEMS : FixItem[] = [
   // 120 块：约等于两关的收入。买它这一关你基本买不了别的了，
   // 那是它该有的分量
   { key: 'shelf', name: '加栏', desc: '道具栏永久多 1 格（下一关生效）', price: 120,
-    step: 0, rare: RARE_RARE, once: true, floor: 0 } as FixItem,
-  // ---- 加权：点数槽从 6 格变 7 格 ----
+    step: 0, rare: RARE_RARE, once: true } as FixItem,
+  // ---- 这儿原先有【加权】（点数槽 6 格 → 7 格），跟着砺钩一起删了 ----
   //
-  // 点数槽的格数是整个技能体系的总预算：每个技能占 等级+1 格
-  //（见 rankSizeOf），升级要有空格才升得动（见 canUpgrade）。
-  // 所以多一格 = **多一次升级**，或者多装一个技能。
+  // 它卖的是「多一次升级的余量」，而槽的格数现在**由角色卡印死**。
+  // 硬要留的话得回答「新那一格印什么标签」——
+  // 答案只能是「摇一个」，而那恰好把刚去掉的「摇位置」又请回来了。
   //
-  // 它跟加栏相反，**什么时候买到都一样值**：那一格不会过期，
-  // 它只是把你这一轮的上限抬高一档。所以它配得上史诗那条
-  // 「越往后越容易见」的曲线 —— 第 10 关摇到它照样是实打实的收益。
-  //
-  // 180 块，全表最贵。贵在它是唯一能动「总预算」的一件：
-  // 别的货都在那 6 格里面做取舍，只有它把 6 变成 7。
-  //
-  // ---- 它从史诗降到了稀有 ----
-  //
-  // 原先配史诗，结果是**两重稀缺叠乘**：史诗一轮期望出 0.9 次，
-  // 而那第 7 格要第 3 次砺钩才填得上，砺钩一轮才出 2.2 次 ——
-  // 两个一乘，全表最贵的一件货期望收益接近 0。那一格买来是空的。
-  //
-  // 修的顺序是先砺钩再它：砺钩有了保底份额（整轮约 3.3 次）之后，
-  // 第 7 格才真有东西填；这时候再把它降到稀有，让你见得着。
-  //
-  // **没有附带免费升一级** —— 那等于一个打折的砺钩，两件货就重了
-  //（8.6 那条已经否掉过）。它卖的始终是「升得动」，不是「升一级」
-  { key: 'weight', name: '加权', desc: '点数槽永久多 1 格（多一次升级的余量）',
-    price: 180, step: 0, rare: RARE_RARE, once: true, floor: 0 } as FixItem,
+  // 这件货的历史值得留一句：它原先配史诗，结果是**两重稀缺叠乘**
+  //（史诗一轮期望 0.9 次 × 那一格要第 3 次砺钩才填得上），
+  // 期望收益接近 0；后来降到稀有才算救活。现在连带它一起删，
+  // 那次校准也就作废了
   // ---- 加架：技能 / 卡牌那一栏从 4 格变 5 格 ----
   //
   // 跟加栏是同一件事的另一半：加栏宽的是上面那栏（道具），
@@ -347,7 +311,7 @@ export const FIX_ITEMS : FixItem[] = [
   // 那基本是「这一关我要什么技能点什么技能」。那条路成立是对的 ——
   // 它要两件唯一道具都摇到，而且两件都得早
   { key: 'card', name: '加架', desc: '技能/卡牌栏永久多 1 格（换一批就看得见）',
-    price: 100, step: 0, rare: RARE_RARE, once: true, floor: 0 } as FixItem,
+    price: 100, step: 0, rare: RARE_RARE, once: true } as FixItem,
   // ---- 平价：换一批固定 30 块，不再翻倍 ----
   //
   // 刷新价本来是翻倍涨的（20 / 40 / 80 / 160，见 cardRerollCost），
@@ -374,7 +338,7 @@ export const FIX_ITEMS : FixItem[] = [
   // 80 块：约等于三次刷新的差价。所以它大概在第四五关之前买到才回本 ——
   // 那也是「越早越值」的另一种说法
   { key: 'flat', name: '平价', desc: '换一批永久固定 30 块，不再翻倍', price: 80,
-    step: 0, rare: RARE_COMMON, once: true, floor: 0 } as FixItem
+    step: 0, rare: RARE_COMMON, once: true } as FixItem
 ]
 
 // 三个包各摊几个候选
@@ -405,6 +369,22 @@ export function isPack(key : string) : boolean {
 // 但它该是熟练玩家的功课，不是随手就能使的一招
 export const DECK_MIN : number = 40
 
+// 牌组的上限。标准 52 张 + 12 张（一关买一张的理论极限）。
+//
+// 它守的是**技能的触发率还算得准**这件事：第三节那两张概率表
+// （一个点数标签 28%、六个 92%）全是按 52 张算的。
+// 牌组买到 90 张，那些数就全是假的 —— 而玩家读的还是那个数。
+//
+// 两处要守它：
+//   商店买牌（`draw-skills.uvue` 的 cardDetail / doBuyShelf）；
+//   【囤饵】开局往库里塞牌（`ap-fishing.uvue` 的 baitFor）——
+//     塞不下就少塞几张，而且**要说一声**，静默吞掉的话
+//     玩家只会以为技能坏了。
+//
+// 跟 DECK_MIN 是一对，所以摆在一起 ——
+// 「牌组能多厚 / 多薄」是同一个问题的两头
+export const DECK_CAP : number = 64
+
 export function fixItemOf(key : string) : FixItem {
   for (let i = 0; i < FIX_ITEMS.length; i++) {
     if (FIX_ITEMS[i].key == key) {
@@ -414,41 +394,11 @@ export function fixItemOf(key : string) : FixItem {
   return FIX_ITEMS[0]
 }
 
-// 池子里每件货这一关的权重：先按稀有度算，再把带**保底份额**的抬上去。
+// 原先这儿有个 weightsFor：先按稀有度算权重，再把带**保底份额**的抬上去
+//（解 w = f × 总量 那个方程，因为总量里含着 w 自己）。
 //
-// 保底怎么算（见 FixItem.floor）：一件货要占到份额 f，它的权重得是
-//
-//     w = f × 总量
-//
-// 可总量里又含着 w 自己 —— 抬了它，总量也跟着涨。把 Σf 那部分挪到
-// 左边解出来就是下面那个 base / (1 − Σf)：
-//
-//     w = f × base / (1 − Σf)      base = 按稀有度算出来的池子总量
-//
-// 然后取 max(按档位的权重, 保底的权重) —— 它是**保底**，不是定值。
-// 洗点在前几关的自然份额本来就高过保底，那几关保底不生效
-function weightsFor(pool : number[], level : number) : number[] {
-  let base = 0
-  let floorSum = 0
-  for (let i = 0; i < pool.length; i++) {
-    base = base + rareWeight(FIX_ITEMS[pool[i]].rare, level)
-    floorSum = floorSum + FIX_ITEMS[pool[i]].floor
-  }
-  // 保底份额加起来要是逼近 1，下面那个除法会炸 —— 现在是 0.18，
-  // 这道闸是防将来往表里加第三第四件保底货
-  if (floorSum > 0.5) {
-    floorSum = 0.5
-  }
-  const scale = base / (1 - floorSum)
-  const out : number[] = []
-  for (let i = 0; i < pool.length; i++) {
-    const one = FIX_ITEMS[pool[i]]
-    const byRare = rareWeight(one.rare, level)
-    const byFloor = one.floor > 0 ? Math.round(one.floor * scale) : 0
-    out.push(byRare > byFloor ? byRare : byFloor)
-  }
-  return out
-}
+// 保底只服务砺钩和洗点，两件都删了，所以它没有服务对象了 ——
+// 上货回到纯 rareWeight 加权抽（见下面 rollFixKeys）
 
 // 按稀有度权重摇 want 种道具（**不重复**）。
 //
@@ -476,11 +426,13 @@ export function rollFixKeys(level : number, want : number, skip : string[]) : st
   }
   const out : string[] = []
   for (let n = 0; n < want && pool.length > 0; n++) {
-    // 这一轮每件货的权重（算过保底份额了，见 weightsFor）
-    const w = weightsFor(pool, level)
+    // 这一轮每件货的权重，纯按稀有度算（保底份额那套已经删了）
+    const w : number[] = []
     let total = 0
-    for (let i = 0; i < w.length; i++) {
-      total = total + w[i]
+    for (let i = 0; i < pool.length; i++) {
+      const one = rareWeight(FIX_ITEMS[pool[i]].rare, level)
+      w.push(one)
+      total = total + one
     }
     // 权重全是正数，total 不会是 0；保一手免得将来改表改出个 0 来
     let roll = total > 0 ? Math.floor(Math.random() * total) : 0
@@ -507,13 +459,17 @@ export function rollFixKeys(level : number, want : number, skip : string[]) : st
 
 // 每次进店上几种道具（底数；买过【加栏】之后 +1，见 fixSlotsOf）。
 //
-// **3 而不是 12（全摆）**：全摆出来就没有「这次刷到了什么」可言，
-// 十二种的区别退化成一条价格梯子，照着钱包挑最贵的买就行。
+// **3 而不是 11（全摆）**：全摆出来就没有「这次刷到了什么」可言，
+// 十一种的区别退化成一条价格梯子，照着钱包挑最贵的买就行。
 // 也不该太少 —— 一种就全凭运气，连取舍都没有。
 //
-// 定 3 是因为道具表涨到十四种了（三种推点数、同化、弃饵、砺钩、洗点、
-// 三个包、四件唯一扩容）。原先四种的时候摆 2 个正好是一个取舍；
-// 十四种里摆 2 个就太窄了，想要的那件十关也刷不着几次
+// 定 3 是对着**十一种**定的（三种推点数、同化、弃饵、三个包、三件唯一扩容）。
+// 原先四种的时候摆 2 个正好是一个取舍；十一种里摆 2 个就太窄了，
+// 想要的那件十关也刷不着几次。
+//
+// 删掉砺钩 / 洗点 / 加权之后表从十四种缩到十一种，这个 3 **没跟着降** ——
+// 池子小了，3 格的覆盖率反而更高（27% → 一关摆得出某一特定件），
+// 那对剩下这几件「刷到就赚」的货是对的
 export const SHOP_FIX_COUNT : number = 3
 
 // 加栏加几格。定 1 而不是让它叠买 —— 它是唯一道具（once），
@@ -523,8 +479,9 @@ export const SHELF_BONUS : number = 1
 // 加架加几格（技能 / 卡牌那一栏）。同样定 1、同样唯一
 export const CARD_BONUS : number = 1
 
-// 加权加几格点数槽。同样定 1、同样唯一
-export const RANK_BONUS : number = 1
+// 原先这儿还有个 RANK_BONUS（加权加几格点数槽）。
+// 加权整件删了（槽数由角色卡定，加出来那一格印什么没有来源），
+// 所以这个常量没有调用方了，跟着删
 
 // ---------- 点数卡 ----------
 //
@@ -641,96 +598,299 @@ export function interestOf(gold : number) : number {
   return got > INTEREST_CAP ? INTEREST_CAP : got
 }
 
-function noSkills() : number[] {
-  const list : number[] = []
-  for (let i = 0; i < DRAW_SKILLS.length; i++) {
-    list.push(-1)
-  }
-  return list
-}
-
-// 「技能下标:等级」写成一串，没写到的就是 -1
-function levelsOf(pairs : number[]) : number[] {
-  const list = noSkills()
-  for (let i = 0; i + 1 < pairs.length; i += 2) {
-    list[pairs[i]] = pairs[i + 1]
-  }
-  return list
-}
-
-// suits：和 ♠♥♦♣ 对齐的四格；ranks：「点数, 技能」成对写
-function loadoutOf(suits : number[], ranks : string[], skills : number[]) : DrawLoadout {
-  const lo = emptyLoadout()
-  for (let s = 0; s < suits.length; s++) {
-    lo.suitOwner[s] = suits[s]
-  }
-  for (let i = 0; i < ranks.length; i++) {
-    for (let r = 0; r < SKILL_RANKS.length; r++) {
-      if (SKILL_RANKS[r] == ranks[i]) {
-        lo.rankOwner[r] = skills[i]
-      }
-    }
-  }
-  return lo
-}
-
-const N : number = -1
-
+// ---- 原先这儿有三个表助手：noSkills / levelsOf / loadoutOf ----
+//
+// 它们是给关卡表里那两个写死的 levels / loadout 字段服务的。
+// 那两个字段删了（庄家配装搬到 DRAW_FOE_ROLES 上），三个助手跟着没。
+//
+// 于是关卡表瘦成了一行一关：**叫什么、怎么出牌、给多少钱**。
+// 「这一关的庄家是谁」查 DRAW_FOE_ROLES（按关号下标），
+// 两张表按关号对齐 —— 加一关要同时加两边
 export const DRAW_LEVELS : DrawLevel[] = [
   // ---------- 浅滩 ----------
   // 第 1 关给 80 而不是 30：新档 0 金币，第一个商店要是连【技能二选一】（80）
   // 都买不起，进店就只能干看。80 + 胜分保证第一店至少能拿下一个技能
-  { id: 1, chapter: '浅滩', name: '试竿', smart: false, random: true, levels: noSkills(), loadout: emptyLoadout(), reward: 80 },
-  { id: 2, chapter: '浅滩', name: '涨潮', smart: false, random: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
-  { id: 3, chapter: '浅滩', name: '老渔夫', smart: true, random: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
-  { id: 4, chapter: '浅滩', name: '滩头', smart: true, random: false, levels: noSkills(), loadout: emptyLoadout(), reward: 30 },
-  // ---------- 河湾：1 个技能 ----------
-  {
-    id: 5, chapter: '河湾', name: '回水', smart: true, random: false, reward: 45,
-    levels: levelsOf([SK_HOOK, 0]),
-    loadout: loadoutOf([N, N, N, N], ['7'], [SK_HOOK])
-  },
-  {
-    id: 6, chapter: '河湾', name: '暗礁', smart: true, random: false, reward: 45,
-    levels: levelsOf([SK_GUARD, 0]),
-    loadout: loadoutOf([SK_GUARD, N, N, N], [], [])
-  },
-  {
-    id: 7, chapter: '河湾', name: '望潮', smart: true, random: false, reward: 45,
-    levels: levelsOf([SK_TIDE, 1]),
-    loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], [], [])
-  },
-  {
-    id: 8, chapter: '河湾', name: '湾口', smart: true, random: false, reward: 45,
-    levels: levelsOf([SK_HOOK, 1]),
-    loadout: loadoutOf([N, N, N, N], ['4', '7', '10'], [SK_HOOK, SK_HOOK, SK_HOOK])
-  },
-  // ---------- 深海：两个槽 ----------
-  {
-    id: 9, chapter: '深海', name: '雾海', smart: true, random: false, reward: 60,
-    levels: levelsOf([SK_GUARD, 0, SK_HOOK, 1]),
-    loadout: loadoutOf([SK_GUARD, N, N, N], ['3', '6', '9'], [SK_HOOK, SK_HOOK, SK_HOOK])
-  },
-  {
-    id: 10, chapter: '深海', name: '漩涡', smart: true, random: false, reward: 60,
-    levels: levelsOf([SK_TIDE, 1, SK_TOP, 0, SK_PEEK, 0]),
-    loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], ['Q', '5'], [SK_TOP, SK_PEEK])
-  },
-  {
-    id: 11, chapter: '深海', name: '鲸落', smart: true, random: false, reward: 60,
-    levels: levelsOf([SK_GUARD, 1, SK_HOOK, 2]),
-    loadout: loadoutOf([SK_GUARD, N, N, SK_GUARD], ['A', '3', '5', '7', '9', 'Q'],
-      [SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK, SK_HOOK])
-  },
-  {
-    id: 12, chapter: '深海', name: '深渊', smart: true, random: false, reward: 60,
-    levels: levelsOf([SK_TIDE, 1, SK_HOOK, 1, SK_TOP, 0, SK_STIR, 0, SK_GUARD, 0]),
-    loadout: loadoutOf([N, SK_TIDE, SK_TIDE, N], ['2', '6', '10', 'K', '8', '4'],
-      [SK_HOOK, SK_HOOK, SK_HOOK, SK_TOP, SK_STIR, SK_GUARD])
-  }
+  { id: 1, chapter: '浅滩', name: '试竿', smart: false, random: true, reward: 80 } as DrawLevel,
+  { id: 2, chapter: '浅滩', name: '涨潮', smart: false, random: false, reward: 30 } as DrawLevel,
+  { id: 3, chapter: '浅滩', name: '老渔夫', smart: true, random: false, reward: 30 } as DrawLevel,
+  { id: 4, chapter: '浅滩', name: '滩头', smart: true, random: false, reward: 30 } as DrawLevel,
+  // ---------- 河湾 ----------
+  { id: 5, chapter: '河湾', name: '回水', smart: true, random: false, reward: 45 } as DrawLevel,
+  { id: 6, chapter: '河湾', name: '暗礁', smart: true, random: false, reward: 45 } as DrawLevel,
+  { id: 7, chapter: '河湾', name: '望潮', smart: true, random: false, reward: 45 } as DrawLevel,
+  { id: 8, chapter: '河湾', name: '湾口', smart: true, random: false, reward: 45 } as DrawLevel,
+  // ---------- 深海 ----------
+  { id: 9, chapter: '深海', name: '雾海', smart: true, random: false, reward: 60 } as DrawLevel,
+  { id: 10, chapter: '深海', name: '漩涡', smart: true, random: false, reward: 60 } as DrawLevel,
+  { id: 11, chapter: '深海', name: '鲸落', smart: true, random: false, reward: 60 } as DrawLevel,
+  { id: 12, chapter: '深海', name: '深渊', smart: true, random: false, reward: 60 } as DrawLevel
 ]
 
+// 原先这儿还跟着第 5–12 关各自写死的 levels / loadout（手调过的庄家配装，
+// 带一长串注释解释「压邻接了护饵的位子」之类）。
+//
+// 那些配装的**设计意图搬进了 DRAW_FOE_ROLES**，而且在那边才是活的 ——
+// 这边的早就是死数据了（对局页读出来之后立刻被摇出来的那套覆盖掉）。
+// 要调某一关庄家多强，改那张表
+
 export const DRAW_LEVEL_COUNT : number = DRAW_LEVELS.length
+
+// ======================= 庄家角色 =======================
+//
+// 设计稿：根目录《摸打钓鱼-庄家角色设计.md》。
+//
+// **十二关 = 十二个角色。** 一个角色 = 一件固定的特殊技 + 一份固定的技能名单，
+// 而那些技能占哪个点数 / 哪门花色**是摇的**。
+//
+// ---- 跟玩家角色正好反过来 ----
+//
+//                槽型      标签（具体哪个）    插什么技能
+//   玩家角色      印死        **印死**          **你选**
+//   庄家角色      印死        **摇**            印死
+//
+// 两边各自的理由：
+//
+//   玩家那边印死标签，是为了让「哪件技能配哪个数字」成为一道组合题
+//   （磁钩插在连号槽上，+1 能钓到自己的下一个槽）。
+//
+//   庄家那边印死的得是**技能名单**，因为那是你能学的东西 ——
+//   打过一轮你就知道第 8 关那位带什么（商店还会提前预告）。
+//   而**位置摇**保证你学不到头：知道它带顺色，但不知道这回落在哪门花色上。
+//
+// 一句话：**它是谁 → 查得到。它卡在哪 → 查不到。**
+//
+// 这替掉的是 rollKitFor（连「带什么技能」都摇）。那套的毛病是
+// **庄家没有性格** —— 第 9 关这次摇到顺色+见底、下次窥视+换水，
+// 玩家学不到任何东西，它只是一个强度数字。
+export type FoeSlot = {
+  // 这个槽里印死的那件技能（DRAW_SKILLS 下标）
+  skill : number
+  // 它占几个标签，以及是花色标签还是点数标签
+  count : number
+  suit : boolean
+}
+
+export type FoeRole = {
+  // 角色名。场景名在 DRAW_LEVELS 的 name 里，两者是两回事
+  name : string
+  // 带哪条特殊技（DRAW_FOE_SPECIALS 的 key）。空串 = 不带
+  special : string
+  slots : FoeSlot[]
+  desc : string
+}
+
+// ---------- 庄家特殊技：十一条 ----------
+//
+// 三条规矩（设计稿第三节，一条都不动）：
+//
+//   1. **不进商店池** —— 玩家永远拿不到。它们是关卡的性质，不是装备。
+//   2. **不占槽** —— 挂在角色上，整局生效，不靠「打出某张牌」触发。
+//   3. **守铁律** —— 没有一条直接改积分。积分永远等于收走的张数，
+//      它们改的是「钓得到钓不到」「收得了几张」「你看得见什么」。
+//
+// 跟玩家的 SPECIAL_SKILLS **不是一张表**：那套能被商店碰到（本来能升级，
+// 现在也不能了），而这套三条规矩都只对它自己成立。
+//
+// 命名避了四处重（技能表里有同义的名字，撞了在 UI 上分不清）：
+//   添手 ≠ 满篓 · 淤滩 ≠ 压舱 · 掐口 ≠ 窄口 · 再钩 ≠ 连竿
+// 后两条的效果确实就是那两件的庄家版，但名字得分得开
+export type FoeSpecial = {
+  key : string
+  name : string
+  desc : string
+}
+
+export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
+  { key: 'hand', name: '添手',
+    desc: '庄家起手和手牌上限都 +1 张' } as FoeSpecial,
+  { key: 'silt', name: '淤滩',
+    desc: '开局庄家先从牌库顶往堆上垫 3 张，都算 0 点' } as FoeSpecial,
+  { key: 'pinch', name: '掐口',
+    desc: '你每回合只补到 3 张' } as FoeSpecial,
+  { key: 'drift', name: '偏流',
+    desc: '庄家打出的牌落堆底，不落堆顶' } as FoeSpecial,
+  // 「钓不上」说的是**它当不了匹配的那一张**，不是「永远拿不走」——
+  // 从更深处钓起的时候它照旧被连带收走（跟护饵一个待遇，见 shelled）。
+  // 初稿写的是「只有 J 收得走」，那跟实现不符：J 只是最省事的那条解
+  { key: 'shell', name: '硬壳',
+    desc: '庄家打出的 ♠ 钓不上（钓更深的牌时才连带收走）' } as FoeSpecial,
+  { key: 'pick', name: '挑潮',
+    desc: '庄家回合末补牌时从库顶 2 张挑 1 张（另一张沉底）' } as FoeSpecial,
+  { key: 'guard', name: '守滩',
+    desc: '庄家每次钓到牌之后，自动往堆上垫一张自己的手牌' } as FoeSpecial,
+  { key: 'again', name: '再钩',
+    desc: '庄家钓到牌时可以再打一张（一回合最多连两次）' } as FoeSpecial,
+  { key: 'seal', name: '封竿',
+    desc: '摇定一个点数：你打出它只是落堆，钓不到任何牌' } as FoeSpecial,
+  // ---- 下面两条**现在没有载体，所以也没有实现** ----
+  //
+  // 当初是给终局留的（那一局不记账，可以上最凶的）。可终局的庄家摇的是
+  // **玩家那张角色表**（DRAW_ROLES，见 ap-fishing 的 rollRoleKit）——
+  // 双方同构是那个模式的全部意义，所以它带不了庄家专属的特殊技。
+  //
+  // 留在表里不删，是因为它们是两条**想清楚了的**设计（逆钩砍 J 的上限、
+  // 浊水藏堆的中段），哪天要加「庄家专属的终局关」就直接拿来用。
+  // 对应的效果代码一行都没写 —— 加的时候记得（落点见设计稿第八节）
+  { key: 'rev', name: '逆钩',
+    desc: '你打 J 只收堆顶 3 张，不通吃（庄家的 J 照旧通吃）' } as FoeSpecial,
+  { key: 'murk', name: '浊水',
+    desc: '堆超过 10 张时你只看得见最上面 5 张（庄家照旧全看得见）' } as FoeSpecial
+]
+
+export function foeSpecialOf(key : string) : FoeSpecial | null {
+  for (let i = 0; i < DRAW_FOE_SPECIALS.length; i++) {
+    if (DRAW_FOE_SPECIALS[i].key == key) {
+      return DRAW_FOE_SPECIALS[i]
+    }
+  }
+  return null
+}
+
+// 这一关庄家那条特殊技的名字 / 全文。没带就是空串 ——
+// 商店预告和对局页的技能栏都读它
+export function foeSpecialNameAt(level : number) : string {
+  const one = foeSpecialOf(foeRoleAt(level).special)
+  return one == null ? '' : one!.name
+}
+
+export function foeSpecialDescAt(level : number) : string {
+  const one = foeSpecialOf(foeRoleAt(level).special)
+  return one == null ? '' : one!.desc
+}
+
+// ---------- 覆盖面：对标玩家角色的 16～21 张 ----------
+//
+// 一个点数标签 4 张、一个花色标签 13 张（见 draw-skills 的那两个常量）。
+//
+// **终点定在 21 而不是满配** —— 现有 8 个玩家角色覆盖 16～21 张，
+// 庄家末关跟最强的玩家角色持平就够了。
+//（设计稿初稿写的是 50，那是按「2 花色槽 + 6 点数槽」算的，
+//  可花色槽早从摇的那套模型里砍了，而角色卡的覆盖面是卡上印多少就多少。
+//  按 50 走会让庄家末关是玩家的 2.4 倍 —— 那是个算错。）
+//
+//   关      5   6   7   8   9  10  11  12
+//   盖      4   8  12  13  16  17  21  21
+//   槽数    1   1   2   1   2   2   2   3
+//
+// 覆盖面**单调**（「越往后越强」要能指望得上，单调是底线）。
+// 槽数**故意不单调**：第 8 关只一个 ♠ 槽，是「专精 vs 泛用」那条轴 ——
+// 照玩家角色里沉钩的做法（只两件技能，但一件管整门花色）
+export function foeCoverOf(level : number) : number {
+  const r = foeRoleAt(level)
+  let cover = 0
+  for (let i = 0; i < r.slots.length; i++) {
+    const one = r.slots[i]
+    cover = cover + one.count * (one.suit ? SUIT_CELL_COVER : RANK_CELL_COVER)
+  }
+  return cover
+}
+
+// 第几关的庄家。关号越界就退回第 1 关那个（它什么都不带，最安全）
+export function foeRoleAt(level : number) : FoeRole {
+  if (level < 1 || level > DRAW_FOE_ROLES.length) {
+    return DRAW_FOE_ROLES[0]
+  }
+  return DRAW_FOE_ROLES[level - 1]
+}
+
+const NO_SLOTS : FoeSlot[] = []
+
+export const DRAW_FOE_ROLES : FoeRole[] = [
+  // ---------- 浅滩：不带技能、也不带特殊技 ----------
+  //
+  // 这四关是教规则的：第 1 关教「怎么钓」、第 2 关让你自己挑饵、
+  // 第 3 关第一次碰上会记牌的对手。**那三件事本身就是新东西**，
+  // 再叠一条改规则的只会糊成一团。
+  //
+  // 第 4 关（浅滩关底）上第一条特殊技，而且是最温和的那条 ——
+  // 添手只给庄家多一张手牌，一条规则都没改。关底该让你意识到
+  // 「原来庄家还能有额外的东西」，不该让你输在没见过的规则上
+  { name: '试手', special: '', slots: NO_SLOTS,
+    desc: '刚摸到竿的。随手出牌，什么都不带' } as FoeRole,
+  { name: '浪客', special: '', slots: NO_SLOTS,
+    desc: '闲逛的。会挑饵了，但还不记牌' } as FoeRole,
+  { name: '老钓', special: '', slots: NO_SLOTS,
+    desc: '守了半辈子河的。**它开始记牌了** —— 这一关的全部内容' } as FoeRole,
+  { name: '滩公', special: 'hand', slots: NO_SLOTS,
+    desc: '滩头的老人。手里比别人多一张牌' } as FoeRole,
+  // ---------- 河湾：一关一个主题，而且两两成对 ----------
+  //
+  // 回漩（淤滩）造厚堆 → 湾主（硬壳）让厚堆里一批牌永远死着；
+  // 礁母（掐口）削你手牌 → 潮眼（偏流）让你钩不着它的牌。
+  // 前一关种下的概念，后一关加码
+  { name: '回漩', special: 'silt', slots: [
+      // 一个点数槽 = 4 张。磁钩是最基础那件，第一关有技能的庄家配它正好
+      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
+    ], desc: '水在这儿打转。开局堆上就压着三张死牌 —— 它教你 J 有多值' } as FoeRole,
+  { name: '礁母', special: 'pinch', slots: [
+      // 两个点数标签 = 8 张。压邻让紧挨着它右边落下的那张作废 ——
+      // 跟掐口（削你手牌到三张）同向：两条都在减你能用的东西
+      { skill: SK_VOID, count: 2, suit: false } as FoeSlot
+    ], desc: '礁石底下的。你每回合只补到三张，而挨着它落下的牌还会作废' } as FoeRole,
+  { name: '潮眼', special: 'drift', slots: [
+      // 两个槽、12 张。观潮管两个点数，磁钩管一个
+      { skill: SK_TIDE, count: 2, suit: false } as FoeSlot,
+      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
+    ], desc: '看得见潮眼在哪。它的牌打到堆底 —— 你得连带收一大段才碰得到' } as FoeRole,
+  { name: '湾主', special: 'shell', slots: [
+      // **一整门花色 13 张，只一件技能** —— 专精那一头（照玩家角色「沉钩」）。
+      // 而且槽和特殊技是**同一门花色**：它打的 ♠ 既触发顺色、又钓不走。
+      // 那是湾主这一关的全部内容
+      { skill: SK_SUITED, count: 1, suit: true } as FoeSlot
+    ], desc: '守着湾口收税。它打出的黑桃钓不走，而那门花色正是它的技能' } as FoeRole,
+  // ---------- 深海：每关换一种压力 ----------
+  { name: '雾叟', special: 'pick', slots: [
+      // 三件信息类凑一关：它不抢你的分，它让你**算不准**
+      { skill: SK_LANTERN, count: 2, suit: false } as FoeSlot,
+      { skill: SK_FREEZE, count: 2, suit: false } as FoeSlot
+    ], desc: '雾里看不清人。你的手牌它全看得见，还能锁住一张' } as FoeRole,
+  { name: '涡心', special: 'guard', slots: [
+      // ---- 这一关的理由**换过一次** ----
+      //
+      // 原来是「染水 + 见底那条组合」：染黑 → 见底的 N 拉满 → 整堆压下去。
+      // 见底改成死数 −1 之后那条翻倍没了（理由见 draw-skills 见底那段），
+      // 所以这一关不再是「看组合的威力」。
+      //
+      // 现在它是**水位关**，而守滩正好把它说圆了：
+      //   守滩逼它每钓一次就往堆上垫一张 → 堆只会越来越厚；
+      //   见底每回合把整堆往下挪一格 → 厚堆里的低点数一层层见底；
+      //   染水把堆染成一门花色 → 它的顺色通道全程敞着。
+      // 三条都指向同一件事：**它在养一个厚堆，而厚堆对它有利对你没利**。
+      // 你要赢就得抢在水位把牌喂熟之前把锅端走。
+      //
+      // 强度上这一关**被削了**（原来那条组合是整关的爆点）。
+      // 没有补回来 —— 补多少得先用模拟器量，而模拟器还没搬过来
+      { skill: SK_SUITIFY, count: 1, suit: true } as FoeSlot,
+      { skill: SK_LOWTIDE, count: 1, suit: false } as FoeSlot
+    ], desc: '漩涡中心。它染水、它见底，而它每钓一次就往堆上再垫一张' } as FoeRole,
+  { name: '鲸骸', special: 'again', slots: [
+      // 两件都在「抹点数」那一族，加再钩的雪球 —— 堆冻住、长厚、而它连钩。
+      // 你得抢在它之前把锅端走
+      { skill: SK_HUEVOID, count: 1, suit: true } as FoeSlot,
+      { skill: SK_ODD, count: 2, suit: false } as FoeSlot
+    ], desc: '鲸落下去的地方。它封色、它分水，而它钓到就接着打' } as FoeRole,
+  { name: '渊君', special: 'seal', slots: [
+      // 满配：两条钓牌通道（顺色、磁钩）+ 一件清场（掏库）。
+      // **最标准、最全面的一套**，没有偏科 —— 打到这儿比的不是读题，是硬实力
+      { skill: SK_SUITED, count: 1, suit: true } as FoeSlot,
+      { skill: SK_SPILL, count: 1, suit: false } as FoeSlot,
+      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
+    ], desc: '渊里的那个。它封掉你一个点数，然后用最全的一套跟你打' } as FoeRole
+]
+
+// ---------- 摇这一关庄家的配装：这儿没有，在 draw-save ----------
+//
+// 原先这儿有个 rollFoeKitFor(level)：按角色表摇标签，返回一整个 DrawKit。
+// 删了，因为它跟 `draw-save` 的那一对**重了**，而重的那一半是错的那一半：
+//
+//   rollFoeKit(data, level)  —— 摇标签，**存进档**（存的是字符串）
+//   foeKitOf(data, level)    —— 从档里那份标签**现算**出 DrawKit
+//
+// 「摇」和「翻成配装」必须是两步，因为中间那一步是**落盘**：
+// 商店会预告下一关的庄家，每次读都重摇就是假情报，
+// 而且退出再进能一直刷到好摇的位置。
+// rollFoeKitFor 把两步合成了一步，所以它压根没地方调 ——
+// 谁调它都会绕过落盘那一下。
 
 // ---------- 难度 ----------
 //
@@ -775,8 +935,6 @@ export function levelForDiff(lv : DrawLevel, diff : number) : DrawLevel {
     chapter: lv.chapter,
     smart: smart,
     random: random,
-    levels: lv.levels,
-    loadout: lv.loadout,
     reward: reward
   } as DrawLevel
 }

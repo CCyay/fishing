@@ -1,16 +1,20 @@
 <template>
   <view class="page">
-    <!-- 顶栏：双方积分 + 牌库剩几张。积分就是收走的牌数 -->
+    <!-- 顶栏：双方积分 + 牌库 / 牌堆各剩几张。积分就是收走的牌数。
+         三样数并在这一行，所以下面那两块的标题（「庄家手牌 N 张」、
+         「牌堆 N 张」）都去掉了 —— 牌都摆在那儿，标题只是重复一遍 -->
     <view class="score-bar">
       <view class="score-cell">
         <text class="score-label">你</text>
         <text id="ap-my-score" class="score-num" :class="{ 'score-flash': flashMe }">{{ myScore }}</text>
       </view>
-      <!-- 牌库那一格点得动：点开看「外面还剩哪些牌」（见 outsideRows） -->
+      <!-- 中间那格点得动：点开看「外面还剩哪些牌」（见 outsideRows）。
+           库和堆两个数挨着放 —— 它们是同一件事的两头：还没摸的、已经摆出来的 -->
       <view id="ap-deck-cell" class="score-cell" @click="showLeft = true">
-        <text class="score-label">第 {{ level.id }} 关 · 牌库</text>
-        <text id="ap-deck-count" class="score-num score-num-dim">{{ deck.length }}</text>
-        <text class="score-hint">点开看剩牌</text>
+        <text class="score-label">库 / 堆</text>
+        <text class="score-num score-num-dim"
+          ><text id="ap-deck-count">{{ deck.length }}</text> / {{ pile.length }}</text
+        >
       </view>
       <view class="score-cell">
         <text class="score-label">庄家</text>
@@ -18,12 +22,27 @@
       </view>
     </view>
 
-    <!-- 庄家手牌：平时只给看牌背；被窥视翻开的那几张明着摆 -->
+    <!-- 庄家侧：技能一行 + 手牌一行。
+         平时只给看牌背；被窥视翻开的那几张明着摆。
+         「庄家手牌 N 张」那个标题去掉了 —— 牌就摆在下面，数得出来 -->
     <view class="foe-area">
-      <text class="area-title">庄家手牌 {{ foeHand.length }} 张</text>
-      <!-- 庄家带的技能，照排竿「庄家挂着的规矩」横着摆一排，点一下在说明框里看效果。
-           摆出来是有意的 —— 难度该看得见，藏着的话「我怎么突然钓不到了」就成了坑人 -->
-      <view v-if="foeChips.length > 0" class="rule-row">
+      <!-- 庄家带的技能，横着摆一排，点一下在说明框里看效果。
+           摆出来是有意的 —— 难度该看得见，藏着的话「我怎么突然钓不到了」
+           就成了坑人。**那件常驻的（角色带的）接在同一行末尾**：
+           两样都是「它带着什么」，分两行反而要扫两眼 -->
+      <view class="rule-row">
+        <text class="rule-side">庄</text>
+        <!-- **特殊技排第一个** —— 它是常驻的（「这一局它是谁」），
+             而后面那几个点数技能要打出对应的牌才响。
+             先看身份、再看触发条件，这个顺序才顺 -->
+        <text
+          v-if="foeRoleName != ''"
+          id="ap-foe-role"
+          class="rule-tag rule-tag-role"
+          :class="{ 'rule-tag-on': chipAt == 301 }"
+          @click="showRole(true)"
+          >{{ foeRoleName }}</text
+        >
         <text
           v-for="(chip, ci) in foeChips"
           :key="'fc-' + ci"
@@ -33,6 +52,7 @@
           @click="showChip(true, ci)"
           >{{ chip.cover }} {{ chip.name }}</text
         >
+        <text v-if="foeChips.length == 0 && foeRoleName == ''" class="rule-none">无技能</text>
       </view>
       <!-- 点它那排有两种意思，看在等哪件技能：
              冻结 —— 「锁这一张」。那几张多半盖着，所以你挑的是**位置**；
@@ -60,9 +80,10 @@
       </view>
     </view>
 
-    <!-- 牌堆：从左往右是落下的先后，满一行换行。被护饵护着的描蓝边 -->
+    <!-- 牌堆：从左往右是落下的先后，满一行换行。被护着的描蓝边。
+         张数在顶栏（库 / 堆），所以这儿不要标题 ——
+         牌堆是这一页最该占地方的东西，标题只会挤它 -->
     <view class="pile-area">
-      <text class="area-title">牌堆 {{ pile.length }} 张</text>
       <scroll-view class="board">
         <view class="board-row">
           <text v-if="pile.length == 0" class="dim-tip">空堆</text>
@@ -91,13 +112,37 @@
               :class="{ 'card-red': pileRed(index), 'card-shifted': pileRecolored(index) }"
               >{{ pileSuitAt(index) }}</text
             >
+            <!-- 这张牌上挂着的场上效果，名字直接印在牌上。
+                 从前只在下面那条 field-bar 里报「♠3 照水」，得拿着牌面
+                 去堆里找哪张是 ♠3 —— 而堆能有四十来张、还会换行。
+                 印在牌上就不用对照了：**要破它就得钓走这一张**，
+                 所以「是哪一张」是这件事的全部要点 -->
+            <text v-if="pileEffectName(index) != ''" class="card-effect">{{ pileEffectName(index) }}</text>
           </view>
         </view>
       </scroll-view>
     </view>
 
-    <view class="message-box">
-      <text id="ap-message" class="message-text">{{ message }}</text>
+    <!-- 场上效果：挂在牌上的那几件，**常驻摆到失效为止**。
+         紧贴牌堆下方 —— 它说的就是牌堆的状态。
+         点一下在说明框里看全文，外加「挂在哪张牌上、堆里第几张」
+         （那是怎么破它：钓走那张，效果就解除）。
+         **一件都没有就整行不占位** —— 原先这儿常驻一个「场上效果 · 无」，
+         那是一行永远在那儿的废话 -->
+    <view v-if="fieldChips.length > 0" class="field-bar">
+      <scroll-view class="field-scroll" direction="horizontal">
+        <view class="rule-row">
+          <text
+            v-for="(chip, fi) in fieldChips"
+            :key="'fx-' + fi"
+            :id="'ap-field-' + fi"
+            class="rule-tag"
+            :class="{ 'rule-tag-on': chipAt == 200 + fi, 'rule-tag-foe': chip.byFoe }"
+            @click="showField(fi)"
+            >{{ chip.byFoe ? '庄 ' : '' }}{{ chip.anchor }} {{ chip.name }}</text
+          >
+        </view>
+      </scroll-view>
     </view>
 
     <!-- 择饵：摊开牌库顶五张，挑一张留在最上面。
@@ -195,33 +240,74 @@
       </view>
     </view>
 
-    <view class="turn-bar">
-      <text id="ap-turn" class="turn-label">{{ turnText }}</text>
+    <!-- ---------- 状态行：回合 + 播报合成一条 ---------- -->
+    <!--
+      原先这儿是两块：上面一个 message-box（刚发生了什么），
+      下面一个 turn-bar（现在该谁）。两块说的是同一件事的两头，
+      而且一直占着两行。合成一条之后：**粗体那半是「现在该干什么」，
+      后面接刚发生的事**。
+
+      id 留着 ap-turn（e2e 在断言它包含「你的回合」）
+    -->
+    <!-- 技能说明：点了技能标签才出现，占自己的一块。
+         左边一条竖线分色（你的金、庄家的橙），头一行写「谁的 · 管什么 ·
+         叫什么 · 几级」，正文是效果本身。点同一个标签再收起 -->
+    <view v-if="chipHead != ''" class="chip-desc" :class="{ 'chip-desc-foe': chipAt >= 100 && chipAt < 200 || chipAt == 301 }" @click="closeChip">
+      <text class="chip-desc-head">{{ chipHead }}</text>
+      <text class="chip-desc-body">{{ chipBody }}</text>
     </view>
 
-    <!-- 技能栏：照排竿的道具栏，装着的全摆出来，点一下在说明框里看效果。
-         高度写死，有没有技能这一行都占同样的位子，不然手牌区会上下跳 -->
-    <view class="skill-row">
-      <text class="skill-label">技能</text>
-      <view
+    <view class="turn-bar">
+      <text id="ap-turn" class="turn-label">{{ turnText }}</text>
+      <text v-if="message != ''" class="turn-msg">{{ message }}</text>
+    </view>
+
+    <!-- 你这侧：技能一行（跟庄家那侧同一个格式）。
+         「技能」那个标签字去掉了 —— 左边那个「你」字就够了，
+         而且庄家侧是「庄」，两边对称。
+         那件常驻的（角色带的）接在同一行末尾，描一个不同的色 -->
+    <view class="rule-row">
+      <text class="rule-side">你</text>
+      <!-- 特殊技排第一个，跟庄家那侧同一个顺序（理由见那边） -->
+      <text
+        v-if="myRoleName != ''"
+        id="ap-my-role"
+        class="rule-tag rule-tag-role"
+        :class="{ 'rule-tag-on': chipAt == 300 }"
+        @click="showRole(false)"
+        >{{ myRoleName }}</text
+      >
+      <text
         v-for="(chip, ci) in myChips"
         :key="'mc-' + ci"
         :id="'ap-skill-' + ci"
-        class="skill-chip"
-        :class="{ 'skill-chip-on': chipAt == ci }"
-        @click="showChip(false, ci)">
-        <!-- 管什么在上、叫什么在下。原先最上面还有一行「花色 / 点数」的
-             槽位标签，删了 —— ♥♦ 和 5 7 9 长得完全不一样，不用标 -->
-        <text class="skill-chip-cover" :class="{ 'skill-chip-cover-on': chipAt == ci }">{{ chip.cover }}</text>
-        <text class="skill-chip-name" :class="{ 'skill-chip-name-on': chipAt == ci }">{{ chip.name }}</text>
-      </view>
-      <text v-if="myChips.length == 0" class="skill-none">没装技能</text>
+        class="rule-tag"
+        :class="{ 'rule-tag-on': chipAt == ci }"
+        @click="showChip(false, ci)"
+        >{{ chip.cover }} {{ chip.name }}</text
+      >
+      <text v-if="myChips.length == 0 && myRoleName == ''" class="rule-none">无技能</text>
     </view>
 
-    <!-- 你的手牌：轮到你时已经自动摸好一张，点一张打出。
-         牌底下的小字是这张会触发的技能 -->
+    <!-- 【活水】：牌库顶那两张一直明着。
+         摆在手牌**正上方** —— 回合末补牌补的就是它们，
+         所以它其实是「你下一张手牌」，挨着手牌看才对得上。
+         一局之内它会一直变（每补一次就往下走两张） -->
+    <text v-if="liveText != ''" class="live-text">{{ liveText }}</text>
+
+    <!-- 【逆流】的开关：角色带着它才出现。
+         摆在手牌上方 —— 它改的是「这一张打下去落哪头」，
+         所以得在你点手牌之前就看得见、按得着。
+         按钮上写的是技能名**逆流**，不是「沉底」—— 沉底是点数槽里的另一件 -->
+    <view v-if="hasSinkSpecial" class="sink-row" @click="sinkOn = !sinkOn">
+      <text class="sink-btn" :class="{ 'sink-btn-on': sinkOn }">{{ sinkOn ? '逆流 · 开' : '逆流 · 关' }}</text>
+      <text class="sink-note">{{ sinkOn ? '这一张会打到堆底，收「堆底 → 匹配那张」' : '照常落堆顶' }}</text>
+    </view>
+
+    <!-- 你的手牌：点一张打出。牌底下的小字是这张会触发的技能。
+         「你的手牌 N 张 · 点一张打出」那个标题去掉了 ——
+         牌就在眼前，而「点一张打出」是这一页唯一的操作，不用每局提醒 -->
     <view class="hand-area">
-      <text class="area-title">你的手牌 {{ hand.length }} 张 · 点一张打出</text>
       <scroll-view class="hand-scroll" direction="horizontal">
         <view class="hand-row">
           <view
@@ -302,8 +388,18 @@
         <view v-if="outcome == OUT_WIN" id="ap-shop" class="result-btn" @click="goShop">
           <text class="result-btn-text">去商店</text>
         </view>
-        <view v-if="outcome == OUT_LOSE" id="ap-restart" class="result-btn" @click="newGame">
-          <text class="result-btn-text">从第 1 关重来</text>
+        <!-- 输了**不能就地重开** —— 新一轮要先选一张角色卡，
+             而那个入口在关卡页（见 draw-levels.uvue 的 go）。
+             从前这颗钮直接调 newGame，于是重开那一轮 role 恒为 -1：
+             没有角色、没有槽，商店里任何技能都买不动，整轮打不下去。
+             OUT_NOROLE 那一档（这一局没开起来）走同一颗钮 —— 两处要的
+             是同一件事：回关卡页选角色 -->
+        <view
+          v-if="outcome == OUT_LOSE || outcome == OUT_NOROLE"
+          id="ap-restart"
+          class="result-btn"
+          @click="goBack">
+          <text class="result-btn-text">回关卡选角色</text>
         </view>
         <view v-if="outcome == OUT_DRAW" id="ap-replay" class="result-btn" @click="newGame">
           <text class="result-btn-text">重打这一关</text>
@@ -331,12 +427,9 @@
     KEYWORD_FIRST,
     SKILL_RANKS,
     DrawLoadout,
-    SK_GUARD,
     SK_HOOK,
     SK_TIDE,
     SK_PEEK,
-    SK_TOP,
-    SK_STIR,
     SK_SWAP,
     SK_SUITED,
     SK_LANTERN,
@@ -358,22 +451,58 @@
     SK_CREEL,
     SK_TWIN,
     SK_SUITFIND,
+    SK_VOID,
+    SK_DUMP,
+    SK_SPILL,
+    SK_ODD,
+    SK_HUEVOID,
+    SK_EBB,
+    SK_MEASURE,
+    MEASURE_MIN,
+    DUMP_COUNT,
+    SPILL_COUNT,
+    EBB_COUNT,
     emptyLoadout,
     triggersOf,
     hasTrigger,
     equippedSkills,
     coverageText,
-    levelText,
     DrawKit,
-    rollFullKit,
-    kitFromLevels
+    kitFromRole,
+    rollRoleKit,
+    // 原先这儿还引着 levelText 和 rollFullKit。等级没了（levelText）、
+    // 「随机满配」换成摇角色卡了（rollFullKit → rollRoleKit）
+    // 角色那件常驻特殊技能（见 specialLevel）
+    DRAW_ROLES,
+    SPECIAL_SKILLS,
+    specialIndexOf,
+    SP_CREEL,
+    SP_NARROW,
+    SP_CLEAR,
+    SP_DEEPHOOK,
+    SP_FIRMHOOK,
+    SP_LIVEWATER,
+    SP_BAIT,
+    SP_TWOCOLOR,
+    BAIT_COUNT,
+    baitRankOf
   } from '@/pages/examples/blackjack/draw-skills.uts'
   import {
     DrawLevel,
     MARGIN_BONUS_CAP,
     interestOf,
     drawLevelById,
-    levelForDiff
+    levelForDiff,
+    // 终局也分难度了（见 finalLevel / rollRoleKit）
+    DIFF_EASY,
+    DIFF_NORMAL,
+    DIFF_HARD,
+    // 牌组上限。【囤饵】往牌库塞牌之前要兜一道
+    DECK_CAP,
+    // 闯关的庄家角色：名字 + 那条庄家专属特殊技（按关号查，见 foeAt）
+    foeRoleAt,
+    foeSpecialNameAt,
+    foeSpecialDescAt
   } from '@/pages/examples/blackjack/draw-levels.uts'
   import {
     DrawSave,
@@ -385,6 +514,12 @@
     difficultyOf,
     settleWin,
     resetDrawRun,
+    ensureFoeKit,
+    foeKitOf,
+    // 【封竿】封的那个点数（庄家特殊技）
+    foeSealRank,
+    // 没选角色就不开局（见 newGame 闯关分支开头那道闸）
+    hasRole,
     deckOf,
     standardDeck,
     suitOfText,
@@ -498,12 +633,29 @@
   // 和 pile 下标对齐：这张**现在是什么花色**。
   //
   // 跟 pileVals 一个道理：牌面那个花色是死的，可堆上的花色会被
-  //【染水】整堆改掉。凡是读堆上花色的地方（顺色的匹配、见底数黑牌、
-  // 界面上那个花色字）都得走 pileSuitAt，**不许读 card.suit**
+  //【染水】整堆改掉。凡是读堆上花色的地方（顺色的匹配、收色、
+  // 界面上那个花色字）都得走 pileSuitAt，**不许读 card.suit**。
+  //
+  //（原先这儿还列着「见底数黑牌」。见底改成死数 −1 之后它不读花色了 ——
+  //  那也是改动的一个附带好处：少一处要同步的读点）
   const pileSuit = ref<string[]>([])
   // 和 pile 下标对齐：这张是不是庄家打的。只用来描边，分清谁下的饵
   const pileByFoe = ref<boolean[]>([])
-  // 和 pile 下标对齐：护饵状态
+  // 和 pile 下标对齐：护饵状态。
+  //
+  // ---- 现在**没有任何技能写它**（护饵删了），所以它恒为 GUARD_NONE ----
+  //
+  // 留着没删是有意的，两条理由：
+  //   · 它是堆上五条并行数组之一（pile / pileByFoe / pileGuard / pileVals /
+  //     pileSuit），每一处收牌、见底、收色都要同步增删。拆掉它得改二十来处
+  //     splice / slice / keep 循环，而那是纯内部重构、一点玩法收益都没有，
+  //     风险却实打实（漏一处就错位）。
+  //   · 「堆上某张对某一方不算钓点」这个机制本身是有用的 ——
+  //     第十节那几条庄家规矩（浑底、定桩）要的正是它。哪天加回来，
+  //     guardedAgainst 那一层现成。
+  //
+  // 恒为 GUARD_NONE 的代价只是 guardedAgainst 恒返回 false、
+  // expireGuards 是空操作 —— 两个都在热路径上，但各只有一次比较
   const pileGuard = ref<number[]>([])
   // 被钓走的点数。庄家挑饵时拿来估「外面还剩几张同点数」
   const goneRanks = ref<string[]>([])
@@ -512,13 +664,22 @@
   const myTurn = ref<boolean>(false)
   const over = ref<boolean>(false)
   const message = ref<string>('')
+  // ---------- 技能说明：自己一块，不再占播报 ----------
+  //
+  // 从前点技能是**把说明写进 message**（播报那一行），再点一次恢复战况。
+  // 那套有两个毛病：
+  //   播报合进状态行之后只有 11px 一行小字，而说明是整句带括号的长文；
+  //   而且它跟战况抢同一个位置 —— 一打牌说明就被冲掉。
+  //
+  // 现在拆开：说明有自己的一块（头一行 + 正文两行），**战况归战况**。
+  // 一打牌（message 变）就自动收起，那条还留着
+  const chipHead = ref<string>('')
+  const chipBody = ref<string>('')
   // 战况一更新，技能说明就收起
   watch(message, (text : string) => {
-    if (text == chipText) {
-      return
-    }
     chipAt.value = -1
-    lastEvent = text
+    chipHead.value = ''
+    chipBody.value = ''
   })
   // 你这回合刚摸到的那张在手牌里的下标，-1 表示没摸（牌库空了）。描绿边，打出之后清掉
   const newIndex = ref<number>(-1)
@@ -533,6 +694,10 @@
   const OUT_DRAW : number = 4
   // 终局模式的结算：赢了输了都只报个胜负，不推关号、不发钱、不清家当
   const OUT_FINAL : number = 5
+  // 「这一局没开起来」：闯关但存档里没角色（见 newGame 那道闸）。
+  // 它不是一种胜负，所以单独一档 —— 借 OUT_LOSE 的话结算框会按
+  // 0:0 的比分报「平局」
+  const OUT_NOROLE : number = 6
   const outcome = ref<number>(OUT_NONE)
 
   // 终局模式：双方随机满配，一局定胜负，跟本轮进度毫无关系。
@@ -540,9 +705,81 @@
   // 做成 URL 参数而不是存档里的一个开关：它是一局**不记账**的对局，
   // 存档里不该留下它来过的痕迹。退出页面这个模式就没了，正合适
   let finalMode : boolean = false
-  // 终局「自定义技能」带进来的等级表（下标对齐 DRAW_SKILLS，-1 = 不带）。
-  // 空的就是没自定义，照旧随机满配
-  let customKit : number[] = []
+  // 终局带进来的角色卡配装（见 draw-levels 的 goFinalRole）：
+  //   finalRole  —— 选了哪个角色（DRAW_ROLES 下标），-1 = 没选
+  //   finalSlots —— 每个槽嵌了哪件技能，跟角色的 slots 一一对应，-1 = 空着
+  //
+  // 没带角色就照旧随机满配（老的终局入口还在，那颗按钮直接开打）
+  let finalRole : number = -1
+  let finalSlots : number[] = []
+  // 终局这一局的难度（0 简单 / 1 普通 / 2 困难，照 DIFF_*）。
+  // 从关卡页的角色面板带过来，**不读存档** —— 终局不记账，
+  // 它的难度也是一次性的
+  let finalDiff : number = DIFF_NORMAL
+
+  // ---------- 角色的那件常驻特殊技能 ----------
+  //
+  // 双方各一个角色（终局模式才有，-1 = 没有）。它跟点数技能是两条线：
+  //
+  //   点数技能 —— 打出覆盖面里的牌才触发，一局响几次；
+  //   特殊技能 —— **常驻**，上场就一直生效。
+  //
+  // 所以它不进 loadout，而是在各个结算点上现查（见 specialLevel）：
+  //   满篓 / 窄口 → handLimit（补几张手牌）
+  //   清水         → foeOpen（对方几张手牌明着）
+  //   深钩         → finishCatch（钓到时额外收堆底几张）
+  //   稳钩         → playFor（头几张落堆自带护）
+  //
+  // 终局不升级，所以等级恒为 0 档
+  const myRole = ref<number>(-1)
+
+  // ---- 庄家那一侧有**两张不同的表**，所以要两个字段 ----
+  //
+  // foeRole → DRAW_ROLES（玩家那张角色表）的下标。只有**终局**用它 ——
+  //   那一局双方同一个结构，庄家摇的就是玩家能挑的那几张卡。
+  // foeAt   → 这一关的**关号**（1–12），闯关才有，0 = 不是闯关。
+  //   庄家角色由关号定死（见 draw-levels 的 foeRoleAt），带的是
+  //   DRAW_FOE_SPECIALS 里那 11 条庄家专属特殊技（添手、淤滩、硬壳……），
+  //   跟玩家那 9 件不是一套。
+  //
+  // 为什么闯关这边存关号而不是表下标：**DrawKit.role 这个字段在两条路上
+  // 含义不同**（终局是 DRAW_ROLES 下标，foeKitOf 填的是关号 - 1），
+  // 拿它当下标去查另一张表是一定会错的那种错。存关号就只有一个意思，
+  // 而 foeRoleAt / foeSpecialNameAt / foeSpecialDescAt 都直接收关号
+  const foeRole = ref<number>(-1)
+  const foeAt = ref<number>(0)
+
+  // 【封竿】封住的那个点数（空串 = 这一关没封）。
+  //
+  // 开局算一次就存着，不每次现查 —— 它是**这一局的常量**
+  // （来自存档里摇定的那一份，见 foeSealRank），而 catchStart
+  // 一局要跑几百次
+  const sealedRank = ref<string>('')
+
+  // 这一方打出过几张牌 —— 【稳钩】要数「前 N 张」
+  let myPlayed : number = 0
+  let foePlayed : number = 0
+
+  // 特殊技能的几个定值。不升级，所以每件就一个数 ——
+  // 挑定的理由在 draw-skills 的 SPECIAL_SKILLS 表里各自那段
+  const CLEAR_OPEN : number = 2    // 清水：对方前几张手牌明着
+  const FIRM_GUARD : number = 4    // 稳钩：每局前几张落堆的牌自带护
+  const DEEP_EXTRA : number = 1    // 深钩：钓到时额外收堆底几张
+  const LIVE_OPEN : number = 2     // 活水：牌库顶几张明着
+
+  // ---------- 庄家那几条特殊技的定值（见 DRAW_FOE_SPECIALS）----------
+  //
+  // 淤滩 3 张：**正好够让 J 变值钱、又不至于开局就把堆堆死**。
+  //   少于 3 张（比如 1 张）跟没有差不多 —— 一次普通钓牌就连带收走了；
+  //   多于 3 张（比如 5 张）会让第 5 关变成「谁先摸到 J 谁赢」，
+  //   而那一关的主题是「让你意识到 J 有多值」，不是掷骰子。
+  // 挑潮 2 张：跟【观潮】同一个数 —— 两件做的是同一件事
+  //   （从库顶几张里挑），数不一样会让人以为规则不同。
+  //
+  // 【再钩】没有自己的常量：它直接搭在**连竿**那套上（againPending /
+  // againUsed，见 finishCatch），而那套的上限本来就是一回合两张
+  const SILT_COUNT : number = 3
+  const FOE_PICK_TOPS : number = 2
 
   // 观潮等你选的时候：牌库顶那两张叫什么
   const tidePending = ref<boolean>(false)
@@ -611,16 +848,21 @@
     // 效果是谁打出的。决定它作用在谁身上（对方）
     byFoe : boolean
   }
-  let held : HeldEffect[] = []
+  // **ref 而不是普通变量** —— 牌桌上那条「场上效果」栏要渲染它
+  //（见 fieldChips）。模板读的东西必须是响应式的，不然挂上效果
+  // 那一栏不会刷新。代价是全文读写都得带 .value
+  const held = ref<HeldEffect[]>([] as HeldEffect[])
   // 刚打出去的那张。挂效果要用它当锚
   let lastPlayed : PlainCard | null = null
 
   // 收牌特效放完之后还要结算的技能（打出那张触发的）
   let pendingSkills : number[] = []
-  // 最近一条战况。点技能看说明会盖掉 message，再点一次收起时拿它还原
-  let lastEvent : string = ''
-  // 说明框里正显示的技能说明。说明框一换成别的（新的战况），技能栏就熄掉
-  let chipText : string = ''
+  // 这儿原先有 lastEvent 和 chipText：技能说明是**写进 message** 的，
+  // 所以要记一份「最近的战况」好在收起时还原，再记一份「现在显示的是说明」
+  // 好让战况更新时把技能栏熄掉。
+  //
+  // 说明拆成自己一块（chipHead / chipBody）之后两个都不需要了 ——
+  // 说明和战况各占各的位置，谁也不盖谁
 
   let foeTimer : number = -1
   let catchTimer : number = -1
@@ -688,6 +930,12 @@
     if (outcome.value == OUT_CLEAR) {
       return '全部通关！'
     }
+    // 这一支跟比分无关 —— 它是「这一局压根没开起来」（见 newGame 那道闸）。
+    // 不复用 OUT_LOSE 就是为了这儿：比分 0:0 会被下面那三行读成「平局」，
+    // 而报一句假的胜负比报错更糟
+    if (outcome.value == OUT_NOROLE) {
+      return '还没选角色'
+    }
     if (myScore.value > foeScore.value) {
       return '你赢了'
     }
@@ -705,6 +953,9 @@
     return chipsOf(level.value.loadout, level.value.levels)
   })
 
+  // levels 这个参数留着没删：调用处（myChips / foeChips）两边都有现成的，
+  // 而且将来要是再给技能加什么「状态」，入口在这儿。
+  // **level 那一栏现在恒为空串** —— 技能没有等级了
   function chipsOf(lo : DrawLoadout, levels : number[]) : SkillChip[] {
     const chips : SkillChip[] = []
     const list = equippedSkills(lo)
@@ -714,18 +965,17 @@
         skill: k,
         name: DRAW_SKILLS[k].name,
         cover: coverageText(lo, k),
-        level: levelText(k, levels[k])
+        level: ''
       })
     }
     return chips
   }
 
-  // 点技能栏的一格：说明框改播它的效果。再点一次收起，说明框回到战况
+  // 点技能标签：底下那块说明条改成它的效果。再点一次收起
   function showChip(ofFoe : boolean, index : number) {
     const at = ofFoe ? 100 + index : index
     if (chipAt.value == at) {
-      chipAt.value = -1
-      message.value = lastEvent
+      closeChip()
       return
     }
     const list = ofFoe ? foeChips.value : myChips.value
@@ -735,17 +985,271 @@
     const chip = list[index]
     chipAt.value = at
     const one = DRAW_SKILLS[chip.skill]
-    // 带「优先」的在名字后面挂一句 —— 牌桌上「谁先结算」是实打实
-    // 影响判断的（见 draw-skills 文件头那段）
-    const key = one.first ? '〔' + KEYWORD_FIRST + '〕' : ''
-    chipText = chip.cover + ' —— ' + (ofFoe ? '庄家的' : '') + '【' + chip.name + '】'
-      + key + chip.level + '：' + one.desc
-    message.value = chipText
+    // 带「优先」的挂一句 —— 牌桌上「谁先结算」是实打实影响判断的
+    //（见 draw-skills 文件头那段）
+    const key = one.first ? ' 〔' + KEYWORD_FIRST + '〕' : ''
+    // 头一行：谁的 · 管什么 · 叫什么 · 几级。正文就是效果本身
+    chipHead.value = (ofFoe ? '庄家 · ' : '') + chip.cover + ' · '
+      + chip.name + ' ' + chip.level + key
+    chipBody.value = one.desc
+  }
+
+  // 点那个特殊技标签（角色带的常驻技能）：报它的全文。
+  //
+  // 标签上只写得下「篓翁·满篓」，整句效果在这儿看 ——
+  // 那也是它为什么点得动（从前它是一行不可点的小字）
+  function showRole(ofFoe : boolean) {
+    const at = ofFoe ? 301 : 300
+    if (chipAt.value == at) {
+      closeChip()
+      return
+    }
+    // 闯关的庄家走它自己那张表（按关号查）
+    if (ofFoe && foeAt.value > 0) {
+      const name = foeSpecialNameAt(foeAt.value)
+      if (name == '') {
+        return
+      }
+      chipAt.value = at
+      chipHead.value = '庄家 · ' + foeRoleAt(foeAt.value).name
+        + ' · ' + name + ' 〔常驻〕'
+      chipBody.value = foeSpecialDescAt(foeAt.value)
+      return
+    }
+    const r = ofFoe ? foeRole.value : myRole.value
+    if (r < 0 || r >= DRAW_ROLES.length) {
+      return
+    }
+    const sp = specialIndexOf(DRAW_ROLES[r].special)
+    if (sp < 0) {
+      return
+    }
+    chipAt.value = at
+    chipHead.value = (ofFoe ? '庄家 · ' : '') + DRAW_ROLES[r].name
+      + ' · ' + SPECIAL_SKILLS[sp].name + ' 〔常驻〕'
+    chipBody.value = SPECIAL_SKILLS[sp].desc
+  }
+
+  function closeChip() {
+    chipAt.value = -1
+    chipHead.value = ''
+    chipBody.value = ''
   }
 
   function isRed(card : PlainCard) : boolean {
     return isRedSuit(card.suit)
   }
+
+  // 这两门花色对出牌这一方算不算「同色」。
+  //
+  // 【两色】（SP_TWOCOLOR，夜钓带的）把♠♣ 并成一门、♦♥ 并成一门。
+  // byFoe 是**出牌方** —— 技能是谁的，就按谁的眼睛算。
+  //
+  // 四个调用点都是「找出同花色的牌并收走」：顺色（catchStart）、
+  // 收色（hueFor）、庄家估收成（harvestCount，口径必须跟 hueFor 一致）、
+  // 同花（suitFindFor）。
+  //
+  // **封色（suitSealed）不走这儿**，那是故意的：它是禁止类，
+  // 放大一个禁止等于封掉半副牌，而封色是场上效果、双方都受 ——
+  // 到时候「谁的两色在起作用」说不清。理由全文在 draw-skills 的技能注释里
+  function sameSuit(a : string, b : string, byFoe : boolean) : boolean {
+    if (a == b) {
+      return true
+    }
+    if (!hasSpecial(byFoe, SP_TWOCOLOR)) {
+      return false
+    }
+    return isRedSuit(a) == isRedSuit(b)
+  }
+
+  // 这一方带的是哪件特殊技能、几级。没带这件就返回 -1。
+  //
+  // 终局不升级，所以带着就是 0 档 —— 哪天闯关也用上角色卡（那边能升），
+  // 这儿改成读等级表就行，调用处一个都不用动
+  // 这一方带的是不是这件特殊技能。
+  //
+  // 原先叫 specialLevel，返回等级（带着是 0 档、没带是 -1）。
+  // 特殊技能改成**不能升级**之后没有等级这回事了，所以退化成一个 boolean ——
+  // 各处的效果值跟着写死（满篓 +1、深钩 1 张、稳钩前 4 张…），
+  // 那几个数挑定的理由在 SPECIAL_SKILLS 表里各自那段
+  function hasSpecial(byFoe : boolean, sp : number) : boolean {
+    const r = byFoe ? foeRole.value : myRole.value
+    if (r < 0 || r >= DRAW_ROLES.length) {
+      return false
+    }
+    return specialIndexOf(DRAW_ROLES[r].special) == sp
+  }
+
+  // 闯关的庄家带的是**它自己那张表**上那条（见 DRAW_FOE_SPECIALS）。
+  //
+  // 按 key 问而不是按下标：这 11 条每条的落点都不一样（硬壳在 catchStart、
+  // 偏流在 playFor、添手在 handLimit……），所以调用处写的是
+  // `hasFoeSpecial('shell')` 这种能一眼读懂的东西，而不是一个常量下标。
+  //
+  // 终局的庄家走 hasSpecial —— 那一局它摇的是玩家那张表
+  function hasFoeSpecial(key : string) : boolean {
+    if (foeAt.value <= 0) {
+      return false
+    }
+    return foeRoleAt(foeAt.value).special == key
+  }
+
+  // 这儿原先有个 specialText（角色名 + 技能名 + 整句效果，摆在技能栏下面
+  // 当一行小字）。布局改过之后那一行没了 —— 技能栏上只摆
+  // 「篓翁·满篓」这个标签（roleTag），整句效果点一下看（showRole）
+
+  // ---------- 【囤饵】：开局往牌库塞 BAIT_COUNT 张，再洗 ----------
+  //
+  // 塞的是「这个角色第一个数字槽那个点数」（见 baitRankOf）——
+  // 那个槽的牌变多，嵌在它上面的技能就更常响。
+  //
+  // 几条要点：
+  //   **牌库是共用的** —— 塞进去的牌对手也摸得到（只是他的槽不在那个
+  //     标签上，摸到只是普通牌）。这是它三条外部制衡之一。
+  //   **塞完要洗** —— 不洗的话那几张堆在库底，等于没塞。
+  //   **DECK_CAP 兜一道** —— 牌组买厚了之后可能塞不下，
+  //     塞几张算几张，少塞了要说一声（静默吞掉的话玩家只会以为技能坏了）。
+  //   花色随机 —— 塞「3 张 7」没说是哪三张 7，随机挑免得总是 ♠
+  function baitFor(byFoe : boolean) {
+    if (!hasSpecial(byFoe, SP_BAIT)) {
+      return
+    }
+    const r = byFoe ? foeRole.value : myRole.value
+    const rank = baitRankOf(r)
+    if (rank == '') {
+      return
+    }
+    let room = DECK_CAP - deck.value.length
+    if (room <= 0) {
+      message.value = message.value + (byFoe ? ' 庄家囤饵：' : ' 囤饵：')
+        + '牌组满了，一张也塞不进去。'
+      return
+    }
+    let n = BAIT_COUNT
+    if (n > room) {
+      n = room
+    }
+    const next = deck.value.slice(0)
+    for (let i = 0; i < n; i++) {
+      const suit = SUITS[Math.floor(Math.random() * SUITS.length)]
+      next.push({
+        suit: suit,
+        rank: rank,
+        value: valueOfRank(rank),
+        extra: [] as number[]
+      } as PlainCard)
+    }
+    // 洗整副 —— 塞完堆在库底等于没塞
+    for (let i = next.length - 1; i > 0; i--) {
+      const k = Math.floor(Math.random() * (i + 1))
+      const tmp = next[i]
+      next[i] = next[k]
+      next[k] = tmp
+    }
+    deck.value = next
+    const short = n < BAIT_COUNT ? '（牌组快满了，只塞进 ' + n + ' 张）' : ''
+    message.value = message.value + (byFoe ? ' 庄家囤饵：' : ' 囤饵：')
+      + '牌库里多了 ' + n + ' 张 ' + rank + short + '。'
+  }
+
+  // 堆上第 index 张牌带着什么场上效果，返回效果名（多个用「·」连）。
+  //
+  // 一张牌最多触发两个技能（花色槽一个、点数槽一个），所以最多两个名字。
+  // 没有就返回空串，模板那边 v-if 掉
+  function pileEffectName(index : number) : string {
+    if (index >= pile.value.length) {
+      return ''
+    }
+    const card = pile.value[index]
+    let text = ''
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].source == card) {
+        text = text + (text == '' ? '' : '·') + DRAW_SKILLS[held.value[i].skill].name
+      }
+    }
+    return text
+  }
+
+  // 技能行上那个标签只写**角色名 + 技能名**（「篓翁·满篓」）——
+  // 一行要塞得下点数技能那几个 chip，所以这儿不能写整句效果。
+  // 整句在哪看：点一下它，说明框里有（见 showRole）
+  //
+  // 庄家那一侧分两路：闯关按关号查 DRAW_FOE_ROLES（它自己那张表），
+  // 终局查 DRAW_ROLES（跟玩家同一张）。见 foeRole / foeAt 那段
+  function roleTag(byFoe : boolean) : string {
+    if (byFoe && foeAt.value > 0) {
+      // 浅滩前三关的庄家没有特殊技，只有名字 —— 名字也得报，
+      // 它是「这一关是谁」那条可学的信息
+      const name = foeRoleAt(foeAt.value).name
+      const sp = foeSpecialNameAt(foeAt.value)
+      return sp == '' ? name : name + '·' + sp
+    }
+    const r = byFoe ? foeRole.value : myRole.value
+    if (r < 0 || r >= DRAW_ROLES.length) {
+      return ''
+    }
+    const at = specialIndexOf(DRAW_ROLES[r].special)
+    return at < 0 ? '' : DRAW_ROLES[r].name + '·' + SPECIAL_SKILLS[at].name
+  }
+
+  // ---------- 【逆流】：角色带的那件，每回合你自己选 ----------
+  //
+  // 点数槽那件【沉底】是**强制**的（打出覆盖面里的牌就落堆底），
+  // 逆流是**可选**的 —— 那正是它在设计上最值钱的地方：
+  // 它不给数值，给的是每回合多一个决定（落堆顶还是堆底）。
+  //
+  // 它原先也叫「沉底」，和点数技能同名同效。改名的理由在
+  // draw-skills 的 SPECIAL_SKILLS 表里那条 —— 简单说：界面上并排
+  // 出现两个沉底，而规则不一样。
+  //
+  // 开关**保持状态**，不是每回合重置。两者等价（开关就是每回合都在
+  // 生效的选择，你随时改得动），但保持状态少按很多次 ——
+  // 而且它让「这一局我走堆底路线」成为一个能坚持的策略
+  const sinkOn = ref<boolean>(false)
+
+  const hasSinkSpecial = computed<boolean>(() : boolean => {
+    return hasSpecial(false, SP_REVERSE)
+  })
+
+  // 这一手要不要往堆底落（只管角色那件常驻的；点数槽那件在 playFor 里单独判）
+  function wantSink(byFoe : boolean, card : PlainCard, skills : number[]) : boolean {
+    if (!hasSpecial(byFoe, SP_REVERSE)) {
+      return false
+    }
+    if (!byFoe) {
+      return sinkOn.value
+    }
+    // ---- 庄家自己算：哪头收得多就往哪头落 ----
+    //
+    // 钓不到的时候**不沉** —— 沉底空钩是最危险的下饵（那张躺在堆底，
+    // 谁匹配到它就通吃整堆，见 foePickCard 里那条 +pile.length*0.5）
+    const normal = catchStart(card, true, skills, false)
+    const sunk = catchStart(card, true, skills, true)
+    const nGain = normal >= 0 ? pile.value.length - normal + 1 : 0
+    const sGain = sunk >= 0 ? sunk + 2 : 0
+    return sGain > nGain
+  }
+
+  // 【活水】：牌库顶那几张写成一行。没带这件、或者牌库空了就是空串
+  const liveText = computed<string>(() : string => {
+    if (!hasSpecial(false, SP_LIVEWATER) || deck.value.length == 0) {
+      return ''
+    }
+    const tops = topCards(LIVE_OPEN)
+    let text = ''
+    for (let i = 0; i < tops.length; i++) {
+      text = text + (i == 0 ? '' : '、') + cardName(tops[i])
+    }
+    return '活水 · 牌库顶：' + text
+  })
+
+  const myRoleName = computed<string>(() : string => {
+    return roleTag(false)
+  })
+
+  const foeRoleName = computed<string>(() : string => {
+    return roleTag(true)
+  })
 
   function loadoutOf(byFoe : boolean) : DrawLoadout {
     return byFoe ? level.value.loadout : myLoadout.value
@@ -805,6 +1309,29 @@
     return byFoe ? g == GUARD_ME : g == GUARD_FOE
   }
 
+  // ---------- 【硬壳】：庄家打出的 ♠ 你钓不走 ----------
+  //
+  // 跟护饵（pileGuard）长得像，但**不是同一回事**，所以不能复用它：
+  //
+  //   护饵是**一张牌的状态**（稳钩给头几张挂上，收走就没了），
+  //   硬壳是**一整关的规则**（庄家的每一张 ♠ 都算，打多少张都算）。
+  //
+  // 存成 pileGuard 的话，每次 pushPile 都得记得判一次这条 ——
+  // 而漏判一次就是「有一张 ♠ 莫名其妙钓得走」那种查不出来的 bug。
+  // 判在这儿只有一个入口，不会漏。
+  //
+  // **J 通吃收得走**：那是它唯一的解，而 catchStart 的 J 那一支
+  // 在这个函数之前就 return 了，所以这儿天然不管 J
+  function shelled(index : number, byFoe : boolean) : boolean {
+    if (byFoe || !hasFoeSpecial('shell')) {
+      return false
+    }
+    // 认牌面花色，不认 pileSuitAt —— 硬壳说的是「它打出来的那张是 ♠」，
+    // 而染水那类改的是「堆上这张现在算什么花色」。
+    // 认现算的话，庄家一染水就能把整堆变成硬壳，那太离谱了
+    return pileByFoe.value[index] && pile.value[index].suit == SUITS[0]
+  }
+
   // 打出这张会从堆里第几张开始收，-1 表示钓不到。skills 是这张触发的技能。
   //   J 通吃：堆上有牌就从第 0 张收起，护饵也挡不住；
   //   同点数（磁钩：或者比它大 1 的点数）：找最靠前的那张，被对方护着的跳过；
@@ -839,22 +1366,67 @@
       }
       return sink ? size - 1 : 0
     }
+    // ---------- 【封竿】：摇定一个点数，你打它只是落堆 ----------
+    //
+    // 判在**最前面**（J 那一支之后），因为它说的是「这一张什么都钓不到」——
+    // 放在遍历里当成「每张都跳过」是等价的，但量水那条会漏（它不走遍历）。
+    //
+    // 只管玩家。庄家打那个点数照旧 —— 封竿是它的技能，不是场地规则。
+    // **J 不受封**：上面那一支已经 return 了，所以它天然在封竿之外，
+    // 而那正是对的 —— 一关里连 J 都封掉就没有解了
+    if (!byFoe && sealedRank.value != '' && card.rank == sealedRank.value) {
+      return -1
+    }
     const hook = hasTrigger(skills, SK_HOOK)
     const suited = hasTrigger(skills, SK_SUITED)
     // 我这张算哪几个点数。顺色换掉了整个点数，所以它这儿是空的 ——
     // 空列表跟谁都没交集，点数那两条线对它一概不成立
     const mine = valuesOf(card, skills)
+    // 量水：这张的点数正好等于牌堆张数 → 整堆连它一起收走。
+    //
+    // 判在遍历**之前**，因为它收得最多（整堆）—— 先走普通判定的话，
+    // 随便命中一张浅的就把量水盖掉了。
+    //
+    // 堆超过 13 张它自己就触发不了（点数最大 13），那个上限不用判；
+    // 「至少 MEASURE_MIN 张」那条闸的理由写在 draw-skills 的注释里
+    //
+    // 走 anyEquals 而不是直接比 card.value，是为了跟周围那两条判定一致 ——
+    // 它顺带白拿了两条：点数贴能让一张牌算好几个点数（多一次命中机会），
+    // 而**分水降成的 0 点不算**（anyEquals 里 gap==0 时跳过 0）。
+    // 0 点的牌通吃全堆没道理
+    if (hasTrigger(skills, SK_MEASURE) && size >= MEASURE_MIN) {
+      const want : number[] = [size]
+      if (anyEquals(mine, want, 0)) {
+        // 一网打尽，而**护着的牌是网里的洞** —— 堆上只要有一张钓不走的，
+        // 这一网就撒不下去。顺带给【稳钩】和【硬壳】各添了一个用处。
+        //
+        // 下面那条普通判定对这两样是 continue（绕过去接着找）——
+        // 它们挡的是**起点**。量水这儿不能绕：绕过一张就不叫整堆了
+        let blocked = false
+        for (let i = 0; i < size; i++) {
+          if (guardedAgainst(i, byFoe) || shelled(i, byFoe)) {
+            blocked = true
+            break
+          }
+        }
+        if (!blocked) {
+          return sink ? size - 1 : 0
+        }
+      }
+    }
     for (let n = 0; n < size; n++) {
       // 沉底从堆顶往下数，普通从堆底往上数
       const i = sink ? size - 1 - n : n
-      if (guardedAgainst(i, byFoe)) {
+      // 护饵和硬壳都是「这张跳过去接着找」—— 它们挡的是**起点**，
+      // 不是整次钓牌。绕过一张硬壳，还能钓到它底下那张
+      if (guardedAgainst(i, byFoe) || shelled(i, byFoe)) {
         continue
       }
       const p = pile.value[i]
       const theirs = pileValsAt(i)
       // 花色比的是 pileSuitAt 而不是牌面 —— 染水能把整堆染成一个花色
       //（而它**先于这一步**结算，见 playFor 里那段）
-      if (suited && pileSuitAt(i) == card.suit) {
+      if (suited && sameSuit(pileSuitAt(i), card.suit, byFoe)) {
         return i
       }
       if (anyEquals(mine, theirs, 0)) {
@@ -865,20 +1437,14 @@
         return i
       }
     }
-    // 钩顶：上面都对不上，就钓**紧贴着你这张**的那一张。
+    // 这儿原先还有一支【钩顶】（都对不上就钓紧贴着你这张的那一张）。
+    // 那件技能删了，所以判定到这儿就只有「钓不到」一个结果。
     //
-    // 普通打法你落堆顶，紧贴着的就是堆顶那张（下标 size-1）——
-    // 收走它和你自己，一共 2 张。
-    //
-    // 沉底的话你落堆底，紧贴着的是**堆底**那张（下标 0）。
-    // 这儿必须跟着镜像，不然 沉底+钩顶 就成了一个**无条件的全堆清场**：
-    // 钩顶本来就是「什么都对不上时」触发的（很常见），
-    // 而沉底收的是「堆底 → 匹配那张」—— 两件凑一起要是还钓堆顶，
-    // 那就是每次空钩都通吃，没有任何代价。镜像之后它照旧只收 2 张
-    const near = sink ? 0 : size - 1
-    if (hasTrigger(skills, SK_TOP) && size > 0 && !guardedAgainst(near, byFoe)) {
-      return near
-    }
+    // 它当初逼出过一条规则值得记着：钩顶钓的是「紧贴着」那张，
+    // 所以**沉底的时候要镜像**（普通落堆顶→钓堆顶，沉底落堆底→钓堆底）。
+    // 不镜像的话「沉底 + 钩顶」就是个无条件全堆清场 ——
+    // 钩顶本来就在「什么都对不上」时触发，那太常见了。
+    // 以后再加这类「钓相邻那张」的技能，这条得一起加回来
     return -1
   }
 
@@ -894,6 +1460,14 @@
   // 所以不能靠往 foeShown 里写标记，得在这儿现判
   function foeOpen(index : number) : boolean {
     if (heldOn(SK_LANTERN, false)) {
+      return true
+    }
+    // 【清水】（角色的常驻技能）：对方**前 2 张**手牌一直明着。
+    //
+    // 按下标算，所以明的永远是最左边两张。手牌会打出去、会补，
+    // 下标一直在动 —— 于是「哪两张明着」是流动的。那正好，
+    // 不然对手能靠藏牌位置骗你
+    if (index < CLEAR_OPEN && hasSpecial(false, SP_CLEAR)) {
       return true
     }
     // 压舱、摘钩、对换正等你挑的时候，它那一手**全明着** ——
@@ -922,22 +1496,128 @@
     return false
   }
 
+  // 挂一条效果上去。
+  //
+  // **换引用而不是 push** —— held 是 ref，而牌桌上那条「场上效果」栏
+  // 读它渲染。原地 push 在 uvue 这边不保证触发更新，
+  // 项目里别的几条 ref 数组（pile、deck…）也都是换引用
+  function addHeld(one : HeldEffect) {
+    held.value = held.value.concat([one])
+  }
+
   // 效果牌已经离场的，清掉。每次收完牌调一次
   function expireHeld() {
     const next : HeldEffect[] = []
-    for (let i = 0; i < held.length; i++) {
-      if (inPile(held[i].source)) {
-        next.push(held[i])
+    for (let i = 0; i < held.value.length; i++) {
+      if (inPile(held.value[i].source)) {
+        next.push(held.value[i])
       }
     }
-    held = next
+    held.value = next
+  }
+
+  // ---------- 「场上效果」栏 ----------
+  //
+  // 挂在牌上的效果**常驻摆出来**，挂到失效为止。
+  //
+  // ---- 为什么非摆不可 ----
+  //
+  // 从前 held 只在逻辑里读、一次都没渲染过，于是这几件的状态
+  // 只在触发那一瞬间往战况框里写一句话，之后就被下一条战况冲掉了。
+  //
+  // 对照水、窄口那几件这还只是「不方便」。可抹点数那三件
+  //（压邻、封色、分水）**改的是每一张落堆牌算几点** ——
+  // 玩家不知道场上挂着封色，就根本算不出自己这张打下去值几点。
+  // 那不是「要记」，那是信息没给。
+  //
+  // ---- 写什么 ----
+  //
+  // 锚点在前、名字在后（跟技能栏一个规矩）。但这儿的锚点写的是**后果**，
+  // 不是覆盖面 —— 牌桌上你要的答案是「我这张会怎样」，
+  // 而不是「这个技能管哪几格」。
+  type FieldChip = {
+    // held 里的下标。点一下要按它查原条目
+    at : number
+    byFoe : boolean
+    // 后果（♠没点数、奇数→0点…）
+    anchor : string
+    name : string
+  }
+
+  const fieldChips = computed<FieldChip[]>(() : FieldChip[] => {
+    const out : FieldChip[] = []
+    for (let i = 0; i < held.value.length; i++) {
+      const one = held.value[i]
+      out.push({
+        at: i,
+        byFoe: one.byFoe,
+        anchor: fieldAnchor(one),
+        name: DRAW_SKILLS[one.skill].name
+      } as FieldChip)
+    }
+    return out
+  })
+
+  // 这条效果**现在对牌桌做什么**，一句短话。
+  //
+  // 封色读的是那张牌**现在**的花色（染水能把整堆染过色），
+  // 所以这儿得查它在堆里第几张 —— 跟 suitSealed 同一个口径
+  function fieldAnchor(one : HeldEffect) : string {
+    if (one.skill == SK_HUEVOID) {
+      const at = pileIndexOf(one.source)
+      return (at >= 0 ? pileSuitAt(at) : one.source.suit) + '没点数'
+    }
+    if (one.skill == SK_ODD) {
+      // 跟它奇偶**不同**的那半边会被压成 0 点
+      return (one.source.value % 2 == 0 ? '奇数' : '偶数') + '→0点'
+    }
+    if (one.skill == SK_VOID) {
+      return '下一张作废'
+    }
+    if (one.skill == SK_LANTERN) {
+      return '手牌明置'
+    }
+    if (one.skill == SK_FREEZE) {
+      return '锁1张'
+    }
+    // 别的（窄口、满篓……）没有「一句话后果」可写，就留空 ——
+    // 标签上只剩技能名，点一下看全文
+    return ''
+  }
+
+  // chipAt 的号段：0+ 是你的技能栏，100+ 是庄家的，200+ 是场上效果。
+  // 三栏共用一个 chipAt，所以点了新的会自动把旧的收起来
+  const FIELD_CHIP_BASE : number = 200
+
+  // 点「场上效果」栏的一格：说明框改播它的全文 + **挂在哪张牌上、堆里第几张**。
+  //
+  // 后面那半句是重点 —— 挂牌效果的解除条件就是「那张牌被钓走」，
+  // 所以「它埋得多深」是玩家唯一需要的破解信息
+  function showField(index : number) {
+    const at = FIELD_CHIP_BASE + index
+    if (chipAt.value == at) {
+      closeChip()
+      return
+    }
+    if (index >= held.value.length) {
+      return
+    }
+    const one = held.value[index]
+    chipAt.value = at
+    const spot = pileIndexOf(one.source)
+    const where = spot >= 0
+      ? '挂在 ' + cardName(one.source) + '（堆里第 ' + (spot + 1) + ' 张）'
+      : '那张牌已经不在堆上了'
+    chipHead.value = (one.byFoe ? '庄家 · ' : '') + DRAW_SKILLS[one.skill].name
+      + ' 〔场上〕 · ' + where
+    chipBody.value = DRAW_SKILLS[one.skill].desc + '钓走那张牌，效果就解除。'
   }
 
   // byFoe 那一方打出的某个效果还挂着吗。
   // 比如 heldOn(SK_LANTERN, false) = 「你的照水还亮着」
   function heldOn(skill : number, byFoe : boolean) : boolean {
-    for (let i = 0; i < held.length; i++) {
-      if (held[i].skill == skill && held[i].byFoe == byFoe) {
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill == skill && held.value[i].byFoe == byFoe) {
         return true
       }
     }
@@ -946,8 +1626,8 @@
 
   // 这张手牌被冻住了吗（打不出去）
   function isFrozen(card : PlainCard) : boolean {
-    for (let i = 0; i < held.length; i++) {
-      if (held[i].skill == SK_FREEZE && held[i].target == card) {
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill == SK_FREEZE && held.value[i].target == card) {
         return true
       }
     }
@@ -1006,6 +1686,54 @@
         if (theirs[b] == mine[a] + gap) {
           return true
         }
+      }
+    }
+    return false
+  }
+
+  // ================= 规则：点数减不到负数，最小是 0 =================
+  //
+  // **这是一条全局规则，不属于任何一件技能。** 凡是「把堆上的点数往下减」
+  // 的效果（【见底】整堆 −1、【退潮】底下几张 −牌面点数，以后再加的也一样）
+  // 都走这儿，所以减法的语义只有一份：
+  //
+  //   每个点数各自减，**减到 0 就停住**，不出现负数；
+  //   减重了的不重复塞（一张 [2,3] 减 5 得 [0]，不是 [0,0]）——
+  //     界面上那个「现在算几点」只写一个 0 才读得顺；
+  //   **空列表原样返回** —— 没有点数的牌（顺色、洪水、封色那几件留下的）
+  //     压根不在点数这条轴上，减它没有意义。
+  //
+  // 把它提成一个函数而不是在每件技能里各写一遍，是因为这条规则
+  // **决定了一串别的判定**（0 对 0 不算相等、撒网把 0 当偶数、
+  // 见底收走没有非零点数的牌），那些判定都假定「0 是个实打实的点数」。
+  // 哪天有人在某一件技能里把它写成「减成负数」或者「减到 0 就删掉」，
+  // 那一串判定会一起错，而且错得很难查
+  function dropVals(was : number[], by : number) : number[] {
+    if (was.length == 0) {
+      return was
+    }
+    const now : number[] = []
+    for (let k = 0; k < was.length; k++) {
+      let v = was[k] - by
+      if (v < 0) {
+        v = 0
+      }
+      if (!hasValue(now, v)) {
+        now.push(v)
+      }
+    }
+    return now
+  }
+
+  // 这张牌还有没有**非零**的点数。
+  //
+  // 「点数为 0 的牌」说的就是这个：它可能带着好几个点数（贴过点数卡），
+  // 只要还剩一个非零的，它就还钓得上人、也还被人钓得上 —— 那不算见底。
+  // 全是 0 才算（最常见的情形是只剩一个 0）
+  function anyLive(vals : number[]) : boolean {
+    for (let k = 0; k < vals.length; k++) {
+      if (vals[k] != 0) {
+        return true
       }
     }
     return false
@@ -1196,22 +1924,28 @@
   //
   // 为什么非得这么早：
   //
-  //   · 【顺色】的匹配（catchStart 里 `pileSuitAt(i) == card.suit` 那行）
+  //   · 【顺色】的匹配（catchStart 里那行 sameSuit(pileSuitAt(i), card.suit…)）
   //     发生在落堆判定那一刻。染水要是晚一步，同一张牌上的顺色
   //     看见的就是染色**前**的堆 —— 组合当场失效。
   //     先染的话顺色命中的必然是最深那张，也就是**整堆通收**。
-  //   · 【见底】数的是场上黑牌张数。先染黑，N 就等于整堆张数；
-  //     先染红，N 变成 0 —— 同一张牌上那件技能的强弱整个翻过来。
   //
   // 这是全表第一组真正的**机制级联动**（从前的「连招」都只是玩家
   // 操作上的配合，见设计文档 8.2）。它贵在难凑：两个技能得落在
   // 同一张牌上 —— 除非你还带着【连竿】，那就只要同一个回合。
   //
+  // ---- 它跟【见底】的那条组合**拆掉了** ----
+  //
+  // 原先见底压的是「场上黑牌张数」，于是染黑 → N 拉满 → 整堆端走，
+  // 两件凑成一个必杀。见底改成死数 −1 之后那条翻倍没了
+  //（理由见 draw-skills 见底那段）。
+  //
+  // 染黑**还是有用**，只是从「给见底堆料」变成了「给顺色开路」——
+  // 一条通道变宽，而不是一次收成翻倍。
+  //
   // ---- 它自己一分不加 ----
   //
-  // 花色不参与点数那条钓牌判定，所以单独带着它什么也不会发生。
-  // 它的全部价值在顺色和见底身上，而**你打的那张是红是黑**
-  // 决定了它干哪件事：染黑是给自己的见底堆料，染红是把对方的见底拆掉。
+  // 花色不参与点数那条钓牌判定，所以单独带着它什么也不会发生 ——
+  // 它的全部价值在**顺色**身上。
   //
   // ---- 它是双刃的 ----
   //
@@ -1249,10 +1983,40 @@
   // 这件事本身，不是「牌面那个数」。贴了三个点数的牌打顺色，三个一起没
   function valuesOf(card : PlainCard, skills : number[]) : number[] {
     // 顺色拿点数换一次按花色钓；洪水拿点数换一串翻牌；
-    // 收色拿点数换一次按花色的清扫。三件都是「这张牌的点数整个不算了」
+    // 收色拿点数换一次按花色的清扫。三件都是「这张牌的点数整个不算了」。
+    //
+    // 抹点数那一族里的四件也在这儿（压邻、掏手、掏库、封色）——
+    // 它们的说明第一句就是「它自己没有点数」。
+    // 【分水】不在：它是全族唯一保留自己点数的，那是它能被钓走、
+    // 因此敢封那么大面积的前提（见 draw-skills 里那段）
     if (hasTrigger(skills, SK_SUITED) || hasTrigger(skills, SK_FLOOD)
-      || hasTrigger(skills, SK_HUE)) {
+      || hasTrigger(skills, SK_HUE)
+      || hasTrigger(skills, SK_VOID) || hasTrigger(skills, SK_DUMP)
+      || hasTrigger(skills, SK_SPILL) || hasTrigger(skills, SK_HUEVOID)) {
       return [] as number[]
+    }
+    // ---- 退潮和见底：**它们自己也归 0** ----
+    //
+    // 两件都在自己造的那阵退潮里：退潮减掉自己的点数就是 0，
+    // 见底压的是整堆、自己当然也在整堆里。
+    // 于是两件都钓不到任何牌（0 点互不匹配，见 anyEquals）——
+    // 那正是它们该有的样子：**这一手不是用来钓的，是用来施工的**。
+    //
+    // 见底还因此**连自己一起收走**（它收「点数为 0 的牌」，而它自己就是），
+    // 退潮不收牌所以留在堆上。
+    //
+    // ---- 0 点和「无点数」是两样东西，区别就在这儿 ----
+    //
+    //   **0 点**在点数这条轴上，值是 0，所以它参与点数运算 ——
+    //     撒网按奇偶收它（0 算偶数）、见底和干塘按「点数为 0」收它。
+    //   **无点数**（返回空列表那一族）压根不在这条轴上 ——
+    //     减点数的一概跳过它（dropVals 对空列表原样返回），
+    //     所以它**连「被压到底」都做不到**，只能靠 J / 顺色 / 收色 带走。
+    //
+    // **盖掉点数卡贴的那几个** —— 跟齐顶一样是「改成那个数」，
+    // 不是「多一个候选」。贴过三个点数的牌打退潮或见底，三个一起归 0
+    if (hasTrigger(skills, SK_EBB) || hasTrigger(skills, SK_LOWTIDE)) {
+      return [0]
     }
     // ---- 齐顶：这张算堆上**最大**的那个点数 ----
     //
@@ -1286,11 +2050,114 @@
     return out
   }
 
+  // ---------- 场上挂着的「抹点数」效果 ----------
+  //
+  // valuesOf 回答的是「**这张牌自己**算几点」—— 只看它身上的技能。
+  // 可抹点数那一族里有三件是**在场效果**：堆上挂着一张，就把后面落下来的
+  // 牌抹掉。那跟打出的是谁、带什么技能无关，所以得单独一层。
+  //
+  // landVals 是那一层：先算它自己的点数，再让场上的效果改一遍。
+  // 凡是「牌落到堆上」的路都得走它（playFor、搅水、洪水、掏手、掏库…），
+  // **不许直接用 valuesOf 落堆** —— 漏一处那几件技能就对那条路失效。
+  //
+  // 三件的优先顺序：无点数比 0 点更彻底，所以先判无点数那两件。
+  // 都不中才轮到分水那条 0 点
+  function landVals(card : PlainCard, skills : number[], sink : boolean) : number[] {
+    const own = valuesOf(card, skills)
+    if (own.length == 0) {
+      // 它自己就没点数，没什么可抹的了
+      return own
+    }
+    // 压邻：抹掉**紧挨着它右边**落下的那一张。
+    //
+    // 牌堆下标越大越靠右，所以「它右边」= 它下标 +1 = 落在它上面。
+    // 一张牌右边只有一个位置，所以只有「压邻正好是堆顶」的时候
+    // 新落下的那张才在那个位置上。
+    //
+    // 沉底打出的牌落在堆底（下标 0），左边没有任何东西 —— 一概不受影响
+    if (!sink && topCarriesVoid()) {
+      return [] as number[]
+    }
+    // 封色：跟场上那张封色牌**现在的花色**同花色就没点数。
+    // 读现在的花色而不是牌面 —— 染水能把整堆染成一个色（那正是组合点）
+    if (suitSealed(card.suit)) {
+      return [] as number[]
+    }
+    // 分水：牌面点数的奇偶跟场上那张分水牌不同，就落成 0 点。
+    //
+    // 按**牌面点数**（card.value）算奇偶，不看点数卡贴的那几个 ——
+    // 贴卡改的是「它算哪几个点数」，不改它印着什么
+    if (parityBlocked(card.value)) {
+      return [0]
+    }
+    return own
+  }
+
+  // 堆顶那张带着【压邻】吗（而且还挂着）
+  function topCarriesVoid() : boolean {
+    if (pile.value.length == 0) {
+      return false
+    }
+    const top = pile.value[pile.value.length - 1]
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill == SK_VOID && held.value[i].source == top) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 场上有【封色】牌，而且它现在的花色正是 suit
+  function suitSealed(suit : string) : boolean {
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill != SK_HUEVOID) {
+        continue
+      }
+      const at = pileIndexOf(held.value[i].source)
+      if (at >= 0 && pileSuitAt(at) == suit) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 场上有【分水】牌，而且 value 的奇偶跟它牌面点数的奇偶不同
+  function parityBlocked(value : number) : boolean {
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill != SK_ODD) {
+        continue
+      }
+      if (!inPile(held.value[i].source)) {
+        continue
+      }
+      if (held.value[i].source.value % 2 != value % 2) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 这张牌在堆里第几个，-1 表示不在了
+  function pileIndexOf(card : PlainCard) : number {
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pile.value[i] == card) {
+        return i
+      }
+    }
+    return -1
+  }
+
   // 打出一张手牌：先落堆，撞上了就开始收牌特效。返回要收走几张（0 = 没钓到）。
   // 钓到时牌不是马上拿掉的 —— 特效放完才拿掉、才记分，然后由 finishCatch 接着结算技能、交回合
   function playFor(byFoe : boolean, index : number) : number {
     const card = takeFromHand(byFoe, index)
     const skills = skillsOf(byFoe, card)
+    // 数一下这一方打到第几张了 —— 【稳钩】要「前 N 张」
+    if (byFoe) {
+      foePlayed = foePlayed + 1
+    } else {
+      myPlayed = myPlayed + 1
+    }
     // ---- 带「优先」的两件在**钓牌判定之前**结算 ----
     //
     // 顺序：先染水（定花色），再沉底（定落点）。两件都改钓牌判定的输入，
@@ -1299,14 +2166,44 @@
     // 沉底在这儿只是**读出来**，真正落堆在下面 —— 因为落堆的位置
     // 还要分「钓到了 / 没钓到」两条路走
     firstNote = hasTrigger(skills, SK_SUITIFY) ? suitifyFor(byFoe, card) : ''
-    const sink = hasTrigger(skills, SK_SINK)
+    // 「往堆底落」有三条来路，名字各不相同：
+    //   点数槽的【沉底】—— 打出覆盖面里的牌就**强制**落堆底；
+    //   角色的【逆流】 —— **每回合你自己选**（开关见 sinkOn / wantSink）；
+    //   闯关庄家的【偏流】—— **每一张都落堆底**，整关不变。
+    //
+    // 三条搭在 sink 这同一个变量上而不是各写一条落堆路径 ——
+    // 「这张落哪头」在 playFor 里牵着四处（判定方向、护饵、收牌区间、
+    // 下标偏移），再开一条就是四处各一个分支，必漏一个。
+    //
+    // 播报里**不提技能名**，只说发生了什么（「打到了堆底」）——
+    // 三条来路共用这一句，写死任一个名字在另两条上就是错的
+    const sink = hasTrigger(skills, SK_SINK) || wantSink(byFoe, card, skills)
+      || (byFoe && hasFoeSpecial('drift'))
     if (sink) {
-      firstNote = firstNote + (byFoe ? ' 庄家沉底：那张打到了堆底。' : ' 沉底：这张打到了堆底。')
+      firstNote = firstNote + (byFoe ? ' 庄家那张打到了堆底。' : ' 这张打到了堆底。')
     }
     const at = catchStart(card, byFoe, skills, sink)
+    // 【封竿】挡住的那一下**要说出来**。
+    //
+    // 不说的话它就是「这张莫名其妙钓不到」—— 而封的那个点数
+    // 商店预告里没给（只说了有一个点数被封），所以你本来是要试出来的。
+    // 试出来之后得知道自己试出来了，不然就只是觉得规则坏了。
+    //
+    // 判在 catchStart 外面而不是里面：那个函数庄家挑牌时一回合要跑十几次，
+    // 在里面写话会把 message 刷成一片
+    if (!byFoe && sealedRank.value != '' && card.rank == sealedRank.value) {
+      firstNote = firstNote + ' 封竿：' + sealedRank.value + ' 被封着，这张钓不到任何牌。'
+    }
     pendingSkills = skills
     lastPlayed = card
-    const worth = valuesOf(card, skills)
+    // 落堆算几点：先是它自己的（valuesOf），再让场上挂着的
+    // 压邻 / 封色 / 分水 改一遍（landVals）。
+    //
+    // **钓牌判定（上面那行 catchStart）读的不是这个** —— 判定问的是
+    // 「我这张够不着谁」，那是它打出去那一刻的事；抹点数抹的是
+    // 「它躺在堆上值几点」。所以一张被封色抹掉的牌照样钓得到东西，
+    // 只是钓完要是没走、留在堆上，它就成了死牌
+    const worth = landVals(card, skills, sink)
     // J 打在空堆上：没有可通吃的，就**只勾走它自己**（记 1 分）。
     //
     // 不改 catchStart（那边空堆照旧返回 -1）：庄家挑牌、手牌高亮都读它，
@@ -1318,8 +2215,13 @@
       return 1
     }
     if (at < 0) {
-      // 没钓到：沉底的插到堆底，普通的落堆顶
-      const guard = hasTrigger(skills, SK_GUARD)
+      // 没钓到：沉底的插到堆底，普通的落堆顶。
+      //
+      // guard 这一位从前是【护饵】写的，那件技能删了 —— 现在写它的是
+      // 角色的【稳钩】：**每局前 FIRM_GUARD 张**落堆的牌自带护
+      //（对方下一回合钓不走）
+      const played = byFoe ? foePlayed : myPlayed
+      const guard = played <= FIRM_GUARD && hasSpecial(byFoe, SP_FIRMHOOK)
         ? (byFoe ? GUARD_FOE : GUARD_ME) : GUARD_NONE
       if (sink) {
         unshiftPile(card, byFoe, guard, worth)
@@ -1400,10 +2302,37 @@
     pileGuard.value = keepGuard
     pileVals.value = keepVals
     pileSuit.value = keepSuit
-    // 刚收走的那一段里要是有谁的效果牌，那个效果到此为止 ——
-    // 「挂在牌上」的意思就是牌没了效果也没了
-    expireHeld()
     const byFoe = catchByFoe.value
+    // ---- 【深钩】：钓到了就**额外再收堆底 DEEP_EXTRA 张** ----
+    //
+    // 在上面那一段收完之后才收，所以数的是**剩下的堆**：
+    // 刚才那一钩已经把牌拿走了，堆底可能已经空了 —— 那就少收或者收不着。
+    // 这也是它跟沉底的分工：沉底改的是「从哪头收」，深钩是「顺手多捞一把」。
+    //
+    // **它仍然可能偏强**：一局钓 9 次就是多收 9 张，而一件技能的目标
+    // 是一局 3~5 分。等模拟器量过（设计文档 12.7）
+    if (hasSpecial(byFoe, SP_DEEPHOOK) && pile.value.length > 0) {
+      let extra = DEEP_EXTRA
+      if (extra > pile.value.length) {
+        extra = pile.value.length
+      }
+      const gone2 = goneRanks.value.slice(0)
+      for (let i = 0; i < extra; i++) {
+        gone2.push(pile.value[i].rank)
+      }
+      goneRanks.value = gone2
+      pile.value = pile.value.slice(extra)
+      pileByFoe.value = pileByFoe.value.slice(extra)
+      pileGuard.value = pileGuard.value.slice(extra)
+      pileVals.value = pileVals.value.slice(extra)
+      pileSuit.value = pileSuit.value.slice(extra)
+      caught = caught + extra
+      message.value = message.value + ' 深钩：顺手捞走堆底 ' + extra + ' 张。'
+    }
+    // 刚收走的那几张里要是有谁的效果牌，那个效果到此为止 ——
+    // 「挂在牌上」的意思就是牌没了效果也没了。
+    // **摆在深钩之后**：它也可能收走效果牌
+    expireHeld()
     if (byFoe) {
       foeScore.value = foeScore.value + caught
       flashFoe.value = true
@@ -1416,7 +2345,63 @@
     flyOn.value = false
     catchFrom.value = -1
     catchTo.value = -1
+    // ---------- 庄家钓到之后那两条特殊技 ----------
+    //
+    // 两条都**只在钓到时**发动，所以落在 finishCatch 而不是 afterPlay ——
+    // afterPlay 钓到没钓到都走，挂那儿就成了「每回合都发动」。
+    //
+    // 【守滩】：往堆上垫一张自己的手牌。它是涡心（第 10 关）那一关的轴 ——
+    // 它染水、它见底，而这条逼它不停给自己堆料。
+    if (byFoe && hasFoeSpecial('guard')) {
+      guardPushFor()
+    }
+    // 【再钩】：钓到了就能再打一张。
+    //
+    // **直接搭在连竿那套上**（againPending / againUsed）而不是另开一条：
+    // 「这个回合再打一张」在 passTurn 的最前面已经实现了，连「加打的那张
+    // 不再给加打」那道闸（againUsed）都现成 —— 而再钩的上限正好也是
+    // 一回合两张。另写一条就是两套交接逻辑，必有一套漏掉护饵过期
+    if (byFoe && hasFoeSpecial('again') && !againUsed.value && foeHand.value.length > 0) {
+      againPending = true
+    }
     afterPlay(byFoe)
+  }
+
+  // 【守滩】垫牌：从庄家手里挑一张最不容易被你钓走的，垫到堆上。
+  //
+  // **它不算「打出」**：不触发技能、不判钓牌、不记进 foePlayed。
+  // 那是对的 —— 特殊技说的是「垫一张」，而「打出一张」是一整套流程
+  //（见 playFor）。走那一套的话它能连环钓牌，那比写在表上的效果强得多。
+  //
+  // 挑的标准是 baitRisk（庄家挑饵用的那个口径）—— 它既然是在给自己堆料，
+  // 就该垫一张你最难端走的，不然这条特殊技等于白送你分
+  function guardPushFor() {
+    if (foeHand.value.length == 0) {
+      return
+    }
+    let at = -1
+    let risk = 99
+    for (let i = 0; i < foeHand.value.length; i++) {
+      const card = foeHand.value[i]
+      // J 留着通吃，冻住的垫不出去
+      if (card.rank == JACK || isFrozen(card)) {
+        continue
+      }
+      const r = baitRisk(card)
+      if (r < risk) {
+        risk = r
+        at = i
+      }
+    }
+    // 手里只剩 J 或者全冻着：这一下就不垫（总比把 J 垫出去好）
+    if (at < 0) {
+      return
+    }
+    const card = takeFromHand(true, at)
+    // 点数照它自己算（valuesOf 传空技能列表 = 没有技能改它）——
+    // 垫上来的是一张普通牌，不是淤滩那种死牌
+    pushPile(card, true, GUARD_NONE, valuesOf(card, [] as number[]))
+    message.value = message.value + ' 守滩：庄家往堆上垫了 ' + cardName(card) + '。'
   }
 
   // ---------- 打出之后的技能 ----------
@@ -1448,9 +2433,6 @@
     if (hasTrigger(skills, SK_PEEK)) {
       peekFor(byFoe)
     }
-    if (hasTrigger(skills, SK_STIR)) {
-      stirFor(byFoe)
-    }
     // ---- 挂效果的那几件都要求：那张牌**还在堆上** ----
     //
     // 打出去就钓到牌的话，它自己也在被收走的那一段里（从 at 到堆顶，
@@ -1462,7 +2444,7 @@
     //
     // 照水：对方全部手牌明置，挂在刚打出那张牌上。不用等人选
     if (hasTrigger(skills, SK_LANTERN) && lastPlayed != null && inPile(lastPlayed!)) {
-      held.push({
+      addHeld({
         source: lastPlayed!,
         skill: SK_LANTERN,
         target: null,
@@ -1470,9 +2452,54 @@
       } as HeldEffect)
       message.value = message.value + (byFoe ? ' 庄家照水：你的手牌它全看得见了。' : ' 照水：庄家的手牌全明着了。')
     }
+    // ---- 抹点数那一族里的三件在场效果 ----
+    //
+    // 三件都挂在刚打出那张上，解除条件照旧是「那张牌离场」。
+    // 它们本身不动任何牌，只是改**后面落下来的牌算几点**（见 landVals）。
+    //
+    // 压邻、封色自己没有点数，所以几乎钓不走（只有 J、顺色、钩顶碰得到）——
+    // 赖得住是它们的卖点。分水有点数，对手钓得走它，
+    // 那是它敢封一半牌面的代价
+    if (hasTrigger(skills, SK_VOID) && lastPlayed != null && inPile(lastPlayed!)) {
+      addHeld({
+        source: lastPlayed!,
+        skill: SK_VOID,
+        target: null,
+        byFoe: byFoe
+      } as HeldEffect)
+      message.value = message.value + (byFoe ? ' 庄家压邻：紧挨着它右边落下的那张没有点数。'
+        : ' 压邻：紧挨着它右边落下的那张没有点数。')
+    }
+    if (hasTrigger(skills, SK_HUEVOID) && lastPlayed != null && inPile(lastPlayed!)) {
+      addHeld({
+        source: lastPlayed!,
+        skill: SK_HUEVOID,
+        target: null,
+        byFoe: byFoe
+      } as HeldEffect)
+      message.value = message.value + ' 封色：' + lastPlayed!.suit + ' 的牌打出来都没有点数了。'
+    }
+    if (hasTrigger(skills, SK_ODD) && lastPlayed != null && inPile(lastPlayed!)) {
+      addHeld({
+        source: lastPlayed!,
+        skill: SK_ODD,
+        target: null,
+        byFoe: byFoe
+      } as HeldEffect)
+      message.value = message.value + ' 分水：'
+        + (lastPlayed!.value % 2 == 0 ? '奇数' : '偶数') + '点的牌打出来都是 0 点了。'
+    }
+    // 掏手：从对方手里掏 DUMP_COUNT 张，当 0 点扔到堆上
+    if (hasTrigger(skills, SK_DUMP)) {
+      dumpFor(byFoe)
+    }
+    // 掏库：从牌库顶掏 SPILL_COUNT 张，当 0 点扔到堆上
+    if (hasTrigger(skills, SK_SPILL)) {
+      spillFor(byFoe)
+    }
     // 窄口：对方每回合只补到 3 张，挂在刚打出那张上（照照水，不用等人选）
     if (hasTrigger(skills, SK_NARROW) && lastPlayed != null && inPile(lastPlayed!)) {
-      held.push({
+      addHeld({
         source: lastPlayed!,
         skill: SK_NARROW,
         target: null,
@@ -1484,7 +2511,7 @@
     }
     // 满篓：自己每回合补到 5 张。跟窄口一对，一个削他一个补自己
     if (hasTrigger(skills, SK_CREEL) && lastPlayed != null && inPile(lastPlayed!)) {
-      held.push({
+      addHeld({
         source: lastPlayed!,
         skill: SK_CREEL,
         target: null,
@@ -1494,9 +2521,59 @@
         ? ' 庄家满篓：它每回合补到 ' + (HAND_SIZE + 1) + ' 张了。'
         : ' 满篓：你每回合补到 ' + (HAND_SIZE + 1) + ' 张了。')
     }
-    // 见底：整堆点数往下压，收走压到 0 的
-    if (hasTrigger(skills, SK_LOWTIDE)) {
-      lowTideFor(byFoe)
+    // ---------- 组合技【干塘】：退潮 × 见底 ----------
+    //
+    // 两件撞在同一张牌上的时候**不分别结算**，走一条合起来的规则：
+    // 整堆（取见底的范围，不只左侧两张）各减这张的牌面点数
+    //（取退潮的幅度，不是见底那个死数 1），而且**收走归 0 的牌**。
+    //
+    // ---- 这是第一件组合技，所以说清它为什么立得住 ----
+    //
+    // 前提是「一张牌同时触发两件技能」，而那在角色卡上**仍然存在** ——
+    // 带花色槽的角色（明镜 ♥ + '3 4'、沉钩 ♣ + 'K'）在两个槽的交集上
+    // 就是双触发（triggersOf 返回两个下标；DRAW_ROLES 里明镜那条 desc
+    // 写的就是这个）。设计文档第九节那套「重叠格组合技」因此没死，
+    // 只是从「随机摇出来的重叠」变成了「角色卡印死的交集」。
+    //
+    // 为什么是这两件合：它们合的是**两样不同的东西** ——
+    // 范围取见底的（整堆，不只左侧两张），幅度取退潮的（牌面点数，
+    // 不是见底那个死数 1）。于是合起来既比见底宽、又比退潮狠。
+    //
+    //（这儿原先写的理由是「两件单独都不收牌，合起来才收」。
+    //  那条**已经不成立** —— 见底后来改成了「收走点数为 0 的牌」。
+    //  所以现在三件都收牌，组合的价值纯在「范围 × 幅度」这一层。
+    //  退潮仍然是唯一一件不收牌的。）
+    //
+    // 幅度由牌面点数定，所以它自带一条上限曲线：
+    //   明镜 ♥3 / ♥4 —— 减 3、减 4，收走堆上点数不超过那个数的；
+    //   沉钩 ♣K     —— 减 13，几乎整堆归零 = 通吃。
+    //                  而 ♣K **只有一张**，所以一局最多响一次。
+    // 对比 J 通吃（4 张、无条件），这一下要你把两件技能分别插对两个槽、
+    // 还要正好摸到那张交集牌
+    if (hasTrigger(skills, SK_EBB) && hasTrigger(skills, SK_LOWTIDE)
+      && lastPlayed != null) {
+      ebbTideFor(byFoe, lastPlayed!)
+    } else {
+      // 见底：整堆点数往下压 1，减到 0 为止（不收牌）
+      if (hasTrigger(skills, SK_LOWTIDE)) {
+        lowTideFor(byFoe)
+      }
+      // 退潮：左侧 EBB_COUNT 张连自己，各减这张的牌面点数。
+      //
+      // 排在见底后面，但**这两件的先后其实无所谓** —— 两件都是
+      // 「减一个数、clamp 到 0」，而带 clamp 的减法是可交换的：
+      // (9−1)−5 和 (9−5)−1 都是 3，(2−1)−5 和 (2−5)−1 都是 0。
+      //
+      // 这一点原先不成立：见底那会儿会**收走**压到 0 的牌，
+      // 所以先见底还是先退潮决定了那几张在不在堆上。
+      // 见底改成不收牌之后那个顺序依赖没了 —— 记在这儿，
+      // 免得哪天有人把见底改回「收牌」却没注意这儿的顺序又有意义了。
+      //
+      // 两件都在同一张牌上的那条路现在走不到这儿了（上面那个分支接走了），
+      // 但这段推理对「将来又多一件减点数的技能」仍然有效
+      if (hasTrigger(skills, SK_EBB) && lastPlayed != null) {
+        ebbFor(byFoe, lastPlayed!)
+      }
     }
     // 洪水：从牌库一张张往堆上翻，直到撞上点数
     if (hasTrigger(skills, SK_FLOOD)) {
@@ -1780,7 +2857,7 @@
     if (index < 0 || index >= theirs.length || lastPlayed == null) {
       return
     }
-    held.push({
+    addHeld({
       source: lastPlayed!,
       skill: SK_FREEZE,
       target: theirs[index],
@@ -1910,23 +2987,41 @@
     return free.length == 0 ? -1 : free[Math.floor(Math.random() * free.length)]
   }
 
-  // 见底：整堆点数往下压 N（N = 场上黑色牌的张数），收走压到 0 的那些。
+  // 见底：它自己算 0 点（见 valuesOf），整堆点数往下压 LOW_TIDE_STEP，
+  // **收走点数为 0 的牌**。
+  //
+  // 幅度原先是「场上黑牌张数」，改成了死数 1 ——
+  // 为什么改、代价是什么，写在 draw-skills 见底那条的注释里
+  //（设计理由归表，实现归这儿；两处都写就会有一处先过期）。
+  //
+  // 「减到 0 为止」不在这儿解释 —— 那是条全局规则，见 dropVals。
+  //
+  // ---- 它**连自己一起收走** ----
+  //
+  // 它自己是 0 点，而且它就在「场上所有牌」里头，所以压完它还是 0、
+  // 于是被自己收走。那是这条规则直写下来的后果，不是漏洞：
+  //
+  //   好处是它**保底 +1 分**，而且不会在堆上留下一张饵
+  //     （普通的空钩牌会留在堆上给对手当钩点）；
+  //   代价是它放弃了这一手的钓牌（0 点谁也钓不上）。
+  //
+  // 这儿**没有加**收色 / 撒网那条「只有它自己就什么都不收」的闸 ——
+  // 那两件的代价是「失去点数」而收成是「按花色/奇偶扫一片」，自收一张
+  // 等于零风险白赚；见底不一样：它的 0 点是写在效果里的，自收那一张
+  // 就是它的收成下限。要不要加闸等模拟器量过再说。
   //
   // 不走收牌特效：那套演的是「从第几张到堆顶」这种**连续段**，
   // 而这儿收的是散在堆里的 0 点牌。直接结算 + 播报，跟搅水一个路子
+  const LOW_TIDE_STEP : number = 1
+
   function lowTideFor(byFoe : boolean) {
-    let n = 0
-    for (let i = 0; i < pile.value.length; i++) {
-      // 数的是**现在**的花色，不是牌面 —— 染水能把整堆染黑（N 拉满）
-      // 或者染红（N 归零），而那正是那两件技能凑一起的全部意义
-      if (!pileRed(i)) {
-        n = n + 1
-      }
-    }
-    if (n == 0 || pile.value.length == 0) {
-      message.value = message.value + ' 见底：场上没有黑牌，水位没动。'
+    const n = LOW_TIDE_STEP
+    if (pile.value.length == 0) {
+      message.value = message.value + ' 见底：场上没有牌，水位没动。'
       return
     }
+    // 要移除牌，所以**五条并行数组一起重建** —— 漏一条就错位
+    //（pile / pileByFoe / pileGuard / pileVals / pileSuit，见 pushPile）
     const keepCards : PlainCard[] = []
     const keepByFoe : boolean[] = []
     const keepGuard : number[] = []
@@ -1935,31 +3030,12 @@
     const gone = goneRanks.value.slice(0)
     let taken = 0
     for (let i = 0; i < pile.value.length; i++) {
-      const was = pileValsAt(i)
-      // 一个点数都没有的不参与 —— 它压根不在点数这条轴上
-      //（顺色那张就是这样）。空列表原样留着
-      if (was.length == 0) {
-        keepCards.push(pile.value[i])
-        keepByFoe.push(pileByFoe.value[i])
-        keepGuard.push(pileGuard.value[i])
-        keepVals.push(was)
-        keepSuit.push(pileSuitAt(i))
-        continue
-      }
-      // **每个点数各自往下压**，压到 0 的那个从列表里掉出来。
-      //
-      // 于是贴过点数卡的牌更难被压走：一张 ♠3+9 在 N=3 的时候
-      // 掉了 3 这个点数，但还剩个 6，所以它留在场上。
-      // 那是对的 —— 「还剩一个点数」就还钓得上人、也还钓得上
-      const now : number[] = []
-      for (let k = 0; k < was.length; k++) {
-        const v = was[k] - n
-        if (v > 0) {
-          now.push(v)
-        }
-      }
-      // 一个点数都不剩才算见底被收走
-      if (now.length == 0) {
+      // 减法走 dropVals：减到 0 为止、去重、空列表原样返回。
+      // 没有点数的牌（顺色那张）因此原样留着 —— 它不在点数这条轴上，
+      // 所以也**不会**被见底收走
+      const now = dropVals(pileValsAt(i), n)
+      if (now.length > 0 && !anyLive(now)) {
+        // 一个非零点数都不剩 = 这张见底了，收走
         gone.push(pile.value[i].rank)
         taken = taken + 1
         continue
@@ -1985,8 +3061,189 @@
         myScore.value = myScore.value + taken
       }
     }
-    message.value = message.value + ' 见底：场上 ' + n + ' 张黑牌，整堆 −' + n
+    message.value = message.value + (byFoe ? ' 庄家见底：' : ' 见底：')
+      + '整堆 −' + n
       + (taken > 0 ? '，收走见底的 ' + taken + ' 张。' : '，没有牌被压到底。')
+  }
+
+  // ---------- 组合技【干塘】：退潮 × 见底 ----------
+  //
+  // **全场**各减这张的牌面点数，**收走点数为 0 的牌**。
+  // 为什么这两件合起来是这个效果，写在 afterPlay 的分发处。
+  //
+  // 它合的是两样不同的东西：
+  //   范围取**见底**的（整堆，不只退潮那左侧两张）；
+  //   幅度取**退潮**的（这张的牌面点数，不是见底那个死数 1）。
+  //
+  // 跟 lowTideFor 几乎同构（都是「减 + 收 + 重建五条并行数组」），
+  // 只差一个幅度。没合成一个函数是因为播报和那几句解释完全不同，
+  // 合起来会变成一堆 if (isCombo) —— 而减法本身已经共用 dropVals 了。
+  //
+  // 口径照 harvestPile：收走的算发动方的分（积分永远等于张数，铁律没破）
+  function ebbTideFor(byFoe : boolean, card : PlainCard) {
+    const who = byFoe ? ' 庄家干塘：' : ' 干塘：'
+    // 牌面点数。和退潮同一个口径：不读 valuesOf（那是 0，减 0 等于没减），
+    // 也不算点数卡贴的那几个（一张 ♠3+9 该减 3 还是 12 没有自然答案）
+    const step = card.value
+    if (step <= 0) {
+      message.value = message.value + who + '这张没有点数，水退不下去。'
+      return
+    }
+    if (pile.value.length == 0) {
+      message.value = message.value + who + '场上没有牌。'
+      return
+    }
+    const keepCards : PlainCard[] = []
+    const keepByFoe : boolean[] = []
+    const keepGuard : number[] = []
+    const keepVals : number[][] = []
+    const keepSuit : string[] = []
+    const gone = goneRanks.value.slice(0)
+    let taken = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      // 减法走 dropVals（减到 0 为止、去重、空列表原样返回）。
+      // 没有点数的牌因此原样留着，也**不会**被「点数为 0」收走 ——
+      // 它压根不在点数这条轴上。顺色、收色留下的那些就这么躺着。
+      //
+      // **还剩一个非零点数就不算归零**（anyLive）：贴过点数卡的牌
+      // 因此更难被干塘收走 —— 一张 ♠A+9 减 3 剩 [0,6]，那个 6 还钓得上人
+      const now = dropVals(pileValsAt(i), step)
+      if (now.length > 0 && !anyLive(now)) {
+        gone.push(pile.value[i].rank)
+        taken = taken + 1
+        continue
+      }
+      keepCards.push(pile.value[i])
+      keepByFoe.push(pileByFoe.value[i])
+      keepGuard.push(pileGuard.value[i])
+      keepVals.push(now)
+      keepSuit.push(pileSuitAt(i))
+    }
+    pile.value = keepCards
+    pileByFoe.value = keepByFoe
+    pileGuard.value = keepGuard
+    pileVals.value = keepVals
+    pileSuit.value = keepSuit
+    goneRanks.value = gone
+    // 收走的那几张里可能有谁的效果牌
+    expireHeld()
+    if (taken > 0) {
+      if (byFoe) {
+        foeScore.value = foeScore.value + taken
+      } else {
+        myScore.value = myScore.value + taken
+      }
+    }
+    message.value = message.value + who + '整堆 −' + step
+      + (taken > 0 ? '，归零的 ' + taken + ' 张全收走。' : '，一张都没归零。')
+  }
+
+  // ---------- 退潮：它底下 N 张各减掉它的牌面点数 ----------
+  //
+  // 它是全表唯一一件把堆上的牌挪到**另一个非零点数**上的技能
+  //（别的要么抹成 0 / 无点数，要么多加一个候选）——
+  // 所以它开的是「把堆改造成我钓得到的形状」那条轴，详见 draw-skills 那段。
+  //
+  // ---- 减多少：读**牌面点数**，不读 valuesOf ----
+  //
+  // 这一点要紧。valuesOf 对带退潮的牌返回 [0]（它自己也退到 0），
+  // 拿那个去减就是减 0，整件技能当场失效。
+  //
+  // 「这张牌的点数」说的是它**印着的那个数** —— 点数卡贴的那几个不算。
+  // 不算是为了可读：一张 ♠3+9 退的是 3 还是 9 还是 12？没有自然答案，
+  // 而牌面那个数写在牌上，谁都数得出来。
+  //
+  // 减法本身走 dropVals ——「点数减不到负数、最小是 0」是条**全局规则**，
+  // 解释在那个函数上面，不在这儿重复。
+  //
+  // ---- 它**不收牌**，这是它跟见底、干塘的全部区别 ----
+  //
+  // 见底「收走点数为 0 的牌」、干塘（退潮 × 见底）也收，
+  // 只有退潮纯减不收。所以它是这三件里唯一一件**一分不加**的 ——
+  // 它卖的不是收成，是把堆改造成你下一手钓得到的形状。
+  //
+  // ---- 范围：左侧 EBB_COUNT 张，**连自己一起** ----
+  //
+  // 自己也在那阵退潮里，减掉自己的点数就是 0。
+  // 代码上这一步对自己是**幂等**的（valuesOf 已经让它是 [0] 了，
+  // 再减一次 clamp 回 0），含进来是为了让规则表述和实现对得上：
+  // 「左侧两张连自己共三张，各减这张的牌面点数」——
+  // 而不是「左侧两张减，自己另有一条规则」。
+  //
+  // 退几张在 draw-skills 的 EBB_COUNT（跟 DUMP_COUNT / SPILL_COUNT 一处放），
+  // 因为那个数也写进了技能说明里 —— 数和说明得在同一个文件里才不会跑偏
+  function ebbFor(byFoe : boolean, card : PlainCard) {
+    const who = byFoe ? ' 庄家退潮：' : ' 退潮：'
+    const at = pileIndexOf(card)
+    // ---- 它不在堆上：只有 J 走得到这儿 ----
+    //
+    // 带退潮的牌自己是 0 点，所以它钓不到任何东西、一定留在堆上 ——
+    // 除了 J：J 通吃在 catchStart 里**先 return**，压根不看点数
+    //（见那个函数开头）。而 J 进不了点数槽，只有花色槽盖得到它。
+    //
+    // 那一下它和整堆一起被收走，于是「它底下那几张」不存在了
+    if (at < 0) {
+      message.value = message.value + who + '这张没留在场上，退不动。'
+      return
+    }
+    // 牌面点数。J 的 value 是 11，可它走不到这儿（上面那道闸）
+    const step = card.value
+    if (step <= 0) {
+      message.value = message.value + who + '这张没有点数，退不动。'
+      return
+    }
+    // 范围 = [at − EBB_COUNT, at]：左侧 EBB_COUNT 张，**连自己一起**。
+    //
+    // 堆是横着摆的、下标越大越靠右（堆顶在最右），所以「左侧」= 比它更深。
+    //
+    // **【沉底】会把它废掉**：沉底打出的牌落在下标 0，左边一张都没有
+    //（那时范围缩成它自己，而它本来就是 0 点，等于什么也没发生）。
+    // 两件撞在同一张牌上是真冲突（一个往堆底去、一个要堆底那几张在自己底下），
+    // 不是 bug —— 插槽的时候得避开。播报要说实话，不然看着像没反应
+    if (at == 0) {
+      message.value = message.value + who + '它落在堆底，底下没牌可退。'
+      return
+    }
+    let from = at - EBB_COUNT
+    if (from < 0) {
+      from = 0
+    }
+    const next : number[][] = []
+    let moved = 0
+    let dried = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      const was = pileValsAt(i)
+      // 含自己，所以上界是 `i > at` 而不是 `i >= at`。
+      // 不在范围里的原样留着
+      if (i < from || i > at) {
+        next.push(was)
+        continue
+      }
+      // dropVals 对空列表原样返回，所以没有点数的牌（顺色那张）
+      // 自动跳过 —— 不用在这儿另判一次
+      const now = dropVals(was, step)
+      if (was.length == 0) {
+        next.push(now)
+        continue
+      }
+      moved = moved + 1
+      // 这张退到底了（一个非零点数都不剩）。
+      // **退潮不收它** —— 它留在堆上，钓不上也钓不着，等着被
+      // J、顺色、收色、撒网，或者下一手的见底 / 干塘收走
+      if (!anyLive(now)) {
+        dried = dried + 1
+      }
+      next.push(now)
+    }
+    pileVals.value = next
+    // 范围里那几张全是没点数的（一堆顺色牌）—— 一张都没退动。
+    // 这一句得说出来，不然看着像技能坏了
+    if (moved == 0) {
+      message.value = message.value + who + '底下那几张都没有点数，退不动。'
+      return
+    }
+    message.value = message.value + who + '底下 ' + moved + ' 张各退 ' + step
+      + ' 点' + (dried > 0 ? '，其中 ' + dried + ' 张退到底了。' : '。')
   }
 
   // 洪水：从牌库一张张往堆上翻，直到翻出的那张跟堆上撞上点数 ——
@@ -2010,8 +3267,11 @@
       // 先判撞，再落堆
       // 不带技能、也不沉底（传 false）—— 翻上来的牌一律落堆顶
       const at = catchStart(card, byFoe, [] as number[], false)
-      // 从牌库硬翻上来的，点数按它自己印着的那几个算（含点数卡贴的）
-      pushPile(card, byFoe, GUARD_NONE, cardVals(card))
+      // 从牌库硬翻上来的，点数按它自己印着的那几个算（含点数卡贴的）——
+      // 走 landVals 传空技能表，所以它自己的技能一个都不生效，
+      // 可**场上挂着的抹点数照样管它**（压邻、封色、分水）。
+      // 那是对的：那几件抹的是「落到堆上的牌」，不问它是怎么上来的
+      pushPile(card, byFoe, GUARD_NONE, landVals(card, [] as number[], false))
       flipped = flipped + 1
       if (at >= 0) {
         hitAt = at
@@ -2104,7 +3364,7 @@
     const wanted : boolean[] = []
     let hits = 0
     for (let i = 0; i < pile.value.length; i++) {
-      const hit = pileSuitAt(i) == card.suit
+      const hit = sameSuit(pileSuitAt(i), card.suit, byFoe)
       if (hit) {
         hits = hits + 1
       }
@@ -2128,41 +3388,73 @@
       + '堆上 ' + card.suit + ' 的牌收走 ' + taken + ' 张。'
   }
 
-  // 撒网：堆上所有跟它**同奇偶**的牌一起收走。
+  // 撒网：从它自己起**往左连续**比奇偶，同奇偶就收，遇到不同的就停。
+  //
+  // ---- 它原先是「堆上所有同奇偶的一起收」（散收）----
+  //
+  // 改成连续段有三个理由：
+  //
+  //   **散收把牌堆打成筛子**，而「收一段连续的牌」是这个玩法的
+  //     核心形状（基础钓牌、J 通吃、洪水都是收一段）。撒网从此和它们同构。
+  //   **幅度回到档内**。散收是堆的一半（奇偶面太大了，那也是它当初
+  //     卖 160 还不给升级的原因）；连续段的期望长度只有两张上下 ——
+  //     但碰上一长串同奇偶就一路收完，于是它从「稳定收半堆」变成**条件爆发**。
+  //   **它成了 0 点牌的出口**。0 算偶数，所以见底压出来的那一片 0 点牌
+  //     是一个连续的偶数段 —— 打一张偶数撒网，一网收完。
+  //     「见底铺设 → 撒网引爆」那条构筑路线就是这么接起来的。
+  //
+  // ---- 起点：它在堆上的位置 ----
+  //
+  // 撒网**不失去点数**（要靠自己的点数定奇偶），所以它可能先钓到一段 ——
+  // 那时它已经跟那段一起被收走了，堆上找不到它。那种情况从**堆顶**起算：
+  // 它钓完之后堆顶就是剩下的最上面那张，规则仍然是「从一头往左连续扫」。
+  //
+  // 沉底打出的牌落在下标 0，左边一张都没有 —— 那时只收它自己，
+  // 也就是下面 hits <= 1 那条，白撒一网。两件插在同一张牌上是真冲突
+  //（跟【退潮】一样），插槽时得避开。
   //
   // 自己的奇偶按**牌面点数**算（card.value），不看点数卡贴的那几个 ——
   // 一张牌只有一种奇偶，这事得一眼看得出来。
-  // 堆上那些按**现在**的点数算：任一个点数同奇偶就算中，
-  // 一个点数都没有的（顺色、洪水留下的）不算 —— 它们不在点数这条轴上。
-  // 0 算偶数
+  // 堆上那些按**现在**的点数算：任一个点数同奇偶就算中（所以贴过点数卡的
+  // 牌可能奇偶双属性，那是点数卡本来就有的后果），
+  // 一个点数都没有的（顺色、洪水留下的）**直接断链** —— 它们不在点数
+  // 这条轴上，既然比不出奇偶，连续段就到这儿为止
   function castFor(byFoe : boolean, card : PlainCard) {
     const odd = card.value % 2 == 1
+    const size = pile.value.length
     const wanted : boolean[] = []
+    for (let i = 0; i < size; i++) {
+      wanted.push(false)
+    }
+    const at = pileIndexOf(card)
+    const from = at >= 0 ? at : size - 1
     let hits = 0
-    for (let i = 0; i < pile.value.length; i++) {
+    for (let i = from; i >= 0; i--) {
       const vals = pileValsAt(i)
-      let hit = false
+      let same = false
       for (let k = 0; k < vals.length; k++) {
         if ((vals[k] % 2 == 1) == odd) {
-          hit = true
+          same = true
           break
         }
       }
-      if (hit) {
-        hits = hits + 1
+      if (!same) {
+        break
       }
-      wanted.push(hit)
+      wanted[i] = true
+      hits = hits + 1
     }
     // 只有它自己就不收 —— 理由同收色（不然就是稳赚 1 分、零风险）。
-    // 撒网的奇偶面是一半的牌，所以这一条很少触发，但规则该一致
+    // 连续段这一改之后这条会**经常**触发（堆顶那张奇偶不对就断了），
+    // 那是有意的：撒网从此要看堆的形状，不再是无脑收半堆
     if (hits <= 1) {
       message.value = message.value + (byFoe ? ' 庄家撒网：' : ' 撒网：')
-        + '堆上没有别的' + (odd ? '奇' : '偶') + '数，白撒了一网。'
+        + '左边第一张就不是' + (odd ? '奇' : '偶') + '数，这一网只网住自己。'
       return
     }
     const taken = harvestPile(byFoe, wanted)
     message.value = message.value + (byFoe ? ' 庄家撒网：' : ' 撒网：')
-      + '堆上' + (odd ? '奇' : '偶') + '数的牌收走 ' + taken + ' 张。'
+      + '往左连着收了 ' + taken + ' 张' + (odd ? '奇' : '偶') + '数。'
   }
 
   // ---------- 压舱 / 摘钩 / 对换：动对方一张手牌 ----------
@@ -2359,7 +3651,8 @@
       const rest = deck.value.slice(0)
       const one = rest.pop()!
       deck.value = rest
-      if (one.suit == card.suit) {
+      // 认牌面花色 —— 牌库里的牌还没落堆，染水碰不到它们
+      if (sameSuit(one.suit, card.suit, byFoe)) {
         got = one
         break
       }
@@ -2473,20 +3766,77 @@
     }
   }
 
-  // 搅水：对方随机一张手牌明着落到牌堆上，不算钓牌
-  function stirFor(byFoe : boolean) {
-    const count = byFoe ? hand.value.length : foeHand.value.length
-    if (count == 0) {
+  // 掏手：从对方手里掏 DUMP_COUNT 张，当 **0 点**扔到堆上。
+  //
+  // 跟【搅水】是一对，差三处：张数（2 对 1）、点数（0 对牌面）、
+  // 还有搅水是「明着落堆」那层表演，这儿纯粹是倒垃圾。
+  //
+  // 为什么是 0 点而不是无点数：0 点**还在点数这条轴上**，所以
+  // 【见底】和【干塘】收得走它（它们收「点数为 0 的牌」，而 0 减几还是 0）、
+  // 【撒网】也按奇偶收得走（0 算偶数）。无点数的那几条全跳过它。
+  // 全抹成无点数的话堆只会单向变厚、再没人清得动 ——
+  // 留一条扫得走的路，这一族才不是单纯的死锁（见 draw-skills 里那段）。
+  //
+  // 掏的是随机的那几张：对方手牌你本来就看不见（除非窥视 / 照水翻过），
+  // 所以指定不了 —— 跟冻结那条「你挑的是位置不是牌面」同一个道理，
+  // 只是这儿连位置都不让挑，它是一记闷棍
+  function dumpFor(byFoe : boolean) {
+    const victimIsFoe = !byFoe
+    let got = 0
+    for (let n = 0; n < DUMP_COUNT; n++) {
+      const count = victimIsFoe ? foeHand.value.length : hand.value.length
+      if (count == 0) {
+        break
+      }
+      const card = takeFromHand(victimIsFoe, Math.floor(Math.random() * count))
+      // **写死 [0]，不走 landVals** —— 掏出来的牌本来就是要当垃圾用的，
+      // 场上的抹点数效果再抹一遍也只能把 0 抹成空，
+      // 而那恰好破了「0 点扫得走」那条设计
+      pushPile(card, victimIsFoe, GUARD_NONE, [0])
+      got = got + 1
+    }
+    if (got == 0) {
+      message.value = message.value + (byFoe ? ' 庄家掏手：你手里没牌可掏。' : ' 掏手：庄家手里没牌可掏。')
       return
     }
-    const victimIsFoe = !byFoe
-    const card = takeFromHand(victimIsFoe, Math.floor(Math.random() * count))
-    // 搅水是把牌**硬塞**到堆上，不算打出 —— 所以它身上的技能一个都不触发，
-    // 点数就按它自己印着的那几个算（不走 valuesOf：那张牌没「打出」过，
-    // 所以顺色那条「拿点数换花色」也不生效；点数卡贴的照算）
-    pushPile(card, victimIsFoe, GUARD_NONE, cardVals(card))
-    message.value = message.value + (byFoe ? ' 搅水：你的 ' : ' 搅水：庄家的 ') + cardName(card) + ' 落到了牌堆上。'
+    message.value = message.value + (byFoe ? ' 庄家掏手：从你手里掏了 ' : ' 掏手：从庄家手里掏了 ')
+      + got + ' 张扔到堆上（0 点）。'
   }
+
+  // 掏库：从牌库顶掏 SPILL_COUNT 张，当 0 点扔到堆上。
+  //
+  // 它**烧牌库** —— 双方共用一个牌库，烧掉的谁也摸不到，所以这一局提前收场。
+  // 「堆里剩的牌谁都不算分」，于是领先的时候这是催命，落后的时候是自杀。
+  // 那条双刃全在玩家自己算，代码这儿只管照做
+  function spillFor(byFoe : boolean) {
+    let got = 0
+    for (let n = 0; n < SPILL_COUNT; n++) {
+      if (deck.value.length == 0) {
+        break
+      }
+      const rest = deck.value.slice(0)
+      const card = rest.pop()!
+      deck.value = rest
+      // 跟掏手一样写死 [0]（理由同上）
+      pushPile(card, byFoe, GUARD_NONE, [0])
+      got = got + 1
+    }
+    const who = byFoe ? ' 庄家掏库：' : ' 掏库：'
+    if (got == 0) {
+      message.value = message.value + who + '牌库空了，掏不出东西。'
+      return
+    }
+    message.value = message.value + who + '从牌库掏了 ' + got
+      + ' 张扔到堆上（0 点），牌库还剩 ' + deck.value.length + ' 张。'
+  }
+
+  // 这儿原先是【搅水】（对方随机一张手牌明着落到堆上，不算钓牌）。
+  // 那件技能删了 —— 它那一下的位置被【掏手】接走了，而掏手掏两张、
+  // 落堆算 0 点、还是看着挑不着的闷棍，比搅水有讲究得多。
+  //
+  // 它留下的那条规矩还在用：**硬塞到堆上的牌不算打出**，
+  // 所以它身上的技能一个都不触发（landVals 传空技能表），
+  // 可场上挂着的抹点数照样管它。掏手、洪水翻牌都照这条走
 
   function clearTimers() {
     if (foeTimer >= 0) {
@@ -2512,6 +3862,22 @@
     const before = byFoe ? foeHand.value.length : hand.value.length
     let now = before
     const want = handLimit(byFoe)
+    // ---------- 【挑潮】：庄家补牌时从库顶两张挑一张 ----------
+    //
+    // 它是玩家【观潮】的庄家版，可**落点不一样**：观潮是「打出覆盖面里的
+    // 牌时触发一次」，挑潮是「每次补牌都挑」—— 所以它藏在 refill 里，
+    // 而不是在技能触发那条路上。
+    //
+    // 另一张沉到库底，不是丢掉：牌是双方共用的那一副（见 baitFor 那段），
+    // 丢掉会让「外面还剩几张」那块面板和庄家自己的记牌一起算错。
+    //
+    // 排在 while 之前、而且**只挑一次**：它挑的是「这一回合补的第一张」。
+    // 每张都挑的话，手牌被削狠了的那个回合（补三张）它就能从六张里
+    // 挑三张，那比写在表上的效果强太多
+    if (byFoe && now < want && hasFoeSpecial('pick') && deck.value.length >= FOE_PICK_TOPS) {
+      pickTopFor()
+      now = now + 1
+    }
     while (now < want) {
       if (drawFor(byFoe) == null) {
         break
@@ -2524,6 +3890,68 @@
     if (!byFoe && now > before) {
       newIndex.value = before
     }
+  }
+
+  // 【挑潮】真正挑那一下：库顶 FOE_PICK_TOPS 张里挑一张进手，
+  // 剩下的沉到**库底**。
+  //
+  // 挑的标准是「这张现在打出去能钓几张」—— 跟 foePickCard 判断手牌
+  // 同一个口径（catchStart 问「能不能钓」，返回 -1 就是不能）。
+  // 不另写一套估值：两处要是口径不同，庄家就会挑一张它自己
+  // 下一回合不会打的牌。
+  //
+  // 算的是「**现在**的堆」，而这张是下一回合才打的 —— 那是故意的近似。
+  // 要算准就得预演你那一回合，而庄家不该知道你手里有什么
+  function pickTopFor() {
+    // **库顶是数组末尾**（见 drawFor 的 pop）—— 所以「库顶 N 张」
+    // 是末尾 N 个，而「沉到库底」是挪到下标 0 那一头。
+    // 这两头搞反过一次，表现是庄家一直在从库底挑牌
+    const size = deck.value.length
+    const n = FOE_PICK_TOPS < size ? FOE_PICK_TOPS : size
+    let bestAt = size - 1
+    let bestScore = -1
+    for (let i = 0; i < n; i++) {
+      const at = size - 1 - i
+      const card = deck.value[at]
+      const skills = skillsOf(true, card)
+      const sink = hasTrigger(skills, SK_SINK) || hasFoeSpecial('drift')
+      const start = catchStart(card, true, skills, sink)
+      let score = 0
+      if (start >= 0) {
+        score = sink ? start + 2 : pile.value.length - start + 1
+      }
+      // J 没钓到也值钱（下一回合堆厚了就通吃），所以给它一个底分。
+      // 不给的话「空堆上的 J」和「一张废牌」同分，庄家会把 J 让出去
+      if (card.rank == JACK && score == 0) {
+        score = 1
+      }
+      if (score > bestScore) {
+        bestScore = score
+        bestAt = at
+      }
+    }
+    // 重排牌库：挑中那张进手，**另外那几张挪到库底**（下标 0 那一头），
+    // 剩下的原样留着。
+    //
+    // 「没挑的沉底」而不是丢掉，是为了让「外面还剩几张」那块面板
+    // 和庄家自己的记牌（outsideCount）都还算得对 ——
+    // 这一副牌是双方共用的，凭空少几张两边的账就都不对了
+    const taken = deck.value[bestAt]
+    const sunk : PlainCard[] = []
+    const keep : PlainCard[] = []
+    for (let i = 0; i < size; i++) {
+      if (i == bestAt) {
+        continue
+      }
+      if (i >= size - n) {
+        sunk.push(deck.value[i])
+      } else {
+        keep.push(deck.value[i])
+      }
+    }
+    deck.value = sunk.concat(keep)
+    foeHand.value = foeHand.value.concat([taken])
+    foeShown.value = foeShown.value.concat([false])
   }
 
   // 这一方这回合补到几张。
@@ -2545,6 +3973,30 @@
     if (heldOn(SK_NARROW, !byFoe)) {
       want = want - 1
     }
+    // ---- 角色那件常驻的，跟挂牌版叠加 ----
+    //
+    // 同名但是两件东西：挂牌版要「那张牌还在堆上」，角色版一直生效。
+    // 【满篓】手牌上限 5 张（+1）、【窄口】对方 3 张（−1）
+    if (hasSpecial(byFoe, SP_CREEL)) {
+      want = want + 1
+    }
+    if (hasSpecial(!byFoe, SP_NARROW)) {
+      want = want - 1
+    }
+    // ---- 闯关庄家那两条（添手 / 掐口），跟上面两件同构 ----
+    //
+    // 它们就是满篓和窄口的庄家版，所以**走同一个加减**而不是另开一条路：
+    // 「手牌上限」这件事在整个玩法里只该有一个算的地方，
+    // 不然四条规则两两组合的时候一定有一组算错。
+    //
+    // 添手还管起手张数（见 newGame 的发牌），那一处单独判
+    if (byFoe && hasFoeSpecial('hand')) {
+      want = want + 1
+    }
+    // 掐口削的是**玩家**，所以条件是 !byFoe（跟窄口一个写法）
+    if (!byFoe && hasFoeSpecial('pinch')) {
+      want = want - 1
+    }
     return want < 1 ? 1 : want
   }
 
@@ -2562,15 +4014,50 @@
 
   // ---------- 结算 ----------
 
-  // 牌库和两边手牌都空了，就再没有能做的事
-  function checkOver() : boolean {
-    if (deck.value.length == 0 && hand.value.length == 0 && foeHand.value.length == 0) {
-      over.value = true
-      message.value = '牌都打完了。堆里剩下的 ' + pile.value.length + ' 张不算分。'
-      settle()
-      return true
+  // 这一方还有牌打得出去吗（被冻住的不算）
+  function playableCount(byFoe : boolean) : number {
+    const list = byFoe ? foeHand.value : hand.value
+    let n = 0
+    for (let i = 0; i < list.length; i++) {
+      if (!isFrozen(list[i])) {
+        n = n + 1
+      }
     }
-    return false
+    return n
+  }
+
+  // 再没有能做的事了，就结束。
+  //
+  // ---- 判的是「打得出牌吗」，不是「手里有牌吗」 ----
+  //
+  // 原先这儿写的是「牌库和两边手牌都空了」。那条漏了一个**死锁**：
+  //
+  //   牌库空了 → 补不了牌
+  //   你手里 0 张 → 打不出
+  //   庄家手里剩 1 张，而那张**被你冻住了** → 它也打不出
+  //
+  // 于是双方轮流跳过，无穷无尽。而【冻结】的解除条件是「效果牌被钓走」——
+  // 可谁都打不出牌，那张效果牌就永远不会被钓走。这不是理论上的：
+  // 模拟器跑 29 件技能时第一局就撞上了（牌库 0、你 0 张、庄家 1 张被冻、
+  // 堆上 3 张、分 32:16，双方交替跳过了 400 个回合）。
+  //
+  // 改成数「打得出几张」之后，手牌空和全被冻在这件事上等价 ——
+  // 两边都动不了就收摊。被冻着的那张留在手里不算分，跟堆里剩下的一个待遇
+  function checkOver() : boolean {
+    if (deck.value.length > 0) {
+      return false
+    }
+    if (playableCount(false) > 0 || playableCount(true) > 0) {
+      return false
+    }
+    over.value = true
+    const stuck = hand.value.length + foeHand.value.length
+    message.value = stuck > 0
+      ? '双方都打不出牌了（还有 ' + stuck + ' 张冻着）。堆里剩下的 '
+        + pile.value.length + ' 张不算分。'
+      : '牌都打完了。堆里剩下的 ' + pile.value.length + ' 张不算分。'
+    settle()
+    return true
   }
 
   // 结算照排竿：
@@ -2689,9 +4176,18 @@
       passTurn(false)
       return
     }
-    message.value = deck.value.length == 0
-      ? '牌库空了，手里这 ' + hand.value.length + ' 张打完就收摊。'
-      : '你的回合，打出一张。'
+    // ---- 只在**有新消息**的时候动 message ----
+    //
+    // 原先这儿恒写一句「你的回合，打出一张。」。战况和回合提示合成一条之后
+    // 那句话就跟 turnText 撞了（状态行会显示「你的回合 · 打出一张
+    // 你的回合，打出一张。」）。
+    //
+    // 现在只有牌库空了才说一句 —— 那是局面变了、值得提一嘴；
+    // 平常就让 message 留着上一条战况（庄家刚打了什么、钓走几张），
+    // 「现在该你」那半归 turnText 说。两半各说一件事，不重复
+    if (deck.value.length == 0) {
+      message.value = '牌库空了，手里这 ' + hand.value.length + ' 张打完就收摊。'
+    }
   }
 
   function onPlay(index : number) {
@@ -2740,6 +4236,17 @@
       return
     }
     const index = foePickCard()
+    // **手里有牌也可能打不出** —— 全被【冻结】锁着的时候 foePickCard
+    // 返回 -1（见 randomFree）。不拦这一下的话 foeHand.value[-1] 是
+    // undefined，接着 playFor 取不到牌、cardName(undefined) 当场崩。
+    //
+    // 这一条跟 checkOver 那条是一对：那边管「双方都动不了就收摊」，
+    // 这儿管「这一方动不了就过」。两边都空着的局面由 checkOver 结掉
+    if (index < 0) {
+      message.value = '庄家手里的牌全被冻住了，跳过。'
+      passTurn(true)
+      return
+    }
     const card = foeHand.value[index]
     const caught = playFor(true, index)
     if (caught > 0) {
@@ -2886,29 +4393,60 @@
   // 这张牌打出去，收色 / 撒网能扫走几张（含它自己）。两件都没带就是 0。
   //
   // 口径跟 hueFor / castFor 一字不差 —— 两处算法要是走偏，
-  // 庄家就会按一个数挑牌、按另一个数收牌
-  function harvestCount(card : PlainCard, skills : number[]) : number {
+  // 庄家就会按一个数挑牌、按另一个数收牌。
+  //
+  // byFoe 是为了【两色】才加的参数（照 sameSuit 的要求）。调用点只有
+  // foePickCard 一个、恒传 true，可**写死 true 就正是上面那条走偏**：
+  // 哪天玩家侧要预览收成，这个函数会按庄家的眼睛算花色
+  function harvestCount(card : PlainCard, skills : number[], byFoe : boolean) : number {
     const hue = hasTrigger(skills, SK_HUE)
     const cast = hasTrigger(skills, SK_CAST)
     if (!hue && !cast) {
       return 0
     }
+    const size = pile.value.length
     const odd = card.value % 2 == 1
-    let n = 0
-    for (let i = 0; i < pile.value.length; i++) {
-      if (hue && pileSuitAt(i) == card.suit) {
-        n = n + 1
-        continue
+    // ---- 两件的形状不一样了，所以不能再混在一个循环里 ----
+    //
+    // 收色是**散收**（整堆所有同花色），撒网改成了**连续段**
+    // （从一头往左连着收同奇偶）。原先两件都是散收，一个循环就够。
+    //
+    // 一张牌可能同时触发两件（带花色槽的角色，比如明镜的 ♥3 ——
+    // 花色槽一件、点数槽一件），所以标记叠加，最后数一遍
+    const marked : boolean[] = []
+    for (let i = 0; i < size; i++) {
+      marked.push(false)
+    }
+    if (hue) {
+      for (let i = 0; i < size; i++) {
+        if (sameSuit(pileSuitAt(i), card.suit, byFoe)) {
+          marked[i] = true
+        }
       }
-      if (!cast) {
-        continue
-      }
-      const vals = pileValsAt(i)
-      for (let k = 0; k < vals.length; k++) {
-        if ((vals[k] % 2 == 1) == odd) {
-          n = n + 1
+    }
+    if (cast) {
+      // 这儿估的是**打出之前**，所以这张牌还没落堆 —— 它将来落在堆顶，
+      // 于是连续段从现在的堆顶往左数。castFor 那边起点是它自己的位置，
+      // 两处算的是同一件事（它落堆之后就在堆顶）
+      for (let i = size - 1; i >= 0; i--) {
+        const vals = pileValsAt(i)
+        let same = false
+        for (let k = 0; k < vals.length; k++) {
+          if ((vals[k] % 2 == 1) == odd) {
+            same = true
+            break
+          }
+        }
+        if (!same) {
           break
         }
+        marked[i] = true
+      }
+    }
+    let n = 0
+    for (let i = 0; i < size; i++) {
+      if (marked[i]) {
+        n = n + 1
       }
     }
     // 收色连它自己一起收（它落堆之后也是同花色的），所以 +1。
@@ -2950,7 +4488,7 @@
       //
       // 估的是**实际收成**（照 hueFor / castFor 的口径），不是近似值：
       // 两件都是遍历堆、数命中几张，算一遍不比猜便宜
-      const harvest = harvestCount(card, skills)
+      const harvest = harvestCount(card, skills, true)
       if (harvest > caught) {
         caught = harvest
       }
@@ -2982,8 +4520,7 @@
       const skills = skillsOf(true, card)
       // 想当饵顺手发动的那几件。挂效果的几件（照水、冻结、见底、窄口、满篓）
       // 也算 —— 它们正好要求「这张别钓到牌」，跟当饵是一回事
-      const wants = hasTrigger(skills, SK_GUARD) || hasTrigger(skills, SK_PEEK)
-        || hasTrigger(skills, SK_STIR) || hasTrigger(skills, SK_TIDE)
+      const wants = hasTrigger(skills, SK_PEEK) || hasTrigger(skills, SK_TIDE)
         || hasTrigger(skills, SK_LANTERN) || hasTrigger(skills, SK_FREEZE)
         || hasTrigger(skills, SK_LOWTIDE) || hasTrigger(skills, SK_SWAP)
         || hasTrigger(skills, SK_PICK)
@@ -2999,8 +4536,28 @@
         || hasTrigger(skills, SK_SUITIFY)
         // 连竿空钩也照样再给一张 —— 当饵顺手白拿一次出牌机会
         || hasTrigger(skills, SK_AGAIN)
+        // 抹点数那一族：三件在场效果得让这张**留在堆上**（照照水），
+        // 掏手、掏库钓不钓到都照样发动，拿来当饵是白赚
+        || hasTrigger(skills, SK_VOID) || hasTrigger(skills, SK_HUEVOID)
+        || hasTrigger(skills, SK_ODD)
+        || hasTrigger(skills, SK_DUMP) || hasTrigger(skills, SK_SPILL)
+        // 退潮自己算 0 点，所以它**永远钓不到** —— 拿它当饵不是取舍，
+        // 是它唯一的用法。而它顺带把底下那几张的点数退下去
+        || hasTrigger(skills, SK_EBB)
       if (wants && score <= fewest + 1) {
         score = score - 1.5
+      }
+      // 抹点数那四件自己**没有点数**（分水有），所以当饵格外安全 ——
+      // 落堆之后没人按点数钓得上它。那正是这一族「堆冻住、让它长厚」
+      // 的根基，庄家该优先拿它们下饵。
+      //
+      // 退潮也在这儿：它自己算 0 点，而 0 点互不匹配，所以按点数
+      // 一样钓不上它。差别是 0 点**还在点数轴上**（见底 / 干塘 / 撒网
+      // 收得走它，无点数的收不走）—— 那点差别不值得单开一档
+      if (hasTrigger(skills, SK_VOID) || hasTrigger(skills, SK_HUEVOID)
+        || hasTrigger(skills, SK_DUMP) || hasTrigger(skills, SK_SPILL)
+        || hasTrigger(skills, SK_EBB)) {
+        score = score - 1.0
       }
       // **沉底空钩是最危险的下饵**：那张躺在堆底，
       // 谁匹配到它就通吃整堆。所以当饵的时候要躲开它
@@ -3046,34 +4603,118 @@
     showLeft.value = false
     chipAt.value = -1
     pendingSkills = []
-    held = []
+    held.value = [] as HeldEffect[]
     lastPlayed = null
     firstNote = ''
     againPending = false
     againUsed.value = false
+    // 角色和「打过几张」每局归零 —— 【稳钩】数的是「这一局前 N 张」
+    myRole.value = -1
+    foeRole.value = -1
+    foeAt.value = 0
+    sealedRank.value = ''
+    myPlayed = 0
+    foePlayed = 0
+    // 沉底那个开关也归零。它保持状态是**一局之内**的事 ——
+    // 跨局留着的话，你上一局开着它，这一局头一张牌就莫名其妙落到了堆底
+    sinkOn.value = false
     const data = loadDrawSave()
     save.value = data
     if (finalMode) {
       // 终局：**不读存档的关卡，也不读你平时的装备** ——
       // 这一局跟你攒了多少钱、打到第几关一点关系都没有。
       //
-      // 庄家摇一套满配；你这边在关卡页「自定义技能」里挑过就照它来
-      //（带什么、几级你定，落在哪照旧是摇的），没挑就也摇一套满配
-      const mine = customKit.length > 0 ? kitFromLevels(customKit) : rollFullKit()
-      myLevels.value = mine.levels
-      myLoadout.value = mine.loadout
-      level.value = finalLevel(rollFullKit())
+      // 两条路：
+      //   带了 role 参数 —— 走**角色卡那套**（关卡页选的角色 + 嵌好的技能，
+      //     见 kitFromRole）。庄家也摇一个角色，所以双方同一个结构，
+      //     那一局比的是「这两套插法怎么互相咬」。
+      //   没带 —— 老的随机满配（关卡页那颗「开启挑战」直接开打的入口）
+      if (finalRole >= 0) {
+        const mine = kitFromRole(finalRole, finalSlots)
+        myLevels.value = mine.levels
+        myLoadout.value = mine.loadout
+        // **角色得记下来** —— 那件常驻特殊技能靠它现查（见 specialLevel）。
+        // 漏了这一步的话配装是对的，可满篓、深钩那些一个都不生效
+        myRole.value = mine.role
+        // 庄家按难度摇：困难只摇覆盖面最大的角色、简单只嵌一半的槽
+        const foe = rollRoleKit(finalDiff)
+        level.value = finalLevel(foe)
+        foeRole.value = foe.role
+      } else {
+        // 不选角色就开打：**双方各摇一张角色卡**。
+        //
+        // 原先这条路走 rollFullKit（摇一套填满点数槽的配装，形状靠等级变化）。
+        // 等级没了之后那个函数立不住，换成跟庄家同一条路 ——
+        // 而且摇角色比摇等级的差别大得多：槽数、槽上印什么、带哪件常驻技
+        // 全跟着变
+        const mine = rollRoleKit(finalDiff)
+        myLevels.value = mine.levels
+        myLoadout.value = mine.loadout
+        myRole.value = mine.role
+        const foe = rollRoleKit(finalDiff)
+        level.value = finalLevel(foe)
+        foeRole.value = foe.role
+      }
     } else {
+      // ---- 没选角色就别开局 ----
+      //
+      // 闯关的前提是**先有一张角色卡**（它给那几个印死标签的槽，
+      // 而买技能必须嵌进槽）。没角色的话这一局能打，可商店里
+      // 一件技能都买不动 —— 整轮就是个空壳，而且看不出原因。
+      //
+      // 正常路径走不到这儿（关卡页的 go 会先弹角色选择）。
+      // 这是兜底，挡的是「结算框上就地重开」那类绕过关卡页的入口：
+      // 宁可退回去选，也不要开一局注定废掉的。
+      //
+      // 摆在读关卡**之前** —— 后面那一串（摇庄家、落盘）都不该发生
+      if (!hasRole(data)) {
+        over.value = true
+        outcome.value = OUT_NOROLE
+        rewardText.value = '回关卡页选一张角色卡，再开这一关'
+        message.value = '新一轮要先选角色 —— 它给你那几个槽，技能才有地方嵌。'
+        return
+      }
       // 打的永远是本轮现在这一关。整轮打通了（runLevel 超过 12）的档不该进到这里，
       // 关卡页会先让它重开一轮；万一进来了就从第 1 关打
       // 庄家怎么出牌、过关给多少，按这个存档选的难度来（见 levelForDiff）
-      level.value = levelForDiff(drawLevelById(data.runLevel > DRAW_RUN_LENGTH ? 1 : data.runLevel),
+      const base = levelForDiff(drawLevelById(data.runLevel > DRAW_RUN_LENGTH ? 1 : data.runLevel),
         difficultyOf(drawSaveSlot()))
-      myLevels.value = data.levels.slice(0)
-      myLoadout.value = data.loadout
+      // ---- 庄家：角色由关号定死，标签读存档里摇定的那一份 ----
+      //
+      // 关卡表已经不配庄家了（那两个字段删了）—— 现在查 DRAW_FOE_ROLES。
+      // 技能名单印在卡上（可学、商店会预告），标签是摇的（学不到头）。
+      //
+      // ensureFoeKit 是兜底：万一哪条路漏了摇就按关号补一次**并落盘** ——
+      // 不落盘的话这一关每次进来都是新的一套，预告就成了假的
+      if (ensureFoeKit(data)) {
+        saveDraw(data)
+      }
+      const foeKit = foeKitOf(data, base.id)
+      level.value = withFoeKit(base, foeKit.levels, foeKit.loadout)
+      // 存**关号**，不是 foeKit.role —— 那个字段在这条路上装的是关号 - 1，
+      // 拿去查 DRAW_ROLES 会读到一张完全无关的玩家角色卡（见 foeAt 那段）
+      foeAt.value = base.id
+      // 【封竿】封的那个点数：从存档里摇定的那份标签上取（见 foeSealRank）。
+      // 要在 foeAt 设好之后 —— 没带这件的关号一律返回空串
+      sealedRank.value = foeSealRank(data, base.id)
+      // ---- 玩家：角色 + 每个槽嵌了什么 ----
+      //
+      // 存档里只存这两样，装备现算（kitFromRole）。
+      // **myRole 一定要设** —— 那件常驻特殊技靠它现查（见 specialLevel）。
+      // 从前闯关这条路把它留在 -1，所以五件已实现的特殊技一个都不生效
+      const mine = kitFromRole(data.role, data.slotSkills)
+      myLevels.value = mine.levels
+      myLoadout.value = mine.loadout
+      myRole.value = mine.role
     }
     deck.value = buildPlainDeck()
-    // 每个点数几张，照这副牌算一次 —— 庄家记牌要用（见 outsideCount）
+    // ---- 【囤饵】：开局往牌库塞牌，**在算 rankTotal 之前** ----
+    //
+    // 顺序要紧：rankTotal 是「这一轮每个点数几张」，庄家的记牌
+    //（outsideCount）全靠它。塞完再算，双方的账才对得上 ——
+    // 先算的话庄家会一直以为 7 只有四张，而牌桌上有七张
+    baitFor(false)
+    baitFor(true)
     buildRankTotals(deck.value)
     hand.value = []
     handSeen.value = []
@@ -3091,18 +4732,56 @@
     over.value = false
     rewardText.value = ''
     outcome.value = OUT_NONE
-    // 开局双方各发满 HAND_SIZE 张，庄家先发、轮流来；然后庄家先手。
-    // 之后每个回合结束各自补足回这个数（见 passTurn）
-    for (let i = 0; i < HAND_SIZE; i++) {
-      drawFor(true)
-      drawFor(false)
+    // 开局双方各发满手牌，庄家先发、轮流来；然后庄家先手。
+    // 之后每个回合结束各自补足回这个数（见 passTurn）。
+    //
+    // **发几张走 handLimit，不写死 HAND_SIZE** —— 添手（庄家 +1）和
+    // 掐口（玩家 −1）都该从起手就算上。写死的话这两条要等到第二回合
+    // 补牌时才生效，而「起手就比对方少一张」正是掐口要你感觉到的东西
+    const foeDeal = handLimit(true)
+    const myDeal = handLimit(false)
+    const deal = foeDeal > myDeal ? foeDeal : myDeal
+    for (let i = 0; i < deal; i++) {
+      if (i < foeDeal) {
+        drawFor(true)
+      }
+      if (i < myDeal) {
+        drawFor(false)
+      }
+    }
+    // ---------- 【淤滩】：开局堆上就压着三张死牌 ----------
+    //
+    // 从牌库顶垫 3 张，**点数一律算 0**（见 pushPile 的 vals 参数）——
+    // 而 0 点牌互相也不匹配（设计文档 8.2），所以这三张是真正的死牌：
+    // 普通钓牌一张都碰不到，只有 J 通吃、量水、见底那几条能端走。
+    //
+    // 为什么挂庄家名下（pushPile 传 true）：你钓这三张要走「钓对方的牌」
+    // 那条路，于是稳钩之类的护饵规则对它们成立 —— 它们是庄家下的饵。
+    //
+    // 垫完**不重算 rankTotal**：那三张是从库里摸出来的，
+    // 「这一轮每个点数几张」没变，只是位置从库里挪到了堆上。
+    // 庄家的记牌（outsideCount）照旧对得上
+    if (hasFoeSpecial('silt')) {
+      for (let i = 0; i < SILT_COUNT && deck.value.length > 0; i++) {
+        // **库顶是数组末尾**（见 drawFor 的 pop），所以摸一张是 pop 不是 shift。
+        // 这一条踩过：按 deck[0] 取的话垫上来的是库底三张，
+        // 而庄家的记牌和「外面还剩」那块面板算的是另一回事
+        const rest = deck.value.slice(0)
+        const one = rest.pop()!
+        deck.value = rest
+        // vals 传 [0]：这三张**点数一律算 0**。
+        // 每张要给一份新数组 —— 五条并行数组各存自己那一份，
+        // 共用同一个引用的话，谁改了点数（见底、点数卡）就全跟着变
+        pushPile(one, true, GUARD_NONE, [0] as number[])
+      }
     }
     message.value = finalMode
       ? '终局 · 双方都是随机满配，一局定胜负。庄家先手，打完一张补足 '
         + HAND_SIZE + ' 张。'
       : '第 ' + level.value.id + ' 关「' + level.value.name + '」。'
         + (level.value.random ? '这一关庄家随机出牌。' : '')
-        + '庄家先手，每回合打一张，回合末补足 ' + HAND_SIZE + ' 张。'
+        + (foeRoleName.value == '' ? '' : '对手：' + foeRoleName.value + '。')
+        + '庄家先手，每回合打一张，回合末补足 ' + myDeal + ' 张。'
     startFoeTurn()
   }
 
@@ -3111,13 +4790,38 @@
   // 对局逻辑一路都在读 level.value.loadout / .levels（见 loadoutOf、chipsOf），
   // 给它造一个长得正常的关卡，比在那十几处各加一个 if 干净得多。
   // id 给 0 —— 真关卡从 1 起，0 一眼就看得出不是正经关卡
+  // 把存档里摇定的那套庄家配装塞进关卡对象，**别的字段原样留着**
+  //（关号、关名、会不会记牌、过关给多少都还是关卡表 + 难度算出来的）。
+  //
+  // 跟 finalLevel 同一个手法：对局逻辑一路在读 level.value.loadout / .levels，
+  // 换掉这两个字段比在那十几处各加一个 if 干净
+  function withFoeKit(lv : DrawLevel, levels : number[], lo : DrawLoadout) : DrawLevel {
+    return {
+      id: lv.id,
+      chapter: lv.chapter,
+      name: lv.name,
+      smart: lv.smart,
+      random: lv.random,
+      levels: levels,
+      loadout: lo,
+      reward: lv.reward
+    } as DrawLevel
+  }
+
   function finalLevel(kit : DrawKit) : DrawLevel {
+    // 打法按难度来，规矩照闯关那套（见 draw-levels 的 levelForDiff）：
+    //   简单 —— 随手出牌（钓得到也不挑）
+    //   普通 / 困难 —— 记牌
+    //
+    // 终局没有关号，所以简单这一档是整局随机，不像闯关那样只前四关随机。
+    // 困难跟普通在**打法**上一样 —— 它的狠处在配装（见 rollRoleKit）
+    const easy = finalDiff == DIFF_EASY
     return {
       id: 0,
       chapter: '终局',
-      name: '满配对决',
-      smart: true,
-      random: false,
+      name: easy ? '对决 · 简单' : (finalDiff == DIFF_HARD ? '对决 · 困难' : '对决'),
+      smart: !easy,
+      random: easy,
       levels: kit.levels,
       loadout: kit.loadout,
       reward: 0
@@ -3161,14 +4865,30 @@
   onLoad((options : OnLoadOptions) => {
     const mode = options['mode']
     finalMode = mode != null && ('' + mode) == 'final'
-    // kit=等级,等级,…（关卡页「自定义技能」传过来的）
-    const kit = options['kit']
-    customKit = []
-    if (finalMode && kit != null && ('' + kit) != '') {
-      const parts = ('' + kit).split(',')
+    // role=角色下标 & slots=技能,技能,…（关卡页那套「选角色卡 + 嵌技能」传过来的）。
+    // 老的终局入口不带这两个参数，那就照旧随机满配
+    finalRole = -1
+    finalSlots = []
+    const role = options['role']
+    if (finalMode && role != null && ('' + role) != '') {
+      const ri = parseInt('' + role)
+      finalRole = isNaN(ri) ? -1 : ri
+    }
+    const slots = options['slots']
+    if (finalMode && slots != null && ('' + slots) != '') {
+      const parts = ('' + slots).split(',')
       for (let i = 0; i < parts.length; i++) {
         const v = parseInt(parts[i])
-        customKit.push(isNaN(v) ? -1 : v)
+        finalSlots.push(isNaN(v) ? -1 : v)
+      }
+    }
+    // 难度。老的终局入口（那颗直接开打的按钮）不带它，那就按普通
+    finalDiff = DIFF_NORMAL
+    const diff = options['diff']
+    if (finalMode && diff != null && ('' + diff) != '') {
+      const d = parseInt('' + diff)
+      if (!isNaN(d) && d >= DIFF_EASY && d <= DIFF_HARD) {
+        finalDiff = d
       }
     }
     newGame()
@@ -3191,9 +4911,13 @@
       return
     }
     if (over.value && !finalMode) {
+      // 从商店回来：装备可能变了（买了技能嵌进槽），重算一遍。
+      // 结算框还开着，所以只刷装备、不重开一局
       const data = loadDrawSave()
-      myLevels.value = data.levels.slice(0)
-      myLoadout.value = data.loadout
+      const mine = kitFromRole(data.role, data.slotSkills)
+      myLevels.value = mine.levels
+      myLoadout.value = mine.loadout
+      myRole.value = mine.role
     }
   })
 
@@ -3353,11 +5077,9 @@
     transform: scale(1.5);
   }
 
-  .area-title {
-    color: #ffffff;
-    font-size: 12px;
-    font-weight: bold;
-  }
+  /* 这儿原先有 .area-title（三个区块的标题：庄家手牌 N 张 / 牌堆 N 张 /
+     你的手牌 N 张）。三个标题全去掉了 —— 牌就摆在那儿，张数在顶栏，
+     标题只是把同一件事再说一遍。样式跟着删 */
 
   .foe-area {
     margin-top: 10px;
@@ -3408,6 +5130,23 @@
 
   .card-in-pile {
     margin-bottom: 6px;
+  }
+
+  /* 牌上那行效果名（照水、封色、冻结…）。
+     压在牌底部、底色压暗一档 —— 它不该抢点数和花色的注意力，
+     但得看得出「这张牌带着东西」。
+     46px 宽塞得下两个字，两件效果（「照水·冻结」）会挤 ——
+     那种情况很少，而且挤着也比看不见好 */
+  .card-effect {
+    position: absolute;
+    bottom: 1px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #9ad7ff;
+    background-color: rgba(16, 48, 70, 0.92);
+    font-size: 9px;
+    line-height: 12px;
   }
 
   .card-back {
@@ -3530,6 +5269,48 @@
     font-size: 9px;
   }
 
+  /* 这儿原先有 .card-tally（【记谱】印在手牌右上角的「外面还剩几张」）。
+     记谱删了，样式跟着删 —— 手牌的右上角因此空出来了 */
+
+  /* 【活水】：牌库顶那两张，压在手牌正上方 */
+  .live-text {
+    color: #9ad7ff;
+    font-size: 11px;
+    margin-top: 6px;
+    padding-left: 2px;
+  }
+
+  /* 【逆流】的开关 */
+  .sink-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 6px;
+    padding-left: 2px;
+  }
+
+  .sink-btn {
+    color: #9ad7ff;
+    background-color: #103046;
+    font-size: 11px;
+    border-radius: 8px;
+    padding: 2px 10px;
+    margin-right: 8px;
+  }
+
+  /* 开着的时候反过来：蓝底深字 —— 这个状态要**一眼看得出**，
+     不然你会忘了自己开着它，然后把牌打到堆底 */
+  .sink-btn-on {
+    color: #06243a;
+    background-color: #9ad7ff;
+    font-weight: bold;
+  }
+
+  .sink-note {
+    color: #8fc7ab;
+    font-size: 10px;
+    flex: 1;
+  }
+
   /* 点数卡贴上来的那几个点数。金的 —— 跟技能角标（蓝）分得开，
      而且它说的是「这张牌本身多了一条出路」，不是「会触发什么」 */
   .card-pip {
@@ -3543,17 +5324,9 @@
     font-size: 9px;
   }
 
-  .message-box {
-    margin-top: 8px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background-color: #0e3a28;
-  }
-
-  .message-text {
-    color: #ffffff;
-    font-size: 13px;
-  }
+  /* 这儿原先有 .message-box / .message-text（播报那一块，绿底白字、
+     常驻占一行）。播报现在接在状态行里（见 .turn-msg）—— 它和
+     「现在该谁」说的是同一件事的两头，分两块就要扫两眼 */
 
   .tide-box {
     margin-top: 8px;
@@ -3632,24 +5405,91 @@
     color: #e8b23a;
   }
 
+  /* 状态行：粗体那半是「现在该干什么」，后面接刚发生的事。
+     原先是两块（message-box 在上、turn-bar 在下），合成一条 */
   .turn-bar {
     flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 10px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    margin-bottom: 2px;
   }
 
   .turn-label {
     color: #e8b23a;
     font-size: 13px;
     font-weight: bold;
+    margin-right: 6px;
   }
 
-  /* 庄家的技能，照排竿「庄家挂着的规矩」：横着一排橙字小标签 */
+  .turn-msg {
+    color: #cfeade;
+    font-size: 11px;
+    flex: 1;
+  }
+
+  /* 技能行：双方共用这一套 —— 左边一个「你 / 庄」，后面横着一排标签。
+     从前你那侧是 skill-row + skill-chip（金色圆角、名字和覆盖面分两段），
+     庄家那侧是 rule-row + rule-tag（橙字小标签），两套长得完全不一样。
+     合成一套之后，两边的信息一眼就能对着看 —— 而「谁的」靠颜色分
+     （你的金、庄家的橙，见 rule-tag-foe） */
   .rule-row {
     flex-direction: row;
     flex-wrap: wrap;
+    align-items: center;
     margin-top: 4px;
+  }
+
+  .rule-side {
+    color: #9fd9bd;
+    font-size: 11px;
+    margin-right: 6px;
+  }
+
+  .rule-none {
+    color: #5f8f79;
+    font-size: 11px;
+  }
+
+  /* 特殊技（角色带的常驻）：描一个跟点数技能不同的色 ——
+     它不是「打出某张牌才响」那一类，一直在生效 */
+  .rule-tag-role {
+    color: #9ad7ff;
+    background-color: #103046;
+  }
+
+  /* ---------- 技能说明条 ---------- */
+  /* 点技能标签才出现。左边一条竖线是**谁的**：你的金、庄家的橙 ——
+     跟标签本身一个色系，所以点了哪个一眼对得上。
+     整块点得动（= 收起），不用去找关闭按钮 */
+  .chip-desc {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background-color: #0e3a28;
+    border-left-width: 3px;
+    border-left-style: solid;
+    border-left-color: #e8b23a;
+  }
+
+  .chip-desc-foe {
+    border-left-color: #ff9e80;
+  }
+
+  /* 头一行：谁的 · 管什么 · 叫什么 · 几级。比正文亮一档 */
+  .chip-desc-head {
+    color: #ffe9a8;
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 17px;
+  }
+
+  /* 正文：效果本身。行高给足 —— 那几件长的（洪水、见底）要换两三行 */
+  .chip-desc-body {
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 18px;
+    margin-top: 3px;
   }
 
   .rule-tag {
@@ -3662,73 +5502,53 @@
     margin-bottom: 2px;
   }
 
+  /* 庄家挂的描成红的。
+     同一件效果在你手里和在它手里是两回事（照水在你手里是情报、
+     在它手里是威慑），所以**谁挂的**必须一眼分得出来。
+
+     **必须排在 .rule-tag-on 前面** —— 两个类同权重，后来居上。
+     摆在后面的话，点中一个庄家的效果，选中那层高亮会被它盖掉
+     （跟 .card-shifted 和 .card-red 那次是同一个坑） */
+  .rule-tag-foe {
+    color: #ffd7d9;
+    background-color: #5c2328;
+  }
+
   .rule-tag-on {
     color: #3b2a00;
     background-color: #ff9e80;
   }
 
-  /* 你的技能栏，照排竿的道具栏。高度写死，免得手牌区上下跳 */
-  .skill-row {
+  /* ---------- 场上效果栏 ---------- */
+
+  /* **高度写死**（照技能栏那条惯例）—— 挂上 / 解除的时候这一行
+     要是忽高忽低，底下整块牌桌会上下跳 */
+  .field-bar {
     flex-direction: row;
     align-items: center;
-    flex-wrap: wrap;
-    min-height: 30px;
+    height: 28px;
     margin-top: 6px;
   }
 
-  .skill-label {
-    color: #9fd9bd;
-    font-size: 11px;
-    margin-right: 6px;
+  /* 横向滚 —— 挂到四五条的时候（照水 + 封色 + 分水 + 冻结…）
+     换行会把高度顶开 */
+  .field-scroll {
+    flex: 1;
+    height: 28px;
   }
 
-  /* 一格技能：名字和管的牌横着摆 */
-  .skill-chip {
-    flex-direction: row;
-    align-items: center;
-    height: 24px;
-    padding: 0 8px;
-    margin-right: 6px;
-    margin-bottom: 4px;
-    border-radius: 12px;
-    background-color: #0e3a28;
-    border-width: 1px;
-    border-style: solid;
-    border-color: #e8b23a;
-  }
-
-  .skill-chip-on {
-    background-color: #e8b23a;
-  }
-
-  /* 原先这儿有 .skill-chip-slot（左边那个「花色 / 点数」的小标志），
-     连同它的点亮态一起删了 —— 覆盖面本身就把话说完了 */
-
-  .skill-chip-name {
-    color: #e8b23a;
-    font-size: 12px;
-    font-weight: bold;
-  }
-
-  .skill-chip-name-on {
-    color: #3b2a00;
-  }
-
-  .skill-chip-cover {
-    color: #fff3c4;
-    font-size: 11px;
-    margin-left: 4px;
-  }
-
-  /* 点亮时金底，管的牌改深色才看得清。排在 .skill-chip-cover 后面才盖得住 */
-  .skill-chip-cover-on {
-    color: #3b2a00;
-  }
-
-  .skill-none {
-    color: #8fc7ab;
-    font-size: 11px;
-  }
+  /* 这儿原先有一串只给旧布局用的类，一起删了：
+   *
+   *   .field-label / .field-none —— 「场上效果 · 无」那一行废话。
+   *     一件都没有的时候现在整行不占位（模板那边 v-if 掉了）。
+   *   .skill-row / .skill-label / .skill-chip 那一整套（金色圆角 chip、
+   *     名字和覆盖面分两段）—— 你那侧现在跟庄家那侧共用
+   *     rule-row + rule-tag，两边长得一样才对着看得出来。
+   *   .role-text / .role-text-foe —— 常驻技能那两行小字，
+   *     现在是技能行里的**第一个标签**（rule-tag-role）。
+   *
+   * .area-title 留着没删：三个区块的标题（庄家手牌 N 张 / 牌堆 N 张 /
+   * 你的手牌 N 张）都去掉了，但结算框那边还在用它 */
 
   .hand-area {
     margin-top: 8px;

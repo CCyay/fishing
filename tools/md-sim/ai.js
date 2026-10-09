@@ -70,6 +70,13 @@ function pickCard(G, side) {
     const card = hand[i]
     if (R.isFrozen(G, card)) continue
     const skills = R.triggersOf(lo, card)
+    // 这儿只看点数槽的【沉底】，**不看角色的【逆流】** ——
+    // 照源码（foePickCard 那行 `const sink = hasTrigger(skills, SK_SINK)`）。
+    //
+    // 那是源码里一个真实的缺口，不是这边搬漏了：挑牌阶段不知道
+    // 「这张沉底能钓到」，而 wantSink 只在打出**之后**决定落点，
+    // 牌已经挑定了。所以逆流在庄家手里被低估 —— roles 那张表量出来的
+    // 是它的**下限**。改源码的话是在上面那一行或上接 wantSink
     const sink = R.has(skills, SK.SINK)
     const at = R.catchStart(G, card, side, skills, sink)
     let caught = 0
@@ -79,7 +86,7 @@ function pickCard(G, side) {
     }
     // 收色、撒网不走点数判定，所以上面那一下对它们一概是 -1 ——
     // 不单独估一次，AI 就会把一张能扫掉半个堆的牌当普通饵打出去
-    const harvest = R.harvestCount(G, card, skills)
+    const harvest = R.harvestCount(G, card, skills, side)
     if (harvest > caught) caught = harvest
     if (caught > bestCaught) {
       bestCaught = caught
@@ -104,8 +111,7 @@ function pickCard(G, side) {
     const skills = R.triggersOf(lo, card)
     // 想当饵顺手发动的那几件。挂效果的三件（照水、冻结、见底）也算 ——
     // 它们正好要求「这张别钓到牌」
-    const wants = R.has(skills, SK.GUARD) || R.has(skills, SK.PEEK)
-      || R.has(skills, SK.STIR) || R.has(skills, SK.TIDE)
+    const wants = R.has(skills, SK.PEEK) || R.has(skills, SK.TIDE)
       || R.has(skills, SK.LANTERN) || R.has(skills, SK.FREEZE)
       || R.has(skills, SK.LOWTIDE) || R.has(skills, SK.SWAP)
       || R.has(skills, SK.PICK) || R.has(skills, SK.SUITIFY)
@@ -117,8 +123,19 @@ function pickCard(G, side) {
       || R.has(skills, SK.PRESS) || R.has(skills, SK.UNHOOK)
       || R.has(skills, SK.SWAPCARD) || R.has(skills, SK.TWIN)
       || R.has(skills, SK.SUITFIND)
+      // 抹点数那一族：三件在场效果得让这张留在堆上（照照水），
+      // 掏手、掏库钓不钓到都照样发动，拿来当饵是白赚
+      || R.has(skills, SK.VOID) || R.has(skills, SK.HUEVOID)
+      || R.has(skills, SK.ODD)
+      || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
     if (wants && score <= fewest + 1) {
       score = score - 1.5
+    }
+    // 抹点数那四件自己**没有点数**（分水有），所以当饵格外安全 ——
+    // 落堆之后没人按点数钓得上它。那正是这一族「堆冻住、让它长厚」的根基
+    if (R.has(skills, SK.VOID) || R.has(skills, SK.HUEVOID)
+      || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)) {
+      score = score - 1.0
     }
     // **沉底空钩是最危险的下饵**：那张躺在堆底，谁匹配到它就通吃整堆
     if (R.has(skills, SK.SINK)) {

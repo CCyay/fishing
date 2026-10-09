@@ -3,10 +3,14 @@
 // 玩法照排竿：一轮要从第 1 关连胜到第 12 关，输一次（平局也算）整轮作废，从头再来。
 // 所以存档里分两层：
 //   跨轮留着的：存档名、最远打到第几关（best）；
-//   一轮之内的：当前关、金币、技能、技能槽、「上次拿到技能之后空了几关」—— 输了全清。
+//   一轮之内的：角色、每个槽嵌了什么、当前关、金币、牌组、货架 —— 输了全清。
 //
-// 技能**在商店买**，跟卡牌混在同一栏上货（见 rollShelf）。
-// 一轮之内最多拥有 MAX_OWNED_SKILLS 个，想换先卖掉一个腾名额。
+// **一轮开始先选一张角色卡**（见 draw-levels.uvue 的 go）：它给一件常驻
+// 特殊技（整轮都在，不占槽）和几个印死标签的槽，槽是空的。
+//
+// 技能**在商店买**，跟卡牌混在同一栏上货（见 rollShelf），买下来必须
+// 当场嵌进一个槽。所以不存在「拥有但没装上」的库，也不存在名额上限 ——
+// **槽数本身就是上限**，槽满了照样买得动，只是会换掉里头那件。
 //
 // 不并进 save.uts 的 SaveData：那边已经 24 段、两个游戏共用一套序列化，
 // 这个玩法的字段一个都不重叠，塞进去只会让每个函数再长一截。
@@ -18,30 +22,36 @@ import {
   SHOP_CARD_COUNT,
   SHELF_BONUS,
   CARD_BONUS,
-  RANK_BONUS,
   FLAT_REROLL,
   cardRerollCost,
   rollFixKeys,
+  // 庄家角色：按关号查哪一张卡（技能名单印在卡上，标签这边摇）
+  foeRoleAt,
   DIFF_EASY,
   DIFF_NORMAL,
   DIFF_HARD
+  // 原先还引着 RANK_BONUS（加权加几格）和 foeSkillsOf（庄家带几个技能）。
+  // 加权删了；技能数现在由角色卡的槽数定，不用算
 } from '@/pages/examples/blackjack/draw-levels.uts'
 import {
   DRAW_SKILLS,
+  DRAW_ROLES,
+  DrawKit,
+  KitSlot,
+  kitFromSlots,
+  rollLabels,
+  slotLabels,
+  roleIndexOf,
+  // 点数卡摇哪个点数要用它（A–10、Q、K，排掉 J）
   SKILL_RANKS,
-  RANK_CAPACITY,
-  SLOT_NONE,
-  DrawLoadout,
-  emptyLoadout,
-  rankCapOf,
-  rollPlace,
-  rollSlotFor,
-  placeInSlot,
-  slotName,
-  rollExpand,
-  canUpgrade,
-  slotOf,
-  coverageText
+  // 存档里技能和角色都存 key，这两个负责 key ↔ 下标
+  //（见下面 ownerToText / textToOwner 那一段）
+  skillIndexOf,
+  skillKeyAt
+  // 原先还引着一串旧模型的东西（rollPlace / rollKitFor / rankCapOf /
+  // emptyLoadout / isEquipped / coverageText / SUIT_COUNT /
+  // RANK_CAPACITY / DrawLoadout）。存档不再存 loadout 了 ——
+  // 它从「角色 + 每槽嵌什么」derive 出来，所以这些全不需要
 } from '@/pages/examples/blackjack/draw-skills.uts'
 
 export const DRAW_SLOT_COUNT : number = 3
@@ -57,7 +67,7 @@ export const DRAW_RUN_LENGTH : number = 12
 // 读的时候要把剩下的全拼回去。
 //
 // md4 动了两处，都是为了那两件永久扩容道具（加栏、加权）：
-//   · 第 4 段从 misses（过关掉技能那套留下的，恒为 0）换成 **rankCap**
+//   · 第 4 段从 misses（过关掉技能那套留下的，恒为 0）换成 rankCap
 //     —— 点数槽这一轮有几格。顺手把那个死字段清掉了。
 //   · label 前面多插一段 **bonusShelf** —— 道具栏多了几格。
 //
@@ -65,9 +75,12 @@ export const DRAW_RUN_LENGTH : number = 12
 //   · **bonusCard** —— 技能 / 卡牌那一栏多了几格（加架）。
 //   · **flatReroll** —— 刷新价拍平了没有（平价），0 / 1。
 //
-// 这四个数就是「买没买过那四件唯一道具」的全部记录：
-// 加栏看 bonusShelf、加架看 bonusCard、加权看 rankCap 有没有超过底数、
-// 平价看 flatReroll。**不另记一张「已买过」的清单** —— 同一件事
+// md10 把【加权】那件删了（槽数由角色卡定，加出来的格子印什么没有来源），
+// 于是 rankCap 那一段也没了 —— 第 4 段现在装**角色 key**。
+//
+// 剩下三个数就是「买没买过那三件唯一道具」的全部记录：
+// 加栏看 bonusShelf、加架看 bonusCard、平价看 flatReroll。
+// **不另记一张「已买过」的清单** —— 同一件事
 // 在存档里有两份记录，迟早对不上（见 takenOnceKeys）。
 //
 // 版号一跳，老档就当没有（下面那道 parts[0] != VERSION 的闸）。
@@ -76,8 +89,39 @@ export const DRAW_RUN_LENGTH : number = 12
 //
 // md6 只是在 label 前面插了一段 inShop（0 / 1）。md5 看版号就分得出来，
 // 所以照读：inShop 当 false，label 从第 13 段起
-const VERSION : string = 'md6'
-const VERSION_MD5 : string = 'md5'
+//
+// md7 在 label 前面插**三段庄家配装**（foeLevels / foeSuit / foeRank）。
+// 庄家带什么从「关卡表里写死」改成了「摇的」，而摇出来的那一套
+// **必须存住** —— 商店会预告下一关的庄家，每次看都重摇就是假情报，
+// 退出再进还能一直刷到弱的。跟货架、牌组一个待遇（见 rollFoeKit）。
+//
+// md5 / md6 的老档都照读（版号分得出来），只是读不到庄家配装 ——
+// 那就当空的，进对局时按关号补摇一次（见 ensureFoeKit）
+//
+// ---- md8：技能从存下标改成**存 key** ----
+//
+// 段数和顺序一个都没变，变的是第 5、6、7 段（以及庄家那三段）**里头写什么**：
+//
+//   md7 及以前   levels = "-1,2,-1,0,…"（按技能下标排的等级表）
+//                suitOwner = "0,-1,-1,0"（技能下标）
+//   md8          levels = "hook:2,tide:0"（只写拥有的，key:等级）
+//                suitOwner = "hook,,,hook"（key，空格写空串）
+//
+// 为什么非改不可：存下标的话，**删一件技能就让老档整个错位** ——
+// 删掉护饵（原来的 0 号）之后，老档里记着「0 号 2 级」，读出来变成磁钩 2 级。
+// 存 key 就没这个问题，读到已删的 key 当它不存在（见 textToOwner）。
+//
+// md10 把这条规矩**同样用在角色上**（第 4 段存 `DRAW_ROLES[].key`）——
+// 角色表以后也可能删卡，而角色是一整轮的方向，错位比技能错位更糟。
+//
+// md7 的老档**没法兼容读**：那三段都是数字串，而数字串在 md8 里是合法的
+// key 吗？不是 —— 但 skillIndexOf('0') 返回 -1，于是整套装备读成空的，
+// 等于白读。与其读出一个空壳让人以为存档坏了，不如认版号作废：
+// 它只丢「这一轮打到哪、带什么」，best（最远纪录）那一层也在同一个档里，
+// 所以老档整个当没有。这是这次改动唯一的实际代价
+// md9：花色槽砍掉，suitOwner 那两段没了（见 loadDrawAt 里那段）。
+// 不留老版号常量了 —— md9 一个都不兼容，留着没用
+const VERSION : string = 'md10'
 const KEY_PREFIX : string = 'md_save_'
 const KEY_SLOT : string = 'md_slot'
 
@@ -89,9 +133,19 @@ export type DrawSave = {
   // 本轮：现在要打第几关。DRAW_RUN_LENGTH + 1 表示整轮打通了
   runLevel : number
   gold : number
-  // 本轮：每个技能的等级，-1 表示没有。下标和 DRAW_SKILLS 对齐
-  levels : number[]
-  loadout : DrawLoadout
+  // ---------- 本轮：角色 + 每个槽嵌了什么 ----------
+  //
+  // 这两样就是玩家的全部装备。`levels` 和 `loadout` 那两段**删掉了** ——
+  // 它们能从这两样 derive 出来（kitFromRole 就在做这件事），
+  // 存两份同一件事迟早对不上。
+  //
+  // role: DRAW_ROLES 下标，-1 = 这一轮还没选角色（开启挑战要先选）。
+  // slotSkills: 跟角色的 slots 一一对应，-1 = 那个槽空着。
+  //
+  // **开局 slotSkills 全是 -1** —— 角色只给你一件常驻特殊技和几个空槽，
+  // 技能靠商店买、买的时候挑进哪个槽
+  role : number
+  slotSkills : number[]
   // 本轮的**牌组构成**：每段一张牌，写成「花色 + 点数」（♠3、♥10）。
   //
   // 空数组 = 还没改造过，用标准的 52 张。商店里买的改造道具
@@ -131,6 +185,22 @@ export type DrawSave = {
   // 本轮：打赢一关、还没离开商店。从商店「退出」之后再开启挑战，
   // 先回商店而不是直接开下一关（商店里点「开始下一关」才清掉）
   inShop : boolean
+  // 本轮：**当前这一关庄家那几个槽上摇出来的标签**。
+  //
+  // 庄家角色本身不用存 —— 它由关号定死（DRAW_FOE_ROLES 按关号下标），
+  // 所以存档里只需要那一份**摇出来的标签**。
+  //
+  // 为什么标签要存：商店会预告下一关的庄家（见 draw-skills.uvue 的
+  // foePreview），每次读都重摇就是假情报，而且退出再进能一直刷到
+  // 好摇的位置。跟货架（shelf）一个理由。
+  //
+  // 什么时候摇：一轮开始摇第 1 关的，每过一关摇下一关的
+  //（settleWin 里，正好在进商店之前，所以预告读得到）。
+  // 平局重打同一关不重摇 —— 那一关的题目没变。
+  //
+  // 格式：一个槽一段，段内用空格分隔标签（跟角色卡的 slots 同一个写法）。
+  // 比如鲸骸摇出来可能是 ['♦', '3 9']
+  foeSlots : string[]
 }
 
 function listOf(count : number, value : number) : number[] {
@@ -148,14 +218,17 @@ export function emptyDrawSave() : DrawSave {
     best: 0,
     runLevel: 1,
     gold: 0,
-    levels: listOf(DRAW_SKILLS.length, -1),
-    loadout: emptyLoadout(),
+    // -1 = 还没选角色。「开启挑战」会先弹角色选择（见 hasRole）
+    role: -1,
+    slotSkills: [] as number[],
     cards: [] as string[],
     shelf: [] as string[],
     bonusShelf: 0,
     bonusCard: 0,
     flatReroll: false,
-    inShop: false
+    inShop: false,
+    // 空的 = 还没摇过。进对局的时候按关号补摇（ensureFoeKit）
+    foeSlots: [] as string[]
   }
 }
 
@@ -164,6 +237,9 @@ export function newDrawSave(label : string) : DrawSave {
   const data = emptyDrawSave()
   data.exists = true
   data.label = label
+  // 第 1 关的庄家当场摇好 —— 第 1 关不带技能，所以摇出来是空的，
+  // 可这条路得走一遍，不然 ensureFoeKit 每次都以为「还没摇过」
+  rollFoeKit(data, 1)
   return data
 }
 
@@ -171,34 +247,124 @@ export function newDrawSave(label : string) : DrawSave {
 export function resetDrawRun(data : DrawSave) {
   data.runLevel = 1
   data.gold = 0
-  data.levels = listOf(DRAW_SKILLS.length, -1)
-  // emptyLoadout 把 rankCap 也带回底数 —— 加权买来的那一格一起清。
-  // 它跟技能、牌组一个待遇：本轮的家当
-  data.loadout = emptyLoadout()
+  // **角色也清掉** —— 下一轮要重新选一张。
+  // 那是这个玩法的开局决策，不该跨轮沿用上一轮那张
+  data.role = -1
+  data.slotSkills = [] as number[]
   // 牌组改造跟技能一个待遇：本轮的家当，输了一起清。
   // 不清的话它会跨轮累积，而这个玩法的整个结构是「输一次从头来」
   data.cards = [] as string[]
   // 货架也清空 —— 下次进店会摆新的一批
   data.shelf = [] as string[]
-  // 四件唯一扩容道具买来的东西同理，都只「永久」到这一轮结束 ——
+  // 三件唯一扩容道具买来的东西同理，都只「永久」到这一轮结束 ——
   // 跨轮留着的话它们会累成一条养成线，而这个玩法没有养成线
-  //（加权那一格在 emptyLoadout 里已经清了）
   data.bonusShelf = 0
   data.bonusCard = 0
   data.flatReroll = false
   data.inShop = false
+  // 庄家那一套也重摇 —— 新一轮就是新的十二道题。
+  // 不重摇的话上一轮第 12 关那套会跟到新一轮的第 1 关
+  rollFoeKit(data, 1)
 }
 
 export function runCleared(data : DrawSave) : boolean {
   return data.runLevel > DRAW_RUN_LENGTH
 }
 
+// ---------- 庄家配装：摇一次，存住 ----------
+//
+// 角色由关号定死（DRAW_FOE_ROLES 按关号下标），技能名单印在角色卡上 ——
+// **只有标签是摇的**（标签表见 draw-skills 的 rollLabels）。
+//
+// **摇完就存住**，这一条跟货架同一个理由：商店会预告下一关的庄家
+//（见 draw-skills.uvue 的 foePreview），每次读都重摇的话
+// 预告就是假情报，而且退出再进能一直刷到好摇的位置。
+export function rollFoeKit(data : DrawSave, level : number) {
+  const role = foeRoleAt(level)
+  const slots : string[] = []
+  const takenRanks : string[] = []
+  const takenSuits : string[] = []
+  for (let i = 0; i < role.slots.length; i++) {
+    const one = role.slots[i]
+    const taken = one.suit ? takenSuits : takenRanks
+    const labels = rollLabels(one.count, one.suit, taken)
+    let text = ''
+    for (let j = 0; j < labels.length; j++) {
+      taken.push(labels[j])
+      text = text + (j == 0 ? '' : ' ') + labels[j]
+    }
+    slots.push(text)
+  }
+  data.foeSlots = slots
+}
+
+// 这一关庄家摇出来的那套配装。角色从关号查，标签从存档读 ——
+// 所以**同一关每次读到的是同一套**（那正是「摇完存住」的全部意义）
+export function foeKitOf(data : DrawSave, level : number) : DrawKit {
+  const role = foeRoleAt(level)
+  const slots : KitSlot[] = []
+  for (let i = 0; i < role.slots.length && i < data.foeSlots.length; i++) {
+    slots.push({
+      skill: role.slots[i].skill,
+      labels: slotLabels(data.foeSlots[i])
+    } as KitSlot)
+  }
+  // role 传关号 - 1（DRAW_FOE_ROLES 的下标）。
+  // **注意这跟玩家的 role 不是同一张表** —— 那边是 DRAW_ROLES
+  return kitFromSlots(slots, level - 1)
+}
+
+// 【封竿】封住的那个点数（庄家特殊技，见 draw-levels 的 DRAW_FOE_SPECIALS）。
+// 没带这件、或者它的槽上没有点数标签就返回空串。
+//
+// **它封的是庄家自己技能占着的那个点数** —— 不另摇一个数，理由有两条：
+//
+//   不另存 —— 再摇一个就得在存档里多存一段，而「摇完要存住」
+//     那条规矩每多一个字段就多一个漏的机会（见 rollFoeKit 上面那段）；
+//   更凶也更公道 —— 那个点数本来就是它的主场（技能嵌在那儿），
+//     封掉之后你连「打那个点数去撞它」这条路都没了。
+//     而且它跟商店预告是同一份信息：预告给了花色、点数只报个数，
+//     所以你知道「有一个点数被封了」，不知道是哪个 —— 得试出来
+export function foeSealRank(data : DrawSave, level : number) : string {
+  const role = foeRoleAt(level)
+  if (role.special != 'seal') {
+    return ''
+  }
+  for (let i = 0; i < role.slots.length && i < data.foeSlots.length; i++) {
+    if (role.slots[i].suit) {
+      continue
+    }
+    const labels = slotLabels(data.foeSlots[i])
+    if (labels.length > 0) {
+      return labels[0]
+    }
+  }
+  return ''
+}
+
+// 还没摇过就按当前关号补摇一次。
+//
+// 正常路径都摇过了（新档、输了重开、过关结算各一次），
+// 这儿是兜底 —— 万一哪条路漏了，一局开不起来比庄家强一点难受得多。
+//
+// **浅滩那四关角色本来就没有槽**，所以「foeSlots 是空的」在那几关
+// 是正常状态。拿角色的槽数去比，而不是比「空不空」——
+// 不然前四关每次进对局都会白摇一遍
+export function ensureFoeKit(data : DrawSave) : boolean {
+  const want = foeRoleAt(data.runLevel).slots.length
+  if (data.foeSlots.length == want) {
+    return false
+  }
+  rollFoeKit(data, data.runLevel)
+  return true
+}
+
 // 原先这儿有个 dropChance（过关掉技能的概率，随连空关数往上走）。
 // 技能改成商店买了，这个函数和它依赖的 DROP_BASE / DROP_STEP 一起没用了。
 //
 // 它留下的那个 `misses` 字段（恒为 0）当时没删，说好「哪天版号因为别的事
-// 要跳，顺手清掉」—— md4 为了加权那一格要跳版了，于是顺手清了：
-// 第 4 段现在装 rankCap
+// 要跳，顺手清掉」—— md4 为了加权那一格要跳版了，于是顺手清了。
+// 加权后来也删了（md10），第 4 段现在装**角色 key**
 
 function toInt(text : string, fallback : number) : number {
   const parsed = parseInt(text)
@@ -219,13 +385,9 @@ function readString(key : string) : string {
   return ''
 }
 
-function numsToText(list : number[]) : string {
-  let text = ''
-  for (let i = 0; i < list.length; i++) {
-    text = text + (i == 0 ? '' : ',') + list[i]
-  }
-  return text
-}
+// 原先这儿有个 numsToText（数字表写成逗号串），技能的等级和槽位都靠它。
+// 技能改成存 key 之后它没有调用方了，所以删掉 ——
+// 留着只会让下一个人以为存档里还有数字表那回事
 
 // 一串字符串，逗号分隔。牌组构成那一栏用它 —— 存的是「♠3」这种，
 // 不用查任何表，原样存原样读
@@ -264,16 +426,69 @@ function textToFixed(text : string, count : number, fallback : number) : number[
   return list
 }
 
+// ---------- 技能存的是 key，不是下标 ----------
+//
+// 下面四个函数是那道闸门。为什么非得这样，见 draw-skills 文件头
+// 「技能的身份是 key」那一段，一句话版：**存下标的话，删一件技能
+// 就让老档整个错位**（你的磁钩会变成别人家的观潮）。
+//
+// 存 key 之后删增技能谁也不影响谁 —— 老档里读到一个已经删掉的 key，
+// skillIndexOf 返回 -1，就当没有这件技能。
+
+// 原先这儿有 levelsToText / textToLevels（等级表 ↔「key:等级」串）
+// 和 emptySuitOwner。**等级没了、loadout 也不存了**，三个一起删 ——
+// 现在只需要下面那一对：槽位表 ↔「key,key,,key」串。
+//
+// 「存 key 不存下标」那条规矩留着，而且现在角色也照它存
+//（存下标的话表里删一张卡 / 一件技能就让老档整个错位）
+
+// 槽位表（每格一个技能下标，-1 空着）→ 「key,key,,key」串。
+// **空格写成空串**，所以格数得原样保留 —— 它是定长的，位置有意义
+function ownerToText(owner : number[]) : string {
+  let text = ''
+  for (let i = 0; i < owner.length; i++) {
+    text = text + (i == 0 ? '' : ',') + skillKeyAt(owner[i])
+  }
+  return text
+}
+
+function textToOwner(text : string, count : number) : number[] {
+  const list = listOf(count, -1)
+  if (text == '') {
+    return list
+  }
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length && i < count; i++) {
+    list[i] = parts[i] == '' ? -1 : skillIndexOf(parts[i])
+  }
+  return list
+}
+
 export function loadDrawAt(index : number) : DrawSave {
   const raw = readString(KEY_PREFIX + index)
   if (raw == '') {
     return emptyDrawSave()
   }
   const parts = raw.split('|')
-  // 版号对不上（比如 md1 那版还有「通关列表」、没有本轮概念）就当没有这个档
-  const old = parts[0] == VERSION_MD5
-  const labelAt = old ? 13 : 14
-  if (parts.length < labelAt + 1 || (parts[0] != VERSION && !old)) {
+  // 版号对不上（比如 md1 那版还有「通关列表」、没有本轮概念）就当没有这个档。
+  //
+  // ---- md9 起**不再兼容老档** ----
+  //
+  // 花色槽砍掉之后 suitOwner 那两段没了（玩家的和庄家的），
+  // 于是**第 6 段往后全部左移两位** —— 段位整个错开，没法按版号补偿着读。
+  //
+  // 从前这儿有一串 md5/md6/md7/md8 的兼容分支（每一代 label 在第几段
+  // 都不一样）。现在一律作废：老档读出来只能是一副错位的装备，
+  // 而「读出一个空壳让人以为存档坏了」比「当没有这个档」更糟。
+  //
+  // 代价是清掉 best（最远纪录）。这是结构改动该付的 —— 砍掉一整个槽
+  // 本来就不是能平滑迁移的事。
+  //
+  // **md10 又缩了三段**：玩家的 levels / loadout 换成了「角色 + 每槽嵌什么」
+  // 两段（装备能从这两样 derive），庄家的两段换成一段「摇出来的标签」
+  //（角色由关号定死，不用存）。十六段缩到十三段
+  const labelAt = 13
+  if (parts.length < labelAt + 1 || parts[0] != VERSION) {
     return emptyDrawSave()
   }
   // label 是最后一段，而它可能自带 | 号 —— 所以从 labelAt 起全拼回去
@@ -287,20 +502,24 @@ export function loadDrawAt(index : number) : DrawSave {
     best: toInt(parts[1], 0),
     runLevel: toInt(parts[2], 1),
     gold: toInt(parts[3], 0),
-    levels: textToFixed(parts[5], DRAW_SKILLS.length, -1),
-    loadout: {
-      suitOwner: textToFixed(parts[6], SUITS.length, -1),
-      rankOwner: textToFixed(parts[7], SKILL_RANKS.length, -1),
-      // 读不出来就当底数（rankCapOf 也会再兜一次底）
-      rankCap: toInt(parts[4], RANK_CAPACITY)
-    },
-    cards: textToList(parts[8]),
-    shelf: textToList(parts[9]),
-    bonusShelf: toInt(parts[10], 0),
-    bonusCard: toInt(parts[11], 0),
-    flatReroll: parts[12] == '1',
-    inShop: !old && parts[13] == '1'
+    // 角色用 key 存（跟技能一个道理 —— 存下标的话表里删一张卡就全错位）
+    role: roleIndexOf(parts[4]),
+    slotSkills: textToOwner(parts[5], roleSlotsOf(parts[4])),
+    cards: textToList(parts[6]),
+    shelf: textToList(parts[7]),
+    bonusShelf: toInt(parts[8], 0),
+    bonusCard: toInt(parts[9], 0),
+    flatReroll: parts[10] == '1',
+    inShop: parts[11] == '1',
+    foeSlots: textToList(parts[12])
   }
+}
+
+// 这个角色 key 有几个槽。读档时要用它定 slotSkills 的长度 ——
+// 存档里那一段只写了「每个槽嵌的技能 key」，槽数得从卡上查
+function roleSlotsOf(key : string) : number {
+  const at = roleIndexOf(key)
+  return at < 0 ? 0 : DRAW_ROLES[at].slots.length
 }
 
 export function writeDrawAt(index : number, data : DrawSave) {
@@ -308,16 +527,20 @@ export function writeDrawAt(index : number, data : DrawSave) {
     + '|' + data.best
     + '|' + data.runLevel
     + '|' + data.gold
-    + '|' + rankCapOf(data.loadout)
-    + '|' + numsToText(data.levels)
-    + '|' + numsToText(data.loadout.suitOwner)
-    + '|' + numsToText(data.loadout.rankOwner)
+    // 角色和每个槽嵌了什么，就是玩家的全部装备 ——
+    // levels / loadout 那两段删了（能从这两样 derive，见 kitFromRole）
+    + '|' + (data.role >= 0 && data.role < DRAW_ROLES.length
+      ? DRAW_ROLES[data.role].key : '')
+    + '|' + ownerToText(data.slotSkills)
     + '|' + listToText(data.cards)
     + '|' + listToText(data.shelf)
     + '|' + data.bonusShelf
     + '|' + data.bonusCard
     + '|' + (data.flatReroll ? '1' : '0')
     + '|' + (data.inShop ? '1' : '0')
+    // 庄家只存摇出来的标签（角色由关号定死，不用存）。
+    // 一个槽一段，段内空格分隔 —— listToText 用逗号分段，不冲突
+    + '|' + listToText(data.foeSlots)
     + '|' + data.label
   uni.setStorageSync(KEY_PREFIX + index, text)
 }
@@ -546,10 +769,10 @@ export type ShelfGoods = {
   kind : string
   tag : string
   sold : boolean
-  // 只有技能用：上货时定好的槽（SLOT_SUIT / SLOT_RANK，见 rollSlotFor）。
-  // 存成第 4 段；老档的货架没有这一段，读出来是 SLOT_NONE，拿到时照旧随机
-  slot : number
 }
+// 这儿原先还有个 slot 字段：上货时就摇好「这件技能进花色槽还是点数槽」，
+// 摆在格子上给你看。花色槽砍掉之后只剩一个槽，没什么可定的了 ——
+// 字段、rollSlotFor、canPlaceIn、slotName 那一套一起删了
 
 // 摇一批新货。keepFix 为真就留着原来那几件道具、只换下面那一栏 ——
 // 刷新走这条：**道具买完就没了，刷新不补**，技能和卡牌才是「行情」。
@@ -596,7 +819,7 @@ export function rollShelf(data : DrawSave, keepFix : boolean) {
   // 清不了数组，只能换引用）
   let freeSkills : number[] = []
   for (let k = 0; k < DRAW_SKILLS.length; k++) {
-    if (data.levels[k] < 0) {
+    if (!hasSkill(data, k)) {
       freeSkills.push(k)
     }
   }
@@ -609,7 +832,7 @@ export function rollShelf(data : DrawSave, keepFix : boolean) {
     // 技能摆完了（全有了）那一份自动匀给后两样
     if (freeSkills.length > 0 && (i == mustSkill || randomInt(3) == 0)) {
       const at = randomInt(freeSkills.length)
-      out.push(GOODS_SKILL + ':' + freeSkills[at] + ':0:' + rollSlotFor(freeSkills[at]))
+      out.push(GOODS_SKILL + ':' + freeSkills[at] + ':0')
       // 这一批里不重复上同一个技能
       const rest : number[] = []
       for (let k = 0; k < freeSkills.length; k++) {
@@ -677,9 +900,12 @@ export function rerollPriceOf(data : DrawSave) : number {
 
 // 这一轮已经买过的唯一道具。
 //
-// 不另记一张清单 —— 那四件唯一道具买下来之后各自留了痕：
-// 加栏顶了 bonusShelf、加架顶了 bonusCard、加权顶了 rankCap、
-// 平价立了 flatReroll。存档里有两份同一件事的记录，迟早对不上
+// 不另记一张清单 —— 那三件唯一道具买下来之后各自留了痕：
+// 加栏顶了 bonusShelf、加架顶了 bonusCard、平价立了 flatReroll。
+// 存档里有两份同一件事的记录，迟早对不上。
+//
+// 原先还有第四件【加权】（看 rankCap 有没有超过底数）。它跟角色卡结构
+// 冲突、已经删了，这儿那一支跟着删
 export function takenOnceKeys(data : DrawSave) : string[] {
   const out : string[] = []
   if (data.bonusShelf > 0) {
@@ -687,9 +913,6 @@ export function takenOnceKeys(data : DrawSave) : string[] {
   }
   if (data.bonusCard > 0) {
     out.push('card')
-  }
-  if (rankCapOf(data.loadout) > RANK_CAPACITY) {
-    out.push('weight')
   }
   if (data.flatReroll) {
     out.push('flat')
@@ -733,59 +956,22 @@ export function makeFlat(data : DrawSave) : boolean {
   return true
 }
 
-// 库里躺着没装上的技能有几个。
-//
-// 「躺在库里」= 买它那会儿两个槽都满了，于是只记了等级、没占格子
-//（见 takeSkill）。那样的技能在牌桌上毫无作用 —— 它不管任何花色和点数
-export function benchedCount(data : DrawSave) : number {
-  let n = 0
-  for (let k = 0; k < data.levels.length; k++) {
-    if (data.levels[k] >= 0 && slotOf(data.loadout, k) == SLOT_NONE) {
-      n = n + 1
-    }
-  }
-  return n
-}
+// 原先这儿有个 benchedCount（「拥有但没装上」的技能有几个）。
+// 买技能必须当场嵌槽之后**没有库了**，这个状态压根不存在
 
-// 格子一空出来，就让库里躺着的技能摇位置装上去。装了几个就返回几。
+// ---- 原先这儿有 fillBench 和 growRank，一起删了 ----
 //
-// **两个入口共用这一处**：买加权（多一格）和卖技能（腾一格）。
-// 两件事都是「槽里空出位置」，所以后果该一样 —— 不然
-// 「我买了格子它怎么没上去」和「我卖了一个它怎么没上去」
-// 会变成两条各不相同的规则，而玩家只会记一条。
+// fillBench：格子一空出来，就让「拥有但没装上」的技能摇位置顶进去。
+// growRank ：买【加权】把点数槽从 6 格抬到 7 格。
 //
-// 位置照旧是**摇**的（rollPlace），不是你指定的 —— 这条没破。
-// 空出来的格子不保证摇到哪一格，两个槽都空着的时候也不保证摇哪个槽。
-// 一路装到装不下为止：卖掉一个 2 级技能能腾出三格，够装两三个
-export function fillBench(data : DrawSave) : number {
-  let placed = 0
-  for (let k = 0; k < data.levels.length; k++) {
-    if (data.levels[k] < 0 || slotOf(data.loadout, k) != SLOT_NONE) {
-      continue
-    }
-    data.loadout = rollPlace(data.loadout, data.levels, k)
-    if (slotOf(data.loadout, k) != SLOT_NONE) {
-      placed = placed + 1
-    }
-  }
-  return placed
-}
-
-// 买加权：点数槽永久 +RANK_BONUS 格。
+// 两个的前提都没了：
 //
-// **只抬容量，不动已经装着的技能** —— 多出来那一格对它们是空的，
-// 得再刷到砺钩才填得上。它卖的是「升级的余量」，不是免费升一级。
+//   · **没有「拥有但没装上」这个状态了** —— 商店买技能必须当场嵌进一个槽
+//     （见 embedSkill），所以不存在库存。
+//   · **格数由角色卡印死** —— 加权那件货删了（新格子印什么没有来源）。
 //
-// 例外是库里躺着的（见 fillBench）：不把它装上去，这件 180 块的货
-// 对它就毫无作用，而玩家会合理地以为「我买了格子，那它该上去了」
-export function growRank(data : DrawSave) : boolean {
-  if (rankCapOf(data.loadout) > RANK_CAPACITY) {
-    return false
-  }
-  data.loadout.rankCap = RANK_CAPACITY + RANK_BONUS
-  fillBench(data)
-  return true
-}
+// 那条「槽里空出位置只该有一个后果」的规矩还在，只是现在简单得多：
+// 空槽就是空槽，你下次买技能时挑它
 
 export function rerollTimes(data : DrawSave) : number {
   return data.shelf.length == 0 ? 0 : toInt(data.shelf[0], 0)
@@ -796,44 +982,21 @@ export function shelfGoods(data : DrawSave) : ShelfGoods[] {
   const out : ShelfGoods[] = []
   for (let i = 1; i < data.shelf.length; i++) {
     const seg = data.shelf[i].split(':')
-    if (seg.length != 3 && seg.length != 4) {
+    if (seg.length != 3) {
       continue
     }
     out.push({
       kind: seg[0],
       tag: seg[1],
-      sold: seg[2] == '1',
-      slot: seg.length == 4 ? toInt(seg[3], SLOT_NONE) : SLOT_NONE
+      sold: seg[2] == '1'
     } as ShelfGoods)
   }
   return out
 }
 
-// 老档的货架（定槽那一段加进来之前上的货）：技能还没定槽，当场补定一个。
-// 补过就改了档，返回 true 让调用方存一下 —— 存下来才不会每次进店重摇
-export function fillShelfSlots(data : DrawSave) : boolean {
-  const list = shelfGoods(data)
-  let changed = false
-  const out : string[] = []
-  out.push('' + rerollTimes(data))
-  for (let i = 0; i < list.length; i++) {
-    const one = list[i]
-    let slot = one.slot
-    if (one.kind == GOODS_SKILL && slot == SLOT_NONE) {
-      const k = toInt(one.tag, -1)
-      if (k >= 0 && k < DRAW_SKILLS.length) {
-        slot = rollSlotFor(k)
-        changed = true
-      }
-    }
-    out.push(one.kind + ':' + one.tag + ':' + (one.sold ? '1' : '0')
-      + (slot != SLOT_NONE ? ':' + slot : ''))
-  }
-  if (changed) {
-    data.shelf = out
-  }
-  return changed
-}
+// 这儿原先有个 fillShelfSlots：老档的货架上技能还没定槽，进店时补定一个。
+// 「定槽」这件事随花色槽一起没了（只剩一个槽），所以整个函数删掉 ——
+// 调用方（draw-skills.uvue 的 onShow）那一下也要跟着去掉
 
 // 把第 index 件（按 shelfGoods 的下标）标成卖掉
 export function markSold(data : DrawSave, index : number) {
@@ -846,8 +1009,7 @@ export function markSold(data : DrawSave, index : number) {
   for (let i = 0; i < list.length; i++) {
     const one = list[i]
     const sold = i == index ? true : one.sold
-    out.push(one.kind + ':' + one.tag + ':' + (sold ? '1' : '0')
-      + (one.slot != SLOT_NONE ? ':' + one.slot : ''))
+    out.push(one.kind + ':' + one.tag + ':' + (sold ? '1' : '0'))
   }
   data.shelf = out
 }
@@ -860,24 +1022,35 @@ export function markSold(data : DrawSave, index : number) {
 // 一路都在说「适应摇出来的东西」，而自定义配装是「先想好再执行」
 
 // ---------- 技能 ----------
-
-// 最多同时拥有几个技能。表里一共十三个，所以这条上限是实打实的取舍：
-// 你**拿不全**，得挑。
 //
-// 它跟「技能自己的强度」是两件事 —— 每个技能该多强、升一级加多少，
-// 一个数都没动（那套是模拟校准过的，见本文件头）。上限改的是
-// **你能同时摆出几样**，也就是把「这一轮走哪条路」从「全都要」
-// 变回一个选择。
+// 原先这儿有 MAX_OWNED_SKILLS = 4（最多同时拥有几个技能）和 ownedSkillCount。
 //
-// 名额满了之后货架上的技能就买不动了，想换名单只有卖掉一个 ——
-// 于是「卖出」从一个清库存的按钮变成了真正的决策
-// （它还有两个用途：换钱、腾槽位给升级）
-export const MAX_OWNED_SKILLS : number = 4
+// **槽数本身就是上限了** —— 角色卡上有几个槽就带几件技能（2 到 4 个），
+// 而且上限随角色变，那比一个全局常数有意思：选锁江（4 个窄槽）
+// 还是沉钩（2 个宽槽），是「泛用 vs 专精」那道题。
+//
+// 「名额满了买不动」那条规矩也换了形状：槽满了照样买得动，
+// 只是得**换掉**里头那件（见 embedSkill）—— 于是决策从
+// 「要不要先卖一个」变成了「这件比槽里那件好吗」，直接得多
 
-export function ownedSkillCount(data : DrawSave) : number {
+// 这件技能在槽里吗。
+//
+// 从前问的是「拥有吗」（data.levels[k] >= 0），那会儿「拥有」和「装上」
+// 是两件事。现在只有一件 —— 在槽里就是有，不在就是没有
+export function hasSkill(data : DrawSave, skill : number) : boolean {
+  for (let i = 0; i < data.slotSkills.length; i++) {
+    if (data.slotSkills[i] == skill) {
+      return true
+    }
+  }
+  return false
+}
+
+// 嵌了几件（空槽不算）。商店抬头报「槽 N/M」用它
+export function filledSlots(data : DrawSave) : number {
   let n = 0
-  for (let k = 0; k < data.levels.length; k++) {
-    if (data.levels[k] >= 0) {
+  for (let i = 0; i < data.slotSkills.length; i++) {
+    if (data.slotSkills[i] >= 0) {
       n = n + 1
     }
   }
@@ -888,32 +1061,69 @@ function randomInt(n : number) : number {
   return Math.floor(Math.random() * n)
 }
 
-// 原先这儿有个 placeRandom（包一层 rollPlace，再返回「装上了没有」）。
-// 它带个 toRank 参数走「第 1 关白送一个点数技」那条路；白送取消了，
-// 包装也就只剩一个调用处，直接内联进 takeSkill
-
-// 买下一个新技能：记等级、摇位置。买不了返回空串，买成了返回那句话。
+// ---------- 买技能 = 把它嵌进一个槽 ----------
 //
-// 名额（MAX_OWNED_SKILLS）和金币由调用处先查 —— 这儿只管落账。
+// 原先是 takeSkill(data, skill)：记个等级，然后**摇**一个位置。
+// 塞不下就「留在库里躺着」—— 于是存在「拥有但没装上」这个状态。
 //
-// 两个槽都满了就先不装，留在商店里躺着 —— 卖掉别的技能之后，
-// 下一次升它会再摇一次位置（见 rollExpand）。
-// 摇位置那一套统一在 draw-skills 里（rollPlace）：
-// 「位置是摇出来的」这条规矩得只有一个实现，散在两处迟早摇出两套脾气
-// slot 是买之前就定好的槽（见 rollSlotFor）；SLOT_NONE 就是没定，哪边塞得下摇哪边
-export function takeSkill(data : DrawSave, skill : number, slot : number) : string {
-  if (data.levels[skill] >= 0) {
+// 角色卡之后两样都没了：槽上印死标签，所以**买的时候就得挑进哪个槽**，
+// 而槽满了就只能换掉里头那件。没有库，也没有摇。
+//
+// 于是「买技能」从「花钱 + 听天由命」变成了「花钱 + 一个决策」——
+// 磁钩嵌在连号的槽上，它的 +1 能钓到自己的下一个槽；嵌在散号上那条链就断了。
+//
+// at 是角色的第几个槽。换掉的那件**直接没了**（不回库 —— 没有库），
+// 所以调用处要先问一句
+export function embedSkill(data : DrawSave, skill : number, at : number) : string {
+  if (at < 0 || at >= data.slotSkills.length) {
     return ''
   }
-  data.levels[skill] = 0
-  data.loadout = placeInSlot(data.loadout, data.levels, skill, slot)
+  const was = data.slotSkills[at]
+  data.slotSkills[at] = skill
+  const label = slotLabelAt(data, at)
   const name = DRAW_SKILLS[skill].name
-  if (slotOf(data.loadout, skill) == SLOT_NONE) {
-    return slot == SLOT_NONE
-      ? name + ' 到手了，但两个槽都满着 —— 它先在库里躺着'
-      : name + ' 到手了，但' + slotName(slot) + '满着 —— 它先在库里躺着'
+  if (was >= 0 && was != skill) {
+    return name + ' 嵌进 ' + label + ' 槽，换掉了 ' + DRAW_SKILLS[was].name
   }
-  return name + ' 到手，管 ' + coverageText(data.loadout, skill)
+  return name + ' 嵌进 ' + label + ' 槽，管 ' + label
+}
+
+// 把一个槽清空（卖技能走这条）。返回被取下来的那件，-1 = 本来就空着
+export function clearSlotAt(data : DrawSave, at : number) : number {
+  if (at < 0 || at >= data.slotSkills.length) {
+    return -1
+  }
+  const was = data.slotSkills[at]
+  data.slotSkills[at] = -1
+  return was
+}
+
+// 这一轮的角色第 at 个槽上印着什么（'6 7'、'♥'…）。没选角色就是空串
+export function slotLabelAt(data : DrawSave, at : number) : string {
+  if (data.role < 0 || data.role >= DRAW_ROLES.length) {
+    return ''
+  }
+  const slots = DRAW_ROLES[data.role].slots
+  return at >= 0 && at < slots.length ? slots[at] : ''
+}
+
+// 选角色：开一轮之前挑一张卡。**槽全是空的** ——
+// 技能靠商店买，买的时候挑进哪个槽（见 embedSkill）
+export function pickRole(data : DrawSave, role : number) {
+  if (role < 0 || role >= DRAW_ROLES.length) {
+    return
+  }
+  data.role = role
+  const slots : number[] = []
+  for (let i = 0; i < DRAW_ROLES[role].slots.length; i++) {
+    slots.push(-1)
+  }
+  data.slotSkills = slots
+}
+
+// 这一轮选过角色了吗。没选的话「开启挑战」要先弹角色选择
+export function hasRole(data : DrawSave) : boolean {
+  return data.role >= 0 && data.role < DRAW_ROLES.length
 }
 
 // 过了一关之后的结算：推进关卡、记最远、发金币。
@@ -938,5 +1148,16 @@ export function settleWin(data : DrawSave, levelId : number, gold : number) {
   data.shelf = [] as string[]
   // 打完最后一关就通关了，没有下一个商店
   data.inShop = levelId < DRAW_RUN_LENGTH
+  // **下一关的庄家在这儿摇定**。
+  //
+  // 位置很要紧：它排在进商店之前，所以商店那块预告读到的就是
+  // 真正要打的那一套（见 draw-skills.uvue 的 foePreview）。
+  // 摇在对局开始那一刻就晚了 —— 预告会变成一句空话。
+  //
+  // 平局不走这儿（settleWin 只在赢了才调），所以重打同一关
+  // 面对的还是同一套 —— 那一关的题目没变，重摇就等于「平局刷题」
+  if (data.inShop) {
+    rollFoeKit(data, data.runLevel)
+  }
 }
 
