@@ -391,7 +391,7 @@ export const FIX_ITEMS : FixItem[] = [
   // 只能先卖一件 —— 而卖只退一半。所以库的格数就是「能留几件备用」，
   // 换角色槽、换打法的余地全在这儿。
   //
-  // **对困难最值钱**：困难只有 5 格，而锁江一个人就有 4 个槽 ——
+  // **对困难最值钱**：困难只有 5 格，而江口闸官一个人就有 4 个槽 ——
   // 扩到 6 格才有两件周转。简单本来就有 8 格，几乎用不上它。
   // 那是对的：救济该往难的那头倾斜。
   //
@@ -597,16 +597,21 @@ export const RANK_SELL_CAP : number = 8
 //
 // 定 2，按标准牌组算「摆出来的牌落在自己槽上」的比例：
 //
-//   角色              不加权    ×2
-//   锁江 A 2 3 4       31%     47%
-//   篓翁 6 7 / 8 9     31%     47%
-//   沉钩 ♣ / K         37%     47%（♣K 落在两个槽上，不叠加）
-//   明镜 ♥ / 3 4       37%     54%
-//   夜钓 A / 5 / 9     23%     38%
+//   角色                        不加权    ×2
+//   江口闸官   A / 2 / 3 / 4      31%     47%
+//   背篓渔夫   6 7 / 8 9          31%     47%
+//   潮汐观测员 2 4 / 6 8          31%     47%
+//   逆流船夫   5 6 7 / 4          31%     47%
+//   鱼塘老板   7 / 3 5 / K        31%     47%
+//   深海钓手   ♣ / K              37%     47%（♣K 落在两个槽上，不叠加）
+//   镜湖占卜师 ♥ / 3 4            37%     54%
+//   候潮渔翁   3 4 5 6 / K        38%     56%
+//   夜钓客     A / 5 / 9          23%     38%
+//   赌船荷官   10 / A / 7         23%     38%
 //
 // 也就是从「三张里一张是你的」提到「两张里一张是你的」——
 // 自己的牌明显常见了，可另一半照常是行情，刷新、买别的点数仍然是个选项。
-// 定 3 的话锁江会到 57%、明镜 63%，货架基本只剩自己那几个点数，
+// 定 3 的话江口闸官会到 57%、镜湖占卜师 63%，货架基本只剩自己那几个点数，
 // 「这一店有什么」就不成其为问题了
 export const SLOT_CARD_WEIGHT : number = 2
 
@@ -691,7 +696,7 @@ export const FLAT_REROLL : number = 30
 //（史诗越往后越容易见，见 rareWeight），利息给攒钱本身加收益。
 // 两条合起来，前期省钱后期爆发才成为一条真路线。
 //
-// 数怎么定的：每关基础奖励 30 块上下（见 DRAW_LEVELS 的 reward）。
+// 数怎么定的：每关基础奖励 40 ~ 80 块（见 DRAW_LEVELS 的 reward；2026-10-10 从 30 ~ 60 提上来）。
 // 封顶 25 就是「存够 200 块，每关白拿将近一关的收入」——
 // 够诱人，但没到「攒钱必胜」。40 一档而不是 10 一档，是为了让
 // 「再攒 40 就跳一档」成为一个看得见的小目标。
@@ -737,24 +742,29 @@ export function interestOf(gold : number) : number {
 // 于是关卡表瘦成了一行一关：**叫什么、怎么出牌、给多少钱**。
 // 「这一关的庄家是谁」查 DRAW_FOE_ROLES（按关号下标），
 // 两张表按关号对齐 —— 加一关要同时加两边
+// ---- 2026-10-10 经济调整 ----
+// 过关奖励：浅滩 2~4 关 30→40、河湾 45→60、深海 60→80（第 1 关 80 不动）；
+// 同时技能价格整体 ×0.75（见 draw-skills 的 DRAW_SKILLS）。
+// 目标是打到第 9 关攒下的技能数正好对上各难度的技能库上限：简单约 8 件、普通约 6、困难约 4~5。
+// 原来简单打到第 9 关只够买 4 件左右
 export const DRAW_LEVELS : DrawLevel[] = [
   // ---------- 浅滩 ----------
   // 第 1 关给 80 而不是 30：新档 0 金币，第一个商店要是连【技能二选一】（80）
   // 都买不起，进店就只能干看。80 + 胜分保证第一店至少能拿下一个技能
   { id: 1, chapter: '浅滩', name: '试竿', smart: false, random: true, reward: 80 } as DrawLevel,
-  { id: 2, chapter: '浅滩', name: '涨潮', smart: false, random: false, reward: 30 } as DrawLevel,
-  { id: 3, chapter: '浅滩', name: '老渔夫', smart: true, random: false, reward: 30 } as DrawLevel,
-  { id: 4, chapter: '浅滩', name: '滩头', smart: true, random: false, reward: 30 } as DrawLevel,
+  { id: 2, chapter: '浅滩', name: '涨潮', smart: false, random: false, reward: 40 } as DrawLevel,
+  { id: 3, chapter: '浅滩', name: '老渔夫', smart: true, random: false, reward: 40 } as DrawLevel,
+  { id: 4, chapter: '浅滩', name: '滩头', smart: true, random: false, reward: 40 } as DrawLevel,
   // ---------- 河湾 ----------
-  { id: 5, chapter: '河湾', name: '回水', smart: true, random: false, reward: 45 } as DrawLevel,
-  { id: 6, chapter: '河湾', name: '暗礁', smart: true, random: false, reward: 45 } as DrawLevel,
-  { id: 7, chapter: '河湾', name: '望潮', smart: true, random: false, reward: 45 } as DrawLevel,
-  { id: 8, chapter: '河湾', name: '湾口', smart: true, random: false, reward: 45 } as DrawLevel,
+  { id: 5, chapter: '河湾', name: '回水', smart: true, random: false, reward: 60 } as DrawLevel,
+  { id: 6, chapter: '河湾', name: '暗礁', smart: true, random: false, reward: 60 } as DrawLevel,
+  { id: 7, chapter: '河湾', name: '望潮', smart: true, random: false, reward: 60 } as DrawLevel,
+  { id: 8, chapter: '河湾', name: '湾口', smart: true, random: false, reward: 60 } as DrawLevel,
   // ---------- 深海 ----------
-  { id: 9, chapter: '深海', name: '雾海', smart: true, random: false, reward: 60 } as DrawLevel,
-  { id: 10, chapter: '深海', name: '漩涡', smart: true, random: false, reward: 60 } as DrawLevel,
-  { id: 11, chapter: '深海', name: '鲸落', smart: true, random: false, reward: 60 } as DrawLevel,
-  { id: 12, chapter: '深海', name: '深渊', smart: true, random: false, reward: 60 } as DrawLevel
+  { id: 9, chapter: '深海', name: '雾海', smart: true, random: false, reward: 80 } as DrawLevel,
+  { id: 10, chapter: '深海', name: '漩涡', smart: true, random: false, reward: 80 } as DrawLevel,
+  { id: 11, chapter: '深海', name: '鲸落', smart: true, random: false, reward: 80 } as DrawLevel,
+  { id: 12, chapter: '深海', name: '深渊', smart: true, random: false, reward: 80 } as DrawLevel
 ]
 
 // 原先这儿还跟着第 5–12 关各自写死的 levels / loadout（手调过的庄家配装，
@@ -807,7 +817,7 @@ export type FoeRole = {
   // ---------- 带哪几条特殊技（DRAW_FOE_SPECIALS 的 key），空数组 = 不带 ----------
   //
   // 原先这是一个 `special : string`（一条或者空串）。改成数组是因为
-  // **龙王带两条**（逆钩 + 浊水）—— 终局那张卡要的是「两条都是终局级」
+  // **东海龙王带两条**（逆钩 + 浊水）—— 终局那张卡要的是「两条都是终局级」
   // 那个效果，少一条就不成立。
   //
   // 为什么不加个 `special2` 字段：那样每一处判断都得写两遍
@@ -878,7 +888,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   { key: 'again', name: '再钩',
     desc: '庄家钓到牌时可以再打一张（一回合最多连两次）' } as FoeSpecial,
   { key: 'seal', name: '封竿',
-    desc: '摇定一个点数：你打出它只是落堆，钓不到任何牌' } as FoeSpecial,
+    desc: '摇定一个点数：你打出这个点数的牌算 0 点' } as FoeSpecial,
   // ---- 下面两条**现在没有载体，所以也没有实现** ----
   //
   // 当初是给终局留的（那一局不记账，可以上最凶的）。可终局的庄家摇的是
@@ -1041,9 +1051,82 @@ export function foeCoverRole(r : FoeRole) : number {
 }
 
 // 第几关的庄家。关号越界就退回第 1 关那个（它什么都不带，最安全）
+// ---------- 庄家按章节随机 ----------
+//
+// 每一轮开局洗一次（见 draw-save 的 foeOrder）：同一章节的四个庄家打乱顺序，
+// 章节之间不串 —— 难度曲线还是浅滩 → 河湾 → 深海一路往上，只是每一轮
+// 碰到的先后不一样。第 1 关固定试竿学徒（新手关，不能一上来就碰滩头老翁）。
+//
+// 返回长度 = 关数，第 i 个是第 i+1 关的庄家「卡号」（DRAW_FOE_ROLES 下标 + 1，
+// 跟 foeRoleAt 收的那个数同一个口径）
+export function rollFoeOrder() : number[] {
+  const out : number[] = []
+  for (let i = 0; i < DRAW_LEVELS.length; i++) {
+    out.push(i + 1)
+  }
+  let start = 0
+  while (start < DRAW_LEVELS.length) {
+    let end = start
+    while (end < DRAW_LEVELS.length && DRAW_LEVELS[end].chapter == DRAW_LEVELS[start].chapter) {
+      end = end + 1
+    }
+    // 这一章的候选：本章那几关原来的庄家 + 备选池里分到这一章的（见 FOE_POOL_CHAPTER）。
+    // 第 1 关固定试竿学徒，不进候选
+    const from = start == 0 ? 1 : start
+    let pool : number[] = []
+    for (let i = from; i < end; i++) {
+      pool.push(i + 1)
+    }
+    for (let k = 0; k < DRAW_FOE_POOL.length && k < FOE_POOL_CHAPTER.length; k++) {
+      if (FOE_POOL_CHAPTER[k] == DRAW_LEVELS[start].chapter) {
+        pool.push(DRAW_FOE_ROLES.length + k + 1)
+      }
+    }
+    // 不放回地抽，抽满这一章的关数（候选比关多的话，有几个这一轮碰不到）
+    for (let i = from; i < end && pool.length > 0; i++) {
+      const at = Math.floor(Math.random() * pool.length)
+      out[i] = pool[at]
+      const rest : number[] = []
+      for (let j = 0; j < pool.length; j++) {
+        if (j != at) {
+          rest.push(pool[j])
+        }
+      }
+      pool = rest
+    }
+    start = end
+  }
+  return out
+}
+
+// 备选池（DRAW_FOE_POOL）里每张卡进哪一章的随机池，按那张表上标的档位分：
+//   赤礁烧炭工（8 张，6 关档）、叠浪弄潮儿（12 张，7 关档）→ 河湾；
+//   赤潮巡海人（16 张，9 关档）、沙垒筑堤工（21 张，11~12 关档）、
+//   漫江拉网人（17 张，10 关档）→ 深海；
+//   东海龙王（两条终局级特殊技）→ 空串 = 不进闯关，留给终局。
+// 跟 DRAW_FOE_POOL 一一对应，那张表改了顺序这儿要跟着改
+const FOE_POOL_CHAPTER : string[] = ['河湾', '深海', '河湾', '深海', '深海', '']
+
+// 这一关的庄家卡号：按洗好的顺序查；没洗过（老档）就是关号本身（原来的固定顺序）
+export function foeNumIn(order : number[], level : number) : number {
+  if (level >= 1 && level <= order.length) {
+    const n = order[level - 1]
+    if (n >= 1 && n <= DRAW_FOE_ROLES.length + DRAW_FOE_POOL.length) {
+      return n
+    }
+  }
+  return level
+}
+
+// 收的是**庄家卡号**（DRAW_FOE_ROLES 下标 + 1）。闯关里先用 foeNumIn / foeNumOf
+// 把关号换成这一轮抽到的卡号再传进来；不换就是原来「第 N 关 = 第 N 张」
 export function foeRoleAt(level : number) : FoeRole {
-  if (level < 1 || level > DRAW_FOE_ROLES.length) {
+  if (level < 1 || level > DRAW_FOE_ROLES.length + DRAW_FOE_POOL.length) {
     return DRAW_FOE_ROLES[0]
+  }
+  // 卡号超出 12 的是备选池里的（13 = DRAW_FOE_POOL[0]，见 rollFoeOrder）
+  if (level > DRAW_FOE_ROLES.length) {
+    return DRAW_FOE_POOL[level - DRAW_FOE_ROLES.length - 1]
   }
   return DRAW_FOE_ROLES[level - 1]
 }
@@ -1062,41 +1145,41 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
   // 第 4 关（浅滩关底）上第一条特殊技，而且是最温和的那条 ——
   // 添手只给庄家多一张手牌，一条规则都没改。关底该让你意识到
   // 「原来庄家还能有额外的东西」，不该让你输在没见过的规则上
-  { name: '试手', specials: NO_SP, slots: NO_SLOTS,
+  { name: '试竿学徒', specials: NO_SP, slots: NO_SLOTS,
     desc: '刚摸到竿的。随手出牌，什么都不带' } as FoeRole,
-  { name: '浪客', specials: NO_SP, slots: NO_SLOTS,
+  { name: '游荡钓客', specials: NO_SP, slots: NO_SLOTS,
     desc: '闲逛的。会挑饵了，但还不记牌' } as FoeRole,
-  { name: '老钓', specials: NO_SP, slots: NO_SLOTS,
+  { name: '守河老汉', specials: NO_SP, slots: NO_SLOTS,
     desc: '守了半辈子河的。**它开始记牌了** —— 这一关的全部内容' } as FoeRole,
-  { name: '滩公', specials: ['hand'], slots: NO_SLOTS,
+  { name: '滩头老翁', specials: ['hand'], slots: NO_SLOTS,
     desc: '滩头的老人。手里比别人多一张牌' } as FoeRole,
   // ---------- 河湾：一关一个主题，而且两两成对 ----------
   //
-  // 回漩（淤滩）造厚堆 → 湾主（硬壳）让厚堆里一批牌永远死着；
-  // 礁母（掐口）削你手牌 → 潮眼（偏流）让你钩不着它的牌。
+  // 回漩摆渡人（淤滩）造厚堆 → 湾口税吏（硬壳）让厚堆里一批牌永远死着；
+  // 礁石海女（掐口）削你手牌 → 潮眼引水人（偏流）让你钩不着它的牌。
   // 前一关种下的概念，后一关加码
-  { name: '回漩', specials: ['silt'], slots: [
+  { name: '回漩摆渡人', specials: ['silt'], slots: [
       // 一个点数槽 = 4 张。磁钩是最基础那件，第一关有技能的庄家配它正好
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
     ], desc: '水在这儿打转。开局堆上就压着三张死牌 —— 它教你 J 有多值' } as FoeRole,
-  { name: '礁母', specials: ['pinch'], slots: [
+  { name: '礁石海女', specials: ['pinch'], slots: [
       // 两个点数标签 = 8 张。压邻让紧挨着它右边落下的那张作废 ——
       // 跟掐口（削你手牌到三张）同向：两条都在减你能用的东西
       { skill: SK_VOID, count: 2, suit: false } as FoeSlot
     ], desc: '礁石底下的。你每回合只补到三张，而挨着它落下的牌还会作废' } as FoeRole,
-  { name: '潮眼', specials: ['drift'], slots: [
+  { name: '潮眼引水人', specials: ['drift'], slots: [
       // 两个槽、12 张。观潮管两个点数，磁钩管一个
       { skill: SK_TIDE, count: 2, suit: false } as FoeSlot,
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
     ], desc: '看得见潮眼在哪。它的牌打到堆底 —— 你得连带收一大段才碰得到' } as FoeRole,
-  { name: '湾主', special: 'shell', slots: [
+  { name: '湾口税吏', specials: ['shell'], slots: [
       // **一整门花色 13 张，只一件技能** —— 专精那一头（照玩家角色「深海钓手」）。
       // 而且槽和特殊技是**同一门花色**：它打的 ♠ 既触发顺色、又钓不走。
-      // 那是湾主这一关的全部内容
+      // 那是湾口税吏这一关的全部内容
       { skill: SK_SUITED, count: 1, suit: true } as FoeSlot
     ], desc: '守着湾口收税。它打出的黑桃钓不走，而那门花色正是它的技能' } as FoeRole,
   // ---------- 深海：每关换一种压力 ----------
-  { name: '雾叟', specials: ['dryup'], slots: [
+  { name: '雾港守灯人', specials: ['dryup'], slots: [
       // ---- 这一关的规矩**换过一次**：挑潮 → 枯水 ----
       //
       // 原先是三件信息类凑一关（照水、冻结 + 挑潮），想法是
@@ -1119,7 +1202,7 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       { skill: SK_LANTERN, count: 2, suit: false } as FoeSlot,
       { skill: SK_FREEZE, count: 2, suit: false } as FoeSlot
     ], desc: '雾里看不清人。你的手牌它全看得见、还能锁住一张，而你打空了才补得到牌' } as FoeRole,
-  { name: '涡心', specials: ['guard'], slots: [
+  { name: '涡心祭司', specials: ['guard'], slots: [
       // ---- 这一关的理由**换过一次** ----
       //
       // 原来是「染水 + 见底那条组合」：染黑 → 见底的 N 拉满 → 整堆压下去。
@@ -1138,19 +1221,29 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       { skill: SK_SUITIFY, count: 1, suit: true } as FoeSlot,
       { skill: SK_LOWTIDE, count: 1, suit: false } as FoeSlot
     ], desc: '漩涡中心。它染水、它见底，而它每钓一次就往堆上再垫一张' } as FoeRole,
-  { name: '鲸骸', specials: ['again'], slots: [
+  { name: '鲸落拾骨人', specials: ['again'], slots: [
       // 两件都在「抹点数」那一族，加再钩的雪球 —— 堆冻住、长厚、而它连钩。
       // 你得抢在它之前把锅端走
       { skill: SK_HUEVOID, count: 1, suit: true } as FoeSlot,
       { skill: SK_ODD, count: 2, suit: false } as FoeSlot
     ], desc: '鲸落下去的地方。它封色、它分水，而它钓到就接着打' } as FoeRole,
-  { name: '渊君', specials: ['seal'], slots: [
-      // 满配：两条钓牌通道（顺色、磁钩）+ 一件清场（掏库）。
-      // **最标准、最全面的一套**，没有偏科 —— 打到这儿比的不是读题，是硬实力
+  { name: '深渊君主', specials: ['seal'], slots: [
+      // ---- 主题：沉进深渊的死牌，都被它吃掉（2026-10-10 改） ----
+      //
+      // 原来是「顺色 + 掏库 + 磁钩」的全能套，四样各管各的，没有配合。
+      // 现在四样指向同一件事：
+      //   封竿 —— 你被封的那个点数打出来算 0 点，落堆就是死牌；
+      //   掏库 —— 它从牌库掏两张当 0 点扔上堆，不停往堆里塞死牌；
+      //   见底 —— 整堆 −1、收走 0 点的牌，把上面两样一网打尽；
+      //   顺色 —— 按花色钓，不看点数，堆里的死牌它照样捞得走。
+      // 你要做的：别让堆里攒太多 0 点牌。
+      //
+      // 模拟器（玩家背篓渔夫带磁钩 + 洪水，各 6000 局）：玩家胜率 72.0% → 68.8%，
+      // 分差 +7.64 → +6.39。模拟器没实现封竿，实际还会再难一点
       { skill: SK_SUITED, count: 1, suit: true } as FoeSlot,
       { skill: SK_SPILL, count: 1, suit: false } as FoeSlot,
-      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
-    ], desc: '渊里的那个。它封掉你一个点数，然后用最全的一套跟你打' } as FoeRole
+      { skill: SK_LOWTIDE, count: 1, suit: false } as FoeSlot
+    ], desc: '渊里的那个。它封掉你一个点数、往堆里塞死牌，再一口吃掉所有 0 点的牌' } as FoeRole
 ]
 
 // ---------- 角色素材池：六张，**还没挂到任何一关上** ----------
@@ -1168,23 +1261,28 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
 //
 // ---- 档位是照那条曲线挑的 ----
 //
-//   赤礁  8 → 6 关档      叠浪 12 → 7 关档
-//   赤潮 16 → 9 关档      漫江 17 → 10 关档
-//   沙垒 21 → 11~12 关档  龙王 21 → 终局
+//   赤礁烧炭工   8 → 6 关档        叠浪弄潮儿  12 → 7 关档
+//   赤潮巡海人  16 → 9 关档        漫江拉网人  17 → 10 关档
+//   沙垒筑堤工  21 → 11~12 关档    东海龙王    21 → 终局
 //
 // 每张都守着表外那三条原则：名单同族（所以背得住）、一个角色只教一件事、
-// **覆盖面越大特殊技越温和**（赤礁盖 8 配最硬的炙水，沙垒盖 21 配
+// **覆盖面越大特殊技越温和**（赤礁烧炭工盖 8 配最硬的炙水，沙垒筑堤工盖 21 配
 // 可算的定额税过闸）。
 //
 // ---- 挂接要另外做，而且是个平衡决定 ----
 //
-//   漫江 → 第 10 关：那一关的洞是代码自己承认的（涡心那条组合
+//   漫江拉网人 → 第 10 关：那一关的洞是代码自己承认的（涡心祭司那条组合
 //     在见底改成死数 −1 之后失效了，「被削了，没有补回来」）；
-//   赤礁 / 叠浪 / 赤潮 / 沙垒 → 正好是一条 8→12→16→21 的子曲线，
+//   赤礁烧炭工 / 叠浪弄潮儿 / 赤潮巡海人 / 沙垒筑堤工 → 正好是一条 8→12→16→21 的子曲线，
 //     两族各占两关、两两成对，够开第四章；
-//   龙王 → 终局，但那要先推翻「终局摇玩家角色表」（双方同构）那条。
+//   东海龙王 → 终局，但那要先推翻「终局摇玩家角色表」（双方同构）那条。
 //
 // 三条都在动已经调好的东西，所以**这儿只放卡，不动 DRAW_FOE_ROLES**
+//
+// **（2026-10-10 已接进闯关）**：没动 DRAW_FOE_ROLES，而是让庄家按章节随机时
+// 把这几张也放进候选（见 rollFoeOrder / FOE_POOL_CHAPTER）—— 赤礁烧炭工、叠浪弄潮儿进河湾，
+// 赤潮巡海人、漫江拉网人、沙垒筑堤工进深海。东海龙王不进闯关，留给终局。
+// 卡号接在 12 后面：13 = 这张表第 0 张（见 foeRoleAt）
 export const DRAW_FOE_POOL : FoeRole[] = [
   // ---------- 燃烧族：两张，前一张种概念、后一张加码 ----------
   //
@@ -1194,7 +1292,7 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // 而野火是唯一能清的那一手（它自己的）。
   //
   // 你的解是 J 通吃，或者从更深处钓起把它连带收走 —— 照硬壳那条边界
-  { name: '赤礁', specials: ['char'], slots: [
+  { name: '赤礁烧炭工', specials: ['char'], slots: [
       { skill: SK_BOIL, count: 1, suit: false } as FoeSlot,
       { skill: SK_WILD, count: 1, suit: false } as FoeSlot
     ], desc: '礁石烧红了。它打出的牌一着火你就钓不上' } as FoeRole,
@@ -1202,8 +1300,8 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   //（沸水只点「从它上场起落堆的」，所以火在堆顶那一片）。
   // 盖 16 所以特殊技取最温和的那档 —— 挑潮纯给庄家加成，
   // 一条你的规则都没改。顺带它终于有了载体
-  //（雾叟那关被枯水顶掉之后它一直是素材）
-  { name: '赤潮', specials: ['pick'], slots: [
+  //（雾港守灯人那关被枯水顶掉之后它一直是素材）
+  { name: '赤潮巡海人', specials: ['pick'], slots: [
       { skill: SK_BOIL, count: 2, suit: false } as FoeSlot,
       { skill: SK_SPREAD, count: 1, suit: false } as FoeSlot,
       { skill: SK_WILD, count: 1, suit: false } as FoeSlot
@@ -1215,7 +1313,7 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // 整叠跟着离场** —— 一次漏好几张。
   //
   // 它是双刃（照守滩那条先例）：它自己垫的盾沉到堆底也一样漏掉
-  { name: '叠浪', specials: ['leak'], slots: [
+  { name: '叠浪弄潮儿', specials: ['leak'], slots: [
       { skill: SK_CALM, count: 2, suit: false } as FoeSlot,
       { skill: SK_RAISE, count: 1, suit: false } as FoeSlot
     ], desc: '一层压一层。它的牌要收两次，而你的牌会被它垫着撞上别的' } as FoeRole,
@@ -1224,7 +1322,7 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // 所有被叠放的牌算它的分。
   //
   // 抄底对双方生效，所以它也会拆自己的锅 —— 那是抄底最好的部分，不改
-  { name: '沙垒', specials: ['toll'], slots: [
+  { name: '沙垒筑堤工', specials: ['toll'], slots: [
       { skill: SK_CLEAN, count: 1, suit: true } as FoeSlot,
       { skill: SK_MERGE, count: 1, suit: false } as FoeSlot,
       { skill: SK_DREDGE, count: 1, suit: false } as FoeSlot
@@ -1234,10 +1332,10 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // 洪水铺（从库顶翻牌上堆）+ 收色收（堆上同花色的连它自己一起走）
   // = 一条**真的**「铺设 → 引爆」，不依赖任何已经失效的组合。
   //
-  // 配淤滩 —— **特殊技第一次重复**（第 5 关回漩用过）。可以论证：
+  // 配淤滩 —— **特殊技第一次重复**（第 5 关回漩摆渡人用过）。可以论证：
   // 关号不同、名单不同，题目不同；而「浅滩那条规矩在深海再出现一次、
   // 这次它是喂料的」是个不错的回响。但它确实是破例，别当成惯例
-  { name: '漫江', specials: ['silt'], slots: [
+  { name: '漫江拉网人', specials: ['silt'], slots: [
       { skill: SK_HUE, count: 1, suit: true } as FoeSlot,
       { skill: SK_FLOOD, count: 1, suit: false } as FoeSlot
     ], desc: '水漫上来了。它从库里往堆上翻牌，然后一门花色整个端走' } as FoeRole,
@@ -1250,9 +1348,9 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   //
   // 技能名单藏了个彩蛋：顺色 + 磁钩正是【双钩】那一对，而它一侧在花色槽、
   // 一侧在点数槽 —— 所以标签摇得巧的时候它会在某张牌上真的触发组合
-  //（顺带记一笔：**渊君现在就有这个可能**，它也同时带着顺色和磁钩，
+  //（顺带记一笔：**深渊君主现在就有这个可能**，它也同时带着顺色和磁钩，
   //  而设计稿和代码注释里从没提过这件事）
-  { name: '龙王', specials: ['rev', 'murk'], slots: [
+  { name: '东海龙王', specials: ['rev', 'murk'], slots: [
       { skill: SK_SUITED, count: 1, suit: true } as FoeSlot,
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot,
       { skill: SK_HUE, count: 1, suit: false } as FoeSlot
@@ -1277,7 +1375,7 @@ export const DRAW_FOE_POOL : FoeRole[] = [
 //
 // 三档，管两件事：庄家怎么出牌、过关给多少金币。
 //
-//   简单 —— 浅滩四关（1–4）庄家完全随机出牌，之后各关都不记牌；过关奖励 ×1.5
+//   简单 —— 浅滩四关（1–4）庄家完全随机出牌，之后各关都不记牌；过关奖励 ×2
 //   普通 —— 照关卡表原样（第 1 关随机、第 2 关不记牌、第 3 关起记牌）
 //   困难 —— 十二关全都记牌，没有随机关；过关奖励 ×0.75
 //
@@ -1304,7 +1402,9 @@ export function libraryCapOf(diff : number) : number {
 export function maxLivesOf(diff : number) : number {
   return diff >= 0 && diff < DIFF_LIVES.length ? DIFF_LIVES[diff] : DIFF_LIVES[1]
 }
-const DIFF_REWARD_RATE : number[] = [1.5, 1.0, 0.75]
+// 2026-10-10：简单 1.5→2.0、普通 1.0→1.2。目标是打到第 10 关买得满技能库上限
+//（简单 8 件、普通 6 件），还剩钱买道具、刷货架。困难本来就该紧，不动
+const DIFF_REWARD_RATE : number[] = [2.0, 1.2, 0.75]
 const EASY_RANDOM_UNTIL : number = 4
 const FIRST_REWARD_FLOOR : number = 80
 

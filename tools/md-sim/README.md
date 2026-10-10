@@ -71,7 +71,7 @@ esbuild / tsc 能把 `.uts` 的类型注解剥掉给 node 用；而对局规则�
   分两层照源码：`triggersOf` 是纯函数（只看配装），`skillsOf` 先查死牌。
   **死水要同时掐两条**：点数算 0（`valuesOf`）+ 技能不触发（`skillsOf`），
   因为 `triggersOf` 读 suit / rank，跟点数无关
-- 角色表 9 个（加了候潮）、特殊技能 10 件（加了涨落，按 key 认身份）
+- 角色表 9 个（加了候潮渔翁）、特殊技能 10 件（加了涨落，按 key 认身份）
 
 **有意的差异 —— 不要「修」它们**：
 
@@ -106,15 +106,15 @@ esbuild / tsc 能把 `.uts` 的类型注解剥掉给 node 用；而对局规则�
    是搬叠放时核过的。剩下 14 个（`catchStart`、`landVals`、`measureFor`、
    `finishCatch`、`pushPile`、`unshiftPile`、`removePileAt`、`afterPlayTail`、
    `ebbFor`、`floodFor`、`castFor`、`refill`、`passTurn`、`handLimit`）是独立待办。
-3. 【枯水】**量不了** —— 它是庄家的关底规矩（挂在雾叟那一关），
+3. 【枯水】**量不了** —— 它是庄家的关底规矩（挂在雾港守灯人那一关），
    而模拟器不跑闯关关卡表（见下面第 9 条）。【涨落】可以量：
-   `node sim.js roles` 会把【候潮】跑进去。
+   `node sim.js roles` 会把【候潮渔翁】跑进去。
 4. **叠放那五件搬完并量过了**（2026-10-10，细节见 `rules.js` 的 `SK` 表下面那段）。
    它没有变成第七条平行数组（叠着的牌压根不在堆上），真正改掉的只有
    **收牌**：两条路（区间 `collect`、散收 `harvestPile`）汇到了同一个
    `harvestAt`，逐格走 `takeAt`。`base` 跑过了，六个基线数和牌数守恒全对上。
 
-   第一批数（锁江第一槽、20000 局、标准误 0.12）：
+   第一批数（江口闸官第一槽、20000 局、标准误 0.12）：
 
    | | 分差 | 读法 |
    |---|---|---|
@@ -323,7 +323,7 @@ node sim.js one draft -n 40000                        # ② 默认档（CAP 21�
 for c in 15 18 21 24; do DRAFT_CAP=$c node sim.js one draft -n 20000; done   # ③ 扫上限
 DRAFT_MIN=0 node sim.js one draft -n 20000            # ④ 不设「至少 2 张」那道闸
 DRAFT_COSTS_SELF=0 node sim.js one draft -n 20000     # ⑤ 「打小牌收得多」值多少分
-node sim.js one draft --role bright --slot 0 -n 20000 # ⑥ 插花色槽有多炸（明镜 ♥）
+node sim.js one draft --role mirror --slot 0 -n 20000 # ⑥ 插花色槽有多炸（镜湖占卜师 ♥）
 ```
 
 | 要回答 | 看哪个数 | 手算的预期 |

@@ -442,8 +442,8 @@ const DRAW_ROLES = [
   { key: 'deepline', name: '深海钓手', special: SP.DEEPHOOK, slots: ['♣', 'K'] },
   { key: 'pond', name: '鱼塘老板', special: SP.BAIT, slots: ['7', '3 5', 'K'] },
   { key: 'night', name: '夜钓客', special: SP.TWOCOLOR, slots: ['A', '5', '9'] },
-  { key: 'tidal', name: '候潮', special: SP.CYCLE, slots: ['3 4 5 6', 'K'] },
-  { key: 'reckon', name: '算潮', special: SP.TENS, slots: ['10', 'A', '7'] }
+  { key: 'tidal', name: '候潮渔翁', special: SP.CYCLE, slots: ['3 4 5 6', 'K'] },
+  { key: 'reckon', name: '赌船荷官', special: SP.TENS, slots: ['10', 'A', '7'] }
 ]
 // 角色 key 'flood'（潮汐观测员）和技能 key 'flood'（洪水）撞字 —— 源码里也是这样，
 // 两张表独立查，不会串。【稳钩】没有角色带（磐石删了），所以它的效果

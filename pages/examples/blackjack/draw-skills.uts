@@ -215,7 +215,7 @@ export const DRAFT_MIN : number = 2
 
 export const DRAW_SKILLS : DrawSkill[] = [
   {
-    key: 'hook', name: '磁钩', unlock: 60,
+    key: 'hook', name: '磁钩', unlock: 45,
     first: false,
     desc: '它还能匹配点数比它大 1 的牌'
   },
@@ -224,12 +224,12 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // passTurn）把这件技能的朝向翻了过来：从前每回合开始摸一张，
     // 你打完之后顶上那张是对方要摸的，观潮是偷看对手；
     // 现在补的是刚打完那一方，于是它变成了「挑自己的牌」
-    key: 'tide', name: '观潮', unlock: 60,
+    key: 'tide', name: '观潮', unlock: 45,
     first: false,
     desc: '打出后查看牌库顶 2 张，可选择把它们放到牌库底'
   },
   {
-    key: 'peek', name: '窥视', unlock: 40,
+    key: 'peek', name: '窥视', unlock: 30,
     first: false,
     desc: '打出后翻开对方 1 张手牌，它一直明着'
   },
@@ -249,7 +249,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 等级只扩覆盖面（管几个花色 / 几个点数），效果本身一直是「换一张」——
     // 跟护饵、磁钩、观潮同一个规矩。价钱也照那三件走
-    key: 'swap', name: '换水', unlock: 60,
+    key: 'swap', name: '换水', unlock: 45,
     first: false,
     desc: '打出后，选 1 张自己的手牌洗回牌库'
   },
@@ -272,7 +272,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 这份代价是照排竿的【收色】抄的，连「花色还在、只是点数没了」
     // 这个形状都一样
-    key: 'suited', name: '顺色', unlock: 80,
+    key: 'suited', name: '顺色', unlock: 60,
     first: false,
     desc: '无点数；改按花色匹配，从堆里最深的同花色牌起收走'
   },
@@ -294,7 +294,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 一直看得见），它只能表达成「庄家知道你全部手牌」——
     // 跟窥视现在标「被看」是同一个路子。所以它在你手里是实打实的情报，
     // 在庄家手里是威慑
-    key: 'lantern', name: '照水', unlock: 80,
+    key: 'lantern', name: '照水', unlock: 60,
     first: false,
     desc: '在场时，对方手牌全部明着'
   },
@@ -311,7 +311,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 不是牌面 —— 点第几张，不知道那是什么。
     // 于是它跟窥视、照水天然成连招：先翻开，再冻住那张好的。
     // 没有情报的时候，冻结是一次下注；有情报的时候，它是一记精准打击
-    key: 'freeze', name: '冻结', unlock: 70,
+    key: 'freeze', name: '冻结', unlock: 55,
     first: false,
     desc: '打出后选对方 1 张手牌；它在场时那张打不出去'
   },
@@ -365,7 +365,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // **标价 150 没动**。幅度从「黑牌张数」掉到 1，它弱了不少、该降 ——
     // 可降到多少得先用模拟器量（见设计文档 12.7：模拟器还没搬到新模型上）。
     // 凭感觉改标价只是把一个没量过的数换成另一个没量过的数
-    key: 'lowtide', name: '见底', unlock: 150,
+    key: 'lowtide', name: '见底', unlock: 115,
     first: false,
     desc: '置 0；堆上所有牌点数 −1，收走点数为 0 的牌（含它自己）'
   },
@@ -448,7 +448,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 所以那个目标档要先说清按哪一侧定义（`sim.js all` 那张表量的是
     // **后手**）。按现行口径，这件技能**现在就是合格的**，所以 130 不动。
     // 哪天改成按「最坏一侧」定义，那不止洪水一件要重估，是全表的事
-    key: 'flood', name: '洪水', unlock: 130,
+    key: 'flood', name: '洪水', unlock: 100,
     first: false,
     desc: '无点数；打出后从牌库逐张翻牌到堆上，直到点数匹配，收走那一段'
   },
@@ -467,7 +467,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 回合末补牌之后这件技能的朝向跟观潮一样是**对着自己的**：
     // 顶上那几张是你回合末要补的（见 ap-fishing 的 passTurn），
     // 所以它是「从五张里给自己挑一张」，不是偷看对手
-    key: 'pick', name: '择饵', unlock: 100,
+    key: 'pick', name: '择饵', unlock: 75,
     first: false,
     desc: '打出后查看牌库顶 5 张，选 1 张放在最上面，其余放到牌库底'
   },
@@ -526,7 +526,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 110 块：比择饵（100）贵一点，比顺色（120）便宜一点。
     // 它单买是废的，所以定价偏低；可它跟顺色凑一起是全表最凶的一组。
     // **见底那条用法砍掉之后这个价偏贵了**，跟见底的 150 一起等模拟器
-    key: 'suitify', name: '染水', unlock: 110,
+    key: 'suitify', name: '染水', unlock: 85,
     first: true,
     desc: '打出后，堆上所有牌的花色变成跟它一样'
   },
@@ -559,7 +559,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 还得手里真有一对同点数的牌。
     //
     // 单独带它也不废（能吃堆底），所以它不像【染水】那样完全依赖组合
-    key: 'sink', name: '沉底', unlock: 120,
+    key: 'sink', name: '沉底', unlock: 90,
     first: true,
     desc: '它落到堆底；匹配时收走从堆底到匹配那张的一段'
   },
@@ -592,7 +592,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 领先的时候这是催命，落后的时候这是机会 —— 跟【弃饵】那条节奏轴同向。
     //
     // 100 块：它自己不收牌、不加分，买的是一个回合里的第二次机会
-    key: 'again', name: '连竿', unlock: 100,
+    key: 'again', name: '连竿', unlock: 75,
     first: false,
     desc: '打出后可再打 1 张；加打那张不再给加打'
   },
@@ -617,7 +617,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 所以它越升越强不是因为效果变大，而是因为**同伙变多**。
     //
     // 照钓鱼的【归深】抄，连「11 是 J 的数而 J 从不落堆」这个理由都一样
-    key: 'deep', name: '归深', unlock: 90,
+    key: 'deep', name: '归深', unlock: 70,
     first: false,
     desc: '它同时算 11 点'
   },
@@ -647,7 +647,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // **于是它的闸从「不许插大槽」换成了「对手破得掉」** —— 后者好得多：
     // 前者是规则在替玩家做决定，后者是牌桌上的一次攻防
-    key: 'peak', name: '齐顶', unlock: 150,
+    key: 'peak', name: '齐顶', unlock: 115,
     first: false,
     desc: '这张算作堆上同颜色牌里最大的点数，必定钓中；堆上没有同颜色的牌时，按自己的点数算'
   },
@@ -666,7 +666,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 代价照顺色：**这张不走点数通道**（valuesOf 返回空），所以它不会
     // 先钓到一段再散收。你花的是一整张牌的点数，换一次按花色的清扫
-    key: 'hue', name: '收色', unlock: 150,
+    key: 'hue', name: '收色', unlock: 115,
     first: false,
     desc: '无点数；打出后收走堆上所有同花色的牌（含它自己）'
   },
@@ -706,7 +706,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //（见 ap-fishing 的 castFor）。
     //
     // **标价 160 没动**，但这一改之后它更该重估 —— 等模拟器量
-    key: 'cast', name: '撒网', unlock: 160,
+    key: 'cast', name: '撒网', unlock: 120,
     first: false,
     desc: '打出后从它往堆底方向连着收同奇偶的牌，遇到奇偶不同的就停'
   },
@@ -716,7 +716,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
   // 摘钩把它挪到自己手上（双重收益），对换还能顺手塞给他一张废牌。
   // 所以只有最弱的那件（压舱）给升级
   {
-    key: 'press', name: '压舱', unlock: 80,
+    key: 'press', name: '压舱', unlock: 60,
     first: false,
     desc: '打出后查看对方手牌，选 1 张洗回牌库'
   },
@@ -725,7 +725,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 零和对抗里它是双重收益：他少一张好牌，你多一张。而且你是
     // **看着挑**的 —— 不像搅水那样随机。所以不给升级，价钱也顶到清场件那一档
-    key: 'unhook', name: '摘钩', unlock: 150,
+    key: 'unhook', name: '摘钩', unlock: 115,
     first: false,
     desc: '打出后查看对方手牌，选 1 张拿到自己手上'
   },
@@ -734,7 +734,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 比摘钩多一层：你不只拿走他的钩，还能把自己手里最没用的那张塞给他。
     // 手牌数两边都不变，所以它不改节奏 —— 改的是**双方手牌的质量差**
-    key: 'swapcard', name: '对换', unlock: 160,
+    key: 'swapcard', name: '对换', unlock: 120,
     first: false,
     desc: '打出后查看对方手牌，用自己 1 张换对方 1 张（都由你选）'
   },
@@ -751,7 +751,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 直到他舍得花一次钓牌去把这张挖走。
     //
     // 照钓鱼的【窄口】抄，那边是「只补到 4 张」（它手牌上限 5）
-    key: 'narrow', name: '窄口', unlock: 90,
+    key: 'narrow', name: '窄口', unlock: 70,
     first: false,
     desc: '在场时，对方每回合只补到 3 张手牌'
   },
@@ -760,7 +760,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 跟窄口是一对，一个削他一个补自己。多一张手牌 = 多一个选择，
     // 而「打哪张」是这个玩法唯一的决定 —— 所以它比看着弱
-    key: 'creel', name: '满篓', unlock: 90,
+    key: 'creel', name: '满篓', unlock: 70,
     first: false,
     desc: '在场时，你每回合补到 5 张手牌'
   },
@@ -773,7 +773,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
   //   同号的池子只有 3 张（同点数的另外三张），所以随你挑；
   //   同花的池子有 12 张，随你挑就太强了，所以只能**翻到第一张**
   {
-    key: 'twin', name: '同号', unlock: 100,
+    key: 'twin', name: '同号', unlock: 75,
     first: false,
     desc: '打出后从牌库选 1 张同点数的牌拿到手上'
   },
@@ -785,7 +785,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //（跟【换水】塞回去要真洗是同一条理由）。
     //
     // 翻空了就是白打一张 —— 那个花色在牌库里一张不剩的时候
-    key: 'suitfind', name: '同花', unlock: 90,
+    key: 'suitfind', name: '同花', unlock: 70,
     first: false,
     desc: '打出后从牌库顶翻牌，拿到第一张同花色的牌，其余洗回牌库'
   },
@@ -856,7 +856,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 谁打的都抹。多半是对手的（它打完就轮到对手），所以它是**挡钩**：
     // 对手那张落上来成了死牌，钓不了你，也没人钓得走它。
     // 可它同样挡自己的下一张 —— 带【连竿】的时候要当心
-    key: 'void', name: '压邻', unlock: 90,
+    key: 'void', name: '压邻', unlock: 70,
     first: false,
     desc: '无点数；在场时，紧挨着它右边落下的那一张也无点数'
   },
@@ -878,10 +878,10 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 规则定了：所有技能通用，装进哪个槽都行（见规则弹窗）。
     // 它插花色槽就是一局掏十来张 —— 很凶，但那是**你拿一个大槽换来的**：
-    // 大槽只有两个角色有（明镜 ♥、沉钩 ♣），而插了掏手就插不了别的。
+    // 大槽只有两个角色有（镜湖占卜师 ♥、深海钓手 ♣），而插了掏手就插不了别的。
     //
     // 这件事现在由**机会成本**管，不由规则管
-    key: 'dump', name: '掏手', unlock: 150,
+    key: 'dump', name: '掏手', unlock: 115,
     first: false,
     desc: '无点数；打出后从对方手里掏 2 张，置 0 扔到堆上'
   },
@@ -903,7 +903,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 它跟【洪水】的区别也在这儿：洪水边翻边判，撞上就收走算分；
     // 掏库**一张都不判**，纯粹往堆上垫死牌。洪水是赌一次爆发，
     // 掏库是关灯走人
-    key: 'spill', name: '掏库', unlock: 140,
+    key: 'spill', name: '掏库', unlock: 105,
     first: false,
     desc: '无点数；打出后从牌库顶掏 2 张，置 0 扔到堆上'
   },
@@ -925,7 +925,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 于是「把它打在多深的位置」成了一道真题：浅了一钩就破，
     // 深了对手得连带收走一大段才碰得到（而那一段多半是死牌，收了也不值）
-    key: 'odd', name: '分水', unlock: 130,
+    key: 'odd', name: '分水', unlock: 100,
     first: false,
     desc: '在场时，打出的牌只要跟它牌面点数的奇偶不同，落堆就置 0'
   },
@@ -943,7 +943,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 封面积小一倍，换来的是赖得住。而「封哪个花色」由你出哪张牌决定 ——
     // 跟【染水】一样，手里那张牌的花色就是你的选择
-    key: 'huevoid', name: '封色', unlock: 110,
+    key: 'huevoid', name: '封色', unlock: 85,
     first: false,
     desc: '无点数；在场时，跟它同花色的牌打出来也无点数'
   },
@@ -1024,7 +1024,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 150 块：跟见底、齐顶同档。它比见底慢（一次只碰三张、不收分），
     // 但它做的事别的技能一件都做不了，而且**可累积**
     //（连着退两手就是两段形状）。这个价没量过，跟见底那个 150 一起等模拟器
-    key: 'ebb', name: '退潮', unlock: 150,
+    key: 'ebb', name: '退潮', unlock: 115,
     first: false,
     desc: '置 0；堆顶 3 张的点数各减去它的牌面点数（不收牌）'
   },
@@ -1061,7 +1061,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 还有一条联动：**被护着的牌挡得住它**（见 ap-fishing 的 catchStart）。
     // 一网打尽，而护着的牌是网里的洞。于是【稳钩】多了一个用处
-    key: 'measure', name: '量水', unlock: 150,
+    key: 'measure', name: '量水', unlock: 115,
     first: false,
     desc: '它的点数正好等于堆的张数（含它自己）时，整堆收走'
   },
@@ -1107,7 +1107,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 标价 150：跟量水、齐顶同档（都是「这一下收一片」）。
     // **这个数和上面两个常量都只有手算，没跑过模拟器**
     //（tools/md-sim 里有它，`node sim.js one draft`，README 写了该看什么）
-    key: 'draft', name: '吃水', unlock: 150,
+    key: 'draft', name: '吃水', unlock: 115,
     first: false,
     desc: '从堆顶往下累加它和堆上的点数，总和不超过 21 的那几张一起收走；堆上不够 2 张就不收'
   },
@@ -1142,7 +1142,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 90 块：跟归深（90）同价 —— 两件是镜像，定价该一样。
     // **没跑过模拟器**
-    key: 'soft', name: '软点', unlock: 90,
+    key: 'soft', name: '软点', unlock: 70,
     first: false,
     desc: '它同时算 1 点'
   },
@@ -1197,7 +1197,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 150 块：跟摘钩（150）同档、比对换（160）低一点 —— 对换还顺手
     // 塞给他一张废牌，比这件多一层
-    key: 'dead', name: '死水', unlock: 150,
+    key: 'dead', name: '死水', unlock: 115,
     first: false,
     desc: '打出后翻开对方手牌，挑 2 张废掉：本局算 0 点、不触发技能；J 不能挑'
   },
@@ -1278,7 +1278,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 这儿原先写着「不许叠加，因为扛两次会让一张牌最多算三次分」。
     // **那个理由随「抽象标签 → 实体垫牌」一起作废了** ——
     // 从前算分和离场是脱钩的（算了分牌还在），现在每次都有牌离场
-    key: 'calm', name: '凝水', unlock: 150,
+    key: 'calm', name: '凝水', unlock: 115,
     first: false,
     desc: '把它垫在堆上 1 张牌下面，那张牌获得保护（可叠多层，一层扛一次）'
   },
@@ -1309,7 +1309,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 标价压到全表最高档（跟对换 160 同档，比它要解的封色 110、
     // 分水 130 都贵）—— 一件答得完一整族的技能，价钱不能便宜过那一族，
     // 不然「买净水」会变成对抗那条路线的唯一正解
-    key: 'clean', name: '净水', unlock: 160,
+    key: 'clean', name: '净水', unlock: 120,
     first: false,
     desc: '把它盖在堆上 1 张牌上面代替那张；被盖住的牌不再生效'
   },
@@ -1365,7 +1365,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 150 块：跟收色、撒网、量水同档（都是「这一下收一片」）。
     // **没量过** —— 而它特别需要模拟器，留存率是手算最不准的那类数
-    key: 'wild', name: '野火', unlock: 150,
+    key: 'wild', name: '野火', unlock: 115,
     first: false,
     desc: '无点数；给堆上所有牌贴上燃烧，已经带燃烧的直接收走'
   },
@@ -1405,7 +1405,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 110 块：跟封色同档。它比封色弱（封色抹点数是实打实的封锁，
     // 沸水只是做个记号），但铺的面积大得多（所有落堆的牌）——
     // 两头抵一抵，同档。**没量过**
-    key: 'boil', name: '沸水', unlock: 110,
+    key: 'boil', name: '沸水', unlock: 85,
     first: false,
     desc: '它在场时，落堆的牌都带 1 层【燃烧】（直到它被钓走）。它自己有点数'
   },
@@ -1459,7 +1459,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // 130 块：比沸水（110）贵一档。它更赖得住（无点数）、而且点得到
     // 老牌，可它铺得慢（要几个回合）—— 所以不是最高档。**没量过**
-    key: 'spread', name: '燎原', unlock: 130,
+    key: 'spread', name: '燎原', unlock: 100,
     first: false,
     desc: '无点数，自带 1 层燃烧；在场时，堆上的燃烧每回合向左右各蔓延一格（只点没烧着的，不收牌）'
   },
@@ -1521,7 +1521,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 160 块：跟净水同档（全表最高）。命中时收约 4 张（比普通钓牌的 2.75 高，
     // 因为目标是你挑的），命中率约五成 —— 手算约 4 分/局，落在 3~5 的上沿。
     // **没量过**
-    key: 'raise', name: '抬水', unlock: 160,
+    key: 'raise', name: '抬水', unlock: 120,
     first: false,
     desc: '把它垫在堆上 1 张牌下面，那张牌点数加上它的牌面点数；那张牌随即判一次匹配'
   },
@@ -1564,7 +1564,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // ---- 量过了：**−1.13 分 / 局**，上面那个「没有自带坏处」是错的 ----
     //
-    // 2026-10-10 用模拟器量的（`sim.js all`，装在锁江第一槽、20000 局，
+    // 2026-10-10 用模拟器量的（`sim.js all`，装在江口闸官第一槽、20000 局，
     // 标准误 0.12，胜率 −3.4%）。那几句推断就此作废，记在这儿而不是删掉 ——
     // 它是个**有用的错**，错在哪比结论更值得留。
     //
@@ -1612,7 +1612,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 它还移掉一个堆位，而量水（数张数）、吃水（从堆顶累加）都在判定里读堆。
     //
     // 落点在 `ap-fishing.uvue` 的 playFor 尾部，跟染水、燎原同一段
-    key: 'merge', name: '合流', unlock: 150,
+    key: 'merge', name: '合流', unlock: 115,
     first: true,
     // 说明照「技能说明怎么写」那套规矩收紧过：原先是
     // 「……它获得那张牌的点数（额外算一个点数）」—— 括号在解释「获得」，
@@ -1649,7 +1649,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // ---- 量过了：**反制是真的，可 160 这个价站不住** ----
     //
-    // 2026-10-10 用 `sim.js vs dredge calm` 量的（20000 局，双方都带锁江、
+    // 2026-10-10 用 `sim.js vs dredge calm` 量的（20000 局，双方都带江口闸官、
     // 各插第一槽）。它是个 2×2，所以分得清「它本来值多少」和「它因为
     // 对手带了东西才值多少」：
     //
@@ -1679,7 +1679,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     //
     // ---- 四支叠放全量过了：**它答得完这一族，只有合流例外** ----
     //
-    // `sim.js vs dredge <那一件>`，四组同口径（20000 局、双方锁江、各插第一槽）。
+    // `sim.js vs dredge <那一件>`，四组同口径（20000 局、双方江口闸官、各插第一槽）。
     // 把「那件技能对**对手自己**值多少」摆在旁边，模式就出来了：
     //
     //   对手带的   对对手自己值   抄底的差中之差
@@ -1724,7 +1724,7 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 钓不到任何牌），所以落在 afterPlay 那一串里。
     // 位置是「技能里的第一件」，理由见 `ap-fishing.uvue` 的调用点：
     // 先掀再收，这一手后面的收牌才吃得到「宿主裸了」这个好处
-    key: 'dredge', name: '抄底', unlock: 160,
+    key: 'dredge', name: '抄底', unlock: 120,
     first: false,
     // 「宿主」不在名词解释里（词表只说「垫在堆上某张牌下面」），
     // 所以那半句换成词表里的说法
@@ -2145,7 +2145,7 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
     // 做成点数技能的话它会把自己插的那个槽撑爆，而那个槽本身
     // 还是只管 4 张 —— 两层覆盖面叠起来没人算得清。
     //
-    // 这也是它为什么配【算潮】那张卡（槽里有个 '10'）：
+    // 这也是它为什么配【赌船荷官】那张卡（槽里有个 '10'）：
     // 特殊技和槽**指向同一件事**，卡本身就是一句规则说明。
     //
     // ---- 它是真双刃 ----
@@ -2154,7 +2154,7 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
     //     全牌组最赖得住的一张 —— 算成 10 之后对手一张 10 就钓得走。
     //   **你自己的 Q 和 K 互相钓得上了**（都是 10）—— 白捡一个对子，
     //     可那也意味着对手钓走一张就连带收一片。
-    //   **它跟【沉钩】那张角色互相拆台** —— 沉钩的全部卖点是
+    //   **它跟【深海钓手】那张角色互相拆台** —— 深海钓手的全部卖点是
     //     「K 没有上家、最难被钓走」，带了归十就自己把它废了。
     //
     // ---- J 不在里头 ----
@@ -2378,7 +2378,7 @@ export const DRAW_ROLES : DrawRole[] = [
   },
   // ---- 一大一小，但大的是全表最大的数字槽 ----
   {
-    // 候潮：等潮水涨起来再下竿 ——【涨落】。
+    // 候潮渔翁：等潮水涨起来再下竿 ——【涨落】。
     //
     // ---- 槽形状是从技能反推的 ----
     //
@@ -2397,13 +2397,13 @@ export const DRAW_ROLES : DrawRole[] = [
     //「一件技能 + 一堆数字」（设计文档 13.7 最后一条）。
     //
     // 覆盖 20 张、两个槽。形状（4+1）是新的 ——
-    // 四个标签挤在一个槽里，别的角色最多三个（溯流的 '5 6 7'）
-    key: 'tidal', name: '候潮', special: 'cycle', slots: ['3 4 5 6', 'K'],
+    // 四个标签挤在一个槽里，别的角色最多三个（逆流船夫的 '5 6 7'）
+    key: 'tidal', name: '候潮渔翁', special: 'cycle', slots: ['3 4 5 6', 'K'],
     desc: '一个大槽管四个连号（周期初用），一个小槽钉在 K 上 —— K 没有上家，最难被钓走，正好当周期末的垫牌'
   },
   // ---- 21 点那一套：特殊技和槽**指向同一件事** ----
   {
-    // 算潮 · 带【归十】· 槽 ['10', 'A', '7']
+    // 赌船荷官 · 带【归十】· 槽 ['10', 'A', '7']
     //
     // ---- 归十 + '10' 槽：这张卡的全部内容 ----
     //
@@ -2412,8 +2412,8 @@ export const DRAW_ROLES : DrawRole[] = [
     // 可它写在卡上只是一个「10」。
     //
     // **特殊技和槽指向同一件事**，这是别的角色都没有的结构：
-    // 篓翁的满篓跟它那两对连号没关系、明镜的清水跟 ♥ 没关系，
-    // 而算潮的归十就是为那个 '10' 槽存在的。于是这张卡本身
+    // 背篓渔夫的满篓跟它那两对连号没关系、镜湖占卜师的清水跟 ♥ 没关系，
+    // 而赌船荷官的归十就是为那个 '10' 槽存在的。于是这张卡本身
     // 就是一句规则说明 —— 你一眼看出该往哪个槽插主力技能。
     //
     // ---- 另两个槽是【吃水】那条收成曲线的采样点 ----
@@ -2432,14 +2432,14 @@ export const DRAW_ROLES : DrawRole[] = [
     // ---- 覆盖面怎么算 ----
     //
     // 按 roleCover 的尺子（一个点数标签 4 张）是 3 × 4 = 12 张，
-    // 跟夜钓并列全表最小。**但那个数低估了它** —— 归十让 '10' 槽
+    // 跟夜钓客并列全表最小。**但那个数低估了它** —— 归十让 '10' 槽
     // 实际管 12 张，所以真实覆盖面是 20 张。
     //
     // 这是 roleCover 第一次算不准，而我**没改那个函数**：
     // 它量的是「卡上印了多大的槽」，那个口径对所有卡一致、也是
     // 商店预告和难度曲线在用的。归十的加成属于**特殊技**那一层，
     // 不该混进槽的尺子里。要比强度就看模拟器，别看这个数
-    key: 'reckon', name: '算潮', special: 'tens', slots: ['10', 'A', '7'],
+    key: 'reckon', name: '赌船荷官', special: 'tens', slots: ['10', 'A', '7'],
     desc: '归十让你的 Q、K 都算 10 —— 那个 10 槽因此管着 12 张牌，跟一门花色一样宽'
   }
 ]
@@ -2642,15 +2642,15 @@ export function roleIndexOf(key : string) : number {
 //
 // **这是个按下标对齐 DRAW_ROLES 的平行数组** —— 加角色必须同时在这儿
 // 加一格，不然那个新角色永远锁着（roleUnlocked 越界返回 false）。
-// 下标顺序：背篓渔夫 潮汐观测员 江口闸官 逆流船夫 镜湖占卜师 深海钓手 鱼塘老板 夜钓客 候潮 算潮
+// 下标顺序：背篓渔夫 潮汐观测员 江口闸官 逆流船夫 镜湖占卜师 深海钓手 鱼塘老板 夜钓客 候潮渔翁 赌船荷官
 //（删听浪的时候这儿跟着少了一格 —— 平行数组就是这个毛病）
 //
 // 门槛现在是 2/2/2/4：通关那一档放出四个
-//（鱼塘老板、夜钓客、候潮、算潮）。那四个都是**进阶角色** ——
+//（鱼塘老板、夜钓客、候潮渔翁、赌船荷官）。那四个都是**进阶角色** ——
 // 各自要求你懂一套构筑（改牌库、花色路线、周期规划、21 点那条线），
 // 所以挤在最高那一档是对的，不是凑数。
 //
-// **算潮排在通关那一档**是有意的：归十把一个点数槽撑成花色槽那么宽，
+// **赌船荷官排在通关那一档**是有意的：归十把一个点数槽撑成花色槽那么宽，
 // 而「哪个槽该插什么」要先懂槽这回事才玩得动。
 // 开局就给的话新手只会看见「一个 10 槽」，看不见它背后那 12 张牌
 export const ROLE_UNLOCK : number[] = [0, 0, 6, 6, 9, 9, 99, 99, 99, 99]

@@ -130,8 +130,8 @@ describe('/pages/examples/blackjack/ap-fishing', () => {
     page = await program.reLaunch(SHOP_PATH)
     await page.waitFor('view')
     await page.waitFor(300)
-    // 第 1 关是「试手」，它没有特殊技 —— 所以名字在、特殊技那行不在
-    expect(await textOf('#md-foe-role')).toContain('试手')
+    // 第 1 关是「试竿学徒」，它没有特殊技 —— 所以名字在、特殊技那行不在
+    expect(await textOf('#md-foe-role')).toContain('试竿学徒')
     expect(await page.$('#md-foe-special')).toBe(null)
   })
 
@@ -319,9 +319,9 @@ describe('/pages/examples/blackjack/ap-fishing', () => {
     // 一个都不生效**，而玩家也看不见自己是谁。
     //
     // 庄家那侧查的是它自己那张表（DRAW_FOE_ROLES，按关号定死）——
-    // 第 1 关是「试手」，它没有特殊技，所以标签上只有名字
+    // 第 1 关是「试竿学徒」，它没有特殊技，所以标签上只有名字
     expect(await page.$('#ap-my-role')).not.toBe(null)
-    expect(await textOf('#ap-foe-role')).toContain('试手')
+    expect(await textOf('#ap-foe-role')).toContain('试竿学徒')
     // 点一下自己那个标签：说明框报特殊技全文（标签上只写得下名字）
     await (await page.$('#ap-my-role')).tap()
     await page.waitFor(300)

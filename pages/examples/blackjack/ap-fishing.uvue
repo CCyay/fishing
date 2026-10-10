@@ -630,6 +630,7 @@
     foeKitOf,
     // 【封竿】封的那个点数（庄家特殊技）
     foeSealRank,
+    foeNumOf,
     // 没选角色就不开局（见 newGame 闯关分支开头那道闸）
     hasRole,
     deckOf,
@@ -1397,7 +1398,7 @@
   // 偏流在 playFor、添手在 handLimit、走水在回合末……），所以调用处写的是
   // `hasFoeSpecial('shell')` 这种能一眼读懂的东西，而不是一个常量下标。
   //
-  // **一个角色可能带两条**（龙王：逆钩 + 浊水），所以这儿转给 foeRoleHas
+  // **一个角色可能带两条**（东海龙王：逆钩 + 浊水），所以这儿转给 foeRoleHas
   // 去遍历 specials。调用处一处都不用改 —— 它们问的本来就是「带不带某条」。
   //
   // 终局的庄家走 hasSpecial —— 那一局它摇的是玩家那张表
@@ -1722,7 +1723,7 @@
   //     藏那个只会让界面看着像坏了。
   //
   // 它跟记牌那条原则（8.5「信息全给」）确实是反着的，所以设计稿里
-  // 它只给**终局**那张卡（龙王）—— 不是普通关卡的规矩
+  // 它只给**终局**那张卡（东海龙王）—— 不是普通关卡的规矩
   function murked(index : number) : boolean {
     if (!hasFoeSpecial('murk')) {
       return false
@@ -1786,17 +1787,8 @@
       }
       return sink ? size - 1 : 0
     }
-    // ---------- 【封竿】：摇定一个点数，你打它只是落堆 ----------
-    //
-    // 判在**最前面**（J 那一支之后），因为它说的是「这一张什么都钓不到」——
-    // 放在遍历里当成「每张都跳过」是等价的，但量水那条会漏（它不走遍历）。
-    //
-    // 只管玩家。庄家打那个点数照旧 —— 封竿是它的技能，不是场地规则。
-    // **J 不受封**：上面那一支已经 return 了，所以它天然在封竿之外，
-    // 而那正是对的 —— 一关里连 J 都封掉就没有解了
-    if (!byFoe && sealedRank.value != '' && card.rank == sealedRank.value) {
-      return -1
-    }
+    // 【封竿】原先在这儿直接拦（被封的点数什么都钓不到）。改成了「算 0 点」，
+    // 在 valuesOf 最前面判 —— 0 点钓不到按点数的牌，按花色的照样能用
     const hook = hasTrigger(skills, SK_HOOK)
     const suited = hasTrigger(skills, SK_SUITED)
     // 我这张算哪几个点数。顺色换掉了整个点数，所以它这儿是空的 ——
@@ -3295,6 +3287,15 @@
   // 这张触发的技能）。归十是第一件**从角色来、改自己手牌点数**的效果，
   // 所以侧这一层第一次有了必要
   function valuesOf(card : PlainCard, byFoe : boolean, skills : number[]) : number[] {
+    // ---- 【封竿】：被封的那个点数，你打出来算 **0 点** ----
+    //
+    // 判在最前面：别的点数技改不回来。0 点钓不到任何牌（0 对 0 不算相等，见 anyEquals），
+    // 可它还在点数这条轴上 —— 落堆后见底、干塘收得走它，撒网按偶数算它
+    //（跟【死水】废掉的牌同一个待遇）。按花色的那些（顺色之类）照样能用。
+    // 只管玩家（封竿是庄家的特殊技）。J 不会被封（封的点数取自庄家的点数槽，没有 J）
+    if (!byFoe && sealedRank.value != '' && card.rank == sealedRank.value) {
+      return [0]
+    }
     // ---- 【死水】废掉的牌：算 **0 点** ----
     //
     // 判在最前面，盖掉下面所有分支（包括齐顶那种「改成某个数」的）——
@@ -3413,7 +3414,7 @@
     //   K 本来是全牌组**最难被钓走**的（K 没有上家，K+1 不存在）——
     //     算成 10 之后对手一张 10 就钓得走；
     //   你自己的 Q 和 K 互相钓得上了（都是 10），白捡一个对子；
-    //   **它跟【沉钩】那张角色互相拆台** —— 沉钩的卖点就是「K 没有上家」
+    //   **它跟【深海钓手】那张角色互相拆台** —— 深海钓手的卖点就是「K 没有上家」
     const tens = hasSpecial(byFoe, SP_TENS)
       && (card.rank == 'Q' || card.rank == 'K')
     const out = tens ? tenVals(card) : cardVals(card)
@@ -3637,7 +3638,7 @@
     // 判在 catchStart 外面而不是里面：那个函数庄家挑牌时一回合要跑十几次，
     // 在里面写话会把 message 刷成一片
     if (!byFoe && sealedRank.value != '' && card.rank == sealedRank.value) {
-      firstNote = firstNote + ' 封竿：' + sealedRank.value + ' 被封着，这张钓不到任何牌。'
+      firstNote = firstNote + ' 封竿：' + sealedRank.value + ' 被封着，这张算 0 点。'
     }
     pendingSkills = skills
     lastPlayed = card
@@ -4031,7 +4032,7 @@
     // 两条都**只在钓到时**发动，所以落在 finishCatch 而不是 afterPlay ——
     // afterPlay 钓到没钓到都走，挂那儿就成了「每回合都发动」。
     //
-    // 【守滩】：往堆上垫一张自己的手牌。它是涡心（第 10 关）那一关的轴 ——
+    // 【守滩】：往堆上垫一张自己的手牌。它是涡心祭司（第 10 关）那一关的轴 ——
     // 它染水、它见底，而这条逼它不停给自己堆料。
     if (byFoe && hasFoeSpecial('guard')) {
       guardPushFor()
@@ -6349,6 +6350,23 @@
       passTurn(false)
       return
     }
+    // 手里有牌、可全被冻住了：**当场补牌**，补到能打的就接着打（跟庄家那边 foeTurn 里那条是一对）。
+    //
+    // 补牌原本只在回合末（passTurn → refill）。全冻住的话这个回合打不出牌、结束不了，
+    // 就永远走不到那一步 —— 碰上【枯水】（打不出牌时才补）整局卡死：
+    // 剩一张冻着的牌，它在等「打不出牌」，而那正是现在。
+    // refill 只数能打的牌（见 playableCount），所以枯水下这儿也补得上。
+    // 牌库空了补不上，才跳过这回合（双方都动不了由 checkOver 收摊）
+    if (playableCount(false) == 0) {
+      const before = hand.value.length
+      refill(false)
+      if (playableCount(false) == 0) {
+        message.value = '你的牌全被冻住了，也补不到牌，跳过这回合。'
+        passTurn(false)
+        return
+      }
+      message.value = '你的牌全被冻住了，补了 ' + (hand.value.length - before) + ' 张。'
+    }
     // ---- 只在**有新消息**的时候动 message ----
     //
     // 原先这儿恒写一句「你的回合，打出一张。」。战况和回合提示合成一条之后
@@ -6404,21 +6422,30 @@
       passTurn(true)
       return
     }
-    const index = foePickCard()
+    let index = foePickCard()
     // **手里有牌也可能打不出** —— 全被【冻结】锁着的时候 foePickCard
     // 返回 -1（见 randomFree）。不拦这一下的话 foeHand.value[-1] 是
     // undefined，接着 playFor 取不到牌、cardName(undefined) 当场崩。
     //
     // 这一条跟 checkOver 那条是一对：那边管「双方都动不了就收摊」，
-    // 这儿管「这一方动不了就过」。两边都空着的局面由 checkOver 结掉
+    // 这儿管「这一方动不了就过」。两边都空着的局面由 checkOver 结掉。
+    //
+    // 过之前先补牌（跟 startMyTurn 那条是一对）：补到能打的就照常出
+    let note = ''
     if (index < 0) {
-      message.value = '庄家手里的牌全被冻住了，跳过。'
-      passTurn(true)
-      return
+      const before = foeHand.value.length
+      refill(true)
+      index = foePickCard()
+      if (index < 0) {
+        message.value = '庄家手里的牌全被冻住了，也补不到牌，跳过。'
+        passTurn(true)
+        return
+      }
+      note = '庄家的牌全被冻住了，补了 ' + (foeHand.value.length - before) + ' 张。'
     }
     const card = foeHand.value[index]
     playFor(true, index)
-    message.value = '庄家打出 ' + cardName(card) + '。'
+    message.value = note + '庄家打出 ' + cardName(card) + '。'
     afterPlay(true)
   }
 
@@ -6921,7 +6948,8 @@
       foeLoadout.value = foeKit.loadout
       // 存**关号**，不是 foeKit.role —— 那个字段在这条路上装的是关号 - 1，
       // 拿去查 DRAW_ROLES 会读到一张完全无关的玩家角色卡（见 foeAt 那段）
-      foeAt.value = base.id
+      // 这一关抽到的庄家卡号（按章节洗过的，见 draw-save 的 foeNumOf）
+      foeAt.value = foeNumOf(data, base.id)
       // 【封竿】封的那个点数：从存档里摇定的那份标签上取（见 foeSealRank）。
       // 要在 foeAt 设好之后 —— 没带这件的关号一律返回空串
       sealedRank.value = foeSealRank(data, base.id)

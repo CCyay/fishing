@@ -48,14 +48,17 @@
           >{{ foeSpecial }}</text
         >
         <text v-if="foePreview.length == 0" class="foe-none">{{ foeNone }}</text>
+        <!-- 点一行看这件技能的效果（见 foeDetail） -->
         <view
           v-for="(one, fi) in foePreview"
           :key="'fp-' + fi"
           :id="'md-foe-' + fi"
-          class="foe-row">
+          class="foe-row"
+          @click="foeDetail = fi">
           <text class="foe-cover">{{ one.cover }}</text>
           <text class="foe-name">{{ one.name }}</text>
           <text class="foe-level">{{ one.level }}</text>
+          <text class="foe-more">详情</text>
         </view>
       </view>
 
@@ -207,6 +210,23 @@
       </view>
       <view id="md-next" class="back-btn" @click="goNext">
         <text class="back-text">开始下一关</text>
+      </view>
+    </view>
+
+    <!-- 庄家技能详情：点下一关预告里那一行弹出来，只看 -->
+    <view v-if="foeDetail >= 0 && foeDetail < foePreview.length" class="mask" @click="foeDetail = -1">
+      <view class="buy-box" @click.stop="noop">
+        <view class="buy-head">
+          <text id="md-foe-detail-name" class="buy-name">{{ DRAW_SKILLS[foePreview[foeDetail].skill].name }}</text>
+          <text v-if="DRAW_SKILLS[foePreview[foeDetail].skill].first" class="skill-key">{{ KEYWORD_FIRST }}</text>
+        </view>
+        <text class="buy-tag">庄家的技能 · 管 {{ foePreview[foeDetail].cover }}</text>
+        <text id="md-foe-detail-desc" class="buy-desc">{{ DRAW_SKILLS[foePreview[foeDetail].skill].desc }}</text>
+        <view class="buy-actions">
+          <view id="md-foe-detail-ok" class="buy-btn" @click="foeDetail = -1">
+            <text class="buy-btn-text">知道了</text>
+          </view>
+        </view>
       </view>
     </view>
 
@@ -489,6 +509,7 @@
     GOODS_SKILL,
     drawSaveSlot,
     difficultyOf,
+    foeNumOf,
     shopGuided,
     setShopGuided
   } from '@/pages/examples/blackjack/draw-save.uts'
@@ -704,10 +725,15 @@
   // 商店是打赢一关之后进的，所以 save.runLevel 已经是**下一关**的号了
   //（settleWin 推过去的）—— 直接拿它查关卡表就是你下一个对手
   type FoeSkill = {
+    // 技能下标（点开详情要用）
+    skill : number
     cover : string
     name : string
     level : string
   }
+
+  // 庄家技能详情弹窗：点开的是 foePreview 的第几行，-1 = 没开
+  const foeDetail = ref<number>(-1)
 
   // 庄家现在是**角色**：技能名单由关号定死（见 draw-levels 的 DRAW_FOE_ROLES），
   // 摇的只有「每件技能占哪些标签」，而那个摇定也在 settleWin 推关号的那一刻
@@ -716,7 +742,7 @@
   // 所以这块预告现在是两种信息叠起来的：
   //
   // - **固定的那层**（角色名 + 特殊技 + 带哪几件技能）—— 可以背下来，
-  //   打到第 9 关你就该知道「雾叟挑潮，带照水和冻结」。这是设计稿里
+  //   打到第 9 关你就该知道「雾港守灯人挑潮，带照水和冻结」。这是设计稿里
   //   「庄家要有性格」那条的全部兑现方式；
   // - **摇的那层**（占哪几个点数）—— 花色给全、点数只报个数（见 coverageHint），
   //   所以你知道它多硬，不知道它硬在哪儿。
@@ -737,6 +763,7 @@
       }
       out.push({
         // 花色给全，点数只报个数（见 coverageHint 那段）
+        skill: k,
         cover: coverageHint(kit.loadout, k),
         name: DRAW_SKILLS[k].name,
         level: ''
@@ -751,29 +778,29 @@
     if (id < 1 || id > DRAW_RUN_LENGTH) {
       return ''
     }
-    return foeRoleAt(id).name
+    return foeRoleAt(foeNumOf(save.value, id)).name
   })
 
   // 庄家特殊技：**名字 + 全文都给**。
   //
   // 跟点数标签不一样，这个不藏 —— 它不是「被针对就失效」的东西，
-  // 而是这一关的规则本身。你知道湾主硬壳（它的 ♠ 钓不上）之后要做的
+  // 而是这一关的规则本身。你知道湾口税吏硬壳（它的 ♠ 钓不上）之后要做的
   // 不是躲，是改打法。藏起来只会让你第一次打莫名其妙输掉
   const foeSpecial = computed<string>(() : string => {
     const id = save.value.runLevel
     if (id < 1 || id > DRAW_RUN_LENGTH) {
       return ''
     }
-    const name = foeSpecialNameAt(id)
+    const name = foeSpecialNameAt(foeNumOf(save.value, id))
     if (name == '') {
       return ''
     }
-    // 带两条的（龙王：逆钩 + 浊水）全文里已经逐条标了名字，
+    // 带两条的（东海龙王：逆钩 + 浊水）全文里已经逐条标了名字，
     // 这儿再套一层就成了「逆钩 · 浊水：逆钩：……」
-    if (foeSpecialCountAt(id) > 1) {
-      return foeSpecialDescAt(id)
+    if (foeSpecialCountAt(foeNumOf(save.value, id)) > 1) {
+      return foeSpecialDescAt(foeNumOf(save.value, id))
     }
-    return name + '：' + foeSpecialDescAt(id)
+    return name + '：' + foeSpecialDescAt(foeNumOf(save.value, id))
   })
 
   const foeTitle = computed<string>(() : string => {
@@ -787,7 +814,7 @@
     // 为什么敢报这个数：它说的是「它卡得住多少张牌」，是强度；
     // 而不公开的是「卡的是哪几个点数」，那才是能被针对的东西。
     // 配装既然是摇的，不给个强度刻度就没法判断「这一关该不该抱紧钱包」
-    const cover = foeCoverOf(id)
+    const cover = foeCoverOf(foeNumOf(save.value, id))
     return '下一关 · 第 ' + id + ' 关「' + lv.name + '」'
       + (lv.random ? ' · 随机出牌' : (lv.smart ? ' · 会记牌' : ' · 随手出牌'))
       + (cover > 0 ? ' · 盖 ' + cover + ' 张' : '')
@@ -2581,6 +2608,12 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
+  }
+
+  .foe-more {
+    color: #ffb4a8;
+    font-size: 10px;
+    margin-left: 8px;
   }
 
   .deck-none {
