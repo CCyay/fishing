@@ -497,10 +497,12 @@
     levelForDiff,
     maxLivesOf,
     foeCoverOf,
-    // 庄家预告里「固定的那层」：角色名 + 特殊技全文
+    // 庄家预告里「固定的那层」：角色名 + 特殊技全文。
+    // 条数也要（带两条的排版不一样，见 foeSpecial）
     foeRoleAt,
     foeSpecialNameAt,
     foeSpecialDescAt,
+    foeSpecialCountAt,
     // 牌组的两头：买牌不能超上限、弃饵不能低于下限
     DECK_MIN,
     DECK_CAP,
@@ -765,6 +767,11 @@
     const name = foeSpecialNameAt(id)
     if (name == '') {
       return ''
+    }
+    // 带两条的（龙王：逆钩 + 浊水）全文里已经逐条标了名字，
+    // 这儿再套一层就成了「逆钩 · 浊水：逆钩：……」
+    if (foeSpecialCountAt(id) > 1) {
+      return foeSpecialDescAt(id)
     }
     return name + '：' + foeSpecialDescAt(id)
   })

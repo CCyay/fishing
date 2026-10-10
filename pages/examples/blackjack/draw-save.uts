@@ -39,6 +39,7 @@ import {
   SLOT_CARD_WEIGHT,
   // 庄家角色：按关号查哪一张卡（技能名单印在卡上，标签这边摇）
   foeRoleAt,
+  foeRoleHas,
   DIFF_EASY,
   DIFF_NORMAL,
   DIFF_HARD
@@ -373,7 +374,9 @@ export function foeKitOf(data : DrawSave, level : number) : DrawKit {
 //     所以你知道「有一个点数被封了」，不知道是哪个 —— 得试出来
 export function foeSealRank(data : DrawSave, level : number) : string {
   const role = foeRoleAt(level)
-  if (role.special != 'seal') {
+  // 走 foeRoleHas 而不是比 `specials[0]` —— 一个角色可能带两条
+  //（龙王：逆钩 + 浊水），比第一条就会漏掉第二条
+  if (!foeRoleHas(role, 'seal')) {
     return ''
   }
   for (let i = 0; i < role.slots.length && i < data.foeSlots.length; i++) {

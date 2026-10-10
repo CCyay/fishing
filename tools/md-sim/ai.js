@@ -72,7 +72,7 @@ function pickCard(G, side) {
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (R.isFrozen(G, card)) continue
-    const skills = R.triggersOf(lo, card)
+    const skills = R.skillsOf(G, side, card)
     // 这儿只看点数槽的【沉底】，**不看角色的【逆流】** ——
     // 照源码（foePickCard 那行 `const sink = hasTrigger(skills, SK_SINK)`）。
     //
@@ -111,7 +111,7 @@ function pickCard(G, side) {
     const card = hand[i]
     if (card.rank === R.JACK || R.isFrozen(G, card)) continue
     let score = baitRisk(G, side, card) * 1.0
-    const skills = R.triggersOf(lo, card)
+    const skills = R.skillsOf(G, side, card)
     // 想当饵顺手发动的那几件。挂效果的三件（照水、冻结、见底）也算 ——
     // 它们正好要求「这张别钓到牌」
     const wants = R.has(skills, SK.PEEK) || R.has(skills, SK.TIDE)
@@ -133,6 +133,14 @@ function pickCard(G, side) {
       || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
       // 退潮自己算 0 点，永远钓不到 —— 拿它当饵是它唯一的用法
       || R.has(skills, SK.EBB)
+      // 凝水 / 净水 / 抬水**压根不落堆**（叠到别的牌上去了），所以也
+      // 谈不上钓 —— 它们换的是一次精确操作。拿它们当「饵」是唯一的用法，
+      // 而且比别的饵更安全：牌出场了，对手连收都收不着
+      || R.has(skills, SK.CALM) || R.has(skills, SK.CLEAN)
+      || R.has(skills, SK.RAISE)
+      // 抄底无点数 → 它**永远钓不到牌**，所以「当饵」是它唯一的落地方式。
+      // 效果（掀走叠放的牌）在 afterPlay 里立刻结算，钓不钓到都一样发动
+      || R.has(skills, SK.DREDGE)
     if (wants && score <= fewest + 1) {
       score = score - 1.5
     }
@@ -141,8 +149,21 @@ function pickCard(G, side) {
     // 退潮也在这儿：0 点互不匹配，按点数一样钓不上它
     if (R.has(skills, SK.VOID) || R.has(skills, SK.HUEVOID)
       || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
-      || R.has(skills, SK.EBB)) {
+      || R.has(skills, SK.EBB)
+      // 抄底也无点数，同一条理由
+      || R.has(skills, SK.DREDGE)) {
       score = score - 1.0
+    }
+    // ---- 【抄底】：**场上叠着几张，它就值几分** ----
+    //
+    // 全表唯一一件「收益当场数得出来」的技能 —— 掀几张就是几分，
+    // 没有匹配、没有运气。所以判断只有一条：**现在叠着几张**。
+    //
+    // 场上一张都没叠的时候这儿不减分，它就退回上面那两支（无点数的安全饵）
+    // —— 那正是「无点数是它的兜底不是代价」想要的结果。
+    // 0.8 一张：三张起就压过下面沉底空钩那条风险
+    if (R.has(skills, SK.DREDGE)) {
+      score = score - G.stacked.length * 0.8
     }
     // **沉底空钩是最危险的下饵**：那张躺在堆底，谁匹配到它就通吃整堆
     if (R.has(skills, SK.SINK)) {
@@ -257,12 +278,38 @@ function takePick(G, side) {
 // 同号挑哪张（照 foeTwinPick）：挑能触发自己技能的那个花色
 function twinPick(G, side, pool) {
   for (let i = 0; i < pool.length; i++) {
-    if (R.triggersOf(G.loadouts[side], pool[i]).length > 0) return i
+    if (R.skillsOf(G, side, pool[i]).length > 0) return i
   }
   return 0
 }
 
+// 【死水】废对方哪张（照 foeDeadPick）。
+//
+// 尺子跟 takePick 同一套，但**挑不了 J**（deadPool 把 J 排掉了 ——
+// 理由见 draw-skills 死水那条：能挑 J 的话这件技能单那一下就超标）。
+// 多一档：落在对方槽上的牌加分 —— 废掉它顺带掐了一件技能，
+// 而「技能不触发」正是这件技能一半的价值
+function deadPick(G, side) {
+  const other = side === R.ME ? R.FOE : R.ME
+  const theirs = G.hands[other]
+  const pool = R.deadPool(G, side)
+  let best = -1
+  let bestScore = -1
+  for (let i = 0; i < pool.length; i++) {
+    const at = pool[i]
+    const card = theirs[at]
+    let score = card.value
+    if (R.canCatch(G, card, other)) score += 50
+    if (R.skillsOf(G, other, card).length > 0) score += 30
+    if (score > bestScore) {
+      bestScore = score
+      best = at
+    }
+  }
+  return best
+}
+
 module.exports = {
   pickCard, swapPick, pickDeck, tideSink, freezePick, takePick, twinPick,
-  outsideCount, baitRisk, faceOfValue
+  deadPick, outsideCount, baitRisk, faceOfValue
 }

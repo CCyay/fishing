@@ -54,8 +54,10 @@ const WATCH = [
   {
     file: 'ap-fishing.uvue',
     group: '角色与特殊技能',
+    // refill 也在这儿：【涨落】和庄家的【枯水】都拦在它开头
+    //（「只有一张牌都打不出时才补」）
     names: ['hasSpecial', 'sameSuit', 'wantSink', 'baitFor', 'handLimit',
-      'playableCount']
+      'refill', 'playableCount']
   },
   {
     file: 'draw-skills.uts',
@@ -84,7 +86,8 @@ const CONSTS = [
   // SUIT_CAPACITY 删了（花色槽砍成了一个特殊技能槽），所以这儿也撤掉 ——
   // 留着只会每次都报一条 MISSING，而噪音多了就没人看警报了
   { file: 'draw-skills.uts', name: 'RANK_CAPACITY' },
-  { file: 'draw-skills.uts', name: 'BAIT_COUNT' }
+  { file: 'draw-skills.uts', name: 'BAIT_COUNT' },
+  { file: 'draw-skills.uts', name: 'CYCLE_REFILL' }
 ]
 
 const cache = {}

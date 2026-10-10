@@ -25,7 +25,21 @@ import {
   SK_SPILL,
   SK_ODD,
   SK_HUEVOID,
-  SK_VOID
+  SK_VOID,
+  // 素材池那六张用的（见 DRAW_FOE_POOL）。**全是现成技能** ——
+  // 那一批卡的技能名单一行新代码都不要，叠放五件和燃烧三件
+  // 在 ap-fishing 里早就实现了，foePilePick 连凝水/净水/抬水的
+  // 庄家选牌分支都写好了
+  SK_HUE,
+  SK_FLOOD,
+  SK_CALM,
+  SK_CLEAN,
+  SK_RAISE,
+  SK_MERGE,
+  SK_DREDGE,
+  SK_WILD,
+  SK_BOIL,
+  SK_SPREAD
   // 原先这儿还引着：
   //   UPGRADE_PRICE —— 砺钩的标价。砺钩删了。
   //   DrawLoadout / DRAW_SKILLS / SKILL_RANKS / emptyLoadout / FULL_COVER
@@ -790,13 +804,24 @@ export type FoeSlot = {
 export type FoeRole = {
   // 角色名。场景名在 DRAW_LEVELS 的 name 里，两者是两回事
   name : string
-  // 带哪条特殊技（DRAW_FOE_SPECIALS 的 key）。空串 = 不带
-  special : string
+  // ---------- 带哪几条特殊技（DRAW_FOE_SPECIALS 的 key），空数组 = 不带 ----------
+  //
+  // 原先这是一个 `special : string`（一条或者空串）。改成数组是因为
+  // **龙王带两条**（逆钩 + 浊水）—— 终局那张卡要的是「两条都是终局级」
+  // 那个效果，少一条就不成立。
+  //
+  // 为什么不加个 `special2` 字段：那样每一处判断都得写两遍
+  //（`special == k || special2 == k`），而这个文件里「写两遍必有一遍写错」
+  // 已经吃过账（见堆上那几条并行数组的警告）。数组只有一处遍历。
+  //
+  // 代价是十二个现有表项都得从 `special: 'hand'` 改成 `specials: ['hand']`。
+  // 那是机械改动，一次付清
+  specials : string[]
   slots : FoeSlot[]
   desc : string
 }
 
-// ---------- 庄家特殊技：十一条 ----------
+// ---------- 庄家特殊技：十四条 ----------
 //
 // 三条规矩（设计稿第三节，一条都不动）：
 //
@@ -821,16 +846,31 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   { key: 'hand', name: '添手',
     desc: '庄家起手和手牌上限都 +1 张' } as FoeSpecial,
   { key: 'silt', name: '淤滩',
-    desc: '开局庄家先从牌库顶往堆上垫 3 张，都算 0 点' } as FoeSpecial,
+    desc: '开局庄家先从牌库顶往堆上垫 3 张，都置 0' } as FoeSpecial,
   { key: 'pinch', name: '掐口',
     desc: '你每回合只补到 3 张' } as FoeSpecial,
+  // 枯水：跟掐口是**同一条轴的两头** —— 掐口削「补到几张」（上限），
+  // 枯水削「什么时候补」（频率）。两条能叠，叠起来相当难受，
+  // 所以别放同一关（一关只有一条规矩，见文件头那段）。
+  //
+  // 「一张牌都打不出」在这个玩法里约等于「手牌打空了」——
+  // 摸打里任何牌都打得出去，唯一打不出的是被冻住的牌。
+  // 所以它把你的手牌从「恒 4 张」变成 4 → 3 → 2 → 1 → 0 → 补满。
+  //
+  // 它是玩家角色技能【涨落】的**单向版**：涨落给自己换来峰值 6 张
+  //（大起大落），枯水纯削你，不给补偿 —— 那正是庄家规矩该有的样子
+  //（它们是关卡的题目，不是装备）。
+  //
+  // 实现跟涨落共用 refill 里那一条闸（见 ap-fishing 的 refill）
+  { key: 'dryup', name: '枯水',
+    desc: '你只有一张牌都打不出时才补牌（打空或者全被冻住）' } as FoeSpecial,
   { key: 'drift', name: '偏流',
     desc: '庄家打出的牌落堆底，不落堆顶' } as FoeSpecial,
   // 「钓不上」说的是**它当不了匹配的那一张**，不是「永远拿不走」——
   // 从更深处钓起的时候它照旧被连带收走（跟护饵一个待遇，见 shelled）。
   // 初稿写的是「只有 J 收得走」，那跟实现不符：J 只是最省事的那条解
   { key: 'shell', name: '硬壳',
-    desc: '庄家打出的 ♠ 钓不上（钓更深的牌时才连带收走）' } as FoeSpecial,
+    desc: '庄家打出的 ♠ 匹配不到（匹配更深的牌时才连带收走）' } as FoeSpecial,
   { key: 'pick', name: '挑潮',
     desc: '庄家回合末补牌时从库顶 2 张挑 1 张（另一张沉底）' } as FoeSpecial,
   { key: 'guard', name: '守滩',
@@ -850,9 +890,52 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   // 对应的效果代码一行都没写 —— 加的时候记得（落点见设计稿第八节）
   { key: 'rev', name: '逆钩',
     desc: '你打 J 只收堆顶 3 张，不通吃（庄家的 J 照旧通吃）' } as FoeSpecial,
+  // ---- 阈值从 10 改成了 8 ----
+  //
+  // 原稿写「堆超过 10 张」，那个数**没算过堆有多厚**：52 张牌几乎全被收走
+  //（双方每局各收约 24.75 张），所以堆常年只有 3~5 张。
+  // 阈值 10 在实战里几乎不出现 —— 一条不响的规矩等于没有。
+  // 8 是「明显比平均厚」而又够得着的那个数
   { key: 'murk', name: '浊水',
-    desc: '堆超过 10 张时你只看得见最上面 5 张（庄家照旧全看得见）' } as FoeSpecial
+    desc: '堆超过 8 张时你只看得见最上面 5 张（庄家照旧全看得见）' } as FoeSpecial,
+  // ---------- 下面三条是「角色素材池」那一批带出来的（见 DRAW_FOE_POOL）----------
+  //
+  // 【炙水】是**硬壳的状态版**：硬壳认花色（♠ 印死，所以是定额），
+  // 炙水认燃烧 —— 而燃烧是庄家自己造出来的（沸水在场时落堆的牌都带火）。
+  // 于是它**可增长**，这是它跟硬壳唯一但要紧的区别。
+  //
+  // 只管**庄家打出的牌**（照硬壳的边界）—— 你自己的牌带火不受影响，
+  // 不然沸水 × 炙水 会变成「堆上所有牌你都钓不走」，那不是题目是墙。
+  { key: 'char', name: '炙水',
+    desc: '庄家打出的牌带着燃烧时匹配不到（匹配更深的牌时才连带收走）' } as FoeSpecial,
+  // ---- 走水 / 过闸：**同一条轴的两头**，照掐口 × 枯水那一对的做法 ----
+  //
+  //   走水 —— 按**堆的厚度**触发：罚你养厚堆（顺色、收色、J 全靠厚堆）；
+  //   过闸 —— 按**你的收成**触发：罚你频繁小钓（收 2 张交 1 张，收 6 张也交 1 张）。
+  //
+  // 两条都**守铁律**：牌是真的离场了，所以「积分 = 收走的张数」照旧成立
+  //（照【抄底】那条先例：掀走 N 张给 N 分）。离场那张的 rank 必须进
+  // goneRanks，不然双方记牌全错 —— 那是静默的错。
+  //
+  // 走水的阈值 7：堆平均 3~5 张，7 是「养起来了」那条线。它**自限** ——
+  // 漏薄了就停，所以不用再写一条限幅
+  { key: 'leak', name: '走水',
+    desc: '堆超过 7 张时，每回合末堆底那张离场，算庄家的分' } as FoeSpecial,
+  { key: 'toll', name: '过闸',
+    desc: '你每次钓到牌之后，堆上还有牌的话堆底那张离场，算庄家的分' } as FoeSpecial
 ]
+
+// 【逆钩】：你打 J 只收堆顶这么多张。
+// 3 这个数写在它的 desc 里 —— 常量在这儿，玩家看的是那个数字本身
+export const REV_TOPS : number = 3
+
+// 【浊水】：堆超过这么多张时，你只看得见最上面这么多张。
+// 两个数都写在它的 desc 里 —— 常量在这儿，玩家看的是 desc 那两个数字
+export const MURK_DEEP : number = 8
+export const MURK_SHOW : number = 5
+
+// 【走水】：堆超过这么多张时开始漏。理由见表里那段
+export const LEAK_DEEP : number = 7
 
 export function foeSpecialOf(key : string) : FoeSpecial | null {
   for (let i = 0; i < DRAW_FOE_SPECIALS.length; i++) {
@@ -865,14 +948,65 @@ export function foeSpecialOf(key : string) : FoeSpecial | null {
 
 // 这一关庄家那条特殊技的名字 / 全文。没带就是空串 ——
 // 商店预告和对局页的技能栏都读它
+// ---------- 按**角色**查，不按关号 ----------
+//
+// 这三个是给**角色图鉴**用的（它列的是整张表，手里只有 FoeRole，没有关号），
+// 而按关号那三个（...At）都转头调它们 —— 一份逻辑两个入口，
+// 不是两份逻辑
+//
+// 这个角色带不带某条特殊技
+export function foeRoleHas(r : FoeRole, key : string) : boolean {
+  for (let i = 0; i < r.specials.length; i++) {
+    if (r.specials[i] == key) {
+      return true
+    }
+  }
+  return false
+}
+
+// 名字连起来（带两条的用 ' · ' 分开）。不带就是空串
+export function foeSpecialNamesOf(r : FoeRole) : string {
+  let text = ''
+  for (let i = 0; i < r.specials.length; i++) {
+    const one = foeSpecialOf(r.specials[i])
+    if (one == null) {
+      continue
+    }
+    text = text + (text == '' ? '' : ' · ') + one!.name
+  }
+  return text
+}
+
+// 全文连起来。**每条前面带自己的名字** —— 两条的时候「名字：A；B」
+// 对不上谁是谁，而特殊技的全文是不能糊的那部分（见设计稿第七节）
+export function foeSpecialDescsOf(r : FoeRole) : string {
+  let text = ''
+  for (let i = 0; i < r.specials.length; i++) {
+    const one = foeSpecialOf(r.specials[i])
+    if (one == null) {
+      continue
+    }
+    const line = r.specials.length > 1 ? one!.name + '：' + one!.desc : one!.desc
+    text = text + (text == '' ? '' : '\n') + line
+  }
+  return text
+}
+
 export function foeSpecialNameAt(level : number) : string {
-  const one = foeSpecialOf(foeRoleAt(level).special)
-  return one == null ? '' : one!.name
+  return foeSpecialNamesOf(foeRoleAt(level))
 }
 
 export function foeSpecialDescAt(level : number) : string {
-  const one = foeSpecialOf(foeRoleAt(level).special)
-  return one == null ? '' : one!.desc
+  return foeSpecialDescsOf(foeRoleAt(level))
+}
+
+// 这一关的庄家带**几条**特殊技。
+//
+// UI 要这个数，因为一条和两条的排版不一样：一条时拼成「名字：全文」，
+// 两条时全文自己已经逐条标过名字（见 foeSpecialDescsOf）——
+// 再套一层就成了「逆钩 · 浊水：逆钩：……」
+export function foeSpecialCountAt(level : number) : number {
+  return foeRoleAt(level).specials.length
 }
 
 // ---------- 覆盖面：对标玩家角色的 16～21 张 ----------
@@ -893,7 +1027,11 @@ export function foeSpecialDescAt(level : number) : string {
 // 槽数**故意不单调**：第 8 关只一个 ♠ 槽，是「专精 vs 泛用」那条轴 ——
 // 照玩家角色里深海钓手的做法（只两件技能，但一件管整门花色）
 export function foeCoverOf(level : number) : number {
-  const r = foeRoleAt(level)
+  return foeCoverRole(foeRoleAt(level))
+}
+
+// 按角色算（图鉴和素材池用 —— 它们手里没有关号）
+export function foeCoverRole(r : FoeRole) : number {
   let cover = 0
   for (let i = 0; i < r.slots.length; i++) {
     const one = r.slots[i]
@@ -911,6 +1049,8 @@ export function foeRoleAt(level : number) : FoeRole {
 }
 
 const NO_SLOTS : FoeSlot[] = []
+// 不带特殊技的那三关用它。空数组字面量在表项里写不得（照 NO_SLOTS 那条）
+const NO_SP : string[] = []
 
 export const DRAW_FOE_ROLES : FoeRole[] = [
   // ---------- 浅滩：不带技能、也不带特殊技 ----------
@@ -922,29 +1062,29 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
   // 第 4 关（浅滩关底）上第一条特殊技，而且是最温和的那条 ——
   // 添手只给庄家多一张手牌，一条规则都没改。关底该让你意识到
   // 「原来庄家还能有额外的东西」，不该让你输在没见过的规则上
-  { name: '试手', special: '', slots: NO_SLOTS,
+  { name: '试手', specials: NO_SP, slots: NO_SLOTS,
     desc: '刚摸到竿的。随手出牌，什么都不带' } as FoeRole,
-  { name: '浪客', special: '', slots: NO_SLOTS,
+  { name: '浪客', specials: NO_SP, slots: NO_SLOTS,
     desc: '闲逛的。会挑饵了，但还不记牌' } as FoeRole,
-  { name: '老钓', special: '', slots: NO_SLOTS,
+  { name: '老钓', specials: NO_SP, slots: NO_SLOTS,
     desc: '守了半辈子河的。**它开始记牌了** —— 这一关的全部内容' } as FoeRole,
-  { name: '滩公', special: 'hand', slots: NO_SLOTS,
+  { name: '滩公', specials: ['hand'], slots: NO_SLOTS,
     desc: '滩头的老人。手里比别人多一张牌' } as FoeRole,
   // ---------- 河湾：一关一个主题，而且两两成对 ----------
   //
   // 回漩（淤滩）造厚堆 → 湾主（硬壳）让厚堆里一批牌永远死着；
   // 礁母（掐口）削你手牌 → 潮眼（偏流）让你钩不着它的牌。
   // 前一关种下的概念，后一关加码
-  { name: '回漩', special: 'silt', slots: [
+  { name: '回漩', specials: ['silt'], slots: [
       // 一个点数槽 = 4 张。磁钩是最基础那件，第一关有技能的庄家配它正好
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
     ], desc: '水在这儿打转。开局堆上就压着三张死牌 —— 它教你 J 有多值' } as FoeRole,
-  { name: '礁母', special: 'pinch', slots: [
+  { name: '礁母', specials: ['pinch'], slots: [
       // 两个点数标签 = 8 张。压邻让紧挨着它右边落下的那张作废 ——
       // 跟掐口（削你手牌到三张）同向：两条都在减你能用的东西
       { skill: SK_VOID, count: 2, suit: false } as FoeSlot
     ], desc: '礁石底下的。你每回合只补到三张，而挨着它落下的牌还会作废' } as FoeRole,
-  { name: '潮眼', special: 'drift', slots: [
+  { name: '潮眼', specials: ['drift'], slots: [
       // 两个槽、12 张。观潮管两个点数，磁钩管一个
       { skill: SK_TIDE, count: 2, suit: false } as FoeSlot,
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
@@ -956,12 +1096,30 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       { skill: SK_SUITED, count: 1, suit: true } as FoeSlot
     ], desc: '守着湾口收税。它打出的黑桃钓不走，而那门花色正是它的技能' } as FoeRole,
   // ---------- 深海：每关换一种压力 ----------
-  { name: '雾叟', special: 'pick', slots: [
-      // 三件信息类凑一关：它不抢你的分，它让你**算不准**
+  { name: '雾叟', specials: ['dryup'], slots: [
+      // ---- 这一关的规矩**换过一次**：挑潮 → 枯水 ----
+      //
+      // 原先是三件信息类凑一关（照水、冻结 + 挑潮），想法是
+      //「它不抢你的分，它让你算不准」。可挑潮是**第三件同类** ——
+      // 而且它改的是庄家自己补牌有多准，不是你算不准。一关三件同向，
+      // 其中一件还只是给庄家加成，那一关的题目就糊了。
+      //
+      // 换成枯水之后这一关是**两种不同的压力**：
+      //   照水 + 冻结 —— 你看不清、还被锁一张（信息）；
+      //   枯水       —— 你的手牌不自动补（选择面）。
+      // 而深海四关里原先**没有一条削玩家的选择面**（掐口在河湾），
+      // 所以它填的是一个真空白。
+      //
+      // 顺带一个咬合：枯水让你的手牌越打越薄，而**冻结锁一张**
+      // 在手里只剩两张的时候比剩四张时狠得多 —— 两条规则互相加码，
+      // 而不只是各自生效。
+      //
+      // 【挑潮】因此**暂时没有载体**（实现还在，pickTopFor 一行没删）。
+      // 它跟【逆钩】【浊水】一样留在表里当素材
       { skill: SK_LANTERN, count: 2, suit: false } as FoeSlot,
       { skill: SK_FREEZE, count: 2, suit: false } as FoeSlot
-    ], desc: '雾里看不清人。你的手牌它全看得见，还能锁住一张' } as FoeRole,
-  { name: '涡心', special: 'guard', slots: [
+    ], desc: '雾里看不清人。你的手牌它全看得见、还能锁住一张，而你打空了才补得到牌' } as FoeRole,
+  { name: '涡心', specials: ['guard'], slots: [
       // ---- 这一关的理由**换过一次** ----
       //
       // 原来是「染水 + 见底那条组合」：染黑 → 见底的 N 拉满 → 整堆压下去。
@@ -980,19 +1138,125 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       { skill: SK_SUITIFY, count: 1, suit: true } as FoeSlot,
       { skill: SK_LOWTIDE, count: 1, suit: false } as FoeSlot
     ], desc: '漩涡中心。它染水、它见底，而它每钓一次就往堆上再垫一张' } as FoeRole,
-  { name: '鲸骸', special: 'again', slots: [
+  { name: '鲸骸', specials: ['again'], slots: [
       // 两件都在「抹点数」那一族，加再钩的雪球 —— 堆冻住、长厚、而它连钩。
       // 你得抢在它之前把锅端走
       { skill: SK_HUEVOID, count: 1, suit: true } as FoeSlot,
       { skill: SK_ODD, count: 2, suit: false } as FoeSlot
     ], desc: '鲸落下去的地方。它封色、它分水，而它钓到就接着打' } as FoeRole,
-  { name: '渊君', special: 'seal', slots: [
+  { name: '渊君', specials: ['seal'], slots: [
       // 满配：两条钓牌通道（顺色、磁钩）+ 一件清场（掏库）。
       // **最标准、最全面的一套**，没有偏科 —— 打到这儿比的不是读题，是硬实力
       { skill: SK_SUITED, count: 1, suit: true } as FoeSlot,
       { skill: SK_SPILL, count: 1, suit: false } as FoeSlot,
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
     ], desc: '渊里的那个。它封掉你一个点数，然后用最全的一套跟你打' } as FoeRole
+]
+
+// ---------- 角色素材池：六张，**还没挂到任何一关上** ----------
+//
+// **这张表不按关号索引**，这是它跟 DRAW_FOE_ROLES 唯一但要紧的区别 ——
+// 那张表的下标就是关号减一（`foeRoleAt`），所以往那张表里追加一项
+// 等于悄悄宣布「有第 13 关」。素材池单开一张，谁也不会误查。
+//
+// ---- 这一批填的是哪个空白 ----
+//
+// **【叠放】那五件和【燃烧】那三件，十二关庄家一件都没带。** 两整族机制
+// 玩家在闯关里从没见过庄家用过，而它们在 ap-fishing 里全都实现了。
+// 所以这六张卡的**技能名单零新代码**，新的只有三条特殊技
+//（炙水 / 走水 / 过闸，见 DRAW_FOE_SPECIALS 末尾那三条）。
+//
+// ---- 档位是照那条曲线挑的 ----
+//
+//   赤礁  8 → 6 关档      叠浪 12 → 7 关档
+//   赤潮 16 → 9 关档      漫江 17 → 10 关档
+//   沙垒 21 → 11~12 关档  龙王 21 → 终局
+//
+// 每张都守着表外那三条原则：名单同族（所以背得住）、一个角色只教一件事、
+// **覆盖面越大特殊技越温和**（赤礁盖 8 配最硬的炙水，沙垒盖 21 配
+// 可算的定额税过闸）。
+//
+// ---- 挂接要另外做，而且是个平衡决定 ----
+//
+//   漫江 → 第 10 关：那一关的洞是代码自己承认的（涡心那条组合
+//     在见底改成死数 −1 之后失效了，「被削了，没有补回来」）；
+//   赤礁 / 叠浪 / 赤潮 / 沙垒 → 正好是一条 8→12→16→21 的子曲线，
+//     两族各占两关、两两成对，够开第四章；
+//   龙王 → 终局，但那要先推翻「终局摇玩家角色表」（双方同构）那条。
+//
+// 三条都在动已经调好的东西，所以**这儿只放卡，不动 DRAW_FOE_ROLES**
+export const DRAW_FOE_POOL : FoeRole[] = [
+  // ---------- 燃烧族：两张，前一张种概念、后一张加码 ----------
+  //
+  // 沸水铺（在场时落堆的牌都带火）+ 野火收（已带火的直接收走）——
+  // 火族的「铺设 + 收割」正好两件。而炙水让**它自己**的带火牌
+  // 当不了匹配点，于是沸水 × 炙水 = 它的牌全赖在堆上，
+  // 而野火是唯一能清的那一手（它自己的）。
+  //
+  // 你的解是 J 通吃，或者从更深处钓起把它连带收走 —— 照硬壳那条边界
+  { name: '赤礁', specials: ['char'], slots: [
+      { skill: SK_BOIL, count: 1, suit: false } as FoeSlot,
+      { skill: SK_WILD, count: 1, suit: false } as FoeSlot
+    ], desc: '礁石烧红了。它打出的牌一着火你就钓不上' } as FoeRole,
+  // 加码版：多了燎原，火第一次爬得到**堆底那些最老的牌**
+  //（沸水只点「从它上场起落堆的」，所以火在堆顶那一片）。
+  // 盖 16 所以特殊技取最温和的那档 —— 挑潮纯给庄家加成，
+  // 一条你的规则都没改。顺带它终于有了载体
+  //（雾叟那关被枯水顶掉之后它一直是素材）
+  { name: '赤潮', specials: ['pick'], slots: [
+      { skill: SK_BOIL, count: 2, suit: false } as FoeSlot,
+      { skill: SK_SPREAD, count: 1, suit: false } as FoeSlot,
+      { skill: SK_WILD, count: 1, suit: false } as FoeSlot
+    ], desc: '整片水红了。火从它站的地方往两头爬，连堆底的老饵都烧得掉' } as FoeRole,
+  // ---------- 叠放族：两张 ----------
+  //
+  // 凝水垫盾（它的牌被收走一次不走）+ 抬水垫在**你的**牌下面加点数、
+  // 当场判一次匹配。走水跟叠放咬得最紧：**堆底那一格要是一叠，
+  // 整叠跟着离场** —— 一次漏好几张。
+  //
+  // 它是双刃（照守滩那条先例）：它自己垫的盾沉到堆底也一样漏掉
+  { name: '叠浪', specials: ['leak'], slots: [
+      { skill: SK_CALM, count: 2, suit: false } as FoeSlot,
+      { skill: SK_RAISE, count: 1, suit: false } as FoeSlot
+    ], desc: '一层压一层。它的牌要收两次，而你的牌会被它垫着撞上别的' } as FoeRole,
+  // 叠放那一族的完整展示：净水插**花色槽**（一局响六次，把你六张牌埋掉，
+  // 连带那几张身上的在场效果一起失效）+ 合流吃邻居 + 抄底一次掀走
+  // 所有被叠放的牌算它的分。
+  //
+  // 抄底对双方生效，所以它也会拆自己的锅 —— 那是抄底最好的部分，不改
+  { name: '沙垒', specials: ['toll'], slots: [
+      { skill: SK_CLEAN, count: 1, suit: true } as FoeSlot,
+      { skill: SK_MERGE, count: 1, suit: false } as FoeSlot,
+      { skill: SK_DREDGE, count: 1, suit: false } as FoeSlot
+    ], desc: '一层层垒上来的沙。它把你的牌埋了、吃了，然后一次掀走' } as FoeRole,
+  // ---------- 补第 10 关那个洞 ----------
+  //
+  // 洪水铺（从库顶翻牌上堆）+ 收色收（堆上同花色的连它自己一起走）
+  // = 一条**真的**「铺设 → 引爆」，不依赖任何已经失效的组合。
+  //
+  // 配淤滩 —— **特殊技第一次重复**（第 5 关回漩用过）。可以论证：
+  // 关号不同、名单不同，题目不同；而「浅滩那条规矩在深海再出现一次、
+  // 这次它是喂料的」是个不错的回响。但它确实是破例，别当成惯例
+  { name: '漫江', specials: ['silt'], slots: [
+      { skill: SK_HUE, count: 1, suit: true } as FoeSlot,
+      { skill: SK_FLOOD, count: 1, suit: false } as FoeSlot
+    ], desc: '水漫上来了。它从库里往堆上翻牌，然后一门花色整个端走' } as FoeRole,
+  // ---------- 终局专属 ----------
+  //
+  // 全表唯一带**两条**特殊技的（FoeRole.specials 改成数组就是为了它）。
+  //
+  // 逆钩砍掉 J 那条占你 22% 钓牌的路 → 你只剩「攒厚堆 + 技能一次端走」；
+  // 而厚堆正好触发浊水。**你为了赢必须做的事，正是让你瞎掉的事。**
+  //
+  // 技能名单藏了个彩蛋：顺色 + 磁钩正是【双钩】那一对，而它一侧在花色槽、
+  // 一侧在点数槽 —— 所以标签摇得巧的时候它会在某张牌上真的触发组合
+  //（顺带记一笔：**渊君现在就有这个可能**，它也同时带着顺色和磁钩，
+  //  而设计稿和代码注释里从没提过这件事）
+  { name: '龙王', specials: ['rev', 'murk'], slots: [
+      { skill: SK_SUITED, count: 1, suit: true } as FoeSlot,
+      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot,
+      { skill: SK_HUE, count: 1, suit: false } as FoeSlot
+    ], desc: '渊底那位。你的 J 掀不动整堆，而堆一厚你就看不见底下' } as FoeRole
 ]
 
 // ---------- 摇这一关庄家的配装：这儿没有，在 draw-save ----------
