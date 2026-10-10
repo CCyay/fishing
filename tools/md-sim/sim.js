@@ -4,8 +4,14 @@
 //   node sim.js one <key> [选项]          量一件点数技能的分差
 //   node sim.js all [选项]                所有点数技能跑一遍，出一张表
 //   node sim.js pair <keyA> <keyB> [选项] 量两件技能装在一起的分差（组合技用）
+//   node sim.js vs <我的> <对手的> [选项]  我带一件、**对手带一件**（反制型技能用）
+//   node sim.js vs <key> <key>            同一件传两次 = 量它在**先手/后手**各值多少
 //   node sim.js roles [选项]              八个角色各自的常驻技能值多少分
 //   node sim.js role <key> [选项]         一个角色打满槽，对照空装
+//
+// `pair` 和 `vs` 的区别要分清：**pair 两件都在我这边，vs 分在两边。**
+// 一件「专门破对手某样东西」的技能在 pair 里量不出来 ——
+// 那两件都归我，它只会去破我自己的东西（抄底撞上过这堵墙，见 cmdVs）
 //
 // 选项：
 //   -n 40000        跑几局（默认 20000）
@@ -57,7 +63,13 @@ function run(n, seed, mine, foe, opts) {
     jackCatches: [0, 0], skillCatch: [0, 0],
     score: [0, 0], wins: [0, 0], draws: 0, leftover: 0, turns: 0,
     // 每局的分差，用来算标准差（判断「这个差值是不是跑够了」）
-    diffs: []
+    diffs: [],
+    // 【洪水】的诊断口（见 rules.js 的 stat.flood）
+    flood: {
+      fires: [0, 0], pileSum: [0, 0], flipSum: [0, 0],
+      gotSum: [0, 0], thin: [0, 0],
+      gotFresh: [0, 0], gotOwn: [0, 0], gotTheirs: [0, 0]
+    }
   }
   for (let i = 0; i < n; i++) {
     const rng = R.makeRng(seed + i)
@@ -78,6 +90,15 @@ function run(n, seed, mine, foe, opts) {
       sum.jackCatches[s] += G.stat.jackCatches[s]
       sum.skillCatch[s] += G.stat.skillCatch[s]
       sum.score[s] += G.score[s]
+      const fd = G.stat.flood
+      sum.flood.fires[s] += fd.fires[s]
+      sum.flood.pileSum[s] += fd.pileSum[s]
+      sum.flood.flipSum[s] += fd.flipSum[s]
+      sum.flood.gotSum[s] += fd.gotSum[s]
+      sum.flood.thin[s] += fd.thin[s]
+      sum.flood.gotFresh[s] += fd.gotFresh[s]
+      sum.flood.gotOwn[s] += fd.gotOwn[s]
+      sum.flood.gotTheirs[s] += fd.gotTheirs[s]
     }
     sum.turns += G.stat.turns
     sum.leftover += G.pile.length
@@ -437,6 +458,240 @@ function cmdPair(args) {
   console.log('\n  注意槽不一样大的角色会让这个数偏 —— 默认的锁江四个槽等大。')
 }
 
+// ---------- vs：**反制型技能**只能这么量 ----------
+//
+// 别的子命令一律给对手传 `emptyLoadout()`，于是一件「专门用来破对手某样
+// 东西」的技能在它们里头**永远无事可做** —— 量出来的不是它的价值，
+// 是「一张废牌值多少分」。
+//
+// 抄底就是第一个撞上这堵墙的（2026-10-10）：
+//   `all` 里 −0.92 —— 场上没叠放，它永远掀空；
+//   `pair dredge calm` 里协同 −0.15 —— 两件都在**我**这边，
+//     等于我垫盾再自己掀掉，那是「对双方都生效」的设计后果，不是它的用法。
+//
+// 所以这儿把配装**分到两边**：我带 mine，对手带 theirs。
+//
+// ---- 它跑的是一个 **2×2**，不是一次对照 ----
+//
+// 「我那一件值多少分」要在**两种棋盘**上各问一次，才分得清
+// 「它本来就值这么多」和「它是因为对手带了东西才值这么多」：
+//
+//                     对手空手        对手带 theirs
+//   我空手              C               A        ← 两个基线
+//   我带 mine           D               B
+//
+//   对手空手时我那件值 D − C；对手带 theirs 时值 B − A。
+//   **两者之差 (B−A) − (D−C) 就是反制那部分**（差中之差）。
+//
+// 为什么非得跑四格而不是拿它跟 `one` 比：`one` 的对手**不带角色**，
+// 而这儿双方都带。那两个数的基线口径不一样，相减会混进
+// 「对手白得了一个角色」的影响。四格全在同一个口径里才能相减
+//
+// ---- `vs X X`（同一件传两次）是个**另有用处**的特例 ----
+//
+// C − A 那两格**都是「我空手」**，所以 mine 压根不进那个计算 ——
+// 参考行对任何 mine 都一样。于是把同一件技能传两次，四格就变成了
+// 「这件技能在**先手**和**后手**手里各值多少」的干净对照：
+//
+//   D − C   它在后手（我）手里值多少
+//   C − A   它在先手（对手）手里值多少
+//
+// 同一基线、同一角色、同一槽，所以这两个数**可以直接比**。
+// 别的子命令给不出后者 —— all / one / pair 一律只量后手那一侧。
+//
+// 这个特例下「差中之差」的含义也变了：它是**镜像对局**的协同
+//（双方都带同一件时，我那件多值多少），不是反制。报表会换一套措辞
+function cmdVs(args) {
+  const role = roleIndexOrDie(args.role)
+  const atMine = skillIndexOf(args._[1])
+  const atTheirs = skillIndexOf(args._[2])
+  // 两边都用同一个角色、各自插第一个槽 —— 槽一样大，覆盖面才可比。
+  // 双方同角色所以两边的常驻特殊技能互相抵掉
+  const mine = R.kitWithOne(role, 0, atMine)
+  const theirs = R.kitWithOne(role, 0, atTheirs)
+  const o = { myRole: role, foeRole: role }
+  const empty = R.emptyLoadout()
+  const A = run(args.n, args.seed, empty, theirs, o)
+  const B = run(args.n, args.seed, mine, theirs, o)
+  const C = run(args.n, args.seed, empty, empty, o)
+  const D = run(args.n, args.seed, mine, empty, o)
+  const se2 = function (x, y) {
+    return Math.sqrt(stderrOf(x) * stderrOf(x) + stderrOf(y) * stderrOf(y))
+  }
+  const vsGain = meanDiff(B) - meanDiff(A)
+  const soloGain = meanDiff(D) - meanDiff(C)
+  const counter = vsGain - soloGain
+  const nameMine = R.SKILLS[atMine].name
+  const nameTheirs = R.SKILLS[atTheirs].name
+  // 同一件传两次：那是「先手 vs 后手」那个特例，换一套措辞（见上面那段）
+  const mirror = atMine === atTheirs
+  const theirGain = meanDiff(C) - meanDiff(A)
+  if (mirror) {
+    console.log('【' + nameMine + '】在**先手**和**后手**手里各值多少 · '
+      + R.DRAW_ROLES[role].name + ' · 都插第 1 个槽（'
+      + R.DRAW_ROLES[role].slots[0] + '）· ' + args.n + ' 局\n')
+    console.log('    后手（我）手里：  ' + (soloGain >= 0 ? '+' : '') + f2(soloGain)
+      + '   标准误 ' + f2(se2(D, C)))
+    console.log('    先手（对手）手里：' + (theirGain >= 0 ? '+' : '') + f2(theirGain)
+      + '   标准误 ' + f2(se2(C, A)))
+    const sideGap = theirGain - soloGain
+    console.log('\n  **先手 − 后手**：' + (sideGap >= 0 ? '+' : '') + f2(sideGap) + ' 分')
+    console.log('  同一基线、同一角色、同一槽，所以这两个数可以直接比。')
+    console.log('  正数 = 这件技能**对先手更有用**（先手本来劣势，'
+      + '技能对它的边际价值更高）。')
+    console.log('  `all` / `one` / `pair` 只量后手那一侧，所以那几张表'
+      + '报的是「后手的价值」。')
+    console.log('\n  镜像协同（双方都带时我那件多值多少）：'
+      + (counter >= 0 ? '+' : '') + f2(counter) + ' 分')
+    // ---- 【洪水】的诊断口 ----
+    //
+    // 两侧的 flood 统计要从**两个不同的格子**取，不能都从一个格子读：
+    //   后手（我）那一侧 —— D（我带 / 对手空）
+    //   先手（对手）那一侧 —— A（我空 / 对手带）
+    // 那正好是上面两个分差的来源，所以诊断和分差对得上号
+    const fdMe = D.flood
+    const fdFoe = A.flood
+    if (fdMe.fires[R.ME] > 0 || fdFoe.fires[R.FOE] > 0) {
+      console.log('\n  ---- 诊断：它每次发动时的局面（' + args.n + ' 局合计）----')
+      console.log('            发动次数   发动时堆厚   翻几张   收几张   其中空堆')
+      const row = function (label, fd, s) {
+        const fires = fd.fires[s]
+        if (fires === 0) return label.padEnd(10) + '（没发动过）'
+        return label.padEnd(10)
+          + f2(avg(fires, args.n)).padStart(8) + ' 次/局'
+          + f2(avg(fd.pileSum[s], fires)).padStart(10)
+          + f2(avg(fd.flipSum[s], fires)).padStart(9)
+          + f2(avg(fd.gotSum[s], fires)).padStart(9)
+          + (pct(avg(fd.thin[s], fires))).padStart(10)
+      }
+      console.log('    ' + row('后手（我）', fdMe, R.ME))
+      console.log('    ' + row('先手（对手）', fdFoe, R.FOE))
+      console.log('\n  「发动时堆厚」**含它自己**，所以 1.00 = 空堆开局那一手。')
+      console.log('  要看的是哪一列在两侧差得最多 —— 那才是溢价的来源。')
+      // ---- 收走的牌**本来属于谁**（第四轮定位）----
+      //
+      // 前三轮都发现洪水在两侧**行为对称**（收一样多、缩一样短），
+      // 所以不对称只能在「收的那几张本来归谁」这一步。
+      //
+      // 要看的是 own 那一列：它是「**自己抢自己**」—— 本来自己就钓得到
+      // 的饵，洪水提前拿走，净增益是 0。那一列在两侧差得越多，
+      // 就越能解释为什么同样收 6.7 张、分差一个 +3.08 一个 −7.34
+      console.log('\n  ---- 收走的牌本来属于谁（每次发动平均）----')
+      console.log('            牌库新翻   自己的饵   对手的饵')
+      const ownRow = function (label, fd, s) {
+        const fires = fd.fires[s]
+        if (fires === 0) return label.padEnd(10) + '（没发动过）'
+        return label.padEnd(10)
+          + f2(avg(fd.gotFresh[s], fires)).padStart(8)
+          + f2(avg(fd.gotOwn[s], fires)).padStart(11)
+          + f2(avg(fd.gotTheirs[s], fires)).padStart(11)
+      }
+      console.log('    ' + ownRow('后手（我）', fdMe, R.ME))
+      console.log('    ' + ownRow('先手（对手）', fdFoe, R.FOE))
+      console.log('\n  「自己的饵」那一列是净增益为 0 的部分（自己抢自己）。')
+    }
+    // ---- 局面长度：洪水**吃牌库**，而后手的优势需要局面长 ----
+    //
+    // 上面那张诊断表证明了洪水在两侧**打得一样**（收 3.6 张/次、
+    // 1.86 次/局，两边差不到 1%）。所以溢价不在它的行为里，
+    // 而在「同样的收牌量换成分差」这一步。
+    //
+    // 这几个数是为了查那一步：后手每局比先手多钓 1.6 次（base 里
+    // 9.7 vs 8.1），那份优势**按回合数计价** —— 局面短一截就少一截。
+    // 洪水每局从牌库翻掉 5 张多、收走 6.8 张，所以它让局面变短，
+    // 而那对**两侧都不中立**：削的是后手的优势
+    console.log('\n  ---- 局面长度（洪水吃牌库，而后手的优势按回合计价）----')
+    console.log('            回合数   双方出牌   堆上剩')
+    const lenRow = function (label, sum) {
+      return label.padEnd(16)
+        + f2(avg(sum.turns, sum.games)).padStart(7)
+        + f2(avg(sum.plays[R.ME] + sum.plays[R.FOE], sum.games)).padStart(11)
+        + f2(avg(sum.leftover, sum.games)).padStart(9)
+    }
+    console.log('    ' + lenRow('我空 / 对手空', C))
+    console.log('    ' + lenRow('我带 / 对手空', D))
+    console.log('    ' + lenRow('我空 / 对手带', A))
+    console.log('    ' + lenRow('我带 / 对手带', B))
+    console.log('\n  两边各带一件时局面缩得最多 —— 要是「我空/对手带」那行')
+    console.log('  比「我带/对手空」短得明显，就说明缩短本身偏向先手。')
+    // ---- 把分差拆成**双方各自的得分**（第五轮定位）----
+    //
+    // 前四轮量下来，洪水在**八个指标上全部两侧对称**（发动次数、堆厚、
+    // 翻几张、收几张、三类归属、局面缩短）。所以不对称不在它的行为里。
+    //
+    // 分差 = 我的分 − 对手的分，而行为对称意味着「我用它赚的」=
+    // 「对手用它赚的」。于是：
+    //   我带：  我赚 X、对手亏 Y  → 增量  X + Y  = +3.08
+    //   对手带：对手赚 X、我亏 Y′ → 增量 −(X+Y′) = −7.34
+    // 两式相减 **Y′ − Y = 4.26** —— 不对称全在「**对手亏多少**」这一侧。
+    //
+    // 拆开双方得分就能直接读出 X / Y / Y′，不用再猜
+    console.log('\n  ---- 拆开双方得分（每局平均）----')
+    console.log('            我的分   对手的分   和')
+    const scoreRow = function (label, sum) {
+      const me = avg(sum.score[R.ME], sum.games)
+      const foe = avg(sum.score[R.FOE], sum.games)
+      return label.padEnd(16)
+        + f2(me).padStart(7) + f2(foe).padStart(11) + f2(me + foe).padStart(8)
+    }
+    console.log('    ' + scoreRow('我空 / 对手空', C))
+    console.log('    ' + scoreRow('我带 / 对手空', D))
+    console.log('    ' + scoreRow('我空 / 对手带', A))
+    console.log('    ' + scoreRow('我带 / 对手带', B))
+    console.log('\n  对着基线行看：「我带」那行我涨了多少、对手跌了多少；')
+    console.log('  「对手带」那行反过来。**两个「跌」不一样大**就是溢价的来源。')
+    console.log('  「和」那一列是双方总收牌 —— 它跌说明有牌被留在了堆上没人收。')
+  } else {
+    console.log('我带【' + nameMine + '】 vs 对手带【' + nameTheirs + '】 · '
+      + R.DRAW_ROLES[role].name + ' · 各插第 1 个槽（'
+      + R.DRAW_ROLES[role].slots[0] + '）· ' + args.n + ' 局\n')
+    console.log('  【' + nameMine + '】在两种棋盘上各值多少：')
+    console.log('    对手空手时：  ' + (soloGain >= 0 ? '+' : '') + f2(soloGain)
+      + '   标准误 ' + f2(se2(D, C)))
+    console.log('    对手带【' + nameTheirs + '】时：'
+      + (vsGain >= 0 ? '+' : '') + f2(vsGain)
+      + '   标准误 ' + f2(se2(B, A)))
+    console.log('\n  **反制那部分**（差中之差）：'
+      + (counter >= 0 ? '+' : '') + f2(counter) + ' 分')
+    console.log('  这就是「对手带了【' + nameTheirs + '】」让【' + nameMine
+      + '】多值的分。')
+  }
+  // ---- 顺带报一个别的子命令给不出的数：**对手那件对它自己值多少** ----
+  //
+  // C − A 是「对手拿到 theirs 之后，我的分差掉了多少」= 对手赚了多少。
+  // 而对手是**先手**，所以这是全套工具里唯一一个
+  // 「一件技能在**先手**手里值多少分」的数 ——
+  // all / one / pair 一律只量我（后手）那一侧。
+  //
+  // 为什么要报它：解读上面那个差中之差**少不了它**。
+  // 四组 `vs dredge *` 量下来，抄底的反制收益跟这个数几乎同向 ——
+  // 对手那件越有用，反制它越值钱；对手那件要是自损的（合流 −0.83），
+  // 反制它反而是**替对手解套**（见 draw-skills 抄底那条）
+  if (!mirror) {
+    console.log('\n  参考 —— 【' + nameTheirs + '】对**对手自己**值多少：'
+      + (theirGain >= 0 ? '+' : '') + f2(theirGain) + ' 分'
+      + '   标准误 ' + f2(se2(C, A)))
+    console.log('  对手是**先手**，所以这是全套工具里唯一一个「技能在先手手里'
+      + '值多少」的数')
+    console.log('  （all / one / pair 一律只量后手那一侧）。'
+      + '负数说明那件技能是**自损**的。')
+    console.log('  想干净地对比先后手就把同一件传两次：`vs '
+      + R.SKILLS[atTheirs].key + ' ' + R.SKILLS[atTheirs].key + '`')
+  }
+  console.log('\n  四个格子全在同一个口径里（双方同角色），所以上面那些减法成立 ——')
+  console.log('  **别拿它跟 `one ' + R.SKILLS[atMine].key
+    + '` 相减**，那条的对手不带角色，口径不一样。')
+  console.log('\n  四个格子的后手分差：')
+  console.log('    我空 / 对手空　　　 ' + (meanDiff(C) >= 0 ? '+' : '') + f2(meanDiff(C))
+    + '   胜率 ' + pct(avg(C.wins[R.ME], C.games)))
+  console.log('    我空 / 对手带　　　 ' + (meanDiff(A) >= 0 ? '+' : '') + f2(meanDiff(A))
+    + '   胜率 ' + pct(avg(A.wins[R.ME], A.games)))
+  console.log('    我带 / 对手空　　　 ' + (meanDiff(D) >= 0 ? '+' : '') + f2(meanDiff(D))
+    + '   胜率 ' + pct(avg(D.wins[R.ME], D.games)))
+  console.log('    我带 / 对手带　　　 ' + (meanDiff(B) >= 0 ? '+' : '') + f2(meanDiff(B))
+    + '   胜率 ' + pct(avg(B.wins[R.ME], B.games)))
+}
+
 // ---------- 入口 ----------
 
 function main() {
@@ -446,6 +701,8 @@ function main() {
   if (cmd === 'one') return cmdOne(args)
   if (cmd === 'all') return cmdAll(args)
   if (cmd === 'pair') return cmdPair(args)
+  // vs：我带一件、**对手带一件** —— 反制型技能只能这么量（见 cmdVs）
+  if (cmd === 'vs') return cmdVs(args)
   if (cmd === 'roles') return cmdRoles(args)
   if (cmd === 'role') return cmdRole(args)
   console.log('不认识的命令：' + cmd + '\n看文件头的注释，或者 README.md')

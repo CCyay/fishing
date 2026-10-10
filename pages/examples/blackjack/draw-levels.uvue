@@ -34,9 +34,9 @@
       <view id="md-open-skills" class="top-btn" @click="openSkills">
         <text class="top-btn-text">技能</text>
       </view>
-      <!-- 角色图鉴：全表都列，**双方共用这一个池子** ——
-           你在终局选的是它们，庄家摇到的也是它们。
-           所以这一页既是「我能挑谁」，也是「对面可能是谁」 -->
+      <!-- 角色图鉴：**三段都列** —— 共用池（你和终局庄家）、闯关那十二位、
+           以及还没挂关卡的素材池。
+           所以这一页回答三个问题：我能挑谁、第 N 关是谁、还有谁没上场 -->
       <view id="md-open-roles" class="top-btn" @click="showRoles = true">
         <text class="top-btn-text">角色</text>
       </view>
@@ -268,25 +268,34 @@
     </view>
 
 
-    <!-- ---------- 角色图鉴 ---------- -->
+    <!-- ---------- 角色图鉴：三段 ---------- -->
     <!--
-      全表都列，只读。**双方共用这一个池子**：你在终局挑的是它们，
-      庄家摇到的也是它们 —— 所以这一页既回答「我能挑谁」，
-      也回答「对面可能是谁」。
+      全表都列，只读。
 
-      每个角色要报三样，缺一样就看不出它的性格：
-        **槽** —— 几个、各管什么（花色槽 12 张 —— J 不触发技能、数字槽一格 4 张）；
-        **特殊技** —— 常驻那件，三档效果都列出来；
-        **覆盖面** —— 八个角色唯一能横着比的那个数
+      原先这儿只有第一段（DRAW_ROLES）—— 于是**整套庄家角色在游戏里
+      压根看不见**：你只有打到第 8 关才知道湾主带硬壳，而那时候
+      「留着 J」这个准备已经来不及做了。而角色化的全部意义就是**可学**
+      （「它是谁查得到」），所以查得到的地方必须有一个。
+
+      三段各回答一个问题：
+        **共用池**   —— 我能挑谁 / 终局对面可能是谁（你在终局挑的就是它们）；
+        **闯关庄家** —— 第 N 关是谁、带什么（关号定死，所以背得住）；
+        **素材池**   —— 设计好了但还没挂到关卡上的那几张。
+
+      每张报四样，缺一样就看不出它的性格：名字 · 特殊技 · 技能名单 · 覆盖面。
+      庄家那两段**不报具体标签**（那是摇的，见 foeSlotsText 上面那段）
     -->
     <view v-if="showRoles" class="mask" @click="showRoles = false">
       <view class="skill-box" @click.stop="noop">
         <view class="skill-box-head">
           <text class="skill-box-title">角色</text>
-          <text class="skill-box-sub">{{ DRAW_ROLES.length }} 个 · 你和庄家共用</text>
+          <text class="skill-box-sub"
+            >{{ DRAW_ROLES.length + DRAW_FOE_ROLES.length + DRAW_FOE_POOL.length }} 张 · 三段</text
+          >
         </view>
         <!-- 卡片跟选角色那一步同一个样子（见 showCustom 的第一步） -->
         <scroll-view class="skill-box-body sv-out" direction="vertical">
+          <text class="rolebook-sect">共用池 · 你和终局庄家挑的都是这 {{ DRAW_ROLES.length }} 张</text>
           <view
             v-for="(role, ri) in DRAW_ROLES"
             :key="'rb-' + ri"
@@ -302,6 +311,52 @@
                  括号里是这个槽盖住多少张牌 -->
             <text class="my-skill-level">槽：{{ slotsText(ri) }}</text>
             <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
+          </view>
+
+          <!-- 第二段：闯关那十二位。**关号印在最前面** ——
+               这一段的用处就是「第 8 关是谁」，没有关号它只是一串名字 -->
+          <text class="rolebook-sect">闯关庄家 · 十二关各一位，关号定死</text>
+          <view
+            v-for="(role, fi) in DRAW_FOE_ROLES"
+            :key="'fb-' + fi"
+            :id="'md-foebook-' + fi"
+            class="my-skill">
+            <view class="my-skill-head">
+              <text class="my-skill-key">第 {{ fi + 1 }} 关</text>
+              <text class="my-skill-name">{{ role.name }}</text>
+              <text class="my-skill-key">{{ foeSpecialNamesOf(role) }}</text>
+              <view class="my-skill-gap"></view>
+              <text class="my-skill-cover">{{ foeCoverRole(role) }} 张</text>
+            </view>
+            <text class="my-skill-level">技能：{{ foeSlotsText(role) }}</text>
+            <!-- 特殊技**给全文不给名字** —— 名字背不出规则（「硬壳」看不出
+                 「它打的 ♠ 钓不上」），而那正是这一关要你改打法的地方。
+                 带两条的那几张会印成两行（见 foeSpecialDescsOf） -->
+            <text v-if="foeSpecialDescsOf(role) != ''" class="my-skill-desc"
+              >{{ foeSpecialDescsOf(role) }}</text
+            >
+            <text class="my-skill-desc">{{ role.desc }}</text>
+          </view>
+
+          <!-- 第三段：素材池。**标明还没挂关卡** ——
+               不标的话玩家会在前十二关里找它们，找不着只会以为是 bug -->
+          <text class="rolebook-sect">素材池 · 设计好了，还没挂到任何一关上</text>
+          <view
+            v-for="(role, pi) in DRAW_FOE_POOL"
+            :key="'pb-' + pi"
+            :id="'md-poolbook-' + pi"
+            class="my-skill my-skill-off">
+            <view class="my-skill-head">
+              <text class="my-skill-name">{{ role.name }}</text>
+              <text class="my-skill-key">{{ foeSpecialNamesOf(role) }}</text>
+              <view class="my-skill-gap"></view>
+              <text class="my-skill-cover">{{ foeCoverRole(role) }} 张</text>
+            </view>
+            <text class="my-skill-level">技能：{{ foeSlotsText(role) }}</text>
+            <text v-if="foeSpecialDescsOf(role) != ''" class="my-skill-desc"
+              >{{ foeSpecialDescsOf(role) }}</text
+            >
+            <text class="my-skill-desc">{{ role.desc }}</text>
           </view>
         </scroll-view>
       </view>
@@ -389,6 +444,16 @@
             <text class="rule-title">{{ sec.title }}</text>
             <text v-for="(line, li) in sec.lines" :key="'rl-' + ri + '-' + li" class="rule-line">{{ line }}</text>
           </view>
+          <!-- 名词解释。摆在最后 —— 它是查的，不是读的。
+               技能说明里反复用这几个词（置 0、无点数、在场、优先……），
+               而一行说明塞不进定义，所以定义集中在这儿 -->
+          <view id="md-rule-terms" class="rule-sec">
+            <text class="rule-title">名词解释</text>
+            <view v-for="(one, ti) in TERMS" :key="'tm-' + ti" class="term-row">
+              <text class="term-word">{{ one.word }}</text>
+              <text class="term-desc">{{ one.desc }}</text>
+            </view>
+          </view>
         </scroll-view>
         <text class="skill-box-close" @click.stop="showRules = false">收起来</text>
       </view>
@@ -425,7 +490,17 @@
     maxLivesOf,
     DIFF_EASY,
     DIFF_NORMAL,
-    DIFF_HARD
+    DIFF_HARD,
+    // 庄家角色：闯关那十二位 + 还没挂到关卡上的素材池。
+    // 「角色」图鉴现在三段都列 —— 从前它只列玩家那张表，
+    // 于是**整套庄家角色在游戏里压根看不到**（只有打到那一关才见得着，
+    // 而那时候已经来不及准备了）
+    FoeRole,
+    DRAW_FOE_ROLES,
+    DRAW_FOE_POOL,
+    foeCoverRole,
+    foeSpecialNamesOf,
+    foeSpecialDescsOf
   } from '@/pages/examples/blackjack/draw-levels.uts'
   import {
     DRAW_SKILLS,
@@ -911,6 +986,23 @@
       '② 发动这张牌的技能：同一张牌有几个效果时，先执行带「优先」的。',
       '③ 匹配：这张牌还在堆上的话，跟堆里同点数的牌对上，就收走从那张到堆顶的整段。收走几张记几分。'
     ] } as RuleSec,
+    // ---- 点数那一节 ----
+    //
+    // 这几条是**全局规则**，不属于任何一件技能 —— 所以技能说明里不写，
+    // 只在这儿写一次。代码里的落点：
+    //   减到 0 为止        → ap-fishing 的 dropVals
+    //   0 不匹配           → ap-fishing 的 anyEquals
+    //   无点数跳过增减     → dropVals 对空列表原样返回
+    //   无点数受「变成 X」 → ap-fishing 的 landVals（分水那一支）
+    //   无点数比大小算最大 → ap-fishing 的 valuesOf（齐顶那一支）
+    { title: '点数', lines: [
+      '点数减不到负数，最小是 0；往上不设限（贴点数卡能叠到多少算多少）。',
+      '0 点不匹配 0 点 —— 两张都见了底的牌不该还能互相钓。（0 跟 1 照旧算「差 1」，磁钩钓得上。）',
+      '一张牌可以同时算几个点数（贴过点数卡的）。任一个点数对得上就算匹配；几个点数全归 0 才算「点数为 0」。',
+      '无点数不受「增减点数」影响（见底、退潮、干塘一概跳过它），但受「变成 X」影响（置 0、置无点数都算）。',
+      '无点数在比较大小时算最大 —— 所以堆上躺着一张无点数的牌，齐顶就抄不到数，白打一张。',
+      '同一张牌上几个「变成 X」一起生效时，后面的盖前面的：分水（置 0）> 封色（置无点数）> 压邻（置无点数）。'
+    ] } as RuleSec,
     { title: 'J', lines: [
       'J 只有通吃：堆上有牌时打 J，整堆收走；空堆上打 J 只收走它自己。',
       'J 不触发任何技能；让牌「没有点数」的场上效果也挡不住它通吃。'
@@ -940,6 +1032,38 @@
       '一局定胜负，不记账：不发金币、不推关号、不动存档。',
       '可以自定义角色和技能，也可以随机。难度只管庄家怎么出牌、配装多满。'
     ] } as RuleSec
+  ]
+
+  // ---- 名词解释 ----
+  //
+  // 技能说明里会反复用这几个词（「置 0」「无点数」「在场」「优先」……）。
+  // 一件技能的说明只有一两行，塞不进定义 —— 所以定义集中放这儿，
+  // 说明里直接用词。
+  //
+  // **这一份跟技能说明是一套**：往技能表里写新说明的时候，
+  // 要么用这儿已有的词，要么在这儿加一条 —— 自己造一个新说法
+  // 会让同一件事在游戏里有两个名字
+  type Term = {
+    word : string
+    desc : string
+  }
+  const TERMS : Term[] = [
+    { word: '点数', desc: '牌面印的那个数（A 算 1，Q 算 12，K 算 13）。J 没有点数这条轴，它只通吃。' } as Term,
+    { word: '匹配', desc: '你打的牌和堆里某张「算同一个点数」。对上了就收走从那张到堆顶的一整段。' } as Term,
+    { word: '堆', desc: '打出去还没被收走的那些牌，横着摆。最早打的在最左（堆底），最新打的在最右（堆顶）。' } as Term,
+    { word: '置 0', desc: '把牌的点数变成 0。它还在点数这条轴上 —— 见底、干塘、撒网都收得走它，只是没法匹配。' } as Term,
+    { word: '无点数', desc: '这张牌彻底不在点数这条轴上。谁也没法按点数钓它、它也钓不了别人；见底、退潮、干塘一概跳过它。只有 J、顺色、收色带得走。' } as Term,
+    { word: '增减点数', desc: '把点数往上或往下挪（见底 −1、退潮 −牌面点数）。无点数的牌不受影响。' } as Term,
+    { word: '变成 X', desc: '把点数直接改成某个值 —— 置 0、置无点数、齐顶都算。无点数的牌照样受影响。' } as Term,
+    { word: '在场', desc: '那张牌还在堆上。「在场时……」的效果，牌被收走就跟着没了（场上效果栏里看得见还挂着哪些）。' } as Term,
+    { word: '叠放', desc: '把牌垫在堆上某张牌下面、或者盖在它上面。叠放的牌不参与匹配 —— 每一叠只有最上面那张算「当前牌」。那一叠被收走时，底下压着的跟着走，所以那几分归收走的人。' } as Term,
+    { word: '保护', desc: '垫在堆上某张牌下面的牌给它保护。那张被收走时，垫着的牌代替它被收走，保护少一层。可以叠多层，一层扛一次。连 J 通吃也挡。' } as Term,
+    { word: '燃烧', desc: '挂在堆上某张牌的标签。再被点一次燃烧就直接收走。' } as Term,
+    { word: '优先', desc: '这个效果在匹配判定之前结算。同一张牌上有几个效果时，带「优先」的先走（染水、沉底是这一类）。' } as Term,
+    { word: '覆盖面 / 盖 N 张', desc: '这套配装一共管多少张牌。花色槽一个管 12 张，点数槽一个点数管 4 张。它是双方唯一能横着比的强度数字。' } as Term,
+    { word: '槽', desc: '角色卡上印死的格子，上面写着点数或花色。技能装进槽才生效，管哪些牌由槽决定。' } as Term,
+    { word: '常驻特殊技', desc: '角色自带的那一件，整轮都在、不占槽、不用打特定牌触发。' } as Term,
+    { word: '组合技', desc: '两件技能落在同一张牌上时合成的第三种效果（比如 退潮 × 见底 = 干塘）。' } as Term
   ]
 
   // 终局那一局的难度。**不写存档** —— 终局是不记账的沙盒，
@@ -988,6 +1112,29 @@
 
   // 这儿原先有个 specialTiersText（把三档效果用 → 连起来）。
   // 特殊技能改成**不能升级**之后只有一句效果，specialDescOf 就够了
+
+  // ---------- 庄家那边的技能名单怎么写 ----------
+  //
+  // 报的是「哪件技能 + 占几个什么槽」，**不报具体标签** ——
+  // 庄家的标签是摇的（`rollFoeKit`），图鉴里压根不知道这一轮摇到了什么。
+  // 而这正好是设计里那条信息切法：**它是谁查得到，它卡在哪查不到。**
+  //
+  // 想知道这一轮摇到了哪门花色，去过关之后的商店看预告（花色公开、
+  // 点数只报个数）—— 两处报的东西不一样是有意的，不是漏了
+  function foeSlotsText(r : FoeRole) : string {
+    if (r.slots.length == 0) {
+      return '不带技能'
+    }
+    let text = ''
+    for (let i = 0; i < r.slots.length; i++) {
+      const s = r.slots[i]
+      const name = s.skill >= 0 && s.skill < DRAW_SKILLS.length
+        ? DRAW_SKILLS[s.skill].name : '?'
+      text = text + (text == '' ? '' : ' · ') + name
+        + '（' + (s.suit ? '花色' : '点数') + ' ×' + s.count + '）'
+    }
+    return text
+  }
 
   // 空槽上那行说明：这个槽嵌进来的技能会管什么
   function slotHint(slot : string) : string {
@@ -1305,6 +1452,25 @@
     margin-top: 2px;
   }
 
+  /* 名词解释：词条一行、解释一行。
+     **不横着排** —— 解释都是一两句话，横排会把词条挤成一列窄条；
+     词条单独一行描成金色，扫着找词的时候一眼能跳过去 */
+  .term-row {
+    margin-top: 6px;
+  }
+
+  .term-word {
+    color: #e8b23a;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .term-desc {
+    color: #e6f4ec;
+    font-size: 12px;
+    line-height: 19px;
+  }
+
   .run-meta {
     color: #ff9e80;
     font-size: 12px;
@@ -1534,6 +1700,15 @@
      信息留着（你得知道池子里有什么），但一眼看得出不是你的 */
   .my-skill-off {
     opacity: 0.45;
+  }
+
+  /* 角色图鉴的分段标题（共用池 / 闯关庄家 / 素材池）。
+     三段混在一个滚动列表里，没有这一行就分不清手上这张是谁家的 */
+  .rolebook-sect {
+    color: #ffd98a;
+    font-size: 11px;
+    margin-top: 10px;
+    margin-bottom: 4px;
   }
 
   /* 自定义弹层里带上的那几个：描一圈金边 */

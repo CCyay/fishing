@@ -245,6 +245,33 @@ describe('/pages/examples/blackjack/ap-fishing', () => {
     expect(await textOf('.skill-box-sub')).toContain('共 ')
   })
 
+  it('规则弹窗：点数那几条全局规则 + 名词解释都在', async () => {
+    // 这几条是**全局规则**，不属于任何一件技能 —— 所以技能说明里不写，
+    // 只在这儿写一次。写漏了的后果很具体：玩家看见「见底 −1」
+    // 却不知道减到 0 就停、也不知道 0 点互不匹配，那条技能就读不懂
+    page = await program.reLaunch(LEVELS_PATH)
+    await page.waitFor('view')
+    await page.waitFor(300)
+    await (await page.$('#md-open-rules')).tap()
+    await page.waitFor(300)
+    const box = await page.$('.skill-box')
+    expect(box).not.toBe(null)
+    const all = await box.text()
+    // 点数那一节的四条
+    expect(all).toContain('减不到负数')
+    expect(all).toContain('0 点不匹配 0 点')
+    expect(all).toContain('往上不设限')
+    expect(all).toContain('比较大小时算最大')
+    // 名词解释那一节：词条本身在
+    expect(await page.$('#md-rule-terms')).not.toBe(null)
+    const terms = await (await page.$('#md-rule-terms')).text()
+    expect(terms).toContain('名词解释')
+    expect(terms).toContain('置 0')
+    expect(terms).toContain('无点数')
+    expect(terms).toContain('在场')
+    expect(terms).toContain('优先')
+  })
+
   it('技能弹层：关掉再开，查询词不留着', async () => {
     // 留着的话下次开出来是一张筛过的表，而那看着就是「技能怎么少了」
     page = await program.reLaunch(LEVELS_PATH)
