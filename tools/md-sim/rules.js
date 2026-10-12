@@ -98,6 +98,9 @@ const SK = {
   //（10-12-13 合法，不需要通配）。代价是上端仍偏弱：含 13 的三张链
   // 只有一条，而含 7 的有十几条
   WADE: 43,
+  // 探潮（**原型，只在模拟器里，没进游戏**）：从牌库一张张翻到堆上，
+  // 翻到跟堆上点数重复的就停、把它洗回牌库；然后按严格连续的顺子收（只收组成顺子的牌）
+  PROBE: 45,
   // 对流：打出后**双方各再出 1 张**，而且**对方先出**。
   //
   // 它跟连竿的区别是整件技能的要点：连竿只有自己多打一张（自己送钩点），
@@ -148,7 +151,8 @@ const FLOW_VOID = process.env.FLOW_VOID === '1'
 // 它的风险在同一处：顺子的牌可能散在堆两头，那「整段」就是**整堆**。
 // 堆常年 3~5 张厚，所以那个风险是真的 —— 而量出来的 +0.61
 // 说明它没失控（真要通吃，这个数会是两三分）
-const FLOW_SPAN = process.env.FLOW_SPAN !== '0'
+// 2026-10-12 定：伏流、涉水都**只收组成顺子的牌**，不收夹在中间的（FLOW_SPAN=1 才是收整段）
+const FLOW_SPAN = process.env.FLOW_SPAN === '1'
 
 // ---------- 【涉水】的顺子要不要**含它自己** ----------
 //
@@ -292,7 +296,9 @@ const FLOW_OPT = {
 // 【涉水】当前定稿：不参与（只是触发器）+ 差 2 跨洞。
 // 「不参与」那一档是量出来的 —— 用自己的点数只有 +1.01（凑成率 11%），
 // 不参与是 +2.01（25%），而且它顺带让幅度跟槽标签彻底无关
-const WADE_OPT = { self: WADE_SELF ? 'own' : 'none', step: 2, pileMin: 1, hand: 0 }
+// WADE_HAND：最多几张手牌参与顺子（跟 FLOW_HAND 同一个口径），默认 0
+const WADE_HAND = process.env.WADE_HAND ? parseInt(process.env.WADE_HAND, 10) : 0
+const WADE_OPT = { self: WADE_SELF ? 'own' : 'none', step: 2, pileMin: 1, hand: WADE_HAND }
 
 // ---- 叠放那五件：**搬完了**（2026-10-10）----
 //
@@ -406,7 +412,8 @@ const SKILLS = [
   { key: 'dredge', name: '抄底' },
   { key: 'flow', name: '伏流' },
   { key: 'wade', name: '涉水' },
-  { key: 'cross', name: '对流' }
+  { key: 'cross', name: '对流' },
+  { key: 'probe', name: '探潮' }
 ]
 
 // ---------- 吃水的两个可调旋钮 ----------
@@ -2182,6 +2189,10 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.WADE)) {
     wadeFor(G, side, played)
   }
+  // 探潮（原型）：跟伏流、涉水同组
+  if (has(skills, SK.PROBE)) {
+    probeFor(G, side, played)
+  }
   // 野火：排在收色、撒网**后面** —— 它们先把该收的收掉，
   // 野火再给剩下的点火。反过来野火刚点着的会被收色当场端走
   if (has(skills, SK.WILD)) {
@@ -2304,6 +2315,40 @@ function doPickDeck(G, keep, size) {
 }
 
 // 把一张牌塞回牌库并**真洗进去**（照 shuffleBack）
+// 【探潮】原型。严格连续、这张可以不参与、只收组成顺子的牌（跟伏流、涉水同一套 chainHarvest）
+const PROBE_OPT = { self: 'none', step: 1, pileMin: 1, hand: 0 }
+function probeFor(G, side, card) {
+  const at0 = pileIndexOf(G, card)
+  if (at0 < 0) return
+  const seen = {}
+  for (let i = 0; i < G.pile.length; i++) {
+    const vals = pileValsAt(G, i)
+    for (let k = 0; k < vals.length; k++) seen[vals[k]] = true
+  }
+  let flipped = 0
+  while (G.deck.length > 0) {
+    const c = G.deck.pop()
+    const vals = landVals(G, c, [], false)
+    let dup = false
+    for (let k = 0; k < vals.length; k++) if (seen[vals[k]]) dup = true
+    if (dup) { shuffleBack(G, c); break }
+    pushPile(G, c, side, GUARD_NONE, vals)
+    for (let k = 0; k < vals.length; k++) seen[vals[k]] = true
+    flipped++
+  }
+  G.stat.probe = G.stat.probe || { fires: [0, 0], flipped: [0, 0], hits: [0, 0], got: [0, 0] }
+  const st = G.stat.probe
+  st.fires[side]++
+  st.flipped[side] += flipped
+  const at = pileIndexOf(G, card)
+  if (at < 0) return
+  const before = G.score[side]
+  const best = chainHarvest(G, side, at, PROBE_OPT, false)
+  if (best === null) return
+  st.hits[side]++
+  st.got[side] += G.score[side] - before
+}
+
 function shuffleBack(G, card) {
   G.deck.push(card)
   G.deck = shuffle(G.rng, G.deck)
@@ -2591,7 +2636,7 @@ function wadeFor(G, side, card) {
   wd.fires[side]++
   const at0 = pileIndexOf(G, card)
   if (at0 < 0) return
-  const best = chainHarvest(G, side, at0, WADE_OPT, true)
+  const best = chainHarvest(G, side, at0, WADE_OPT, FLOW_SPAN)
   if (best === null) return
   wd.hits[side]++
   wd.lenSum[side] += best.count
@@ -2678,10 +2723,16 @@ function handByVal(G, side, len) {
 //
 // 返回 null（凑不出来）或 { from, to, count, lo, handAt }：
 // 区间两端、顺子几张、最深那张在堆上第几格、手里补的那几张的下标
+const HIGH_ACE = 14
+
 function bestChain(G, side, at0, mine, opt) {
   // 'wild' / 'show' 那两档它不占固定的点数格，所以堆上那张表要跳过它自己
   const free = opt.self === 'wild' || opt.self === 'show'
-  const deepest = deepestByVal(G, free ? at0 : -1, side)
+  // Q-K-A：K 后面再接一格 14 = 同一张 A（照 ap-fishing 的 withHighAce）
+  const raw = deepestByVal(G, free ? at0 : -1, side)
+  const deepest = []
+  for (let v = 0; v <= HIGH_ACE; v++) deepest.push(v < raw.length ? raw[v] : -1)
+  deepest[HIGH_ACE] = raw.length > 1 ? raw[1] : -1
   const hand = opt.hand > 0 ? handByVal(G, side, deepest.length) : null
   // 'show' 那一档：它能当的点数**限于手里有的那几个**（展示那张，牌不消耗）。
   // 打出的那张已经离手了（playFor 开头 takeFromHand），所以这张表天然不含它
@@ -2690,6 +2741,8 @@ function bestChain(G, side, at0, mine, opt) {
   const top = deepest.length - 1
   for (let a = 0; a <= top; a++) {
     for (let b = a + STRAIGHT_MIN - 1; b <= top; b++) {
+      // 同一张 A 不能在一条顺子里当两次
+      if (a <= 1 && b >= HIGH_ACE) continue
       let onPile = 0
       let wild = 0
       let gap = 0
@@ -2758,7 +2811,9 @@ function chainHarvest(G, side, at0, opt, span, exclude) {
   const best = bestChain(G, side, at0, pileValsAt(G, at0), opt)
   if (best === null) return null
   const deepest = best.deepest
-  const wanted = G.pile.map(function (c, i) { return i === at0 })
+  // 打出那张只有当通配（伏流）时才一定收走；涉水那张没参与顺子就留在堆上
+  const selfIn = opt.self === 'wild' || opt.self === 'show'
+  const wanted = G.pile.map(function (c, i) { return selfIn && i === at0 })
   let lo = at0
   let hi = at0
   for (let v = best.from; v <= best.to; v++) {
