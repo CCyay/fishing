@@ -70,7 +70,10 @@ function run(n, seed, mine, foe, opts) {
       fires: [0, 0], pileSum: [0, 0], flipSum: [0, 0],
       gotSum: [0, 0], thin: [0, 0],
       gotFresh: [0, 0], gotOwn: [0, 0], gotTheirs: [0, 0]
-    }
+    },
+    // 顺子那两件的诊断口（见 rules.js 的 stat.straight / stat.wade）
+    straight: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    wade: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] }
   }
   for (let i = 0; i < n; i++) {
     const rng = R.makeRng(seed + i)
@@ -103,6 +106,11 @@ function run(n, seed, mine, foe, opts) {
       sum.flood.gotFresh[s] += fd.gotFresh[s]
       sum.flood.gotOwn[s] += fd.gotOwn[s]
       sum.flood.gotTheirs[s] += fd.gotTheirs[s]
+      const keys = ['fires', 'hits', 'lenSum', 'gotSum']
+      for (let k = 0; k < keys.length; k++) {
+        sum.straight[keys[k]][s] += G.stat.straight[keys[k]][s]
+        sum.wade[keys[k]][s] += G.stat.wade[keys[k]][s]
+      }
     }
     sum.turns += G.stat.turns
     sum.leftover += G.pile.length
@@ -307,47 +315,86 @@ function cmdOne(args) {
     + '「' + R.DRAW_ROLES[made.role].special + '」的份。')
 }
 
+// ---------- all：全表一张定价表 ----------
+//
+// ---- 口径换过（2026-10-12），换之前的数**不可比** ----
+//
+// 原先是「我带角色、**对手不带**」，而且只报后手一侧。那两条都会让
+// 绝对值失真，而这张表是用来**定价**的 —— 定价要的正是绝对值：
+//
+//   **只量后手** —— 已知先手溢价跨度 −0.01 ~ +4.31（洪水、连竿那几件），
+//     只看后手等于对一半的技能系统性低估或高估。
+//   **对手不带角色** —— 口径偏差实测 ±1.2（洪水 −1.23、抬水 +0.48），
+//     而且方向因技能而异，没法用一个修正值盖掉。
+//
+// 现在跟 `vs` 同口径：**双方同角色、各插同一个槽**，每件量两侧。
+// 基线格（双方空手）跟技能无关，所以**全表共用一次** ——
+// 于是成本是 44 × 2 + 1 遍，而不是 × 3。
+//
+// ---- 四个数怎么读 ----
+//
+//   后手 / 先手 —— 两侧各值多少分
+//   **X**  = 两者平均 → **技能本身的强度**，定价看这个
+//   **D**  = 两者之差的一半 → 它抹掉了多少后手优势（基线优势 1.94 是上限）
+//
+// 为什么非得拆开：**溢价一样不代表强度一样**。洪水 X=+5.22 是「强且偏」，
+// 连竿 X=−0.45 是「弱且偏」—— 前者该削、后者该修效果，只看溢价会混成一回事
 function cmdAll(args) {
   const role = roleIndexOrDie(args.role)
   const slots = R.DRAW_ROLES[role].slots
   const slotAt = args.slot < slots.length ? args.slot : 0
-  console.log('所有点数技能，各跑 ' + args.n + ' 局（种子 ' + args.seed + ' 起）')
-  console.log('装在【' + R.DRAW_ROLES[role].name + '】的第 ' + (slotAt + 1)
-    + ' 个槽（' + slots[slotAt] + '，' + R.slotCover(slots[slotAt]) + ' 张牌）\n')
-  console.log('  技能      覆盖面        分差     标准误   胜率')
-  console.log('  ' + '-'.repeat(52))
-  // 基线带同一个角色、槽全空 —— 见 measure 那段注释
-  const o = { myRole: role, foeRole: -1 }
-  const base = run(args.n, args.seed, R.emptyLoadout(), R.emptyLoadout(), o)
-  const baseDiff = meanDiff(base)
-  const baseWin = avg(base.wins[R.ME], base.games)
+  console.log('全表定价表 · 各跑 ' + args.n + ' 局（种子 ' + args.seed + ' 起）')
+  console.log('双方都带【' + R.DRAW_ROLES[role].name + '】、各插第 '
+    + (slotAt + 1) + ' 个槽（' + slots[slotAt] + '，'
+    + R.slotCover(slots[slotAt]) + ' 张牌）')
+  console.log('按 X（技能本身的强度）排序\n')
+  console.log('  技能      覆盖面       后手    先手       X       D    建议价  现价')
+  console.log('  ' + '-'.repeat(74))
+  const o = { myRole: role, foeRole: role }
+  const empty = R.emptyLoadout()
+  // 基线格全表共用 —— 它不含任何槽技能，所以跟量哪一件无关
+  const C = run(args.n, args.seed, empty, empty, o)
+  const baseDiff = meanDiff(C)
   const lines = []
   for (let i = 0; i < R.SKILLS.length; i++) {
     const def = R.SKILLS[i]
     const lo = R.kitWithOne(role, slotAt, i)
-    const test = run(args.n, args.seed, lo, R.emptyLoadout(), o)
+    const D = run(args.n, args.seed, lo, empty, o)
+    const A = run(args.n, args.seed, empty, lo, o)
+    const back = meanDiff(D) - baseDiff
+    const front = baseDiff - meanDiff(A)
     lines.push({
       name: def.name,
       cover: R.coverageOf(lo, i),
-      gain: meanDiff(test) - baseDiff,
-      se: Math.sqrt(stderrOf(test) * stderrOf(test) + stderrOf(base) * stderrOf(base)),
-      win: avg(test.wins[R.ME], test.games) - baseWin
+      back: back,
+      front: front,
+      x: (back + front) / 2,
+      d: (front - back) / 2,
+      se: Math.sqrt(stderrOf(D) * stderrOf(D) + stderrOf(C) * stderrOf(C))
     })
   }
-  lines.sort(function (a, b) { return b.gain - a.gain })
+  lines.sort(function (a, b) { return b.x - a.x })
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]
-    console.log('  ' + l.name.padEnd(10)
-      + l.cover.padEnd(14)
-      + ((l.gain >= 0 ? '+' : '') + f2(l.gain)).padStart(7)
-      + f2(l.se).padStart(9)
-      + ((l.win >= 0 ? '+' : '') + pct(l.win)).padStart(8))
+    // 建议价：每 1 分 ≈ 21 金币、起价 25（拿已量的件拟出来的锚）。
+    // 取整到 5 的倍数；X ≤ 0 的件不给价 —— 那不是定价问题，是效果问题
+    const want = l.x <= 0 ? '—' : String(Math.round((25 + l.x * 21) / 5) * 5)
+    console.log('  ' + l.name.padEnd(10) + l.cover.padEnd(13)
+      + sign(l.back).padStart(7) + sign(l.front).padStart(8)
+      + sign(l.x).padStart(8) + sign(l.d).padStart(8)
+      + want.padStart(8))
   }
-  console.log('\n  基线（带这个角色、槽全空）：后手分差 +' + f2(baseDiff)
-    + '、后手胜率 ' + pct(baseWin))
-  console.log('\n  目标档位（设计文档第四节）：单件每局 +3 ~ +5 分。')
-  console.log('  这张表只量**槽里那件**。常驻特殊技能用 `roles` 子命令。')
-  console.log('  换 --role / --slot 会改覆盖面，数就不能跟这一列比了。')
+  console.log('\n  基线（双方同角色、槽全空）：后手分差 ' + sign(baseDiff)
+    + '（标准误 ' + f2(stderrOf(C)) + '）')
+  console.log('  每件的标准误约 ' + f2(lines.length > 0 ? lines[0].se : 0)
+    + ' —— 比它小的差异不作数')
+  console.log('\n  目标档位：单件每局 +3 ~ +5 分（看 **X** 这一列）。')
+  console.log('  **D ≈ 2 的件要当心** —— 那说明它抹掉了后手的结构性优势')
+  console.log('  （基线优势 ' + f2(baseDiff) + ' 就是 D 的上限）。')
+  console.log('  X ≤ 0 的件不给建议价：那不是定价问题，是效果问题。')
+  console.log('\n  换 --role / --slot 会改覆盖面，数就不能跟这一列比了。')
+  console.log('  常驻特殊技能用 `roles` 子命令。')
 }
 
 // ---------- roles：八个角色的常驻技能各值多少分 ----------
@@ -608,6 +655,37 @@ function cmdVs(args) {
       + '报的是「后手的价值」。')
     console.log('\n  镜像协同（双方都带时我那件多值多少）：'
       + (counter >= 0 ? '+' : '') + f2(counter) + ' 分')
+    // ---- 顺子那两件的诊断口 ----
+    //
+    // 伏流达标（+3.49）而涉水不达标（+1.01），两件只差「怎么凑」。
+    // 这张表把差异拆成三列：**凑成率 / 链长 / 每次收成** ——
+    // 哪一列塌了，瓶颈就在那儿。
+    //
+    // 两侧取的格子跟上面两个分差一致：后手取 D（我带 / 对手空）、
+    // 先手取 A（我空 / 对手带）
+    const sdRow = function (label, sd, s) {
+      const fires = sd.fires[s]
+      if (fires === 0) return null
+      const hits = sd.hits[s]
+      return '    ' + label.padEnd(10)
+        + f2(avg(fires, args.n)).padStart(7) + ' 次/局'
+        + pct(avg(hits, fires)).padStart(9)
+        + f2(avg(sd.lenSum[s], hits)).padStart(9)
+        + f2(avg(sd.gotSum[s], hits)).padStart(9)
+    }
+    const sdRows = [
+      sdRow('伏流·后手', D.straight, R.ME), sdRow('伏流·先手', A.straight, R.FOE),
+      sdRow('涉水·后手', D.wade, R.ME), sdRow('涉水·先手', A.wade, R.FOE)
+    ].filter(function (r) { return r !== null })
+    if (sdRows.length > 0) {
+      console.log('\n  ---- 诊断：顺子怎么凑成的 ----')
+      console.log('            打出次数   凑成率   平均链长   每次收成')
+      for (let i = 0; i < sdRows.length; i++) console.log(sdRows[i])
+      console.log('\n  「凑成率」低 → 瓶颈在**发动条件**；')
+      console.log('  「每次收成」低 → 瓶颈在**收法**；')
+      console.log('  两样都不低而分差仍低 → 收的那几张**本来也钓得到**')
+      console.log('  （洪水那场查出来的那个机制，见 rules.js 的 stat.flood）。')
+    }
     // ---- 【洪水】的诊断口 ----
     //
     // 两侧的 flood 统计要从**两个不同的格子**取，不能都从一个格子读：
