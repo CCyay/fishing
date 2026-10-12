@@ -117,7 +117,7 @@ function pickCard(G, side) {
     const wants = R.has(skills, SK.PEEK) || R.has(skills, SK.TIDE)
       || R.has(skills, SK.LANTERN) || R.has(skills, SK.FREEZE)
       || R.has(skills, SK.LOWTIDE) || R.has(skills, SK.SWAP)
-      || R.has(skills, SK.PICK) || R.has(skills, SK.SUITIFY)
+      || R.has(skills, SK.PICK)
       // 连竿空钩也照样再给一张 —— 当饵顺手白拿一次出牌机会
       || R.has(skills, SK.AGAIN)
       // 挂在牌上的两件新的（窄口、满篓）要求这张留在堆上，跟照水同理

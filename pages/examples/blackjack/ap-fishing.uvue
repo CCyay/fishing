@@ -3261,64 +3261,72 @@
   let againPending : boolean = false
   const againUsed = ref<boolean>(false)
 
-  // 染水〔优先〕：把场上所有牌的花色改成跟打出那张一样。
+  // 【一色】（原【染水】）：堆上**它的花色是张数最多的之一** → 整堆连它收走。
   //
-  // ---- 「优先」是个关键字：效果在**钓牌判定之前**结算 ----
+  // 含它自己数；打平也算（「最多的之一」）；堆上至少还得有 1 张别的牌 ——
+  // 不然空堆上打它就是稳拿 1 分。不是最多就什么也不做。
   //
-  // 一张牌最多触发两个技能（花色槽一个、点数槽一个，见 triggersOf），
-  // 而 afterPlay 里那串顺序全排在钓牌判定**之后**。染水改的正是
-  // 判定的输入，所以它必须更早 —— 调用点在 playFor 里，不在 afterPlay 里。
+  // ---- 2026-10-12 改的，原先是「把整堆染成它的花色」----
   //
-  // 为什么非得这么早：
+  // 原版单带一分不加（实测 −0.7），配顺色也没协同（+0.02）。中间试过两版：
+  // 「别的牌全同色才收、否则染」太弱，「最多就收、否则染」也是。
+  // 染色那一支最后整个删了 —— 染完的单色堆对双方一样好用，留着反倒是送分。
   //
-  //   · 【顺色】的匹配（catchStart 里那行 sameSuit(pileSuitAt(i), card.suit…)）
-  //     发生在落堆判定那一刻。染水要是晚一步，同一张牌上的顺色
-  //     看见的就是染色**前**的堆 —— 组合当场失效。
-  //     先染的话顺色命中的必然是最深那张，也就是**整堆通收**。
-  //
-  // 这是全表第一组真正的**机制级联动**（从前的「连招」都只是玩家
-  // 操作上的配合，见设计文档『组合技』）。它贵在难凑：两个技能得落在
-  // 同一张牌上 —— 除非你还带着【连竿】，那就只要同一个回合。
-  //
-  // ---- 它跟【见底】的那条组合**拆掉了** ----
-  //
-  // 原先见底压的是「场上黑牌张数」，于是染黑 → N 拉满 → 整堆端走，
-  // 两件凑成一个必杀。见底改成死数 −1 之后那条翻倍没了
-  //（理由见 draw-skills 见底那段）。
-  //
-  // 染黑**还是有用**，只是从「给见底堆料」变成了「给顺色开路」——
-  // 一条通道变宽，而不是一次收成翻倍。
-  //
-  // ---- 它自己一分不加 ----
-  //
-  // 花色不参与点数那条钓牌判定，所以单独带着它什么也不会发生 ——
-  // 它的全部价值在**顺色**身上。
-  //
-  // ---- 它是双刃的 ----
-  //
-  // 整堆同花色对**双方的顺色**一样好用。染完那一堆是个诱饵，
-  // 你得在对手摸到同花色的牌之前把它用掉。
-  //
-  // 堆空的时候也照样「生效」（染了零张）—— 不特殊处理，
-  // 但播报要说实话，不然看着像没反应
-  function suitifyFor(byFoe : boolean, card : PlainCard) : string {
-    const suit = card.suit
-    const who = byFoe ? ' 庄家染水：' : ' 染水：'
+  // 排在量水同一个位置（afterPlay 最前面）：它收整堆，排后面的话
+  // 前面那些技能改过的堆就白改了。开演收牌特效了返回 true
+  function suitifyFor(byFoe : boolean, skills : number[]) : boolean {
+    if (!hasTrigger(skills, SK_SUITIFY) || lastPlayed == null) {
+      return false
+    }
+    const card = lastPlayed!
+    const who = byFoe ? ' 庄家一色：' : ' 一色：'
+    if (pileIndexOf(card) < 0) {
+      return false
+    }
     // 它自己已经进场了，所以堆上只有 1 张就是「只有它自己」
     if (pile.value.length <= 1) {
-      return who + '场上只有它自己，染了个空。'
+      message.value = message.value + who + '场上只有它自己，收不了。'
+      return false
     }
-    let changed = 0
-    const next : string[] = []
+    if (!suitLeads(card, false, byFoe)) {
+      message.value = message.value + who + '堆上 ' + card.suit + ' 不是最多的，没收成。'
+      return false
+    }
+    const all : number[] = []
     for (let i = 0; i < pile.value.length; i++) {
-      if (pileSuitAt(i) != suit) {
-        changed = changed + 1
-      }
-      next.push(suit)
+      all.push(i)
     }
-    pileSuit.value = next
-    return who + '场上 ' + pile.value.length + ' 张全算 ' + suit
-      + ' 了（改了 ' + changed + ' 张）。'
+    message.value = message.value + who + '堆上 ' + card.suit + ' 最多，整堆 '
+      + all.length + ' 张收走。'
+    return startSweep(byFoe, all, skills, TAIL_HEAD)
+  }
+
+  // 堆上它的花色是不是张数最多的那门（打平也算 —— 没有哪门比它多就行）。花色按牌堆上记的算，
+  // 两色在场时同色的两门算一门（走 sameSuit）。
+  // extra = 它还没落堆（庄家估算用），把它自己补算一张
+  function suitLeads(card : PlainCard, extra : boolean, byFoe : boolean) : boolean {
+    let mine = extra ? 1 : 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (sameSuit(pileSuitAt(i), card.suit, byFoe)) {
+        mine = mine + 1
+      }
+    }
+    for (let k = 0; k < SUITS.length; k++) {
+      const s = SUITS[k]
+      if (sameSuit(s, card.suit, byFoe)) {
+        continue
+      }
+      let n = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (sameSuit(pileSuitAt(i), s, byFoe)) {
+          n = n + 1
+        }
+      }
+      if (n > mine) {
+        return false
+      }
+    }
+    return true
   }
 
   // 打出这张**算哪几个点数**。
@@ -3785,10 +3793,6 @@
       pushPile(card, byFoe, GUARD_NONE, worth)
     }
     // ---- 进场之后：「优先」效果最先发动 ----
-    // 【染水】改的是整堆的花色（它自己已经在堆上了），后面那些效果和匹配都按染过的算
-    if (hasTrigger(skills, SK_SUITIFY)) {
-      firstNote = firstNote + suitifyFor(byFoe, card)
-    }
     // 【燎原】**自带 1 层火**。
     //
     // 判在这儿而不是 burnOnLand 里，是因为那个函数不知道「落的是哪张牌、
@@ -4215,6 +4219,10 @@
     // 加打的那张不再给加打，所以 againUsed 已经立起来就不记
     if (hasTrigger(skills, SK_AGAIN) && !againUsed.value) {
       againPending = true
+    }
+    // 【一色】它的花色最多（之一）就整堆收走。跟量水一样排最前面，演完从 afterPlayHead 接着走
+    if (suitifyFor(byFoe, skills)) {
+      return
     }
     // 量水排在**所有技能的最前面**：它收整堆，排在后面的话前面那些
     // 技能改过的堆就白改了。演收牌特效的话先停在这儿，演完从 afterPlayHead 接着走
@@ -7063,6 +7071,10 @@
     if (hasTrigger(skills, SK_WADE)) {
       return wadeCount(card, byFoe)
     }
+    // 一色：它的花色最多 → 整堆 + 它自己（估在落堆之前，堆里还没有它）
+    if (hasTrigger(skills, SK_SUITIFY) && pile.value.length > 0 && suitLeads(card, true, byFoe)) {
+      return pile.value.length + 1
+    }
     if (!hue && !cast) {
       return 0
     }
@@ -7274,9 +7286,6 @@
         || hasTrigger(skills, SK_PRESS) || hasTrigger(skills, SK_UNHOOK)
         || hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_TWIN)
         || hasTrigger(skills, SK_SUITFIND)
-        // 染水染的是**留在场上**的那一堆。这张要是当场钓走一段，
-        // 染过的那几张跟着一起没了，白染
-        || hasTrigger(skills, SK_SUITIFY)
         // 连竿空钩也照样再给一张 —— 当饵顺手白拿一次出牌机会
         || hasTrigger(skills, SK_AGAIN)
         // 抹点数那一族：三件在场效果得让这张**留在堆上**（照照水），

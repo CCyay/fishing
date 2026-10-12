@@ -375,7 +375,7 @@ const SKILLS = [
   { key: 'lowtide', name: '见底' },
   { key: 'flood', name: '洪水' },
   { key: 'pick', name: '择饵' },
-  { key: 'suitify', name: '染水' },
+  { key: 'suitify', name: '一色' },
   { key: 'sink', name: '沉底' },
   { key: 'again', name: '连竿' },
   { key: 'deep', name: '归深' },
@@ -1646,10 +1646,6 @@ function playFor(G, side, index, ai) {
   } else {
     pushPile(G, card, side, GUARD_NONE, worth)
   }
-  // 【染水】〔优先〕：整堆的花色改掉，后面那些效果和匹配都按染过的算
-  if (has(skills, SK.SUITIFY)) {
-    suitifyFor(G, card)
-  }
   // 【燎原】自带 1 层火，点在**它落下的那一格** ——
   // 普通打法是堆顶、沉底是堆底，而那正是这件技能的决策（火从哪头烧起）。
   // 判在这儿而不是 burnOnLand 里：那个函数被洪水、掏手、掏库共用，
@@ -1817,12 +1813,33 @@ function removePileAt(G, at) {
   G.pileBurn.splice(at, 1)
 }
 
-// 染水〔优先〕：把场上所有牌的花色改成跟它一样（照 suitifyFor）。
-// 它自己已经在堆上了
-function suitifyFor(G, card) {
-  for (let i = 0; i < G.pileSuit.length; i++) {
-    G.pileSuit[i] = card.suit
+// 一色（照 suitifyFor）：堆上**它的花色是张数最多的之一**（含它自己，打平也算；
+// 堆上至少还有 1 张别的牌）→ 整堆收走。不是就什么也不做（2026-10-12 起不再染色）
+function suitifyFor(G, side, card) {
+  if (pileIndexOf(G, card) < 0) return
+  if (G.pile.length > 1 && suitLeads(G, side, card, false)) {
+    harvestPile(G, side, G.pile.map(function () { return true }))
   }
+}
+
+// 堆上它的花色是不是张数最多的那门（打平也算 —— 没有哪门比它多就行）。
+// extra = 它还没落堆（AI 估算用），把它自己补算一张
+const ALL_SUITS = ['♠', '♥', '♦', '♣']
+function suitLeads(G, side, card, extra) {
+  let mine = extra ? 1 : 0
+  for (let i = 0; i < G.pile.length; i++) {
+    if (sameSuit(G, pileSuitAt(G, i), card.suit, side)) mine++
+  }
+  for (let k = 0; k < ALL_SUITS.length; k++) {
+    const s = ALL_SUITS[k]
+    if (sameSuit(G, s, card.suit, side)) continue
+    let n = 0
+    for (let i = 0; i < G.pile.length; i++) {
+      if (sameSuit(G, pileSuitAt(G, i), s, side)) n++
+    }
+    if (n > mine) return false
+  }
+  return true
 }
 
 // ==================== 叠放那五件 ====================
@@ -2097,6 +2114,10 @@ function afterPlay(G, side, skills, played, ai) {
     G.forceStep = 1
     G.forceBy = side
     G.forceUsed = true
+  }
+  // 一色：它的花色最多（之一）就整堆收走。跟量水一样排最前面
+  if (has(skills, SK.SUITIFY)) {
+    suitifyFor(G, side, played)
   }
   // 量水排在所有技能的最前面：它收整堆，排在后面的话前面那些技能改过的堆就白改了
   if (has(skills, SK.MEASURE)) {
@@ -3041,6 +3062,8 @@ function harvestCount(G, card, skills, side) {
   if (has(skills, SK.FLOW)) return straightCount(G, side, card)
   // 涉水同理 —— 第四条匹配线，catchStart 看不见它
   if (has(skills, SK.WADE)) return wadeCount(G, side, card)
+  // 染水：堆上已经全是它的花色 → 整堆 + 它自己
+  if (has(skills, SK.SUITIFY) && G.pile.length > 0 && suitLeads(G, side, card, true)) return G.pile.length + 1
   if (!hue && !cast) return 0
   const size = G.pile.length
   const odd = card.value % 2 === 1

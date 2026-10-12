@@ -1222,7 +1222,7 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 没有补回来 —— 补多少得先用模拟器量，而模拟器还没搬过来
       { skill: SK_SUITIFY, count: 1, suit: true } as FoeSlot,
       { skill: SK_LOWTIDE, count: 1, suit: false } as FoeSlot
-    ], desc: '漩涡中心。它染水、它见底，而它每钓一次就往堆上再垫一张' } as FoeRole,
+    ], desc: '漩涡中心。它一色、它见底，而它每钓一次就往堆上再垫一张' } as FoeRole,
   { name: '鲸落拾骨人', specials: ['again'], slots: [
       // 两件都在「抹点数」那一族，加再钩的雪球 —— 堆冻住、长厚、而它连钩。
       // 你得抢在它之前把锅端走
