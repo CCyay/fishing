@@ -378,8 +378,17 @@ function cmdAll(args) {
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]
     // 建议价：每 1 分 ≈ 21 金币、起价 25（拿已量的件拟出来的锚）。
-    // 取整到 5 的倍数；X ≤ 0 的件不给价 —— 那不是定价问题，是效果问题
-    const want = l.x <= 0 ? '—' : String(Math.round((25 + l.x * 21) / 5) * 5)
+    // 取整到 5 的倍数。两种情况不给干净的数：
+    //   X ≤ 0 —— 那不是定价问题，是效果问题
+    //   |D| > 1 —— 它抹掉了后手的结构性优势，**先修平衡再谈价**，
+    //     所以后面加个「?」。洪水 X=+5.21 算出来 135（超过全表最高档），
+    //     可它 D=+2.13，那个 135 不该采纳
+    //
+    // **取整到 5 会把相近的 X 分到两档**（顺色 2.52 → 80、撒网 2.48 → 75，
+    // 而两者差 0.04 < 标准误）。所以看建议价时，差一档等于没差 ——
+    // 真正的判据是 X 本身
+    const want = l.x <= 0 ? '—'
+      : String(Math.round((25 + l.x * 21) / 5) * 5) + (Math.abs(l.d) > 1 ? '?' : '')
     console.log('  ' + l.name.padEnd(10) + l.cover.padEnd(13)
       + sign(l.back).padStart(7) + sign(l.front).padStart(8)
       + sign(l.x).padStart(8) + sign(l.d).padStart(8)
