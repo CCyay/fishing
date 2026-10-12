@@ -1,5 +1,7 @@
 <template>
   <view class="page">
+    <!-- 状态栏占位：原生导航栏去掉了，见 App.uvue 的 .bj-status-bar -->
+    <view class="bj-status-bar"></view>
     <view class="head">
       <text class="title">商店</text>
       <view class="head-right">

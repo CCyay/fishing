@@ -1,5 +1,7 @@
 <template>
   <view class="page">
+    <!-- 状态栏占位：原生导航栏去掉了，见 App.uvue 的 .bj-status-bar -->
+    <view class="bj-status-bar"></view>
     <!-- 这儿不报金币：钱只在商店里花得出去，而商店只在过关那一下进得去
          （结算框上那颗「去商店」）。在关卡页摆个花不掉的数，
          除了让人惦记没别的用 -->
@@ -8,6 +10,9 @@
         <text class="title">摸打钓鱼</text>
         <text id="md-slot-name" class="sub">{{ save.label }} · 最远 {{ save.best }}/{{ DRAW_RUN_LENGTH }}</text>
       </view>
+      <!-- 原生导航栏去掉了（pages.json 的 navigationStyle: custom），
+           这一页本来全靠它左上角那颗返回，所以自己补一颗 -->
+      <text id="md-back" class="head-back" @click="goBack">返回</text>
     </view>
 
     <!-- 本轮进度。原先底下还有一行规则提示（输一次从头来、这关掉技能的
@@ -570,6 +575,16 @@
   // 开 / 关技能图鉴。**两头都清查询词** ——
   // 留着的话下次开出来是一张筛过的表，而那看着就是「技能怎么少了」。
   // 开的时候也清一遍：进这个弹层的意图是「看我带着什么」，不是接着上次查
+  // 返回上一页。栈里只有这一页（直接打开、或者从对局页 redirectTo 过来的）
+  // 就回玩法菜单 —— navigateBack 在栈底什么也不做，按了没反应比没有这颗还糟
+  function goBack() {
+    if (getCurrentPages().length > 1) {
+      uni.navigateBack({})
+      return
+    }
+    uni.reLaunch({ url: '/pages/examples/blackjack/menu' })
+  }
+
   function openSkills() {
     query.value = ''
     showSkills.value = true
@@ -1295,6 +1310,17 @@
     color: #e8b23a;
     font-size: 24px;
     font-weight: bold;
+  }
+
+  .head-back {
+    color: #e8b23a;
+    font-size: 15px;
+    font-weight: bold;
+    padding: 6px 14px;
+    border-radius: 16px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
   }
 
   .sub {

@@ -218,14 +218,17 @@ function pickDeck(G, tops) {
 
 // 观潮沉不沉（照 afterPlay 里庄家那段）：看的是自己回合末要补的那两张，
 // 一张都用不上才沉。「用得上」= J，或者钓得着堆上某张
+// 观潮：牌库顶那几张**一张一张判**沉不沉（照源码 afterPlayTail 里庄家那段）。
+// 返回跟 tops 对齐的标记，true = 沉。用不上的沉、用得上的留 ——
+// 「用得上」= J（通吃），或者堆上有同点数的牌
 function tideSink(G, tops) {
-  for (let i = 0; i < tops.length; i++) {
-    if (tops[i].rank === R.JACK) return false
+  return tops.map(function (card) {
+    if (card.rank === R.JACK) return false
     for (let k = 0; k < G.pile.length; k++) {
-      if (G.pile[k].rank === tops[i].rank) return false
+      if (G.pile[k].rank === card.rank) return false
     }
-  }
-  return true
+    return true
+  })
 }
 
 // 冻对方哪张（照 foeFreezePick）：看得见的里头挑点数最大的，一张都看不见就随机

@@ -3,6 +3,7 @@
     {
       "path": "pages/examples/blackjack/menu",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "选择玩法（fishing）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -12,6 +13,7 @@
     {
       "path": "pages/examples/blackjack/home",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "钓鱼（fishing）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -21,6 +23,7 @@
     {
       "path": "pages/examples/blackjack/levels",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "选择关卡（levels）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -30,6 +33,7 @@
     {
       "path": "pages/examples/blackjack/saves",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "选择存档（saves）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -39,6 +43,7 @@
     {
       "path": "pages/examples/blackjack/shop",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "商店（shop）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -48,6 +53,7 @@
     {
       "path": "pages/examples/blackjack/deck-editor",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "编辑牌组（deck）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -57,6 +63,7 @@
     {
       "path": "pages/examples/blackjack/fishing",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "牌桌（table）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -66,6 +73,7 @@
     {
       "path": "pages/examples/blackjack/relay-levels",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "排竿选关（relay）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -75,6 +83,7 @@
     {
       "path": "pages/examples/blackjack/relay-shop",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "排竿商店（shop）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -84,6 +93,7 @@
     {
       "path": "pages/examples/blackjack/relay",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "排竿（relay）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -93,6 +103,7 @@
     {
       "path": "pages/examples/blackjack/draw-levels",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "摸打关卡（draw）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -102,6 +113,7 @@
     {
       "path": "pages/examples/blackjack/draw-skills",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "摸打技能（draw）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",
@@ -111,6 +123,7 @@
     {
       "path": "pages/examples/blackjack/ap-fishing",
       "style": {
+        "navigationStyle": "custom",
         "navigationBarTitleText": "摸打钓鱼（draw）",
         "backgroundColor": "#0B5D3B",
         "backgroundColorTop": "#0B5D3B",

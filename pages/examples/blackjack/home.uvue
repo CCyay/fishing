@@ -1,5 +1,7 @@
 <template>
   <view class="page">
+    <!-- 状态栏占位：原生导航栏去掉了，见 App.uvue 的 .bj-status-bar -->
+    <view class="bj-status-bar"></view>
     <view class="hero">
       <text class="hero-title">钓鱼</text>
       <text class="hero-subtitle">出牌对战 · 撞上同一个数就钓走一片</text>

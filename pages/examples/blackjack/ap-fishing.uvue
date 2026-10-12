@@ -1,5 +1,7 @@
 <template>
   <view class="page">
+    <!-- 状态栏占位：原生导航栏去掉了，见 App.uvue 的 .bj-status-bar -->
+    <view class="bj-status-bar"></view>
     <!-- 顶栏：双方积分 + 牌库 / 牌堆各剩几张。积分就是收走的牌数。
          三样数并在这一行，所以下面那两块的标题（「庄家手牌 N 张」、
          「牌堆 N 张」）都去掉了 —— 牌都摆在那儿，标题只是重复一遍 -->
@@ -213,16 +215,27 @@
       </view>
     </view>
 
-    <!-- 观潮：你打出触发了它，看一眼牌库顶那两张，选沉不沉。
-         那两张是**你自己**回合末要补的（回合末补牌之后朝向变了） -->
+    <!-- 观潮：你打出触发了它，看一眼牌库顶那两张，**每张单独**选沉不沉。
+         那两张是**你自己**回合末要补的（回合末补牌之后朝向变了）。
+         从前只有「两张一起沉 / 都不动」两颗钮 —— 一张想要、一张不想要的时候
+         两头都不对。现在点一张标记「沉」，再点一次取消，最后按确定 -->
     <view v-if="tidePending" class="tide-box">
-      <text class="tide-text">观潮：牌库顶是 {{ tideName }}（你回合末要补的）</text>
-      <view class="tide-actions">
-        <view id="ap-tide-sink" class="tide-btn" @click="onTide(true)">
-          <text class="tide-btn-text">沉到库底</text>
+      <text class="tide-text">观潮：牌库顶这两张是你回合末要补的。点一张标记沉到库底，再点取消</text>
+      <view class="pick-deck-row">
+        <view
+          v-for="(one, ti) in tideCards"
+          :key="'td-' + ti"
+          :id="'ap-tide-card-' + ti"
+          class="pick-deck-card"
+          :class="{ 'tide-card-sunk': ti < tideMarks.length && tideMarks[ti] }"
+          @click="onTideCard(ti)">
+          <text class="pick-deck-text" :class="{ 'card-red': isRed(one) }">{{ cardName(one) }}</text>
+          <text v-if="ti < tideMarks.length && tideMarks[ti]" class="tide-card-mark">沉</text>
         </view>
-        <view id="ap-tide-keep" class="tide-btn tide-btn-plain" @click="onTide(false)">
-          <text class="tide-btn-text tide-btn-text-plain">不动</text>
+      </view>
+      <view class="tide-actions">
+        <view id="ap-tide-ok" class="tide-btn" @click="onTideDone">
+          <text class="tide-btn-text">{{ tideButton }}</text>
         </view>
       </view>
     </view>
@@ -972,9 +985,25 @@
   const SILT_COUNT : number = 3
   const FOE_PICK_TOPS : number = 2
 
-  // 观潮等你选的时候：牌库顶那两张叫什么
+  // 观潮等你选的时候：牌库顶那两张（第 0 张是最顶上那张），
+  // 以及每张标没标「沉」。两条数组下标对齐
   const tidePending = ref<boolean>(false)
-  const tideName = ref<string>('')
+  const tideCards = ref<PlainCard[]>([] as PlainCard[])
+  const tideMarks = ref<boolean[]>([] as boolean[])
+
+  // 确定那颗钮上写什么 —— 写清楚按下去会发生什么，不用另起一行说明
+  const tideButton = computed<string>(() : string => {
+    let n = 0
+    for (let i = 0; i < tideMarks.value.length; i++) {
+      if (tideMarks.value[i]) {
+        n = n + 1
+      }
+    }
+    if (n == 0) {
+      return '都不动'
+    }
+    return n == tideMarks.value.length ? '两张都沉' : '沉 ' + n + ' 张'
+  })
   // 换水等你挑一张手牌塞回去
   const swapPending = ref<boolean>(false)
   // 冻结等你挑庄家的一张手牌（挑的是位置 —— 那几张多半盖着）
@@ -1702,7 +1731,7 @@
     //
     // 硬壳认的是印死的花色（♠ 四分之一，定额）；炙水认的是燃烧，
     // 而燃烧是**庄家自己造出来的**（沸水在场时落堆的牌都带火、
-    // 燎原每回合往两边爬）。所以它的覆盖面会长，硬壳的不会。
+    // 燎原每打一张牌往两边爬一格）。所以它的覆盖面会长，硬壳的不会。
     //
     // 它也因此**自带一个解**：野火把带火的牌收走 —— 那是庄家自己的牌，
     // 所以它清自己的锁。你的解照旧是 J 或者从更深处连带收走
@@ -3086,9 +3115,9 @@
     return false
   }
 
-  // ---------- 【燎原】：火每回合向左右各蔓延一格 ----------
+  // ---------- 【燎原】：每打出一张牌，火向左右各蔓延一格 ----------
   //
-  // 调用点在 passTurn（回合末一次，见那儿那段注释）。
+  // 调用点在 endPlay（每打完一张牌一次，连竿加打的那张也算，见那儿那段注释）。
   //
   // ---- 它**只点火，不收牌** ----
   //
@@ -3106,7 +3135,7 @@
   //
   // ---- 扩散是线性的，因为堆是一维的 ----
   //
-  // 一个火源每回合覆盖面 +2（左右各一格）。多个火源会合并。
+  // 一个火源每打一张牌覆盖面 +2（左右各一格）。多个火源会合并。
   // 堆常常只有三五张，所以两三回合铺满；堆养厚了就慢 ——
   // 「限幅」是一维这件事本身给的，不是额外加的规则。
   //
@@ -3765,10 +3794,16 @@
     const card = lastPlayed
     const at0 = card == null ? -1 : pileIndexOf(card!)
     if (at0 < 0) {
-      passTurn(byFoe)
+      endPlay(byFoe)
       return
     }
     const vals = pileValsAt(at0)
+    // 火和花色也得**原样带回去**，不能只带点数 ——
+    // 放回去走的是 pushPile / unshiftPile，那两个按「刚落下来」重算火（burnOnLand）
+    // 和花色（牌面）。不带的话【燎原】自带的那层火在这一拿一放之间就丢了，
+    // 堆上没有火源，回合末蔓延不出去，整件技能看着像没生效
+    const burn = pileBurnAt(at0)
+    const suit = pileSuitAt(at0)
     removePileAt(at0)
     // 量水是技能，已经在 afterPlay 里结算过了 —— 匹配这一步不再算它
     const skills = withoutSkill(matchSkills, SK_MEASURE)
@@ -3776,6 +3811,7 @@
     // J 落在空堆上：没有可通吃的，就**只勾走它自己**（记 1 分）
     if (card!.rank == JACK && pile.value.length == 0) {
       pushPile(card!, byFoe, GUARD_NONE, vals)
+      keepMarks(pile.value.length - 1, burn, suit)
       startCatch(byFoe, 0, 0)
       message.value = message.value + (byFoe ? ' 庄家钓走 1 张。' : ' 钓走 1 张！')
       return
@@ -3788,13 +3824,15 @@
         ? (byFoe ? GUARD_FOE : GUARD_ME) : GUARD_NONE
       if (sink) {
         unshiftPile(card!, byFoe, guard, vals)
+        keepMarks(0, burn, suit)
       } else {
         pushPile(card!, byFoe, guard, vals)
+        keepMarks(pile.value.length - 1, burn, suit)
       }
       if (!byFoe) {
         message.value = message.value + ' 落在堆上。'
       }
-      passTurn(byFoe)
+      endPlay(byFoe)
       return
     }
     // 钓到了。收走的那一段往哪边算，由沉底决定：
@@ -3803,15 +3841,31 @@
     let caught = 0
     if (sink) {
       unshiftPile(card!, byFoe, GUARD_NONE, vals)
+      keepMarks(0, burn, suit)
       startCatch(byFoe, 0, at + 1)
       caught = at + 2
     } else {
       pushPile(card!, byFoe, GUARD_NONE, vals)
+      keepMarks(pile.value.length - 1, burn, suit)
       startCatch(byFoe, at, pile.value.length - 1)
       caught = pile.value.length - at
     }
     message.value = message.value + (byFoe ? ' 庄家钓走 ' + caught + ' 张。' : ' 钓走 ' + caught + ' 张！')
   }
+  // resolveMatch 把打出那张放回堆上之后，把它拿下来之前的火和花色写回去
+  //（理由见 resolveMatch 里 burn / suit 那两行）。点数已经由 vals 带回去了
+  function keepMarks(at : number, burn : number, suit : string) {
+    if (at < 0 || at >= pile.value.length) {
+      return
+    }
+    const nextBurn = pileBurn.value.slice(0)
+    nextBurn[at] = burn
+    pileBurn.value = nextBurn
+    const nextSuit = pileSuit.value.slice(0)
+    nextSuit[at] = suit
+    pileSuit.value = nextSuit
+  }
+
 
   // 按下标从堆上拿掉一张（六条并行数组一起删，见 pushPile）
   function removePileAt(at : number) {
@@ -4058,7 +4112,7 @@
       dropBottomToFoe('过闸')
     }
     // 技能在匹配之前就结算完了（见 afterPlay → resolveMatch），所以这儿直接交回合
-    passTurn(byFoe)
+    endPlay(byFoe)
   }
 
   // 【守滩】垫牌：从庄家手里挑一张最不容易被你钓走的，垫到堆上。
@@ -4263,7 +4317,7 @@
       message.value = message.value + (byFoe ? ' 庄家沸水：' : ' 沸水：')
         + '从现在起落堆的牌都带着火。'
     }
-    // 燎原：在场时，堆上的火每回合向左右各蔓延一格（见 spreadFire）。
+    // 燎原：在场时，每打出一张牌，堆上的火向左右各蔓延一格（见 spreadFire）。
     // 它自带的那一层火在 playFor 里就点上了 —— 这儿只负责挂住效果
     if (hasTrigger(skills, SK_SPREAD) && lastPlayed != null && inPile(lastPlayed!)) {
       addHeld({
@@ -4546,29 +4600,36 @@
       && deck.value.length > 1) {
       const tops = tideTops()
       if (!byFoe) {
-        tideName.value = tideNames(tops)
+        tideCards.value = tops
+        const marks : boolean[] = []
+        for (let i = 0; i < tops.length; i++) {
+          marks.push(false)
+        }
+        tideMarks.value = marks
         tidePending.value = true
         return
       }
-      // 庄家看的是它自己要补的两张：一张都用不上才沉。
-      // 「用得上」= J（通吃），或者钓得着堆上的某张
-      let useful = false
-      for (let i = 0; i < tops.length && !useful; i++) {
-        if (tops[i].rank == JACK) {
-          useful = true
-          break
-        }
-        for (let k = 0; k < pile.value.length; k++) {
+      // 庄家看的是它自己要补的两张，**一张一张判**：用不上的沉，用得上的留。
+      // 「用得上」= J（通吃），或者钓得着堆上的某张。
+      // 跟你受同一条规矩 —— 你也是每张单独选（见 onTideCard）
+      const marks : boolean[] = []
+      let sunk = 0
+      for (let i = 0; i < tops.length; i++) {
+        let useful = tops[i].rank == JACK
+        for (let k = 0; k < pile.value.length && !useful; k++) {
           if (pile.value[k].rank == tops[i].rank) {
             useful = true
-            break
           }
         }
+        marks.push(!useful)
+        if (!useful) {
+          sunk = sunk + 1
+        }
       }
-      if (!useful) {
-        sinkTops(tops.length)
-        message.value = message.value + ' 庄家观潮，把牌库顶那 '
-          + tops.length + ' 张沉了下去。'
+      if (sunk > 0) {
+        sinkMarked(marks)
+        message.value = message.value + ' 庄家观潮，把牌库顶 '
+          + sunk + ' 张沉了下去。'
       }
     }
     // 技能都结算完了，轮到这张牌去匹配（见 resolveMatch）
@@ -4618,14 +4679,64 @@
     deck.value = bottom.concat(rest)
   }
 
-  function onTide(sink : boolean) {
+  // 观潮：牌库顶那几张里，标了「沉」的沉到库底，没标的留在顶上。
+  // marks 跟 topCards 对齐（第 0 个是最顶上那张）。
+  //
+  // 两头都**保持原来的先后**（理由同 sinkTops：你看过它们了，这层信息不该白送掉）：
+  // 留下的还是那个先后摞在顶上，沉下去的照 sinkTops 那个次序垫在最底下
+  function sinkMarked(marks : boolean[]) {
+    const n = marks.length
+    const rest = deck.value.slice(0)
+    const taken : PlainCard[] = []
+    for (let i = 0; i < n && rest.length > 0; i++) {
+      // 从顶往下取：taken[0] 是最顶上那张，跟 marks[0] 对得上
+      taken.push(rest.pop()!)
+    }
+    const bottom : PlainCard[] = []
+    for (let i = taken.length - 1; i >= 0; i--) {
+      if (marks[i]) {
+        bottom.push(taken[i])
+      }
+    }
+    // 留下的放回顶上：数组末尾是顶，所以从下往上推回去（最顶上那张最后推）
+    let top = bottom.concat(rest)
+    for (let i = taken.length - 1; i >= 0; i--) {
+      if (!marks[i]) {
+        top = top.concat([taken[i]])
+      }
+    }
+    deck.value = top
+  }
+
+  // 点一张：标「沉」/ 取消
+  function onTideCard(index : number) {
+    if (!tidePending.value || index < 0 || index >= tideMarks.value.length) {
+      return
+    }
+    const next = tideMarks.value.slice(0)
+    next[index] = !next[index]
+    tideMarks.value = next
+  }
+
+  // 按确定：标了的沉下去，然后接着走匹配
+  function onTideDone() {
     if (!tidePending.value) {
       return
     }
     tidePending.value = false
-    if (sink) {
-      sinkTops(tideTops().length)
-      message.value = '你把 ' + tideName.value + ' 沉到了牌库底。'
+    const marks = tideMarks.value.slice(0)
+    const cards = tideCards.value.slice(0)
+    tideCards.value = [] as PlainCard[]
+    tideMarks.value = [] as boolean[]
+    const sunk : PlainCard[] = []
+    for (let i = 0; i < marks.length && i < cards.length; i++) {
+      if (marks[i]) {
+        sunk.push(cards[i])
+      }
+    }
+    if (sunk.length > 0) {
+      sinkMarked(marks)
+      message.value = '你把 ' + tideNames(sunk) + ' 沉到了牌库底。'
     }
     resolveMatch(false)
   }
@@ -6294,6 +6405,16 @@
   //   · 手里没牌了就不给（没得打）。
   //   · **补牌和护饵过期都压到真交接那一刻**：加打那张是同一个回合里的，
   //     中间补牌的话手牌数就不对了，护饵也会提前失效
+  // 一张牌打完了（技能结算完、匹配完、收牌特效也演完了），再交回合。
+  //
+  // 【燎原】在这儿蔓延：**每打一张牌蔓延一次**。连竿加打的那一张也算一张 ——
+  // 所以它比「每回合一次」快，连竿 × 燎原一回合能烧两格。
+  // 「没牌可打、跳过回合」那几条路直接调 passTurn，不经过这儿，不蔓延
+  function endPlay(byFoe : boolean) {
+    spreadFire()
+    passTurn(byFoe)
+  }
+
   function passTurn(byFoe : boolean) {
     if (againPending && !againUsed.value) {
       againPending = false
@@ -6313,15 +6434,11 @@
     againPending = false
     againUsed.value = false
     expireGuards(byFoe)
-    // 【燎原】：回合末蔓延一次。
-    //
-    // 摆在 expireGuards 之后、refill 之前 —— 它只动堆，跟护和补牌都不冲突。
-    // 「每回合一次」就是这儿：连竿那条路在上面 return 了，所以加打的那一张
-    // **不额外蔓延一次**（一个回合烧一格，那是它的速度）
-    spreadFire()
+    // 【燎原】原先在这儿蔓延（每回合末一次）。改成了**每打一张牌蔓延一次**，
+    // 挪到 endPlay —— 这儿还会被「没牌可打、跳过回合」那几条路调到，那不算打牌
     // ---------- 【走水】：堆养过 LEAK_DEEP 张就从底下漏 ----------
     //
-    // 跟燎原同一个「回合末」钩子，理由也一样：连竿那条路在上面 return 了，
+    // 摆在「回合末」：连竿那条路在上面 return 了，
     // 所以加打的那一张**不额外漏一次**（一个回合漏一格，那是它的速度）。
     //
     // **双方回合末都算** —— 它罚的是「堆厚了」这个状态，不是谁造成的。
@@ -6823,6 +6940,8 @@
     flashMe.value = false
     flashFoe.value = false
     tidePending.value = false
+    tideCards.value = [] as PlainCard[]
+    tideMarks.value = [] as boolean[]
     swapPending.value = false
     freezePending.value = false
     pilePick.value = -1
@@ -7725,6 +7844,27 @@
     font-weight: bold;
   }
 
+  /* 观潮标了「沉」的那张：压暗、换成冷色框，角上挂个「沉」字。
+     要排在 .pick-deck-card 后面 —— 同权重后来居上 */
+  .tide-card-sunk {
+    /* 角标伸出卡外一点，view 默认 overflow: hidden 会把它裁掉 */
+    overflow: visible;
+    background-color: #9aa9b5;
+    border-color: #5fb3ff;
+  }
+
+  .tide-card-mark {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    padding: 0 4px;
+    border-radius: 6px;
+    background-color: #5fb3ff;
+    color: #0b2540;
+    font-size: 11px;
+    font-weight: bold;
+  }
+
   .tide-actions {
     flex-direction: row;
     margin-top: 6px;
@@ -7761,7 +7901,8 @@
      原先是两块（message-box 在上、turn-bar 在下），合成一条 */
   .turn-bar {
     flex-direction: row;
-    align-items: baseline;
+    /* App 端不支持 baseline（只认 center / flex-start / flex-end / stretch） */
+    align-items: flex-end;
     flex-wrap: wrap;
     margin-top: 8px;
     margin-bottom: 2px;

@@ -85,7 +85,7 @@ const SK = {
   SOFT: 32, DEAD: 33,
   // 野火：给堆上所有牌点【燃烧】，已经带火的收走
   // 沸水：在场时，落堆的牌都带 1 层火
-  // 燎原：无点数、自带火；在场时火每回合向左右各蔓延一格
+  // 燎原：无点数、自带火；在场时每打出一张牌，火向左右各蔓延一格
   CALM: 34, CLEAN: 35,
   WILD: 36, BOIL: 37, SPREAD: 38,
   RAISE: 39, MERGE: 40, DREDGE: 41
@@ -1382,7 +1382,7 @@ function playFor(G, side, index, ai) {
     //     照常匹配。注意那也意味着匹配不中时它会被挪到堆顶 / 堆底
     //     （resolveMatch 一律先摘下来再放回去）—— 源码就是这个行为
     resolveMatch(G, side, card, skills, sink)
-    passTurn(G, side)
+    endPlay(G, side)
     return
   }
   if (sink) {
@@ -1415,6 +1415,13 @@ function playFor(G, side, index, ai) {
   }
   afterPlay(G, side, skills, card, ai)
   resolveMatch(G, side, card, skills, sink)
+  endPlay(G, side)
+}
+
+// 一张牌打完了再交回合（照源码 endPlay）。【燎原】在这儿蔓延：
+// **每打一张牌一次**，连竿加打的那张也算。没牌可打、跳过回合直接走 passTurn，不蔓延
+function endPlay(G, side) {
+  spreadFire(G)
   passTurn(G, side)
 }
 
@@ -1429,12 +1436,17 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   const at0 = pileIndexOf(G, card)
   if (at0 < 0) return
   const vals = pileValsAt(G, at0)
+  // 火和花色原样带回去（照源码 resolveMatch 的 burn / suit）：放回去走 pushPile，
+  // 那边按「刚落下」重算火，不带的话【燎原】自带的那层火就丢了
+  const burn = pileBurnAt(G, at0)
+  const suit = pileSuitAt(G, at0)
   removePileAt(G, at0)
   // 量水是技能，已经在 afterPlay 里结算过了 —— 匹配这一步不再算它
   const skills = cardSkills.filter(function (s) { return s !== SK.MEASURE })
   // J 落在空堆上：没有可通吃的，就只勾走它自己（记 1 分）
   if (card.rank === JACK && G.pile.length === 0) {
     pushPile(G, card, side, GUARD_NONE, vals)
+    keepMarks(G, G.pile.length - 1, burn, suit)
     finishCatch(G, side, 0, 1, card, skills)
     return
   }
@@ -1444,8 +1456,10 @@ function resolveMatch(G, side, card, cardSkills, sink) {
     const guard = firmGuardFor(G, side)
     if (sink) {
       unshiftPile(G, card, side, guard, vals)
+      keepMarks(G, 0, burn, suit)
     } else {
       pushPile(G, card, side, guard, vals)
+      keepMarks(G, G.pile.length - 1, burn, suit)
     }
     return
   }
@@ -1454,11 +1468,20 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   //   沉底 —— 落堆底，收「堆底 → 匹配那张」（插在 0，原来的 at 往后挪一格）
   if (sink) {
     unshiftPile(G, card, side, GUARD_NONE, vals)
+    keepMarks(G, 0, burn, suit)
     finishCatch(G, side, 0, at + 2, card, skills)
   } else {
     pushPile(G, card, side, GUARD_NONE, vals)
+    keepMarks(G, G.pile.length - 1, burn, suit)
     finishCatch(G, side, at, G.pile.length - at, card, skills)
   }
+}
+
+// 放回去之后把拿下来之前的火和花色写回去（照源码 keepMarks）
+function keepMarks(G, at, burn, suit) {
+  if (at < 0 || at >= G.pile.length) return
+  G.pileBurn[at] = burn
+  G.pileSuit[at] = suit
 }
 
 // 钓到之后：收那一段、【深钩】再捞堆底、记统计（照 finishCatch）
@@ -1955,9 +1978,7 @@ function afterPlay(G, side, skills, played, ai) {
   // 择饵赢过观潮：两件撞在同一张牌上时只走择饵（源码对两侧都加了这道闸）
   if (has(skills, SK.TIDE) && !has(skills, SK.PICK) && G.deck.length > 1) {
     const tops = topCards(G, TIDE_LOOK)
-    if (ai.tideSink(G, tops)) {
-      sinkTops(G, tops.length)
-    }
+    sinkMarked(G, ai.tideSink(G, tops))
   }
 }
 
@@ -1974,6 +1995,17 @@ function measureFor(G, side, skills, played) {
   G.stat.catches[side]++
   G.stat.caught[side] += size
   collect(G, side, 0, size)
+}
+
+// 观潮：顶上那几张里标了的沉底、没标的留在顶上，两头都保持原来的先后（照 sinkMarked）。
+// marks 跟 topCards 对齐，第 0 个是最顶上那张
+function sinkMarked(G, marks) {
+  const taken = []
+  for (let i = 0; i < marks.length && G.deck.length > 0; i++) taken.push(G.deck.pop())
+  const bottom = []
+  for (let i = taken.length - 1; i >= 0; i--) if (marks[i]) bottom.push(taken[i])
+  G.deck = bottom.concat(G.deck)
+  for (let i = taken.length - 1; i >= 0; i--) if (!marks[i]) G.deck.push(taken[i])
 }
 
 // 牌库顶往下数 n 张（照 topCards）。第 0 个是最顶上那张
@@ -2467,15 +2499,13 @@ function passTurn(G, side) {
   G.againPending = false
   G.againUsed = false
   expireGuards(G, side)
-  // 【燎原】回合末蔓延一次。连竿那条路在上面 return 了，
-  // 所以加打的那一张不额外蔓延 —— 一个回合烧一格
-  spreadFire(G)
+  // 【燎原】原先在这儿蔓延（回合末一次），改成每打一张牌一次，挪到了 endPlay
   refill(G, side)
   checkOver(G)
   G.turn = side === FOE ? ME : FOE
 }
 
-// 【燎原】：火每回合向左右各蔓延一格（照 spreadFire）。
+// 【燎原】：每打出一张牌，火向左右各蔓延一格（照 spreadFire，调用点照 endPlay）。
 //
 // **只点火、不收牌** —— 下面两个条件都是 `=== 0`，碰到已经带火的格子
 // 什么也不做。只有【野火】收牌。

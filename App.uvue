@@ -1,104 +1,103 @@
-<script setup lang="uts">
+<script lang="uts">
   import { state, setLifeCycleNum, setAppLaunchPath, setAppShowPath } from './store/index.uts'
 
   // #ifdef APP-ANDROID || APP-HARMONY
   let firstBackTime = 0
   // #endif
 
-  defineOptions({
-		globalData: {
-			str: 'globalData str',
-			num: 1,
-			boolean: true
-		}
-  	// #ifndef APP-ANDROID || VUE3-VAPOR
-		,mixins: [{
+  // 选项式写法。原来是 <script setup>（官方示例的新写法），可 HBuilderX 4.87
+  // 编 Android 时不支持在 App.uvue 里用组合式 —— 编译直接报 Parse error（App.uvue:1:1）。
+  // 生命周期、globalData、mixin、两个自动化测试用的方法都照原样搬过来了
+  export default {
+    globalData: {
+      str: 'globalData str',
+      num: 1,
+      boolean: true
+    },
+    // #ifndef APP-ANDROID || VUE3-VAPOR
+    mixins: [{
       data() {
         return {
           appMixinDataMsg: 'App.uvue mixin data msg'
         }
       }
-    }]
-  	// #endif
-  })
-	onLaunch((options) => {
-		// 自动化测试
-		setLifeCycleNum(state.lifeCycleNum + 1000)
-		setAppLaunchPath(options.path)
-		console.log('App Launch')
-	})
-	onAppShow((options) => {
-		// 自动化测试
-		setLifeCycleNum(state.lifeCycleNum + 100)
-		setAppShowPath(options.path)
-  // #ifndef VUE3-VAPOR
-		nextTick(() => {
-      if(getApp()?.vm?.globalPropertiesStr === 'default string'){
-        setLifeCycleNum(state.lifeCycleNum + 10)
-      }
-    })
-  // #endif
-		console.log('App Show')
-	})
-	onAppHide(() => {
-		// 自动化测试
-		setLifeCycleNum(state.lifeCycleNum - 100)
-		console.log('App Hide')
-	})
-	// #ifdef APP-ANDROID || APP-HARMONY
-	onLastPageBackPress(() => {
-		// 自动化测试
-		setLifeCycleNum(state.lifeCycleNum - 1000)
-		console.log('App LastPageBackPress')
-		if (firstBackTime == 0) {
-			uni.showToast({
-				title: '再按一次退出应用',
-				position: 'bottom',
-			})
-			firstBackTime = Date.now()
-			setTimeout(() => {
-				firstBackTime = 0
-			}, 2000)
-		} else if (Date.now() - firstBackTime < 2000) {
-			firstBackTime = Date.now()
-			uni.exit()
-		}
-	})
-	onExit(() => {
-		console.log('App Exit')
-	})
-	// #endif
-	onError((err: any) => {
-		console.log('App Error', err)
-		setLifeCycleNum(state.lifeCycleNum + 100)
-	})
-	const checkLaunchPath = () : boolean => {
-		const HOME_PATH = 'pages/index/index'
-		if (state.appLaunchPath != HOME_PATH) {
-			return false
-		}
-		if (state.appShowPath != HOME_PATH) {
-			return false
-		}
-		return true
-	}
-  // #ifndef APP-ANDROID || VUE3-VAPOR
-  const checkAppMixin = () : boolean => {
-    if(getApp()?.vm?.globalMixinDataMsg1 != '通过 defineMixin 定义全局 mixin data') {
-      return false
-    }
-    if(getApp()?.vm?.appMixinDataMsg != 'App.uvue mixin data msg') {
-      return false
-    }
-    return true
-  }
-  // #endif
-	defineExpose({
-		checkLaunchPath,
-    // #ifndef APP-ANDROID || VUE3-VAPOR
-    checkAppMixin,
+    }],
     // #endif
-	})
+    onLaunch(options : OnLaunchOptions) {
+      // 自动化测试
+      setLifeCycleNum(state.lifeCycleNum + 1000)
+      setAppLaunchPath(options.path)
+      console.log('App Launch')
+    },
+    onShow(options : OnShowOptions) {
+      // 自动化测试
+      setLifeCycleNum(state.lifeCycleNum + 100)
+      setAppShowPath(options.path)
+      // #ifndef VUE3-VAPOR
+      this.$nextTick(() => {
+        if (getApp()?.vm?.globalPropertiesStr === 'default string') {
+          setLifeCycleNum(state.lifeCycleNum + 10)
+        }
+      })
+      // #endif
+      console.log('App Show')
+    },
+    onHide() {
+      // 自动化测试
+      setLifeCycleNum(state.lifeCycleNum - 100)
+      console.log('App Hide')
+    },
+    // #ifdef APP-ANDROID || APP-HARMONY
+    onLastPageBackPress() {
+      // 自动化测试
+      setLifeCycleNum(state.lifeCycleNum - 1000)
+      console.log('App LastPageBackPress')
+      if (firstBackTime == 0) {
+        uni.showToast({
+          title: '再按一次退出应用',
+          position: 'bottom',
+        })
+        firstBackTime = Date.now()
+        setTimeout(() => {
+          firstBackTime = 0
+        }, 2000)
+      } else if (Date.now() - firstBackTime < 2000) {
+        firstBackTime = Date.now()
+        uni.exit()
+      }
+    },
+    onExit() {
+      console.log('App Exit')
+    },
+    // #endif
+    onError(err : any) {
+      console.log('App Error', err)
+      setLifeCycleNum(state.lifeCycleNum + 100)
+    },
+    methods: {
+      checkLaunchPath() : boolean {
+        const HOME_PATH = 'pages/index/index'
+        if (state.appLaunchPath != HOME_PATH) {
+          return false
+        }
+        if (state.appShowPath != HOME_PATH) {
+          return false
+        }
+        return true
+      },
+      // #ifndef APP-ANDROID || VUE3-VAPOR
+      checkAppMixin() : boolean {
+        if (getApp()?.vm?.globalMixinDataMsg1 != '通过 defineMixin 定义全局 mixin data') {
+          return false
+        }
+        if (getApp()?.vm?.appMixinDataMsg != 'App.uvue mixin data msg') {
+          return false
+        }
+        return true
+      }
+      // #endif
+    }
+  }
 </script>
 
 <style>
@@ -125,6 +124,9 @@
      整块往右多伸 10px（伸进外框的留白里），里面的内容右侧留 10px ——
      内容宽度不变，滚动条落在留白处，不再压着内容。
      .uni-scroll-view-content 是 H5 上 scroll-view 自己生成的那一层，页面样式够不着，所以写在这儿 */
+  /* 只在 Web 上编：App 端 uvue 样式只认单个类选择器，「.sv-out .xxx」这种后代选择器
+     会让整个 App.uvue 编译失败；而且 App 的滚动条本来就是悬浮的，不压内容，用不着这个 */
+  /* #ifdef WEB */
   .sv-out {
     margin-right: -10px;
   }
@@ -133,9 +135,17 @@
     padding-right: 10px;
     box-sizing: border-box;
   }
+  /* #endif */
 </style>
 <style>
 .text-red{
   color: red;
+}
+
+/* 钓鱼那几页（pages/examples/blackjack）去掉了原生导航栏（navigationStyle: custom），
+   App 上内容会顶到状态栏底下 —— 每页最上面垫这么一块，高度就是状态栏。
+   H5 上 --status-bar-height 是 0，这块等于不存在 */
+.bj-status-bar {
+  height: var(--status-bar-height);
 }
 </style>
