@@ -151,7 +151,13 @@ function pickCard(G, side) {
       || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
       || R.has(skills, SK.EBB)
       // 抄底也无点数，同一条理由
-      || R.has(skills, SK.DREDGE)) {
+      || R.has(skills, SK.DREDGE)
+      // 伏流也无点数 —— 它凑不成顺子时就留在堆上，而且谁也按点数
+      // 钓不走它（「当任意点数」**只在它自己那条判定路径上**成立）。
+      //
+      // **跟着 FLOW_VOID 那个旋钮走**：关掉无点数那一档它就有点数了，
+      // 于是不再是钓不走的安全饵，这一分不能给
+      || (R.FLOW_VOID && R.has(skills, SK.FLOW))) {
       score = score - 1.0
     }
     // ---- 【抄底】：**场上叠着几张，它就值几分** ----

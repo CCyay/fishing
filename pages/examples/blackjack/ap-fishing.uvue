@@ -427,7 +427,7 @@
 
          所以这儿把「牌库 + 庄家手牌」合成一栏报，正好等于庄家那边
          `outsideCount` 知道的东西 —— 它会记牌，你从前只能肉眼数，
-         这一块是把那份信息**对称地给你**（设计文档 8.5）。
+         这一块是把那份信息**对称地给你**（设计文档『信息要给够』那条判据）。
          牌库和它手里的分不开，于是推不出它那四张是什么，
          可「我这张 7 外面还剩几张」这类问题全答得上。 -->
     <view v-if="showLeft" class="mask" @click="showLeft = false">
@@ -566,6 +566,11 @@
     // 读着（抄底的兜底），从前漏在这张清单外面
     SK_MERGE,
     SK_DREDGE,
+    // 第四条匹配线：顺子。两件对付「11 那个洞」的办法不同 ——
+    // 伏流当通配**填**洞（幅度跟槽标签无关），涉水用差 2 **跨**洞
+    SK_FLOW,
+    SK_WADE,
+    STRAIGHT_MIN,
     DEAD_COUNT,
     DUMP_COUNT,
     SPILL_COUNT,
@@ -853,7 +858,7 @@
   //     splice / slice / keep 循环，而那是纯内部重构、一点玩法收益都没有，
   //     风险却实打实（漏一处就错位）。
   //   · 「堆上某张对某一方不算钓点」这个机制本身是有用的 ——
-  //     第十节那几条庄家规矩（浑底、定桩）要的正是它。哪天加回来，
+  //     庄家那几条规矩（浑底、定桩，见庄家文档的规矩表）要的正是它。哪天加回来，
   //     guardedAgainst 那一层现成。
   //
   // 恒为 GUARD_NONE 的代价只是 guardedAgainst 恒返回 false、
@@ -1072,17 +1077,33 @@
   // 打出那张牌带的技能、落没落堆底 —— 技能都结算完之后匹配要用（见 resolveMatch）
   let matchSkills : number[] = []
   let matchSink : boolean = false
-  // afterPlayTail 的三段。散着收的技能演完特效，从**它后面那一段**接着走：
+  // afterPlayTail 的几段。散着收的技能演完特效，从**它后面那一段**接着走：
   //   见底 / 干塘 演完 → TAIL_EBB（退潮、洪水、收色……）
   //   收色 演完       → TAIL_CAST（撒网……）
-  //   撒网 演完       → TAIL_WILD（野火……）
+  //   撒网 演完       → TAIL_FLOW（伏流……）
+  //   伏流 演完       → TAIL_WADE（涉水……）
+  //   涉水 演完       → TAIL_WILD（野火……）
   //   野火 演完       → TAIL_REST（动对方手牌那几件往后）
   // 量水演完从 TAIL_HEAD 接着走（afterPlayHead：窥视、照水……见底）
+  //
+  // ---- **每件散收技能都得有自己的段号**，这不是风格问题 ----
+  //
+  // 每一段的进入条件是「**上一件传的那个值**」（撒网传 TAIL_FLOW →
+  // 伏流判 `from <= TAIL_FLOW`）。两件共用一个段号就一定出错，而且
+  // 两种错都是静默的：
+  //
+  //   共用且后者在前者**后面** → 前者一收牌，后者**被跳过**（作废）；
+  //   共用且后者在前者**前面** → 后者**重复执行**一次。
+  //
+  // 加伏流的时候就踩了第一种（它跟野火共用 TAIL_WILD，于是同一张牌
+  // 带撒网 + 伏流时，撒网一收牌伏流就没了）。加新的散收技能记着这条
   const TAIL_HEAD : number = -1
   const TAIL_EBB : number = 0
   const TAIL_CAST : number = 1
-  const TAIL_WILD : number = 2
-  const TAIL_REST : number = 3
+  const TAIL_FLOW : number = 2
+  const TAIL_WADE : number = 3
+  const TAIL_WILD : number = 4
+  const TAIL_REST : number = 5
 
   function inCatch(index : number) : boolean {
     if (catchSet.value.length > 0) {
@@ -1751,7 +1772,7 @@
   //   「堆有多厚、谁打的多」本来就是数得出来的（张数印在顶栏），
   //     藏那个只会让界面看着像坏了。
   //
-  // 它跟记牌那条原则（8.5「信息全给」）确实是反着的，所以设计稿里
+  // 它跟记牌那条原则（『信息要给够』）确实是反着的，所以设计稿里
   // 它只给**终局**那张卡（东海龙王）—— 不是普通关卡的规矩
   function murked(index : number) : boolean {
     if (!hasFoeSpecial('murk')) {
@@ -3256,7 +3277,7 @@
   //     先染的话顺色命中的必然是最深那张，也就是**整堆通收**。
   //
   // 这是全表第一组真正的**机制级联动**（从前的「连招」都只是玩家
-  // 操作上的配合，见设计文档 8.2）。它贵在难凑：两个技能得落在
+  // 操作上的配合，见设计文档『组合技』）。它贵在难凑：两个技能得落在
   // 同一张牌上 —— 除非你还带着【连竿】，那就只要同一个回合。
   //
   // ---- 它跟【见底】的那条组合**拆掉了** ----
@@ -3360,6 +3381,23 @@
       || hasTrigger(skills, SK_DREDGE)) {
       return [] as number[]
     }
+    // ---- 【伏流】**不在**上面那一族，而那是量出来的 ----
+    //
+    // 它最初也给了「无点数」当代价（顺子是它唯一的钓牌方式，回报是
+    // 谁也按点数钓不走它）。**那条代价它撑不起** ——
+    // `vs flow flow` 20000 局扫了四格：
+    //
+    //   无点数 + 收那几张   +1.84
+    //   无点数 + 收整段     +2.45
+    //   有点数 + 收那几张   +2.72
+    //   有点数 + 收整段     **+3.41**  ← 定的是这一档
+    //
+    // 只有两样都给才落进 3~5 的目标档。所以它现在是**双线**技能：
+    // 凑成顺子走顺子那条线，凑不成就退回普通点数匹配。
+    //
+    // **它不会因此变成「谁都接得上」的超级靶子** —— 通配只在
+    // straightFor 那一条路径上成立（单向），所以在对手眼里它就是一张
+    // 点数普通的牌。合流那个坑（匹配双向 → 靶子变大 → −1.00）不适用
     // 无点数牌**谁也给不了它点数**：齐顶、归深、退潮、见底都是在「它的点数」上改，
     // 而它压根没有那一项。只有花色槽触发得到它（点数槽不收它），
     // 所以撞上这几件只会是花色槽 —— 技能照常发动，它自己照旧没点数
@@ -4018,7 +4056,7 @@
     // 这也是它跟沉底的分工：沉底改的是「从哪头收」，深钩是「顺手多捞一把」。
     //
     // **它仍然可能偏强**：一局钓 9 次就是多收 9 张，而一件技能的目标
-    // 是一局 3~5 分。等模拟器量过（设计文档 12.7）
+    // 是一局 3~5 分。等模拟器量过（`md-sim` 已经搬完，这一件还没量）
     if (hasSpecial(byFoe, SP_DEEPHOOK) && pile.value.length > 0) {
       let extra = DEEP_EXTRA
       if (extra > pile.value.length) {
@@ -4372,7 +4410,7 @@
     // 前提是「一张牌同时触发两件技能」，而那在角色卡上**仍然存在** ——
     // 带花色槽的角色（镜湖占卜师 ♥ + '3 4'、深海钓手 ♣ + 'K'）在两个槽的交集上
     // 就是双触发（triggersOf 返回两个下标；DRAW_ROLES 里镜湖占卜师那条 desc
-    // 写的就是这个）。设计文档第九节那套「重叠格组合技」因此没死，
+    // 写的就是这个）。设计文档『组合技』那套「重叠格」因此没死，
     // 只是从「随机摇出来的重叠」变成了「角色卡印死的交集」。
     //
     // 为什么是这两件合：它们合的是**两样不同的东西** ——
@@ -4447,6 +4485,23 @@
     // 撒网：堆上同奇偶的一起收走。同上，演完从下一段接着走
     if (from <= TAIL_CAST && hasTrigger(skills, SK_CAST) && lastPlayed != null) {
       if (castFor(byFoe, lastPlayed!, skills)) {
+        return
+      }
+    }
+    // 伏流：它当通配凑最长的顺子，凑成就收走那几张。
+    //
+    // **排在收色、撒网后面，野火前面** —— 跟那两件同组（都是「换一条
+    // 判定线」的收牌技能），而排在野火前面照的是野火那条注释的同一个理由：
+    // 收牌的先收完，点火的最后来
+    if (from <= TAIL_FLOW && hasTrigger(skills, SK_FLOW)) {
+      if (straightFor(byFoe, skills)) {
+        return
+      }
+    }
+    // 涉水：顺子的步长放宽到 2。**自己一段** —— 每件散收技能都得有
+    //（理由见 TAIL_* 常量那段：共用段号会静默地重复执行或被跳过）
+    if (from <= TAIL_WADE && hasTrigger(skills, SK_WADE)) {
+      if (wadeFor(byFoe, skills)) {
         return
       }
     }
@@ -5500,7 +5555,319 @@
     const taken = harvestIndices(wanted)
     message.value = message.value + (byFoe ? ' 庄家撒网：' : ' 撒网：')
       + '往左连着收了 ' + taken.length + ' 张' + (odd ? '奇' : '偶') + '数。'
+    return startSweep(byFoe, taken, skills, TAIL_FLOW)
+  }
+
+  // ---------- 【伏流】：它当通配，凑最长的顺子 ----------
+  //
+  // 第四条匹配线（点数 / 花色 / 累加不超 21 / **顺子**）。
+  // 设计论证在 draw-skills 那条，这儿只记实现上的四个决定。
+  //
+  // ---- 一、它**只在这条路径上**当任意点数 ----
+  //
+  // 绝不能把「当任意点数」写进 cardVals / valuesOf。那两层是**双向**的
+  //（你怎么钓别人、别人怎么钓你），而双向的话对手也能把它当通配接上 ——
+  // 它就成了一张谁都接得上的超级靶子。那个坑是量过的：合流因为
+  //「匹配是双向的」从预期的正分掉到 −1.00 / −0.83。
+  //
+  // 它在 valuesOf 里是**无点数**那一族（跟顺色、收色、洪水、野火一起），
+  // 所以别人压根按点数钓不到它。无点数 + 单向，两条合起来才是完整设计
+  //
+  // ---- 二、枚举「区间」，而不是从它自己往外长 ----
+  //
+  // 顺子 = 一段连续的点数 [a, b]，其中**恰好一个点数由它填**（通配），
+  // 其余每个点数都得有堆上的牌顶上。于是算法是：
+  //   枚举 a、b（b − a + 1 ≥ STRAIGHT_MIN）
+  //   → 数区间里有几个点数在堆上找不到牌
+  //   → 正好缺 1 个就成立（那个缺口就是它当的点数）
+  //
+  // 从它自己往两边长那种写法**漏情形** —— 它填的可能是中间的缺口
+  //（堆上 5、7，它当 6），不只是接在外侧
+  //
+  // ---- 三、点数范围要**读堆**，不能写死 1..13 ----
+  //
+  // 全局规则「点数往上**不设限**」是真的：抬水能把一张牌抬到 14、20。
+  // 所以上界取堆上最大点数 + 1，下界取 0（见底能把牌压到 0，
+  // 而 0 跟 1 算差 1，所以 `0-A-2` 是合法顺子）
+  //
+  // ---- 四、同一个点数有好几张时取**最深**那张 ----
+  //
+  // 顺子每个点数只要一张。取下标最小的 —— 跟 catchStart「从 i = 0 往上找」
+  // 一个口径（这个玩法里深的那张总是更值钱）
+  // ---- 五、用**数组**不用 Map ----
+  //
+  // 下标就是点数、值是堆上那一格（−1 = 堆上没有这个点数）。
+  // 点数范围天然有界（0 到堆上最大那个），所以数组够用；
+  // 而这个文件里一处 Map 都没有 —— 照着来，省一个 UTS 的不确定性
+  //
+  // skipAt 传它自己那一格（它是通配、不占点数格）；AI 预估时堆里还没有它，
+  // 传 −1。无点数的牌（不在点数轴上）和护着的牌（钓不走）一概跳过。
+  //
+  // ---- skipAt **不是**冗余的，哪怕伏流本来就无点数 ----
+  //
+  // 看着像冗余：它在 valuesOf 里是无点数那一族，所以 pileValsAt 该是空的。
+  // 可这儿读的是 **pileVals**（落堆那一刻 `landVals` 算出来的），而 landVals
+  // 末尾有一支 `parityBlocked` → **return [0]**。
+  //
+  // 于是场上挂着【分水】、而伏流的奇偶跟它不同时，伏流落堆时是 `[0]`
+  // 不是空的 —— 没有 skipAt 它就会**自己占掉 0 这一格**，然后
+  // 「堆上缺哪个点数」算错一格。那种错很难看出来（只在有分水时发生）
+  function deepestByVal(skipAt : number, byFoe : boolean) : number[] {
+    // 先求堆上最大点数 —— 数组开多大得先知道
+    let top = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i == skipAt || guardedAgainst(i, byFoe) || shelled(i, byFoe)) {
+        continue
+      }
+      const vals = pileValsAt(i)
+      for (let k = 0; k < vals.length; k++) {
+        if (vals[k] > top) {
+          top = vals[k]
+        }
+      }
+    }
+    // 长度 top + 2：下标 0..top+1，**最后那格留给「它接在最大那张外侧」**
+    const deepest : number[] = []
+    for (let v = 0; v <= top + 1; v++) {
+      deepest.push(-1)
+    }
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i == skipAt || guardedAgainst(i, byFoe) || shelled(i, byFoe)) {
+        continue
+      }
+      const vals = pileValsAt(i)
+      for (let k = 0; k < vals.length; k++) {
+        const v = vals[k]
+        // 取**最深**那张（下标最小）—— 跟 catchStart「从 i = 0 往上找」
+        // 一个口径。顺子每个点数只要一张，而深的那张更值钱
+        if (v >= 0 && v < deepest.length && deepest[v] < 0) {
+          deepest[v] = i
+        }
+      }
+    }
+    return deepest
+  }
+
+  // 在 deepest 上挑一条顺子。返回 [from, to]，from < 0 = 凑不出来。
+  //
+  // ---- 两条判据，顺序定死：**先数量，数量相同取最深** ----
+  //
+  // 「数量」是顺子的张数（区间长度）。「最深」是顺子里最深那张的位置
+  //（下标最小）—— 而那在收整段的口径下正好等于「段更长」，
+  // 所以两条判据同向，不会互相拉扯。
+  //
+  // 次判据**非有不可**：同样长的顺子常常有好几条（堆上 5 6 7 8 的时候，
+  // 它当 4 或者当 9 都凑得出四张），而「先找到的赢」会默默地
+  // 总是选点数小的那条 —— 那是个任意的选择，而且它系统性地偏向堆的一头
+  function bestStraight(deepest : number[]) : number[] {
+    let bestFrom = -1
+    let bestTo = -1
+    let bestLen = 0
+    let bestLo = -1
+    const top = deepest.length - 1
+    for (let a = 0; a <= top; a++) {
+      for (let b = a + STRAIGHT_MIN - 1; b <= top; b++) {
+        let holes = 0
+        // 这条顺子最深那张在堆上第几格
+        let lo = -1
+        for (let v = a; v <= b; v++) {
+          if (deepest[v] < 0) {
+            holes = holes + 1
+            continue
+          }
+          if (lo < 0 || deepest[v] < lo) {
+            lo = deepest[v]
+          }
+        }
+        // 正好缺一个 → 那个缺口由它填。缺 0 个说明它没地方站
+        //（那条顺子不含它，而「含自己」是这件技能的规则）
+        if (holes != 1) {
+          continue
+        }
+        const len = b - a + 1
+        if (len > bestLen || (len == bestLen && lo >= 0 && lo < bestLo)) {
+          bestFrom = a
+          bestTo = b
+          bestLen = len
+          bestLo = lo
+        }
+      }
+    }
+    return [bestFrom, bestTo]
+  }
+
+  // ---------- 【涉水】：顺子的**步长**放宽到 2 ----------
+  //
+  // 「相邻差 1 或 2」的等价表述是**区间里不能有两个连续的空位** ——
+  // 差 2 = 跳过一个空位，差 3 = 跳过两个。所以它跟伏流**共用区间枚举**，
+  // 只换判据（伏流：恰好缺一个、由通配填；涉水：不能连续缺两个）。
+  //
+  // 另外两处不同：
+  //   它**不是通配**，所以它自己那一格要算在链里（deepest 不跳过它）；
+  //   两端**必须有牌** —— 不然 `[a,b]` 两头悬空，区间就不是链。
+  //
+  // 判据照伏流那条：**先比数量，数量相同取最深**。
+  // 「数量」这儿是**区间里有牌的点数个数**（不是区间长度 —— 区间里有空位）
+  function bestGapped(deepest : number[], mine : number[]) : number[] {
+    let bestFrom = -1
+    let bestTo = -1
+    let bestCount = 0
+    let bestLo = -1
+    const top = deepest.length - 1
+    for (let a = 0; a <= top; a++) {
+      // 两端必须有牌
+      if (deepest[a] < 0) {
+        continue
+      }
+      for (let b = a + 2; b <= top; b++) {
+        if (deepest[b] < 0) {
+          continue
+        }
+        // 区间里有几张牌、最深那张在哪、有没有两个连续的空位
+        let count = 0
+        let lo = -1
+        let gap = 0
+        let broken = false
+        let hasMine = false
+        for (let v = a; v <= b; v++) {
+          if (deepest[v] < 0) {
+            gap = gap + 1
+            if (gap >= 2) {
+              broken = true
+              break
+            }
+            continue
+          }
+          gap = 0
+          count = count + 1
+          if (lo < 0 || deepest[v] < lo) {
+            lo = deepest[v]
+          }
+          // 它自己得在这条链上 —— 顺子必须含打出那张
+          if (hasValue(mine, v)) {
+            hasMine = true
+          }
+        }
+        if (broken || !hasMine || count < STRAIGHT_MIN) {
+          continue
+        }
+        if (count > bestCount || (count == bestCount && lo >= 0 && lo < bestLo)) {
+          bestFrom = a
+          bestTo = b
+          bestCount = count
+          bestLo = lo
+        }
+      }
+    }
+    return [bestFrom, bestTo]
+  }
+
+  function wadeFor(byFoe : boolean, skills : number[]) : boolean {
+    const who = byFoe ? ' 庄家涉水：' : ' 涉水：'
+    const at0 = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
+    if (at0 < 0) {
+      return false
+    }
+    // **不跳过它自己** —— 它不是通配，它自己那一格也是链上的一环
+    const deepest = deepestByVal(-1, byFoe)
+    const span = bestGapped(deepest, pileValsAt(at0))
+    if (span[0] < 0) {
+      message.value = message.value + who
+        + '堆上凑不出顺子（相邻差 1 或 2，至少 ' + STRAIGHT_MIN + ' 张），白打一张。'
+      return false
+    }
+    // ---- 它**也收整段**，而那是量出来的修正 ----
+    //
+    // 初稿让它只收那几张，想拿「易凑配少收」当平衡支点。**那个前提是错的**：
+    // 伏流是通配、几乎总能凑成，而涉水得靠自己的牌面点数刚好接上
+    //（堆上 {5,6} 时它是 7 能凑、是 9 就不行）—— 所以它发动率**更低**。
+    // 再配上少收就是双重弱化，量出来 **+0.81**（目标 3~5）。
+    //
+    // 它真正的卖点是**长链**：步长 2 能跨越空位串起更多牌
+    //（堆上 {3,5,7} 打 9 → 3-5-7-9 四张，而伏流在那个堆上只凑得出三张）。
+    // 只收那几张正好把这个优势扣掉了
+    const wanted : boolean[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      wanted.push(i == at0)
+    }
+    let lo = at0
+    let hi = at0
+    for (let v = span[0]; v <= span[1]; v++) {
+      if (deepest[v] < 0) {
+        continue
+      }
+      const at = deepest[v]
+      wanted[at] = true
+      if (at < lo) {
+        lo = at
+      }
+      if (at > hi) {
+        hi = at
+      }
+    }
+    for (let i = lo; i <= hi; i++) {
+      wanted[i] = true
+    }
+    const taken = harvestIndices(wanted)
+    message.value = message.value + who + '凑成 ' + span[0] + '–' + span[1]
+      + ' 的顺子（跨着空位），连中间的一起收走 ' + taken.length + ' 张。'
     return startSweep(byFoe, taken, skills, TAIL_WILD)
+  }
+
+  function straightFor(byFoe : boolean, skills : number[]) : boolean {
+    const who = byFoe ? ' 庄家伏流：' : ' 伏流：'
+    const at0 = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
+    // 它得还在堆上 —— 被前面的技能收走了就没得凑
+    if (at0 < 0) {
+      return false
+    }
+    const deepest = deepestByVal(at0, byFoe)
+    const span = bestStraight(deepest)
+    if (span[0] < 0) {
+      message.value = message.value + who
+        + '堆上凑不出顺子（要连着 ' + STRAIGHT_MIN + ' 个点数），白打一张。'
+      return false
+    }
+    // ---- 收**顺子覆盖的整段**，不是只收那几张 ----
+    //
+    // 这一条有设计依据，不只是为了补强度：顺子**位置任意**，所以散收
+    // **没用上**摸打那条核心特色 ——「收牌收的是一段连续的牌，
+    // 所以堆的顺序本身就是资源」。收整段一下接上那条特色。
+    //
+    // 量出来它值 +0.61（`FLOW_SPAN` 那个旋钮扫的）。顺子的牌可能散在
+    // 堆两头、那「整段」就是整堆 —— 这个风险是真的，但 +0.61 说明
+    // 它没失控（真要通吃，这个数会是两三分）
+    const wanted : boolean[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      wanted.push(i == at0)
+    }
+    let wild = -1
+    let lo = at0
+    let hi = at0
+    for (let v = span[0]; v <= span[1]; v++) {
+      if (deepest[v] < 0) {
+        // 这就是它填的那个缺口
+        wild = v
+        continue
+      }
+      const at = deepest[v]
+      wanted[at] = true
+      if (at < lo) {
+        lo = at
+      }
+      if (at > hi) {
+        hi = at
+      }
+    }
+    // 两端之间的一律带走
+    for (let i = lo; i <= hi; i++) {
+      wanted[i] = true
+    }
+    const taken = harvestIndices(wanted)
+    message.value = message.value + who + '它当 ' + wild + ' 点，凑成 '
+      + span[0] + '–' + span[1] + ' 的顺子，连中间的一起收走 '
+      + taken.length + ' 张。'
+    return startSweep(byFoe, taken, skills, TAIL_WADE)
   }
 
   // ---------- 【野火】：给堆上所有牌点火，已经着了的收走 ----------
@@ -6718,6 +7085,20 @@
   function harvestCount(card : PlainCard, skills : number[], byFoe : boolean) : number {
     const hue = hasTrigger(skills, SK_HUE)
     const cast = hasTrigger(skills, SK_CAST)
+    // ---- 【伏流】也要在这儿估，否则庄家永远不会主动打它 ----
+    //
+    // 这个函数是庄家挑牌时唯一能看见「不走点数判定的收牌技能」的地方
+    //（注释在 foePickCard 那边：不单独估一次，AI 就会把一张能扫掉半个堆的
+    // 牌当普通饵打出去）。伏流是第四条匹配线，`catchStart` 对它一概返回 −1，
+    // 所以漏在这儿的后果不是「庄家打得笨一点」，是**这件技能在庄家手里
+    // 整件作废** —— 而那会让模拟器量出来的两侧严重失衡
+    if (hasTrigger(skills, SK_FLOW)) {
+      return straightCount(card, byFoe)
+    }
+    // 涉水同理 —— 它也是第四条匹配线上的，catchStart 看不见它
+    if (hasTrigger(skills, SK_WADE)) {
+      return wadeCount(card, byFoe)
+    }
     if (!hue && !cast) {
       return 0
     }
@@ -6769,6 +7150,53 @@
     // 收色连它自己一起收（它落堆之后也是同花色的），所以 +1。
     // 撒网那张的奇偶跟自己当然一样，落堆后也在收走的范围里
     return n > 0 ? n + 1 : 0
+  }
+
+  // ---------- 【伏流】能凑出几张（庄家挑牌的预估） ----------
+  //
+  // 跟 straightFor 算的是同一件事，差别只有一处：**这儿是落堆之前估的**，
+  // 所以堆里还没有它自己 —— 不用跳过 at0，整堆都是候选。
+  //
+  // **跟 straightFor 走同一对函数**（deepestByVal / bestStraight），
+  // 所以两处的判定口径不会飘。差别只有一处：skipAt 传 −1 ——
+  // 这儿是**落堆之前**估的，堆里还没有它自己
+  function straightCount(card : PlainCard, byFoe : boolean) : number {
+    const deepest = deepestByVal(-1, byFoe)
+    const span = bestStraight(deepest)
+    if (span[0] < 0) {
+      return 0
+    }
+    // 收的是**整段**，所以估的是位置范围、不是顺子长度。
+    // 它自己还没落堆 —— 落下去在堆顶，所以上端取 pile.length
+    //（沉底那条路会落堆底，这儿不管 —— 照 harvestCount 里撒网那个同样的近似）
+    let lo = pile.value.length
+    for (let v = span[0]; v <= span[1]; v++) {
+      if (deepest[v] >= 0 && deepest[v] < lo) {
+        lo = deepest[v]
+      }
+    }
+    return pile.value.length - lo + 1
+  }
+
+  // 【涉水】能凑出几张（庄家挑牌的预估）。
+  //
+  // 它收**整段**，所以估的是位置范围（跟 straightCount 一个口径）：
+  // 它自己还没落堆、落下去在堆顶，所以上端取 pile.length。
+  // 跟 wadeFor 走同一个 bestGapped，所以两处口径不会飘
+  function wadeCount(card : PlainCard, byFoe : boolean) : number {
+    const deepest = deepestByVal(-1, byFoe)
+    // 落堆之前估的，堆里还没有它 —— 它的点数用 cardVals（照 castFor 那个口径）
+    const span = bestGapped(deepest, cardVals(card))
+    if (span[0] < 0) {
+      return 0
+    }
+    let lo = pile.value.length
+    for (let v = span[0]; v <= span[1]; v++) {
+      if (deepest[v] >= 0 && deepest[v] < lo) {
+        lo = deepest[v]
+      }
+    }
+    return pile.value.length - lo + 1
   }
 
   // 庄家要打的那张。能钓就挑钓得最多的（J、磁钩、钩顶都算在里面；J 堆上有牌就用，不攒着）。
@@ -7130,7 +7558,7 @@
     // ---------- 【淤滩】：开局堆上就压着三张死牌 ----------
     //
     // 从牌库顶垫 3 张，**点数一律算 0**（见 pushPile 的 vals 参数）——
-    // 而 0 点牌互相也不匹配（设计文档 8.2），所以这三张是真正的死牌：
+    // 而 0 点牌互相也不匹配（设计文档『点数的全局规则』），所以这三张是真正的死牌：
     // 普通钓牌一张都碰不到，只有 J 通吃、量水、见底那几条能端走。
     //
     // 为什么挂庄家名下（pushPile 传 true）：你钓这三张要走「钓对方的牌」
