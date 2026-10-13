@@ -256,6 +256,18 @@
       </view>
     </view>
 
+    <!-- 连竿：加打是**可选的**。要打就直接点手牌（canPlay 故意没把它
+         排除掉），不打就按这颗钮 —— 技能说明里那个「可」字从此是真的。
+         强制加打量出来 D=+3.31，撞破了基线优势 3.03：后手带它比不带更差 -->
+    <view v-if="againWaiting" class="tide-box">
+      <text class="tide-text">连竿：可以再打一张（点手牌出牌），也可以收手留着下回合</text>
+      <view class="tide-actions">
+        <view id="ap-again-skip" class="tide-btn tide-btn-plain" @click="onAgainSkip">
+          <text class="tide-btn-text tide-btn-text-plain">收手</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 凝水 / 净水：挑**堆上**一张。两件共用这一块，提示语按技能换。
          不挑也行 —— 牌已经丢弃了，所以「不挑」就是白丢一张
          （跟开包「放弃」一个道理：代价已经付了） -->
@@ -3601,6 +3613,21 @@
   let againPending : boolean = false
   const againUsed = ref<boolean>(false)
 
+  // againWaiting：**正在问你「要不要加打」**。
+  //
+  // 它是 ref 而 againPending 不是 —— 模板要读它（那颗「收手」钮）。
+  //
+  // **canPlay 故意不排除它**：别的 pending 都是「别的操作没做完，
+  // 不能出牌」，而连竿恰恰相反 —— 这会儿就是要你出牌，收手才是另一条路。
+  //
+  // 为什么要这颗钮：`desc` 写的是「打出后**可**再打 1 张」，可实现一直是
+  // 强制。量出来 D=+3.31（后手 −4.09 / 先手 +2.53）—— **撞破了基线优势
+  // 3.03，意思是后手带它比不带更差**，而玩家默认是后手。
+  // 机制：最优的那张刚打完，加打的大概率钓不到 → 落堆 → 给对手多一个钩点；
+  // 而「等下回合手牌补满、堆也变了再打」对后手格外值钱（它的优势本来就是
+  // 「我后打，堆上有对手刚放的牌」），强制加打拆的是后手自己的优势
+  const againWaiting = ref<boolean>(false)
+
   // 【一色】（原【染水】）：堆上**它的花色是张数最多的之一** → 整堆连它收走。
   //
   // 含它自己数；打平也算（「最多的之一」）；堆上至少还得有 1 张别的牌 ——
@@ -4066,6 +4093,10 @@
   // 牌先落到堆上（沉底的落堆底），技能在它落着的时候结算 ——
   // 量水、收色、撒网、见底可能连它一起收走，那它就不再匹配了
   function playFor(byFoe : boolean, index : number) {
+    // 牌打出去了，「要不要加打」那个问题就有答案了 —— 收旗。
+    // 放在这儿而不是玩家点牌那个 handler 里：出牌的路不止一条
+    //（你点、庄家打、技能逼着打），这儿是共同的那一条
+    againWaiting.value = false
     const card = takeFromHand(byFoe, index)
     const skills = skillsOf(byFoe, card)
     // 数一下这一方打到第几张了 —— 【稳钩】要「前 N 张」
@@ -7398,6 +7429,50 @@
       + cardName(card) + '（算 0 点）。'
   }
 
+  // 连竿：**收手**。
+  //
+  // againPending 已经在 passTurn 里清掉、againUsed 已经立起来了，所以
+  // 再调一次 passTurn 会直接走后半段（过期护饵、走水、补牌、交回合）——
+  // 不用把那一段抄一遍，也就不会漏掉其中某一步
+  function onAgainSkip() {
+    if (!againWaiting.value) {
+      return
+    }
+    againWaiting.value = false
+    message.value = '连竿：你收手了。'
+    passTurn(false)
+  }
+
+  // 这一方手里还有**值得打**的牌吗（加打之前问一次）。
+  // 照模拟器 rules.js 的 wantAgain，两边必须同一套判据 —— 不然量出来的
+  // 分值跟玩家实际体验到的是两件不同的技能。
+  //
+  // J 总是值得（通吃）；别的看能不能钓到、或者能不能靠技能收一片。
+  // 一张都不值得就收手：加打那张钓不到就得落堆，等于给对手多一个钩点。
+  //
+  // **只给庄家用。** 玩家那边是一颗按钮（againWaiting）—— 替玩家判断
+  // 「这张值不值得」就把取舍从他手里拿走了，而那正是这件技能的内容
+  function wantAgain(byFoe : boolean) : boolean {
+    const mine = byFoe ? foeHand.value : hand.value
+    for (let i = 0; i < mine.length; i++) {
+      const card = mine[i]
+      if (isFrozen(card)) {
+        continue
+      }
+      if (card.rank == JACK) {
+        return true
+      }
+      const skills = skillsOf(byFoe, card)
+      if (catchStart(card, byFoe, skills, false) >= 0) {
+        return true
+      }
+      if (harvestCount(card, skills, byFoe) > 0) {
+        return true
+      }
+    }
+    return false
+  }
+
   function passTurn(byFoe : boolean) {
     if (againPending && !againUsed.value) {
       againPending = false
@@ -7405,15 +7480,27 @@
       const mine = byFoe ? foeHand.value : hand.value
       if (mine.length > 0) {
         if (byFoe) {
-          message.value = message.value + ' 庄家连竿，再来一张。'
-          foeTimer = setTimeout(foeTurn, FOE_DELAY_MS)
+          // 庄家自己判。不值得就**收手**，往下走真交接 ——
+          // 「可」对双方一个口径，不然这件技能在庄家手里还是强制的
+          if (wantAgain(true)) {
+            message.value = message.value + ' 庄家连竿，再来一张。'
+            foeTimer = setTimeout(foeTurn, FOE_DELAY_MS)
+            return
+          }
+          message.value = message.value + ' 庄家连竿，但它收手了。'
         } else {
-          message.value = message.value + ' 连竿：再打一张。'
+          // 你自己决定：点手牌就是加打，点「收手」走 onAgainSkip。
+          // **不在这儿 return 掉交接**也不行 —— 回合还没结束，
+          // 得等你做完那个决定（跟观潮 / 换水那几块 pending 一个结构）
+          message.value = message.value + ' 连竿：可以再打一张，也可以收手。'
+          againWaiting.value = true
+          return
         }
-        return
+      } else {
+        message.value = message.value + (byFoe ? ' 庄家连竿，但它没牌了。' : ' 连竿：可你手里没牌了。')
       }
-      message.value = message.value + (byFoe ? ' 庄家连竿，但它没牌了。' : ' 连竿：可你手里没牌了。')
     }
+    againWaiting.value = false
     againPending = false
     againUsed.value = false
     expireGuards(byFoe)
@@ -8046,6 +8133,7 @@
     frostHand = [] as PlainCard[]
     againPending = false
     againUsed.value = false
+    againWaiting.value = false
     // 角色和「打过几张」每局归零 —— 【稳钩】数的是「这一局前 N 张」
     myRole.value = -1
     foeRole.value = -1

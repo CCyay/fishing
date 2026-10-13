@@ -117,7 +117,8 @@ function run(n, seed, mine, foe, opts) {
     // 【野火】的诊断口（见 rules.js 的 stat.wild）—— 查那个非单调
     wild: {
       fires: [0, 0], took: [0, 0], blank: [0, 0], burnSum: [0, 0],
-      reapSum: [0, 0], reapOwn: [0, 0], reapTheirs: [0, 0]
+      reapSum: [0, 0], reapOwn: [0, 0], reapTheirs: [0, 0],
+      sweeps: [0, 0], sweepSum: [0, 0]
     }
   }
   for (let i = 0; i < n; i++) {
@@ -157,7 +158,7 @@ function run(n, seed, mine, foe, opts) {
         sum.wade[keys[k]][s] += G.stat.wade[keys[k]][s]
       }
       const wk = ['fires', 'took', 'blank', 'burnSum',
-        'reapSum', 'reapOwn', 'reapTheirs']
+        'reapSum', 'reapOwn', 'reapTheirs', 'sweeps', 'sweepSum']
       for (let k = 0; k < wk.length; k++) {
         sum.wild[wk[k]][s] += G.stat.wild[wk[k]][s]
       }
@@ -836,31 +837,49 @@ function cmdVs(args) {
       // 留给后面几次触发收」那部分。宽槽的数就是证据 ——
       // 触发多 4 倍、X 从 +0.51 跳到 +9.52，远超线性。
       // 所以这一列负着也可能整体正分，看它是为了**比较**，不是判生死
-      console.log('            触发/局   取到率   贴火/次   收成/次   净/次')
+      // 「收成/次」那几列删了 —— 野火**不收牌了**（收割权归关键词），
+      // 所以它们恒为 0，留着会被当成「它收不到东西」。
+      // 收成现在看下面那张「闭合扫堆」表
+      console.log('            点火/局   取到率   贴火/次')
       const wrow = function (label, wd, s) {
         const fires = wd.fires[s]
-        if (fires === 0) return label.padEnd(10) + '（没触发过）'
-        const reap = avg(wd.reapSum[s], fires)
+        if (fires === 0) return label.padEnd(10) + '（没点过火）'
         return label.padEnd(10)
           + f2(avg(fires, args.n)).padStart(8)
           + pct(avg(wd.took[s], fires)).padStart(9)
           + f2(avg(wd.burnSum[s], fires)).padStart(10)
-          + f2(reap).padStart(10)
-          + f2(reap - 0.94).padStart(9)
       }
       console.log('    ' + wrow('后手（我）', wdMe, R.ME))
       console.log('    ' + wrow('先手（对手）', wdFoe, R.FOE))
-      console.log('\n  ---- 扫走的牌本来属于谁（每次触发平均）----')
-      console.log('            自己的饵   对手的饵')
-      const wown = function (label, wd, s) {
-        const fires = wd.fires[s]
-        if (fires === 0) return label.padEnd(10) + '（没触发过）'
-        return label.padEnd(10)
-          + f2(avg(wd.reapOwn[s], fires)).padStart(8)
-          + f2(avg(wd.reapTheirs[s], fires)).padStart(11)
+      console.log('\n  「取到率」低 = 燃料池空了（池子跟槽宽走）。')
+      console.log('  「贴火/次」= 一次点火点着几格（自带那档恒为 1）。')
+      // ---- 【燃烧】闭合扫堆：**双方都从同一个格子读** ----
+      //
+      // 这跟上面那两张表的取法**不一样**，而那是有意的：
+      // 闭合归「当前出牌方」，所以**带野火的那一方点的火，可能被对手闭合**。
+      // 要看的就是这个 —— 从格 D（只有我带野火）里同时读我和对手的次数。
+      //
+      // 两边差不多 → **这条规则washed out**（双方抢同一个池子，净值趋零），
+      // 那是它唯一的真未知；我明显更多 → 点火的人确实占优势
+      const swMe = D.wild
+      if (swMe.sweeps[R.ME] > 0 || swMe.sweeps[R.FOE] > 0) {
+        console.log('\n  ---- 诊断：【燃烧】闭合扫堆（格 D：只有我带野火）----')
+        console.log('            闭合/局   每次扫几张   扫走合计/局')
+        const srow = function (label, s) {
+          const n = swMe.sweeps[s]
+          if (n === 0) return label.padEnd(10) + '（没闭合过）'
+          return label.padEnd(10)
+            + f2(avg(n, args.n)).padStart(8)
+            + f2(avg(swMe.sweepSum[s], n)).padStart(12)
+            + f2(avg(swMe.sweepSum[s], args.n)).padStart(13)
+        }
+        console.log('    ' + srow('后手（我）', R.ME))
+        console.log('    ' + srow('先手（对手）', R.FOE))
+        console.log('\n  **两边的「闭合/局」差不多就说明这条规则washed out** ——')
+        console.log('  我点的火被对手闭合，净值趋零。那是它唯一的真未知。')
+        console.log('  「每次扫几张」对照基线堆厚 3.1：接近 3 说明闭合在厚堆上发生，')
+        console.log('  接近 1 说明多半是「自带火打在空堆上当场收自己」那条兜底。')
       }
-      console.log('    ' + wown('后手（我）', wdMe, R.ME))
-      console.log('    ' + wown('先手（对手）', wdFoe, R.FOE))
       console.log('\n  「净/次」= 收成/次 − 0.94（放弃一次普通钓牌的期望）。')
       console.log('  它是**卡面账，已知偏低** —— 只算当次收成，没算')
       console.log('  「这次贴的火留给后面几次收」。所以它负着也可能整体正分；')
