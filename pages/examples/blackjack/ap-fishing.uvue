@@ -149,6 +149,11 @@
                  **非标不可** —— 不标的话「哪几张烧得掉」只能靠记，
                  而那正是野火的全部决策（要不要再打一次野火） -->
             <text v-if="pileBurnAt(index) > 0 && !murked(index)" class="card-burn-tag">烧</text>
+            <!-- 【结冰】：这一格被收走时不走也不计分。
+                 **非标不可** —— 不标的话「这一段收起来值几分」玩家算不出来，
+                 而那正是结冰的全部内容（照燃烧那个「烧」字的先例）。
+                 冰和火互斥（相消），所以两个角标不会同时出现 -->
+            <text v-if="frostAt(index) && !murked(index)" class="card-frost-tag">冰</text>
             <!-- ---------- 【叠放】：底下压着几张 ---------- -->
             <!--
               **分两个角标，因为它们是两条不同的信息**：
@@ -403,6 +408,19 @@
                  「这张还算 7 点」是打牌时必须看见的，牌面上写不出来 -->
             <text v-if="pipTag(card) != ''" class="card-pip">{{ pipTag(card) }}</text>
             <text v-if="skillTag(card) != ''" class="card-skill">{{ skillTag(card) }}</text>
+            <!-- ---------- 手里的【结冰】= **钥匙** ---------- -->
+            <!--
+              结冰在两个位置意思正好相反（见 TERMS 那条）：
+                堆上 = 障碍（那一格收不走）；
+                手里 = **钥匙**（用它打出去那一手，收牌无视结冰）。
+
+              **非标不可**：「什么时候用钥匙」是【藏凌】【寒色】两件技能的
+              全部决策内容，而钥匙贴在哪几张牌上玩家只能靠记 ——
+              照【死水】（废掉的手牌要标）和【冻结】（锁住的要标）那两条先例。
+
+              跟堆上那个角标**用同一个字、同一个色**，因为它是同一个标签
+            -->
+            <text v-if="frostOnHand(card)" class="card-frost-tag">冰</text>
             <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
             <text v-else-if="foeKnows(index)" class="card-seen">被看</text>
           </view>
@@ -559,8 +577,6 @@
     SK_CLEAN,
     SK_RAISE,
     SK_WILD,
-    SK_BOIL,
-    SK_SPREAD,
     SK_DEAD,
     // 叠放那一族剩下的两件。SK_DREDGE 在 valuesOf 的「无点数」那一支里
     // 读着（抄底的兜底），从前漏在这张清单外面
@@ -570,6 +586,10 @@
     // 伏流当通配**填**洞（幅度跟槽标签无关），涉水用差 2 **跨**洞
     SK_FLOW,
     SK_WADE,
+    SK_FROST,
+    SK_HIDE,
+    SK_COLDHUE,
+    SK_FROSTFALL,
     STRAIGHT_MIN,
     DEAD_COUNT,
     DUMP_COUNT,
@@ -597,6 +617,7 @@
     SP_CLEAR,
     SP_DEEPHOOK,
     SP_FIRMHOOK,
+    SP_FILLPOND,
     SP_REVERSE,
     SP_LIVEWATER,
     SP_BAIT,
@@ -1164,6 +1185,83 @@
   // 每手在 playFor 开头清、每局在 newGame 里清
   let mergeCard : PlainCard | null = null
   let mergeGain : number[] = []
+
+  // ---------- 【野火】这一手取到同点数的牌了吗 ----------
+  //
+  // 存那张**打出的**牌。取到了它就无点数（valuesOf 读这个），
+  // 取不到就保留点数、但那一手只贴火不收火（见 wildfireFor）。
+  //
+  // 跟 mergeCard 一个模式、一个理由：庄家挑牌时 catchStart 一回合要跑
+  // 十几次（那是落堆前的预估），认一下牌别的牌才读不到不属于它的状态。
+  // 每手在 playFor 开头清、每局在 newGame 里清。
+  //
+  // **这个状态位删了**（2026-10-13 定稿）：野火的无点数回到**无条件**，
+  // valuesOf 不再需要认牌。留着一个没人读的状态位比删掉更误导 ——
+  // 这一季在【涉水】的旋钮上栽过一次（定稿改了、默认值没翻，
+  // 整张 all 表拿旧档的数定了新档的价）
+
+  // ---------- 豁免：这一手的收牌无视结冰 ----------
+  //
+  // 回合级的变量，不是 takeAt 的参数 —— 为什么这么选、以及**必须清掉的
+  // 那两处**，都写在 takeAt 上面那段。
+  // 普通变量而不是 ref：只在逻辑里读，模板不需要它
+  let iceBlindNow : boolean = false
+
+  // ---------- 手里带着【结冰】的那几张 ----------
+  //
+  // **结冰有两个位置，意思正好相反**（见 TERMS 那条）：
+  //   **堆上** = 障碍（那一格被收走时不走、不计分）；
+  //   **手里** = 钥匙（用它打出去的那一手，收牌无视结冰）。
+  //
+  // 而它穿过去之后落堆，又变成新的障碍 —— 这一族自洽就自洽在这儿。
+  //
+  // ---- 为什么手里的冰不能挂进 held ----
+  //
+  // `expireHeld()` 按「source 还在不在堆上」过滤，所以挂进去的手牌冰
+  // **会在下一次收牌后被立刻清掉**。那条闸是所有在场效果共用的，
+  // 为了一个机制放宽它的语义，以后别的效果会跟着漏。
+  //
+  // 所以单开这个数组。代价是落堆那一下要把它**转成堆上的冰**
+  //（见 pushPile / unshiftPile），而那正好是「钥匙用完变障碍」那一步
+  let frostHand : PlainCard[] = []
+
+  // 这张牌手里带着冰吗（打出时的豁免、以及落堆要不要转成堆上的冰，都读它）
+  function frostOnHand(card : PlainCard) : boolean {
+    for (let i = 0; i < frostHand.length; i++) {
+      if (frostHand[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 给手里这张贴冰。**不可叠加**那条在这儿也守着
+  function addFrostHand(card : PlainCard) {
+    if (frostOnHand(card)) {
+      return
+    }
+    frostHand = frostHand.concat([card])
+  }
+
+  // 从手冰表里摘掉（落堆那一下调，接着在堆上贴）
+  function dropFrostHand(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < frostHand.length; i++) {
+      if (frostHand[i] != card) {
+        keep.push(frostHand[i])
+      }
+    }
+    frostHand = keep
+  }
+
+  // 这一手打出的牌**自带结冰**吗（这一族的共同前缀）。
+  //
+  // 三件都走同一条：打出时它在手里就带着冰 → 豁免；落堆后变成障碍。
+  // 所以 playFor 开头把它塞进 frostHand，后面的逻辑一条都不用特判
+  function selfFrost(skills : number[]) : boolean {
+    return hasTrigger(skills, SK_FROST) || hasTrigger(skills, SK_HIDE)
+      || hasTrigger(skills, SK_COLDHUE) || hasTrigger(skills, SK_FROSTFALL)
+  }
 
   // 收牌特效放完之后还要结算的技能（打出那张触发的）
   let pendingSkills : number[] = []
@@ -2172,22 +2270,142 @@
     return out
   }
 
-  // ---------- 收走第 index 格之前，先过一遍叠放 ----------
+  // ---------- 【结冰】：挂在 held 里的第二种标签 ----------
   //
-  // **四条收牌路全走它**（finishSweep / finishCatch / dropPile / floodFor）——
-  // 这段逻辑写四遍必有一遍写错，而写错的表现是「牌没了但分没加」
-  // 或者反过来，都是静默的。
+  // 走 held 而不是开第七条平行数组，理由跟【保护】那条**一模一样**
+  //（见上面那段）：场上效果栏自动显示、牌离场自动清理、净水自动反制。
+  // 文件头那条「加第七条之前先把这六条包成一个结构」的警告因此不用动。
+  //
+  // ---- 它跟保护的分工，这是它值得单独存在的全部理由 ----
+  //
+  //   **保护** —— 垫着那张**代替宿主离场**，所以收牌方**照旧拿 1 分**；
+  //   **结冰** —— **没有牌离场，也没有分**。
+  //
+  // 一个是续命（保住自己的牌），一个是拒收（削对手的收成）。
+  //
+  // ---- 它作用在「收牌」，不在「匹配」 ----
+  //
+  // 现有让牌难拿走的三件（护饵 / 硬壳 / 炙水）全挡在匹配判定上
+  //（`matchLocked`：它当不了匹配的那一张）。结冰不碰那儿 ——
+  // 带结冰的牌照旧能当匹配点、照旧能发起一次收牌，**只是它自己不跟着走**。
+  // 所以它的落点是 takeAt，而不是 catchStart
+  function frostAt(index : number) : boolean {
+    if (index < 0 || index >= pile.value.length) {
+      return false
+    }
+    return frostOn(pile.value[index])
+  }
+
+  // 按**牌**问（净水换牌、叠放那几条都按牌认，照 cleanAt0 那条先例）
+  function frostOn(card : PlainCard) : boolean {
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill == SK_FROST && held.value[i].source == card) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 去掉第 index 格的冰。返回去掉了没有
+  function clearFrostAt(index : number) : boolean {
+    if (index < 0 || index >= pile.value.length) {
+      return false
+    }
+    const card = pile.value[index]
+    const keep : HeldEffect[] = []
+    let gone = false
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill == SK_FROST && held.value[i].source == card) {
+        gone = true
+        continue
+      }
+      keep.push(held.value[i])
+    }
+    if (gone) {
+      held.value = keep
+    }
+    return gone
+  }
+
+  // 给第 index 格贴冰。返回**真贴上了吗**。
+  //
+  // 两道闸都在这儿，所以贴冰只有这一个入口：
+  //   **碰上燃烧 → 两个一起消失**（清火、不贴冰），见 TERMS 那条；
+  //   **不可叠加** → 已经带冰就什么也不做（自带收益递减，
+  //     所以结凌打第二次不用另写上限规则）
+  function addFrostAt(index : number, byFoe : boolean) : boolean {
+    if (index < 0 || index >= pile.value.length) {
+      return false
+    }
+    if (pileBurnAt(index) > 0) {
+      const next = pileBurn.value.slice(0)
+      next[index] = 0
+      pileBurn.value = next
+      return false
+    }
+    if (frostAt(index)) {
+      return false
+    }
+    addHeld({
+      source: pile.value[index], skill: SK_FROST,
+      target: null, byFoe: byFoe
+    } as HeldEffect)
+    return true
+  }
+
+  // 冰火相消的**另一个方向**：贴火之前问一句。
+  //
+  // 有冰 → 清掉冰、返回 true，调用处就**不贴火**（两个都没了）。
+  //
+  // 贴火那几条路各自的做法不一样（沸水落堆时 +1、野火「已带火的直接收走」、
+  // 燎原蔓延），所以相消不能写成一个「替你贴火」的函数 ——
+  // 但判断那一下必须共用，不然三处各写一遍、漏一处就是单向相克
+  function iceMeltsFire(index : number) : boolean {
+    if (!frostAt(index)) {
+      return false
+    }
+    clearFrostAt(index)
+    return true
+  }
+
+  // ---------- 收走第 index 格之前，先过一遍结冰和叠放 ----------
+  //
+  // **收牌路全走它**（finishSweep / finishCatch / dropPile / floodFor /
+  // dropBottomToFoe）—— 这段逻辑写五遍必有一遍写错，而写错的表现是
+  // 「牌没了但分没加」或者反过来，都是静默的。
   //
   // 它干两件事，返回**这一格实际收走几张**：
   //
+  //   **带结冰** → 去掉结冰，返回 **0**。**那一格留下，而且一分都不算** ——
+  //     这是结冰跟保护唯一但要紧的区别。
   //   带保护 → 取走垫着的一张盾（代替宿主），返回 1。
-  //     **宿主留下** —— 所以调用处要先问 wardAt(i) 再决定留不留，
+  //     **宿主留下** —— 所以调用处要先问 blockedAt(i) 再决定留不留，
   //     不能看返回值（返回 1 的两种情况不一样）。
-  //   没保护 → 宿主 + 底下压着的全收，返回 1 + 那几张。
+  //   两样都没有 → 宿主 + 底下压着的全收，返回 1 + 那几张。
+  //
+  // **结冰排在保护之前**：它不消耗任何东西、也不计分，所以先结算免费的
+  // 那一层，账更好读（而且一张牌同时带冰和盾时，玩家只看见「冰挡了一次」）。
+  //
+  // ---- 豁免（【结凌】那半句）读的是 `iceBlindNow`，不是参数 ----
+  //
+  // 「它这一手不受结冰影响」是个**回合级**的语义，而这一手可能收好几次牌
+  //（它自己匹配一次，而同一张牌上的见底 / 收色 / 洪水又各收一次）——
+  // 那几次都该豁免。传参就得在五个调用点分别判断「这一手是不是结凌」，
+  // 那比读一个回合级的变量更容易错。
+  //
+  // 代价是**必须及时清掉**，两处都要（见 playFor 和 finishCatch）：
+  //   playFor 开头每次重设 —— 结凌那一手没钓中时也不会漏；
+  //   finishCatch 收完立刻清 —— 不然走水 / 过闸那两条**庄家规矩**
+  //     就在它下面几行，会蹭上我的豁免。
   //
   // gone 是出参：离场那几张的 rank 往里推（庄家记牌的依据）。
-  // **算分和记牌口径一致** —— 推进 gone 的张数就是返回的张数
+  // **算分和记牌口径一致** —— 推进 gone 的张数就是返回的张数，
+  // 而结冰那一支两个都是 0
   function takeAt(index : number, gone : string[]) : number {
+    if (!iceBlindNow && frostAt(index)) {
+      clearFrostAt(index)
+      return 0
+    }
     const ward = wardUnder(index)
     if (ward >= 0) {
       const shield = pullStacked(ward)
@@ -2204,6 +2422,19 @@
       n = n + 1
     }
     return n
+  }
+
+  // 这一格**留在堆上**吗（被结冰或者保护挡住了）。
+  //
+  // 调用处原先问的是 wardAt(i)，加了结冰之后那个问法不够了 ——
+  // 换成这一个，五条收牌路一处都不用再想「还有没有别的挡法」。
+  // 口径必须跟 takeAt 一致（连豁免一起），不然会出现
+  // 「takeAt 收走了但调用处以为它留下」那种错位
+  function blockedAt(index : number) : boolean {
+    if (!iceBlindNow && frostAt(index)) {
+      return true
+    }
+    return wardAt(index)
   }
 
   // 摘掉 stacked 里第 at 条，返回那张牌（保护被消耗时用）
@@ -2764,8 +2995,22 @@
 
   const fieldChips = computed<FieldChip[]>(() : FieldChip[] => {
     const out : FieldChip[] = []
+    // ---- 【结冰】**只摆一条**，张数写在锚点里 ----
+    //
+    // 它是全表唯一会一次挂上好几条 held 的（结凌给**全场**贴），
+    // 一张一条会把这一栏刷爆（堆常有四五张）。
+    //
+    // 而且不刷爆也没必要：**冰在牌上直接标着**（那个「冰」角标），
+    // 所以这一栏对它的用处只剩「现在场上冻着几张」—— 一条就够
+    let frostShown = false
     for (let i = 0; i < held.value.length; i++) {
       const one = held.value[i]
+      if (one.skill == SK_FROST) {
+        if (frostShown) {
+          continue
+        }
+        frostShown = true
+      }
       out.push({
         at: i,
         byFoe: one.byFoe,
@@ -2775,6 +3020,17 @@
     }
     return out
   })
+
+  // 堆上现在冻着几张（场上效果栏那一条的锚点用）
+  function frostCount() : number {
+    let n = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (frostAt(i)) {
+        n = n + 1
+      }
+    }
+    return n
+  }
 
   // 这条效果**现在对牌桌做什么**，一句短话。
   //
@@ -2797,6 +3053,11 @@
     }
     if (one.skill == SK_FREEZE) {
       return '锁1张'
+    }
+    // 结冰：锚点报**现在冻着几张**（这一条是汇总的，见 fieldChips）。
+    // 写「收不走」而不是「结冰」—— 这一栏要的是后果，不是机制名
+    if (one.skill == SK_FROST) {
+      return frostCount() + '张收不走'
     }
     // 别的（窄口、满篓……）没有「一句话后果」可写，就留空 ——
     // 标签上只剩技能名，点一下看全文
@@ -2852,13 +3113,39 @@
     return false
   }
 
-  // 堆上第 index 张**现在算哪几个点数**。
-  // 数组还没对齐的那一瞬间（刚 concat 完）退回牌面那一套
-  function pileValsAt(index : number) : number[] {
+  // 堆上第 index 张**存着**的那几个点数 —— **不走任何在场效果**。
+  // 数组还没对齐的那一瞬间（刚 concat 完）退回牌面那一套。
+  //
+  // ---- 收牌时重建那几条数组**必须用这个**，不能用 pileValsAt ----
+  //
+  // 后者带着「带燃烧的牌无点数」那一支，而重建会把它的结果
+  // **写死进 pileVals** —— 于是火被收掉之后那几张牌还是无点数，不还原。
+  // 在场效果的定义是「它在场时才算」，写死就破了那条。
+  //
+  // 判据很好记：**这一行会不会写回 pileVals？** 会，就用 rawVals。
+  // 游戏代码里有八处（六处 keepVals / keep2Vals 重建，加退潮和见底各一处写回）
+  function rawVals(index : number) : number[] {
     if (index < pileVals.value.length) {
       return pileVals.value[index]
     }
     return index < pile.value.length ? cardVals(pile.value[index]) : ([] as number[])
+  }
+
+  // 堆上第 index 张**现在算哪几个点数**。匹配判定走这个。
+  //
+  // ---- 这儿曾经有一支「带燃烧的牌无点数」，**定稿时撤掉了** ----
+  //
+  // 它有效（野火 +0.50 → +3.28），但它跟【燃烧】定稿第 2 条
+  //（燃烧不改变牌的其他状态）冲突，而那一条是这一族的**对位解**：
+  // 带火的牌保留点数，所以对手能在火烧过来之前把它钓走。
+  // 七倍缺口改由**自动蔓延**补（见 spreadFire）。
+  //
+  // 所以它现在跟 rawVals 完全一样 —— 两个函数留着是**有意的**：
+  // 全表将来要是再有「在场期间改堆上点数」的效果，
+  // 那八处写回 pileVals 的地方必须读 rawVals，不然在场效果会被写死。
+  // 那个坑是焦壳踩出来的，拆开的两个名字就是它留下的护栏
+  function pileValsAt(index : number) : number[] {
+    return rawVals(index)
   }
 
   // 这张牌**印着**的那几个点数：牌面那个 + 点数卡贴上来的
@@ -3101,42 +3388,43 @@
 
   // 新进场的牌带几层火。
   //
-  // ---- 【沸水】：在场时，**落堆的牌都带 1 层火** ----
+  // 【沸水】删了（在场时落堆的牌都带 1 层火），所以现在**恒为 0** ——
+  // 新落的牌一律不带火，要等蔓延烧过来（下一手）。
   //
-  // 判在 pushPile / unshiftPile 里而不是各个调用处，是为了把所有
-  // 「牌进场」的路一网打尽：正常打出、洪水翻上来、掏手 / 掏库扔上去 ——
-  // 四条路都走这两个函数。写在调用处就一定会漏。
+  // ---- 函数留着，而且这不是手松了 ----
   //
-  // 顺带那几件成了沸水的喂料：掏库往堆上倒两张垃圾，两张都带火。
+  // 它是「牌进场」那四条路的**单一入口**（正常打出、洪水翻上来、
+  // 掏手 / 掏库扔上去）—— 写在调用处就一定会漏。
+  // 而「新牌带不带火」是这一族最可能再次被设计的那个旋钮：
+  // 留着它，下一件要动这个的技能只改一处；删了就得重新把四条路找一遍。
   //
-  // **沸水自己不点自己** —— 它落堆那一刻效果还没挂上（挂在 afterPlayHead
-  // 里，见那一段），所以这个函数对它返回 0。
-  // 这跟【压邻】同一个道理：它抹的是「紧挨着它右边落下的那张」，不抹自己
+  // **但要当心沸水的教训**：「落堆就带火」买到的只是「提前一手」，
+  // 而蔓延下一手就覆盖到了 —— 实测可证的零。
+  // 所以下一件动这儿的技能不能只是「让更多牌落堆带火」
   function burnOnLand() : number {
-    return boilOn() ? 1 : 0
+    return 0
   }
 
-  // 场上有【沸水】牌吗（而且还挂着）
-  function boilOn() : boolean {
-    for (let i = 0; i < held.value.length; i++) {
-      if (held.value[i].skill == SK_BOIL && inPile(held.value[i].source)) {
-        return true
-      }
-    }
-    return false
-  }
+  // `spreadOn()`（场上有没有【燎原】牌）**删了** —— 蔓延并进关键词之后
+  // 没有任何调用点。场上效果栏是遍历 held 通用显示的，不走这个函数。
+  //
+  // 删而不是留：**留着没人读的东西会被当成在生效的设定** ——
+  // 这一季在【涉水】的旋钮上栽过（定稿改了、默认值没翻，
+  // 整张 all 表拿旧档的数定了新档的价）
 
-  // 场上有【燎原】牌吗
-  function spreadOn() : boolean {
-    for (let i = 0; i < held.value.length; i++) {
-      if (held.value[i].skill == SK_SPREAD && inPile(held.value[i].source)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  // ---------- 【燎原】：每打出一张牌，火向左右各蔓延一格 ----------
+  // ---------- 【燃烧】自动蔓延：**关键词自带**（定稿 2026-10-13）----------
+  //
+  // 原先这是【燎原】那一件技能的效果（要它那张牌在场）。并进关键词的理由
+  // 是量出来的：**在场效果的强度上限由「它那张牌活多久」决定**，
+  // 而堆的换手是 3.3 回合 —— 燎原 X = **−1.24**、同族的焦壳协同只有 +0.08。
+  // 想要一个稳定生效的全局规则，就得放进关键词。
+  //
+  // 它治的是野火那个七倍缺口：**贴火 2.11 张/次，收成只有 0.30** ——
+  // 火的留存 ≈ 牌在堆上的留存，烧上去的火等不到下一次收就被人钓走了。
+  // 蔓延不保住**那几张**，而是**让火自己长回来**。
+  // 配上野火的连锁（压短间隔），留存率 32% → **74%**，野火 +0.51 → **+2.56**。
+  //
+  // 燎原那个槽位因此空出来了，待重新设计
   //
   // 调用点在 endPlay（每打完一张牌一次，连竿加打的那张也算，见那儿那段注释）。
   //
@@ -3162,34 +3450,61 @@
   //
   // 蔓延**不记谁点的**（pileBurn 只存层数），所以对手的燎原也会帮你铺火
   function spreadFire() {
-    if (!spreadOn()) {
-      return
-    }
+    // **不再判【燎原】在不在场** —— 蔓延是关键词自带的（见上面那段）
     const size = pile.value.length
     if (size == 0) {
       return
     }
     const next = pileBurn.value.slice(0)
     let lit = 0
+    // 冰火相消吃掉的格数（播报用）
+    let melted = 0
     for (let i = 0; i < size; i++) {
       // 读的是**旧值**，所以这一轮刚点着的不会接着往下传
       if (pileBurnAt(i) == 0) {
         continue
       }
+      // ---- 【结冰】挡一次蔓延，而且两个一起消失 ----
+      //
+      // 爬到带冰的格子：冰化了、火也没爬过去（见 TERMS 结冰那条）。
+      // 所以一片冰能钉住火线一回合，代价是那一格的冰没了。
+      //
+      // **这儿必须判，不然冰只挡野火不挡燎原** —— 那种「只对一半火源有效」
+      // 的规则玩家记不住，而且是静默的（看不出是设计还是 bug）
       if (i > 0 && next[i - 1] == 0) {
-        next[i - 1] = 1
-        lit = lit + 1
+        if (iceMeltsFire(i - 1)) {
+          melted = melted + 1
+        } else {
+          next[i - 1] = 1
+          lit = lit + 1
+        }
       }
       if (i < size - 1 && next[i + 1] == 0) {
-        next[i + 1] = 1
-        lit = lit + 1
+        if (iceMeltsFire(i + 1)) {
+          melted = melted + 1
+        } else {
+          next[i + 1] = 1
+          lit = lit + 1
+        }
       }
     }
-    if (lit == 0) {
+    // 相消也要落盘（冰在 iceMeltsFire 里已经清了，但火那边的 next
+    // 没变过 —— 所以 lit == 0 而 melted > 0 时直接 return 是对的，
+    // 别忘了那几格的冰确实化掉了，播报要说一句）
+    if (lit == 0 && melted == 0) {
       return
     }
     pileBurn.value = next
-    message.value = message.value + ' 燎原：火又烧着了 ' + lit + ' 张。'
+    // 不冠技能名了 —— 蔓延是【燃烧】关键词自带的，不属于任何一件技能。
+    // 原先这儿写「燎原：」，而那会让玩家以为是对手带了什么
+    let note = ' 蔓延：'
+    if (lit > 0) {
+      note = note + '火又烧着了 ' + lit + ' 张'
+    }
+    if (melted > 0) {
+      note = note + (lit > 0 ? '，' : '') + melted + ' 张结冰挡住了火（两个都化了）'
+    }
+    message.value = message.value + note + '。'
   }
 
   function pushPile(card : PlainCard, byFoe : boolean, guard : number, vals : number[]) {
@@ -3200,6 +3515,7 @@
     // 落堆时花色就是牌面那个；【染水】之后才会跟它不一样
     pileSuit.value = pileSuit.value.concat([card.suit])
     pileBurn.value = pileBurn.value.concat([burnOnLand()])
+    frostOnLand(card, byFoe, pile.value.length - 1)
   }
 
   // 插到**堆底**（下标 0）。【沉底】走这条。
@@ -3213,6 +3529,30 @@
     pileVals.value = ([vals] as number[][]).concat(pileVals.value)
     pileSuit.value = ([card.suit] as string[]).concat(pileSuit.value)
     pileBurn.value = ([burnOnLand()] as number[]).concat(pileBurn.value)
+    frostOnLand(card, byFoe, 0)
+  }
+
+  // ---------- 落堆那一下的结冰：**钥匙在这儿变成障碍** ----------
+  //
+  // 两条来路，都汇到这儿（所以 pushPile / unshiftPile 各只加一行）：
+  //
+  //   **手里带着冰**（自带的那三件、或者被藏凌贴过的）—— 从手冰表摘掉，
+  //     在堆上贴回去。那是「穿过去的那张牌落堆又成了新的冰」那一步；
+  //   **场上有【霜降】** —— 落堆的牌一律贴冰（它造障碍，对双方生效）。
+  //
+  // 走 addFrostAt，所以**冰火相消和不可叠加都自动守着** ——
+  // 带着火落堆的牌（沸水在场）碰上霜降，两个一起化掉。
+  //
+  // 这儿**不管豁免**：豁免在 playFor 就读完了（iceBlindNow），
+  // 而那时它还在手里 —— 顺序反了的话钥匙就失效了
+  function frostOnLand(card : PlainCard, byFoe : boolean, at : number) {
+    const hand = frostOnHand(card)
+    if (hand) {
+      dropFrostHand(card)
+    }
+    if (hand || frostFallOn()) {
+      addFrostAt(at, byFoe)
+    }
   }
 
   // 堆上第 index 张带着几层火。读不出来算 0（跟 pileSuitAt 同一个兜底理由）
@@ -3383,7 +3723,19 @@
       || hasTrigger(skills, SK_HUE)
       || hasTrigger(skills, SK_VOID) || hasTrigger(skills, SK_DUMP)
       || hasTrigger(skills, SK_SPILL) || hasTrigger(skills, SK_HUEVOID)
-      || hasTrigger(skills, SK_WILD) || hasTrigger(skills, SK_SPREAD)
+      // （【燎原】原先在这一族，技能删了 —— 蔓延并进【燃烧】关键词）
+      // ---- 【野火】回到这一族（2026-10-13 定稿）----
+      //
+      // 中间试过两档，都撤了：**条件性无点数**（取到燃料才无点数）
+      // 和**置 0**。现在是无条件无点数，回到最初的样子。
+      //
+      // 它付的是这一族的**标准代价**，所以不需要任何例外条款 ——
+      // 那两档都是在给它开例外，而开例外要么破不变量、
+      // 要么得在词条里再立一条规矩。
+      //
+      // 注意这跟【燃烧】关键词**无关**：关键词不碰点数（定稿第 2 条），
+      // 这一条是野火**这一件技能**自己的代价
+      || hasTrigger(skills, SK_WILD)
       // 抄底的无点数是**兜底**不是代价：棋盘上没叠放时它什么也收不到，
       // 那就至少是一张钓不走的安全饵（没这道兜底它就是「单买是废的」）
       || hasTrigger(skills, SK_DREDGE)) {
@@ -3634,6 +3986,52 @@
     return false
   }
 
+  // ---------- 【寒色】：它在场时，**你**打出的同花色牌也自带结冰 ----------
+  //
+  // 三个条件都要，而且每一个都有理由：
+  //
+  //   **同一方** —— desc 写的是「**你**打出的」。held 的 byFoe 记着
+  //     「这效果是谁打出的」，所以拿它跟当前出牌的一方比。
+  //     不比的话对手也白得钥匙，这件技能就反过来帮他了。
+  //   **比颜色，不是花色** —— 一门花色只占手牌四分之一，而持续效果
+  //     配那个触发率**在场期间可能一次都不触发**（在场约 3.3 回合，
+  //     期间我打 3~4 张，其中同花色的期望不到 1 张）。
+  //     颜色是一半，所以在场 4 回合期望 2 把钥匙 —— 看得见。
+  //     顺带：同颜色是这个游戏里现成的「减半」刻度（【齐顶】当初就是
+  //     被限成「同颜色里最大」才回到档位的）。
+  //   **比牌面颜色，不是 pileSuitAt** —— 读的是手里那张要打出去的牌，
+  //     它还没进堆，没有「堆上现在算什么花色」这回事。
+  //     而寒色**自己**那张在堆上，所以它那一侧照旧读 pileSuitAt
+  //    （一色能把整堆染过色，照封色那条先例）。
+  //   **不走 sameSuit** —— 那个函数是给【两色】放大用的，而它只服务
+  //     「找出同花色的牌并收走」那四个点（顺色 / 收色 / 同花 / 估收成）。
+  //     寒色是造钥匙，不是匹配类，照封色那条先例不进那一套。
+  //   **它还在堆上** —— 在场效果的通例（pileIndexOf >= 0）
+  function coldHueOn(card : PlainCard, byFoe : boolean) : boolean {
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill != SK_COLDHUE || held.value[i].byFoe != byFoe) {
+        continue
+      }
+      const at = pileIndexOf(held.value[i].source)
+      if (at >= 0 && isRedSuit(pileSuitAt(at)) == isRedSuit(card.suit)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 场上有【霜降】牌（哪一方打的都算 —— 它造的是**障碍**，对双方生效）。
+  //
+  // 跟【沸水】的 boilOn 一个形状、一个理由：落堆那一刻读它
+  function frostFallOn() : boolean {
+    for (let i = 0; i < held.value.length; i++) {
+      if (held.value[i].skill == SK_FROSTFALL && inPile(held.value[i].source)) {
+        return true
+      }
+    }
+    return false
+  }
+
   // 场上有【分水】牌，而且 value 的奇偶跟它牌面点数的奇偶不同
   function parityBlocked(value : number) : boolean {
     for (let i = 0; i < held.value.length; i++) {
@@ -3684,6 +4082,31 @@
     // 沉底在这儿只是**读出来**，真正落堆在下面 —— 因为落堆的位置
     // 还要分「钓到了 / 没钓到」两条路走
     firstNote = ''
+    // ---- 结冰那一族：**自带冰的先进手冰表，豁免再从表里读** ----
+    //
+    // 两步分开写是有意的：
+    //   `selfFrost` 那几件（结凌 / 藏凌 / 寒色）的「自带【结冰】」=
+    //     **打出时它在手里就带着** → 塞进 frostHand；
+    //   豁免**只认一件事**：这张牌手里带不带冰（`frostOnHand`）。
+    //
+    // 于是三件技能的豁免走同一条、不用各自特判，而【藏凌】贴给别的手牌的冰
+    // 走的也是这一条 —— 那几张牌下几手打出去时同样豁免。
+    //
+    // 【寒色】在场时给同花色的牌加的「自带」也在这儿兜住（见下面那一支）。
+    //
+    // **每次出牌都重设** iceBlindNow：没钓中的那一手不进 finishCatch，
+    // 只靠这儿重设才不会把豁免漏到下一手
+    if (selfFrost(skills)) {
+      addFrostHand(card)
+    }
+    // 【寒色】：它在场时，你打出的**同花色**牌也自带冰。
+    //
+    // 判在这儿（落堆前）而不是 landVals 里：自带冰的意思是「打出时就带着」，
+    // 而豁免读的正是那个状态 —— 放到落堆之后就只剩障碍、没有钥匙了
+    if (coldHueOn(card, byFoe)) {
+      addFrostHand(card)
+    }
+    iceBlindNow = frostOnHand(card)
     // 【合流】上一手吃到的点数清掉 —— 它只在那一手的判定里算
     //（堆上那张的点数早写进 pileVals 了，是持久的）
     mergeCard = null
@@ -3787,28 +4210,47 @@
       }
       return
     }
+    // ---------- 【结凌】：给**全场**贴结冰 ----------
+    //
+    // **贴在落堆之前**，所以这一下的「全场」**不含它自己** ——
+    // 它自己那张冰是「自带」来的（playFor 开头进了手冰表，落堆时由
+    // frostOnLand 贴上），两条路分开走，不会贴两次（addFrostAt 不可叠加）。
+    //
+    // 为什么是全场而不是堆顶几张：它收的是「匹配那张 → 堆顶」，
+    // 所以**堆顶那几张正是它自己要收走的** —— 范围只给堆顶的话，
+    // 它钓中时把刚铺的冰全带走了，铺设效果归零（初稿就是这么废的）。
+    // 全场之后堆底那部分它收不到，于是留了下来（期望铺成 3 张左右）。
+    //
+    // 相消和不可叠加都在 addFrostAt 里，这儿不重复判
+    if (hasTrigger(skills, SK_FROST) && pile.value.length > 0) {
+      let iced = 0
+      let put = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (pileBurnAt(i) > 0) {
+          // 带火的那几格：冰火相消，火灭、冰也没贴上
+          put = put + 1
+        }
+        if (addFrostAt(i, byFoe)) {
+          iced = iced + 1
+        }
+      }
+      firstNote = firstNote + (byFoe ? ' 庄家结凌：' : ' 结凌：')
+        + '冻住 ' + iced + ' 张'
+        + (put > 0 ? '，' + put + ' 张的火跟冰一起化了' : '')
+        + '。它自带结冰，所以这一手收牌不受影响。'
+    }
     if (sink) {
       unshiftPile(card, byFoe, GUARD_NONE, worth)
     } else {
       pushPile(card, byFoe, GUARD_NONE, worth)
     }
     // ---- 进场之后：「优先」效果最先发动 ----
-    // 【燎原】**自带 1 层火**。
+    // 【燎原】原先在这儿自带 1 层火，点在它落下的那一格
+    //（普通打法堆顶、沉底堆底 —— 「火从哪头烧起」是它的决策）。
+    // 技能删了：蔓延并进【燃烧】关键词之后它是白牌。
     //
-    // 判在这儿而不是 burnOnLand 里，是因为那个函数不知道「落的是哪张牌、
-    // 带什么技能」—— 它被洪水、掏手、掏库共用，那几条路都传空技能表。
-    // 给 pushPile 加一个 skills 参数就得改所有调用点，不值。
-    //
-    // 它落在哪就点哪一格：普通打法在堆顶、沉底在堆底 ——
-    // 而那正是这件技能的决策（火从哪头烧起，见 draw-skills 那条）
-    if (hasTrigger(skills, SK_SPREAD)) {
-      const at = pileIndexOf(card)
-      if (at >= 0) {
-        const next = pileBurn.value.slice(0)
-        next[at] = 1
-        pileBurn.value = next
-      }
-    }
+    // 现在的火种只有两个：**野火**（给剩下的牌和它自己点火）
+    // 和**沸水**（在场时落堆的牌都带火，走 burnOnLand）
     // ---- 【合流】：它落堆之后，把紧挨着它那张叠到自己下面 ----
     //
     // 排在这一段的**最后**：染水和燎原讲的是「它落下来那一瞬间带着什么」
@@ -3924,7 +4366,8 @@
       keepCards.push(pile.value[i])
       keepByFoe.push(pileByFoe.value[i])
       keepGuard.push(pileGuard.value[i])
-      keepVals.push(pileValsAt(i))
+      // **rawVals 不是 pileValsAt** —— 见 rawVals 那段：重建会把在场效果写死
+      keepVals.push(rawVals(i))
       keepSuit.push(pileSuitAt(i))
       keepBurn.push(pileBurnAt(i))
     }
@@ -3957,7 +4400,9 @@
       return
     }
     // **先问再取** —— takeAt 会把盾消耗掉（照 finishCatch 那条）
-    const warded = wardAt(0)
+    // 结冰也挡走水 / 过闸（冰对双方生效）—— 而豁免那时已经清掉了，
+    // 所以这儿问 blockedAt 拿到的是「有没有被挡住」的完整答案
+    const warded = blockedAt(0)
     const gone = goneRanks.value.slice(0)
     const got = takeAt(0, gone)
     goneRanks.value = gone
@@ -4031,7 +4476,7 @@
       if (i >= from && i <= to) {
         // 叠放走 takeAt：带保护就取走垫着那张盾（宿主留下），
         // 没保护就连底下压着的一起收。**先问再取** —— takeAt 会消耗掉盾
-        const warded = wardAt(i)
+        const warded = blockedAt(i)
         caught = caught + takeAt(i, gone)
         if (!warded) {
           continue
@@ -4041,7 +4486,8 @@
       keepCards.push(pile.value[i])
       keepByFoe.push(pileByFoe.value[i])
       keepGuard.push(pileGuard.value[i])
-      keepVals.push(pileValsAt(i))
+      // **rawVals 不是 pileValsAt** —— 见 rawVals 那段：重建会把在场效果写死
+      keepVals.push(rawVals(i))
       keepSuit.push(pileSuitAt(i))
       keepBurn.push(pileBurnAt(i))
     }
@@ -4081,7 +4527,7 @@
       let got = 0
       for (let i = 0; i < pile.value.length; i++) {
         if (i < extra) {
-          const warded = wardAt(i)
+          const warded = blockedAt(i)
           got = got + takeAt(i, gone2)
           if (!warded) {
             continue
@@ -4090,7 +4536,8 @@
         keep2.push(pile.value[i])
         keep2By.push(pileByFoe.value[i])
         keep2Guard.push(pileGuard.value[i])
-        keep2Vals.push(pileValsAt(i))
+        // **rawVals 不是 pileValsAt** —— 同上
+        keep2Vals.push(rawVals(i))
         keep2Suit.push(pileSuitAt(i))
         keep2Burn.push(pileBurnAt(i))
       }
@@ -4104,6 +4551,13 @@
       caught = caught + got
       message.value = message.value + ' 深钩：顺手捞走堆底 ' + got + ' 张。'
     }
+    // ---- 【结凌】的豁免到这儿**就结束** ----
+    //
+    // 这一手的收牌（主循环 + 深钩）都走完了，所以立刻清掉 ——
+    // 底下几行还有【守滩】【再钩】【过闸】，而**过闸是庄家的规矩**
+    //（dropBottomToFoe → takeAt）。不清的话它会蹭上我这一手的豁免，
+    // 无视我自己铺的冰去拿分。passTurn 里的【走水】同理
+    iceBlindNow = false
     // 刚收走的那几张里要是有谁的效果牌，那个效果到此为止 ——
     // 「挂在牌上」的意思就是牌没了效果也没了。
     // **摆在深钩之后**：它也可能收走效果牌
@@ -4343,38 +4797,69 @@
       message.value = message.value + ' 分水：'
         + (lastPlayed!.value % 2 == 0 ? '奇数' : '偶数') + '点的牌打出来都是 0 点了。'
     }
-    // 沸水：在场时，**落堆的牌都带 1 层【燃烧】**。
+    // 【沸水】原先在这儿挂在场效果（落堆的牌都带火）。技能删了 ——
+    // 蔓延并进【燃烧】关键词之后它成了「提前一手」，实测可证的零。
     //
-    // 它跟上面那三件（压邻、封色、分水）同族 —— 都是「挂在刚打出那张上、
-    // 改后面落下来的牌」。区别是那三件抹点数、它点火。
+    // ---- 【霜降】：沸水的冰版，连代价的形状都照抄 ----
     //
-    // **它保留自己的点数**（valuesOf 里没有它），照分水那条先例：
-    // 有点数所以对手钓得走它，而钓走它效果就解除 ——
-    // 那是它敢铺「所有落堆的牌」这么大面积的前提。
-    // 要是它也没点数，它几乎钓不走（只有 J、顺色碰得到），
-    // 于是【野火】每次都通吃整堆
-    if (hasTrigger(skills, SK_BOIL) && lastPlayed != null && inPile(lastPlayed!)) {
+    // **它值得单独量一遍**：它照的是沸水的形状，而沸水死于
+    //「蔓延把它的活接走了」。冰那一族**没有自动蔓延**，
+    // 所以霜降大概不会跟着死 —— 但那是推断，不是实测
+    //
+    // **它自己有点数**（desc 里明说），所以对手钓得走它、钓走就解除 ——
+    // 那是它敢铺「所有落堆的牌」的前提，跟沸水一条理由。
+    //
+    // 它**自己也自带结冰**（照这一族的签名，走 selfFrost → 手冰表 →
+    // frostOnLand）。那只让它**晚一轮离场**（对手先撞掉冰、再收走它），
+    // 不是免疫 —— 所以「钓走它就解除」那条解照旧成立
+    if (hasTrigger(skills, SK_FROSTFALL) && lastPlayed != null && inPile(lastPlayed!)) {
       addHeld({
         source: lastPlayed!,
-        skill: SK_BOIL,
+        skill: SK_FROSTFALL,
         target: null,
         byFoe: byFoe
       } as HeldEffect)
-      message.value = message.value + (byFoe ? ' 庄家沸水：' : ' 沸水：')
-        + '从现在起落堆的牌都带着火。'
+      message.value = message.value + (byFoe ? ' 庄家霜降：' : ' 霜降：')
+        + '从现在起落堆的牌都带着结冰。'
     }
-    // 燎原：在场时，每打出一张牌，堆上的火向左右各蔓延一格（见 spreadFire）。
-    // 它自带的那一层火在 playFor 里就点上了 —— 这儿只负责挂住效果
-    if (hasTrigger(skills, SK_SPREAD) && lastPlayed != null && inPile(lastPlayed!)) {
+    // ---- 【寒色】：持续造钥匙，只给同花色 ----
+    //
+    // 挂效果的形状跟沸水 / 霜降一样，但它读的是**归属**
+    //（见 coldHueOn：只给打出它的那一方）——
+    // 所以它是这三件里唯一不对双方生效的
+    if (hasTrigger(skills, SK_COLDHUE) && lastPlayed != null && inPile(lastPlayed!)) {
       addHeld({
         source: lastPlayed!,
-        skill: SK_SPREAD,
+        skill: SK_COLDHUE,
         target: null,
         byFoe: byFoe
       } as HeldEffect)
-      message.value = message.value + (byFoe ? ' 庄家燎原：' : ' 燎原：')
-        + '火开始往两边烧了。'
+      message.value = message.value + (byFoe ? ' 庄家寒色：' : ' 寒色：')
+        + '从现在起' + (byFoe ? '它' : '你') + '打出的同颜色牌自带结冰。'
     }
+    // ---- 【藏凌】：把手里剩下的牌都变成钥匙 ----
+    //
+    // 它**不铺障碍**，所以不碰堆 —— 贴的是手冰表（见 frostHand 那段）。
+    // 那几张牌下几手打出去时都能穿过堆上的冰，而落堆后又成了新的障碍。
+    //
+    // 排在这儿（afterPlay）而不是 playFor：它贴的是「打出这张之后
+    // 手里剩下的」，所以得等那张牌已经离手
+    if (hasTrigger(skills, SK_HIDE)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      let iced = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (!frostOnHand(mine[i])) {
+          addFrostHand(mine[i])
+          iced = iced + 1
+        }
+      }
+      message.value = message.value + (byFoe ? ' 庄家藏凌：' : ' 藏凌：')
+        + (iced > 0
+          ? '手里 ' + iced + ' 张带上了结冰 —— 打出去那几手不受结冰影响。'
+          : '手里没牌可贴。')
+    }
+    // 【燎原】原先在这儿挂住在场效果。技能删了 ——
+    // 蔓延现在是【燃烧】关键词自带的，不需要任何技能在场（见 spreadFire）
     // 掏手：从对方手里掏 DUMP_COUNT 张，当 0 点扔到堆上
     if (hasTrigger(skills, SK_DUMP)) {
       dumpFor(byFoe)
@@ -5107,7 +5592,9 @@
     const vals : number[][] = []
     const taken : number[] = []
     for (let i = 0; i < pile.value.length; i++) {
-      const now = dropVals(pileValsAt(i), step)
+      // **rawVals 不是 pileValsAt**：这一行**写**回 pileVals，
+      // 从带在场效果的那个读会把效果写死（带火 → 空点数永久化）
+      const now = dropVals(rawVals(i), step)
       vals.push(now)
       if (now.length > 0 && !anyLive(now)) {
         taken.push(i)
@@ -5159,7 +5646,7 @@
         //   没保护 → 宿主 + 底下压着的全收（那几分归收走的人 ——
         //     那正是叠放「押注」的兑现处）。
         // **先问再取** —— takeAt 会把盾消耗掉
-        const warded = wardAt(i)
+        const warded = blockedAt(i)
         taken = taken + takeAt(i, gone)
         if (!warded) {
           continue
@@ -5168,7 +5655,8 @@
         keepCards.push(pile.value[i])
         keepByFoe.push(pileByFoe.value[i])
         keepGuard.push(pileGuard.value[i])
-        keepVals.push(pileValsAt(i))
+        // **rawVals 不是 pileValsAt** —— 见 rawVals 那段：重建会把在场效果写死
+      keepVals.push(rawVals(i))
         keepSuit.push(pileSuitAt(i))
         // **火原样留着** —— 这一支是「别的技能收走它、保护让它留下」
         //（收色、撒网、见底都会走到），跟燃烧没关系。
@@ -5182,7 +5670,8 @@
       keepCards.push(pile.value[i])
       keepByFoe.push(pileByFoe.value[i])
       keepGuard.push(pileGuard.value[i])
-      keepVals.push(pileValsAt(i))
+      // **rawVals 不是 pileValsAt** —— 见 rawVals 那段：重建会把在场效果写死
+      keepVals.push(rawVals(i))
       keepSuit.push(pileSuitAt(i))
       keepBurn.push(pileBurnAt(i))
     }
@@ -5408,7 +5897,7 @@
     let caught = 0
     for (let i = 0; i < pile.value.length; i++) {
       if (i >= hitAt) {
-        const warded = wardAt(i)
+        const warded = blockedAt(i)
         caught = caught + takeAt(i, gone)
         if (!warded) {
           continue
@@ -5417,7 +5906,8 @@
       keepCards.push(pile.value[i])
       keepByFoe.push(pileByFoe.value[i])
       keepGuard.push(pileGuard.value[i])
-      keepVals.push(pileValsAt(i))
+      // **rawVals 不是 pileValsAt** —— 见 rawVals 那段：重建会把在场效果写死
+      keepVals.push(rawVals(i))
       keepSuit.push(pileSuitAt(i))
       keepBurn.push(pileBurnAt(i))
     }
@@ -5874,6 +6364,56 @@
   // 收走的那几张走收牌特效（照收色、撒网），演完从 TAIL_REST 接着走
   function wildfireFor(byFoe : boolean, skills : number[]) : boolean {
     const who = byFoe ? ' 庄家野火：' : ' 野火：'
+    // ---------- 连锁：从牌库取一张同点数的，取到了它就无点数 ----------
+    //
+    // 这一条治的是一个**数值不匹配**，而那个不匹配是量出来的：
+    //
+    //   燃烧的留存   3.3 回合（堆上的牌平均活这么久）
+    //   原来的间隔   26 回合（单点数槽一局触发约 2 次）
+    //
+    // 差八倍。而原效果需要覆盖 **22 张以上**才打平，全表最大的槽
+    // 只有 12 张 —— 所以它在**每一个槽上都是负分**（实测 X = −0.50）。
+    // 无论怎么调幅度都没用，兑现必须不依赖「等下一次触发」。
+    //
+    // 取一张同点数的回手里，间隔就变成 1~2 回合 —— 它**自己制造下一次触发**。
+    // 连带一个好性质：**它不再挑槽**（自己造触发，跟覆盖面脱钩了）。
+    //
+    // ---- 取的条件是「**还能触发野火**」，不是「同点数」（2026-10-13）----
+    //
+    // 同点数只是单点数槽上的那个**特例**。连锁要的从来不是点数一样，
+    // 是「这张打出去会不会又带野火」—— 槽可以挂多个标签（几个点数、
+    // 甚至整个花色），所以那两件事不等价。词条见规则弹窗的
+    //【获取下一张】（draw-levels.uvue 的 TERMS）。
+    //
+    // 池子因此跟着槽宽走：单点数槽 4 张、多点数槽 12~16、花色槽 12。
+    // 那让它从「定值技能」变成「上槽前要先看槽」的技能，而宽槽上的
+    // 大数**不是 bug** —— 收一片类随槽宽放大是全表既有的性质
+    //（一色点数槽 +4.54 / 花色槽 +12.21，野火还比它弱）。
+    //
+    // ---- 「取不到就不变」那个兜底**去掉了** ----
+    //
+    // 它原先值 +0.66，可那是在**旧的燃烧规则**下：那时收成/次 只有 0.30、
+    // 代价是 0.94，所以「不发动就不付钱」是唯一能止血的办法。
+    //
+    // 燃烧改成自带「无点数」之后（见 pileValsAt），烧过的牌对手钓不走了，
+    // 收成/次 往贴火量 2.11 爬 —— **代价终于盖得住**，补丁就不需要了。
+    // 实测野火 +0.50 → **+3.28**（标准槽），第一次进目标档 +3~+5。
+    //
+    // 所以现在一律：取没取到都**置 0** + 收火。取没取到只决定连锁断不断
+    let took = false
+    if (lastPlayed != null) {
+      const pool = fuelPool(byFoe)
+      if (pool.length > 0) {
+        took = pullFromDeck(byFoe, pool[0])
+      }
+    }
+    // 它**无条件无点数**（valuesOf 里那一族），所以这儿不用再标记什么 ——
+    // 取没取到只决定**连锁断不断**，不决定付不付钱
+    if (took) {
+      message.value = message.value + who + '从牌库捞了一张还带野火的，这张自己归 0。'
+    } else {
+      message.value = message.value + who + '牌库里没有带野火的了，连锁断在这儿（这张照样归 0、照样收火）。'
+    }
     const size = pile.value.length
     if (size == 0) {
       message.value = message.value + who + '场上没有牌。'
@@ -5884,6 +6424,8 @@
     const wardHit : number[] = []
     let lit = 0
     let held2 = 0
+    // 冰火相消吃掉的格数（播报用）
+    let melted = 0
     for (let i = 0; i < size; i++) {
       // 保护：挡掉点火，保护消耗。它既不着火、也不被收走
       if (wardAt(i)) {
@@ -5891,12 +6433,27 @@
         continue
       }
       if (pileBurnAt(i) > 0) {
-        // 已经着了 → 再点一次就烧穿。但护着的牌拿不走（火留着）
+        // 已经着了 → 再点一次就烧穿。但护着的牌拿不走（火留着）。
+        //
+        // 原先这儿还有一条 `!took`（取不到就不收火）——
+        // **去掉了**：现在取没取到都置 0，所以双吃那条闸由置 0 管，
+        // 不再需要「不收火」来兜。取没取到只决定连锁断不断
         if (guardedAgainst(i, byFoe) || matchLocked(i, byFoe)) {
           held2 = held2 + 1
           continue
         }
         taken.push(i)
+        continue
+      }
+      // ---- 【结冰】：冰火相消，两个一起消失 ----
+      //
+      // 带冰的格子**点不着** —— 冰化了、火也没贴上（见 TERMS 结冰那条）。
+      // 所以一片冰场能吃掉一次野火的点火，而代价是那片冰没了。
+      //
+      // 它跟上面保护那一支的区别：保护**挡掉**点火（火没贴上、保护还在，
+      // 要等收牌才消耗）；结冰是**互毁**（两个都没了）
+      if (iceMeltsFire(i)) {
+        melted = melted + 1
         continue
       }
       next[i] = 1
@@ -5948,6 +6505,9 @@
     }
     if (held2 > 0) {
       note = note + '，' + held2 + ' 张护着的烧不走'
+    }
+    if (melted > 0) {
+      note = note + '，' + melted + ' 张结冰跟火一起化了'
     }
     message.value = message.value + note + '。'
     return startSweep(byFoe, taken, skills, TAIL_REST)
@@ -6171,6 +6731,27 @@
         rest.push(deck.value[i])
       }
     }
+    // ---- 搜过牌库就**洗一遍**（【获取下一张】词条写明的）----
+    //
+    // 洗这一下是**有意的限制**，不是整洁癖：不洗的话「从顶往下第一张」
+    // 是确定的，于是观潮 / 择饵 / 活水 一看牌库顶就能把整条连锁**排好**
+    //（野火一局要取好几张）—— 那不是给信息类技能开兑现口子，
+    // 那是把随机性整段删掉。洗了之后它退回「一张随机的符合牌」。
+    //
+    // 副作用要记住：**它会毁掉你自己攒的情报**。刚用观潮看完牌库顶
+    // 再打一张野火，那两张就白看了 —— 于是「信息类 + 检索类」变成
+    // 一个要排顺序的组合，而不是无脑叠加。
+    //
+    // 这个函数**同号也走**，所以同号也跟着洗了。那是对的方向：
+    // 检索类三件口径一致了（同花本来就洗回牌库），而「搜过牌库就洗」
+    // 是通行规矩 —— 原先同号是悄悄抽走、顺序不动
+    // 内联 Fisher-Yates —— 照同花那儿的写法（这一页没有共用的洗牌函数）
+    for (let i = rest.length - 1; i > 0; i--) {
+      const k = Math.floor(Math.random() * (i + 1))
+      const tmp = rest[i]
+      rest[i] = rest[k]
+      rest[k] = tmp
+    }
     deck.value = rest
     if (byFoe) {
       foeHand.value = foeHand.value.concat([card])
@@ -6180,6 +6761,29 @@
       handSeen.value = handSeen.value.concat([false])
     }
     return true
+  }
+
+  // ---------- 【野火】连锁的燃料池：**能再触发野火的牌** ----------
+  //
+  // 不是「同点数」—— 那只是真条件的一个特例（见 wildfireFor 那段）。
+  // 直接问 triggersOf，池子就自动跟着槽走，不用去拼槽上的标签。
+  //
+  // 两条闸是白送的，因为 skillsOf 本来就带：
+  //   **J 不进池** —— 它对 J 直接返回空（J 只有通吃）；
+  //   **死水废掉的不进池** —— 它那一路先判废牌。
+  // 两条都对：那种牌打出去不触发野火，取回来就断链。
+  //
+  // 牌库从后往前扫（末尾是牌库顶），所以 out[0] 是最靠顶的那张 ——
+  // 跟同花那条「翻牌库顶拿第一张」一个口径。
+  // 取完还要洗（见 pullFromDeck），所以「第一张」只在取的那一瞬成立
+  function fuelPool(byFoe : boolean) : PlainCard[] {
+    const out : PlainCard[] = []
+    for (let i = deck.value.length - 1; i >= 0; i--) {
+      if (hasTrigger(skillsOf(byFoe, deck.value[i]), SK_WILD)) {
+        out.push(deck.value[i])
+      }
+    }
+    return out
   }
 
   function doTwin(byFoe : boolean, card : PlainCard) {
@@ -6751,7 +7355,47 @@
   // 「没牌可打、跳过回合」那几条路直接调 passTurn，不经过这儿，不蔓延
   function endPlay(byFoe : boolean) {
     spreadFire()
+    fillPond(byFoe)
     passTurn(byFoe)
+  }
+
+  // ---------- 【填塘】：堆被清空时，从牌库顶补一张 0 点牌 ----------
+  //
+  // **判在 endPlay 而不是各条收牌路里** —— 清空堆有七八条来路
+  //（J 通吃、顺色、量水、一色、见底、撒网、收色、洪水…），
+  // 在每条后面各判一次必漏一条，而漏掉的表现是「这一关它有时候不触发」。
+  // endPlay 是「一张牌打完了」的唯一出口，堆的状态在那儿已经定了。
+  //
+  // byFoe 是**刚打牌的那一方**，也就是把堆收光的那个人 ——
+  // 补上去那张算他打的（照庄家【淤滩】那条先例，而且逻辑上是他的行为
+  // 导致的）。0 点牌当不了钓点，所以归属几乎不影响匹配，但会影响
+  // 【一色】数花色、以及硬壳 / 炙水认「谁打出的」。
+  //
+  // ---- 为什么是 `置 0` 而不是正常打出 ----
+  //
+  // **0 点牌谁都匹配不上**（`[0]` 对 `[N]` 只有 N=0 才相等，而
+  // 「0 对 0 不算相等」是定死的）。于是它**只填堆位、不改匹配面**：
+  // 对手清空之后照样白打一手，被削掉的只是「空堆」那一份；
+  // 而空堆失效的那几件（齐顶 / 结凌 / 抄底 / 量水）能用了。
+  //
+  // 正常打出的话补上去的牌有点数 → 对手可能匹配到它 →
+  // 这件常驻技就变成在**帮**他了
+  function fillPond(byFoe : boolean) {
+    if (pile.value.length > 0 || deck.value.length == 0) {
+      return
+    }
+    // 双方都可能带它。谁带谁触发 —— 而「谁收光的」不影响判断，
+    // 影响的只是补上去那张算谁的饵
+    if (!hasSpecial(byFoe, SP_FILLPOND) && !hasSpecial(!byFoe, SP_FILLPOND)) {
+      return
+    }
+    const card = deck.value[deck.value.length - 1]
+    deck.value = deck.value.slice(0, deck.value.length - 1)
+    // 置 0：vals 直接传 [0]，不走 landVals ——
+    // 它不是「打出」，所以压邻 / 封色 / 分水那几件不该改它
+    pushPile(card, byFoe, GUARD_NONE, [0] as number[])
+    message.value = message.value + ' 填塘：堆空了，从牌库补上 '
+      + cardName(card) + '（算 0 点）。'
   }
 
   function passTurn(byFoe : boolean) {
@@ -7397,6 +8041,9 @@
     // 【合流】上一局吃到的点数（playFor 每手也清一次，这儿是开局那道）
     mergeCard = null
     mergeGain = [] as number[]
+    // 结冰那一族：豁免（playFor 每手也重设）和手冰表，开局都清
+    iceBlindNow = false
+    frostHand = [] as PlainCard[]
     againPending = false
     againUsed.value = false
     // 角色和「打过几张」每局归零 —— 【稳钩】数的是「这一局前 N 张」
@@ -8025,6 +8672,17 @@
     top: 1px;
     right: 3px;
     color: #e0561f;
+    font-size: 9px;
+    font-weight: bold;
+  }
+
+  /* 【结冰】的角标。**跟「烧」占同一个位置**（右上）—— 冰和火互斥
+     （相消），所以两个永远不会同时出现，不用另找地方摆 */
+  .card-frost-tag {
+    position: absolute;
+    top: 1px;
+    right: 3px;
+    color: #2f8fd0;
     font-size: 9px;
     font-weight: bold;
   }

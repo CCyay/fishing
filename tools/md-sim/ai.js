@@ -112,12 +112,38 @@ function pickCard(G, side) {
     if (card.rank === R.JACK || R.isFrozen(G, card)) continue
     let score = baitRisk(G, side, card) * 1.0
     const skills = R.skillsOf(G, side, card)
-    // 想当饵顺手发动的那几件。挂效果的三件（照水、冻结、见底）也算 ——
-    // 它们正好要求「这张别钓到牌」
-    const wants = R.has(skills, SK.PEEK) || R.has(skills, SK.TIDE)
-      || R.has(skills, SK.LANTERN) || R.has(skills, SK.FREEZE)
+    // ---------- 【窥视】【照水】【染水】要**带条件**才算「想发动」 ----------
+    //
+    // 这张列表里其余十几件都是**无条件有用**的（收牌、动手牌、改上限…），
+    // 只有这三件是**条件性**的 —— 它们改的东西只被另一件技能读：
+    //
+    //   窥视 / 照水 → `opponentOpen`（对方哪张明着），只被 freezePick 读
+    //   染水       → `pileSuit`（堆上的花色），只被顺色 / 收色的判定读
+    //
+    // 不写这个条件的后果是量出来的：三件的 X **完全相同，都是 −0.19**
+    //（20000 局，标准误 0.12）—— 那是 AI 为一个**对它无效的技能**
+    // 打了次优牌，白付 1.5 的风险折扣。
+    //
+    // 对照组证明了这一点：归深 / 软点 / 沸水 的效果同样是 0，
+    // 但它们**不在这张列表里**，X 就是干净的 **0.00**。
+    //
+    // > 所以那 −0.19 **不是技能的成本，是启发式的愚蠢**。
+    // > 真人不会为一张用不上的情报去打危险的饵。
+    //
+    // 判的是「**这张牌**同时触发了那件搭档技能吗」（一张牌最多触发两件 ——
+    // 花色槽一件、点数槽一件，所以双触发只发生在两个槽的交集上）。
+    // 不查整个配装是有意的：跨回合的价值这套启发式算不到，
+    // 而硬给它一个「以后会用上」的折扣就又回到了白付风险那条路
+    const pairFreeze = R.has(skills, SK.FREEZE)
+    const pairSuitLine = R.has(skills, SK.SUITED) || R.has(skills, SK.HUE)
+    const wants = R.has(skills, SK.TIDE)
+      || R.has(skills, SK.FREEZE)
       || R.has(skills, SK.LOWTIDE) || R.has(skills, SK.SWAP)
       || R.has(skills, SK.PICK)
+      // 条件性的三件（见上面那段）
+      || (R.has(skills, SK.PEEK) && pairFreeze)
+      || (R.has(skills, SK.LANTERN) && pairFreeze)
+      || (R.has(skills, SK.SUITIFY) && pairSuitLine)
       // 连竿空钩也照样再给一张 —— 当饵顺手白拿一次出牌机会
       || R.has(skills, SK.AGAIN)
       // 挂在牌上的两件新的（窄口、满篓）要求这张留在堆上，跟照水同理

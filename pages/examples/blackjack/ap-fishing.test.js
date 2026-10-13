@@ -270,6 +270,9 @@ describe('/pages/examples/blackjack/ap-fishing', () => {
     expect(terms).toContain('无点数')
     expect(terms).toContain('在场')
     expect(terms).toContain('优先')
+    // 【获取下一张】：野火的说明直接用这个词，词条掉了那条说明就读不懂
+    //（「获取下一张【野火】」字面上看不出是从牌库拿）
+    expect(terms).toContain('获取下一张')
   })
 
   it('技能弹层：关掉再开，查询词不留着', async () => {

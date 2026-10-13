@@ -17,8 +17,9 @@
 // 选项：
 //   -n 40000        跑几局（默认 20000）
 //   --seed 1        随机种子起点（默认 1）
-//   --role basket   技能装在哪个角色身上（默认 lock —— 四个小槽，最中性）
+//   --role basket   借哪个角色的**槽形状**（默认 lock —— 四个小槽，最中性）
 //   --slot N        装进那个角色的第几个槽（从 0 数，默认 0）
+//   --special       **把那个角色的常驻特殊技也带上**（默认不带，见下）
 //
 // 分差的口径跟设计文档一致：**扣掉后手本来就有的那点优势**。
 // 做法是同一批种子跑两遍（一遍双方空手当基线、一遍一方带技能），
@@ -32,6 +33,26 @@
 //
 // 这也是为什么 --role 的默认值是**江口闸官**：它四个槽、每槽恰好一个点数
 //（4 张牌），是全表最中性的尺子 —— 换别的角色量出来的数不能直接比。
+//
+// ---- 量技能**不带常驻特殊技**（2026-10-13 定的口径）----
+//
+// 角色在这儿只提供**槽的形状**（覆盖面几张）。它的常驻特殊技
+// 一律关掉 —— `one` / `all` / `pair` / `vs` 四个子命令都是。
+// 要带的话显式加 `--special`。
+//
+// 原先的做法是「基线也带同一个角色，相减就抵掉了」。那条**只在
+// 常驻技的影响是可加的时候成立**，而它不是：
+//
+//   候潮渔翁【涨落】（手牌 6 张、只在打不出牌时才补）
+//   → 双方都带、槽全空的**基线格**就已经是 后手 −12.23 分 / 胜率 11.2%
+//   （江口闸官同一格：+1.94 / 54.5%）
+//
+// 基线歪 12 分，四格相减出来的数就全是噪声。而这还不是最坏的 ——
+// 最坏的是它**伪装成结论**：野火在那个角色上报「先后手差 21.19 分」，
+// 我一度读成「机制出了环」，其实那是基线的歪被技能一半抹平留下的残差。
+//
+// > 口径：**槽的形状可以借，常驻技不能借。** 量技能就量技能。
+// > 常驻技自己有子命令（`roles` / `role`），那两个照旧带。
 
 const R = require('./rules.js')
 const AI = require('./ai.js')
@@ -41,16 +62,35 @@ const AI = require('./ai.js')
 const DEFAULT_ROLE = 'lock'
 
 function parseArgs(argv) {
-  const out = { _: [], n: 20000, seed: 1, role: DEFAULT_ROLE, slot: 0 }
+  const out = { _: [], n: 20000, seed: 1, role: DEFAULT_ROLE, slot: 0, special: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '-n') { out.n = parseInt(argv[++i], 10) }
     else if (a === '--seed') { out.seed = parseInt(argv[++i], 10) }
     else if (a === '--role') { out.role = argv[++i] }
     else if (a === '--slot') { out.slot = parseInt(argv[++i], 10) }
+    else if (a === '--special') { out.special = true }
     else { out._.push(a) }
   }
   return out
+}
+
+// 量技能时传给 run 的角色下标。**默认 −1（不带常驻技）** —— 见抬头那段。
+//
+// 借槽形状靠的是 `kitWithOne` / `kitFromRole` 产出的 loadout，
+// 那条路跟 G.roles **完全无关**（rules.js 里只有 hasSpecial 和囤饵的
+// baitRankOf 读 G.roles，而囤饵本身就是常驻技）。所以关掉 roles
+// 掉的只有常驻技，覆盖面一张不少
+function rolesFor(args, role, foeToo) {
+  const r = args.special ? role : -1
+  return { myRole: r, foeRole: foeToo ? r : -1 }
+}
+
+// 报表抬头里那一句「带 / 不带常驻技」。**必须打出来** ——
+// 不打的话新旧两批输出长得一模一样，而它们不可比
+function specialNote(args, role) {
+  if (!args.special) return '不带常驻技'
+  return '带常驻技【' + R.DRAW_ROLES[role].special + '】'
 }
 
 // 跑 n 局，双方配装给定。返回汇总。
@@ -73,7 +113,12 @@ function run(n, seed, mine, foe, opts) {
     },
     // 顺子那两件的诊断口（见 rules.js 的 stat.straight / stat.wade）
     straight: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
-    wade: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] }
+    wade: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    // 【野火】的诊断口（见 rules.js 的 stat.wild）—— 查那个非单调
+    wild: {
+      fires: [0, 0], took: [0, 0], blank: [0, 0], burnSum: [0, 0],
+      reapSum: [0, 0], reapOwn: [0, 0], reapTheirs: [0, 0]
+    }
   }
   for (let i = 0; i < n; i++) {
     const rng = R.makeRng(seed + i)
@@ -110,6 +155,11 @@ function run(n, seed, mine, foe, opts) {
       for (let k = 0; k < keys.length; k++) {
         sum.straight[keys[k]][s] += G.stat.straight[keys[k]][s]
         sum.wade[keys[k]][s] += G.stat.wade[keys[k]][s]
+      }
+      const wk = ['fires', 'took', 'blank', 'burnSum',
+        'reapSum', 'reapOwn', 'reapTheirs']
+      for (let k = 0; k < wk.length; k++) {
+        sum.wild[wk[k]][s] += G.stat.wild[wk[k]][s]
       }
     }
     sum.turns += G.stat.turns
@@ -256,14 +306,17 @@ function loadoutWith(key, roleKey, slotAt) {
 
 // 一件技能的分差。
 //
-// ---- 基线也带同一个角色，这是关键 ----
+// ---- 基线和测试格都**不带常驻技**（口径见抬头那段）----
 //
-// 角色和特殊技能是绑死的，所以「带江口闸官 + 磁钩」里混着【窄口】的贡献。
-// 基线用**同一个角色、所有槽空着**，相减之后剩的才是磁钩本身。
-// 基线换成「不带角色」的话，量出来的每一件都会多算一份窄口
+// 原先这儿写的是「基线也带同一个角色，相减就抵掉了常驻技」。
+// 那条**被候潮渔翁证伪**：它的常驻技【涨落】把基线格本身推到
+// 后手 −12.23 分，基线一歪，相减出来的全是噪声。
+//
+// 可加的常驻技（比如窄口）那样算没错，不可加的就错 ——
+// 而「哪件可加」事前判不出来。所以改成一律不带
 function measure(args, loadout, role) {
   const r = role === undefined ? -1 : role
-  const o = { myRole: r, foeRole: -1 }
+  const o = rolesFor(args, r, false)
   const base = run(args.n, args.seed, R.emptyLoadout(), R.emptyLoadout(), o)
   const test = run(args.n, args.seed, loadout, R.emptyLoadout(), o)
   return {
@@ -344,13 +397,13 @@ function cmdAll(args) {
   const slots = R.DRAW_ROLES[role].slots
   const slotAt = args.slot < slots.length ? args.slot : 0
   console.log('全表定价表 · 各跑 ' + args.n + ' 局（种子 ' + args.seed + ' 起）')
-  console.log('双方都带【' + R.DRAW_ROLES[role].name + '】、各插第 '
+  console.log('双方各插【' + R.DRAW_ROLES[role].name + '】第 '
     + (slotAt + 1) + ' 个槽（' + slots[slotAt] + '，'
-    + R.slotCover(slots[slotAt]) + ' 张牌）')
+    + R.slotCover(slots[slotAt]) + ' 张牌）· ' + specialNote(args, role))
   console.log('按 X（技能本身的强度）排序\n')
   console.log('  技能      覆盖面       后手    先手       X       D    建议价  现价')
   console.log('  ' + '-'.repeat(74))
-  const o = { myRole: role, foeRole: role }
+  const o = rolesFor(args, role, true)
   const empty = R.emptyLoadout()
   // 基线格全表共用 —— 它不含任何槽技能，所以跟量哪一件无关
   const C = run(args.n, args.seed, empty, empty, o)
@@ -620,17 +673,30 @@ function cmdCards(args) {
 // 同一基线、同一角色、同一槽，所以这两个数**可以直接比**。
 // 别的子命令给不出后者 —— all / one / pair 一律只量后手那一侧。
 //
+// ---- 读这四格之前，**先看基线那一格** ----
+//
+// 「我空 / 对手空」那行是全部减法的参照。它正常该是
+// 后手 **+1.94 分 / 胜率 54.5%**（不带常驻技的标准值）。
+// 它要是歪了，上面那四个数一个都不能用 ——
+// 候潮渔翁带【涨落】时那一格是 **−12.23 / 11.2%**，
+// 而野火在那上面报出来的「先后手差 21.19 分」纯粹是基线的歪留下的残差。
+// 常驻技现在默认关掉了，但 `--special` 和将来新加的机制都可能再把它弄歪
+//
 // 这个特例下「差中之差」的含义也变了：它是**镜像对局**的协同
 //（双方都带同一件时，我那件多值多少），不是反制。报表会换一套措辞
 function cmdVs(args) {
   const role = roleIndexOrDie(args.role)
   const atMine = skillIndexOf(args._[1])
   const atTheirs = skillIndexOf(args._[2])
-  // 两边都用同一个角色、各自插第一个槽 —— 槽一样大，覆盖面才可比。
-  // 双方同角色所以两边的常驻特殊技能互相抵掉
+  // 两边各插同一个角色的第一个槽 —— 槽一样大，覆盖面才可比。
+  //
+  // 常驻技**默认关掉**（`--special` 才带）。原先靠「双方同角色所以
+  // 两边的常驻技互相抵掉」，而那条对**不对称的**常驻技不成立 ——
+  // 候潮渔翁【涨落】双方都带时，基线格仍然是后手 −12.23 分：
+  // 它偏的是**先后手**，不是偏某一方，所以镜像抵不掉它
   const mine = R.kitWithOne(role, 0, atMine)
   const theirs = R.kitWithOne(role, 0, atTheirs)
-  const o = { myRole: role, foeRole: role }
+  const o = rolesFor(args, role, true)
   const empty = R.emptyLoadout()
   const A = run(args.n, args.seed, empty, theirs, o)
   const B = run(args.n, args.seed, mine, theirs, o)
@@ -650,7 +716,8 @@ function cmdVs(args) {
   if (mirror) {
     console.log('【' + nameMine + '】在**先手**和**后手**手里各值多少 · '
       + R.DRAW_ROLES[role].name + ' · 都插第 1 个槽（'
-      + R.DRAW_ROLES[role].slots[0] + '）· ' + args.n + ' 局\n')
+      + R.DRAW_ROLES[role].slots[0] + '）· ' + specialNote(args, role)
+      + ' · ' + args.n + ' 局\n')
     console.log('    后手（我）手里：  ' + (soloGain >= 0 ? '+' : '') + f2(soloGain)
       + '   标准误 ' + f2(se2(D, C)))
     console.log('    先手（对手）手里：' + (theirGain >= 0 ? '+' : '') + f2(theirGain)
@@ -741,6 +808,64 @@ function cmdVs(args) {
       console.log('    ' + ownRow('后手（我）', fdMe, R.ME))
       console.log('    ' + ownRow('先手（对手）', fdFoe, R.FOE))
       console.log('\n  「自己的饵」那一列是净增益为 0 的部分（自己抢自己）。')
+    }
+    // ---- 【野火】的诊断口：查那个**非单调** ----
+    //
+    //   `A`（池 4）    X = +0.50
+    //   `♥`（池 12）   X = **−2.93**
+    //   `3456`（池 16）X = −0.52
+    //
+    // 池子越宽分数先降后升，而两档宽槽的**失败形状还不一样**：
+    //   `♥`    和（双方总收牌）几乎没动 → **纯转移**（我 −1.56 / 对手 +1.66）
+    //   `3456` 和 +0.71、堆上剩 −0.71   → 扫堆真的在干活，只是我没分到
+    //
+    // 五列各对应一个候选病根，所以哪一列塌了就能直接定位：
+    //   触发/局 低  → 池子宽度没兑现成触发（摸不到带它的牌）
+    //   取到率 低   → 燃料池空了（连锁断在中途）
+    //   贴火/次 低  → 堆太薄，火没地方贴
+    //   收成/次 低  → 火活不到下一次触发（留存率那个老问题）
+    //   自己的饵 高 → **自己抢自己**（洪水那场查出来的机制），收成是虚的
+    const wdMe = D.wild
+    const wdFoe = A.wild
+    if (wdMe.fires[R.ME] > 0 || wdFoe.fires[R.FOE] > 0) {
+      console.log('\n  ---- 诊断：野火的连锁跑成什么样（' + args.n + ' 局）----')
+      // 「净/次」= 收成/次 − 0.94。那个 0.94 是**放弃一次普通钓牌**的期望
+      //（base 里 34% 命中 × 每次 2.76 张），而野火无点数、必然放弃一次。
+      //
+      // 它是**卡面账**，已知偏低：它只算当次收成，没算「这次贴上去的火
+      // 留给后面几次触发收」那部分。宽槽的数就是证据 ——
+      // 触发多 4 倍、X 从 +0.51 跳到 +9.52，远超线性。
+      // 所以这一列负着也可能整体正分，看它是为了**比较**，不是判生死
+      console.log('            触发/局   取到率   贴火/次   收成/次   净/次')
+      const wrow = function (label, wd, s) {
+        const fires = wd.fires[s]
+        if (fires === 0) return label.padEnd(10) + '（没触发过）'
+        const reap = avg(wd.reapSum[s], fires)
+        return label.padEnd(10)
+          + f2(avg(fires, args.n)).padStart(8)
+          + pct(avg(wd.took[s], fires)).padStart(9)
+          + f2(avg(wd.burnSum[s], fires)).padStart(10)
+          + f2(reap).padStart(10)
+          + f2(reap - 0.94).padStart(9)
+      }
+      console.log('    ' + wrow('后手（我）', wdMe, R.ME))
+      console.log('    ' + wrow('先手（对手）', wdFoe, R.FOE))
+      console.log('\n  ---- 扫走的牌本来属于谁（每次触发平均）----')
+      console.log('            自己的饵   对手的饵')
+      const wown = function (label, wd, s) {
+        const fires = wd.fires[s]
+        if (fires === 0) return label.padEnd(10) + '（没触发过）'
+        return label.padEnd(10)
+          + f2(avg(wd.reapOwn[s], fires)).padStart(8)
+          + f2(avg(wd.reapTheirs[s], fires)).padStart(11)
+      }
+      console.log('    ' + wown('后手（我）', wdMe, R.ME))
+      console.log('    ' + wown('先手（对手）', wdFoe, R.FOE))
+      console.log('\n  「净/次」= 收成/次 − 0.94（放弃一次普通钓牌的期望）。')
+      console.log('  它是**卡面账，已知偏低** —— 只算当次收成，没算')
+      console.log('  「这次贴的火留给后面几次收」。所以它负着也可能整体正分；')
+      console.log('  用它**比较**不同档，别用它判生死。')
+      console.log('  「取到率」低 = 燃料池空了（连锁断在中途，池子跟槽宽走）。')
     }
     // ---- 局面长度：洪水**吃牌库**，而后手的优势需要局面长 ----
     //
