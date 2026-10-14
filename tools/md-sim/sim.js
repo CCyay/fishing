@@ -261,9 +261,11 @@ function cmdBase(args) {
   }
   console.log('')
   console.log('  后手胜率 ' + pct(avg(sum.wins[R.ME], g))
-    + '（文档 57–59%）· 先手 ' + pct(avg(sum.wins[R.FOE], g))
+    // 参考值随终局规则变（2026-10-14）：旧规则 57–59%，新规则约 46.5%
+    + (process.env.BALANCE === 'old' ? '（旧规则文档 57–59%）' : '（新规则约 46.5%）')
+    + '· 先手 ' + pct(avg(sum.wins[R.FOE], g))
     + ' · 平局 ' + pct(avg(sum.draws, g)))
-  console.log('  后手分差（你 − 庄家）：+' + f2(meanDiff(sum))
+  console.log('  后手分差（你 − 庄家）：' + (meanDiff(sum) >= 0 ? '+' : '') + f2(meanDiff(sum))
     + ' 分（标准误 ' + f2(stderrOf(sum)) + '）—— 量技能时要扣掉这个数')
 
   // ---- 牌数守恒：最硬的一条自检 ----

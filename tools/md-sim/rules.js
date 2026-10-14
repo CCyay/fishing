@@ -34,7 +34,23 @@ const BLANK_RANK = '-'
 // 点数槽能指定的点数：A–10、Q、K。J 不给指定（它本身就通吃）
 const SKILL_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
 
-const HAND_SIZE = 4
+// HAND_SIZE=3 环境变量：量「双方手牌改 3 张」那个提案用（2026-10-14）
+const HAND_SIZE = process.env.HAND_SIZE ? parseInt(process.env.HAND_SIZE, 10) : 4
+
+// ---- 削后手优势的几条规则（2026-10-14 量的）----
+//
+// **pileNotLast 是现行规则**（2026-10-14 定稿，照源码 ap-fishing 的 leftoverFor）：
+// 终局剩下的堆归「没打最后一手」的那一方。原先是「剩堆不算分」——
+// 要量旧规则就设 BALANCE=old（任何不认识的值都等于旧规则）。
+//
+// 另几条是当时一起量的候选，留着做对照：
+//   pileFirst   终局剩下的堆归先手（基线上跟 pileNotLast 一样，但治不了改奇偶的技能）
+//   firstDeal   先手开局多发 BAL_K 张（之后照常补到 HAND_SIZE）
+//   secondShort 后手开局少发 BAL_K 张
+//   firstGuard  先手的前 BAL_K 张落堆自带护（照【稳钩】）
+// 数和结论记在设计文档「终局剩堆」那一节
+const BALANCE = process.env.BALANCE || 'pileNotLast'
+const BAL_K = process.env.BAL_K ? parseInt(process.env.BAL_K, 10) : 1
 const TIDE_LOOK = 2
 const PICK_LOOK = 5
 
@@ -116,7 +132,9 @@ const SKILLS = [
   { key: 'frostfall', name: '霜降' },
   { key: 'kindle', name: '引火' },
   { key: 'order', name: '顺流' },
-  { key: 'chain', name: '传火' }
+  { key: 'chain', name: '传火' },
+  // 【引潮】（原型，2026-10-14）：给对方手牌贴【倒灌】。见 surgeFor
+  { key: 'surge', name: '引潮' }
 ]
 
 // ---- 下标一个都不写死了〔2026-10-14〕----
@@ -346,7 +364,8 @@ const SK = {
   //   传火 CHAIN   自带火 + 【获取下一张】。我当初判它「是野火的子集」，
   //     可那是设计洁癖、不是分值 —— 连锁在旧版野火上量过**值 3 分**，
   //     加上地板 +1.57 预估 ≈ **+4.5，正好在目标档正中**
-  CHAIN: skAt('chain')
+  CHAIN: skAt('chain'),
+  SURGE: skAt('surge')
 }
 
 // ---------- 【寒色】【霜降】加「无点数 + 落堆底」那一档 ----------
@@ -1403,6 +1422,9 @@ function newGame(opts) {
     // 【通配】贴过标签的那几张牌（存**牌对象引用**，照 dead 那个模式）。
     // 读的时候比 G.pile[i]，所以牌一离开堆标签自动失效 —— 见 isWildAt
     wildTag: [],
+    // 【倒灌】：手里带着它的那几张（对象引用，照 burnHand）。
+    // 打出时摘掉、匹配完之后兑现（见 surgeFor）
+    surgeHand: [],
     // 【野火】那个「这一手取到燃料了吗」的状态位**删了**（2026-10-13）——
     // 连锁撤掉了（蔓延接走了压间隔那个活），而无点数回到无条件，
     // 所以 valuesOf 不再需要认牌。留着一个没人读的状态位比删掉更误导
@@ -1418,6 +1440,12 @@ function newGame(opts) {
     ],
     // 这一方会不会记牌（关卡表的 smart）
     smart: [opts.mineSmart !== false, opts.foeSmart !== false],
+    // 这一方**完全随机**出牌吗（关卡表的 random，照源码 foePickCard 开头那一支）。
+    // 跟 smart 不是一回事：不记牌的还会贪心钓牌，随机的连钓都不挑
+    random: [opts.mineRandom === true, opts.foeRandom === true],
+    // 手牌上限的额外增减（闯关庄家规矩：【添手】庄家 +1、【掐口】你 −1）。
+    // campaign.js 用；平常两格都是 0
+    handAdj: opts.handAdj || [0, 0],
     // 统计。plays 兼作【稳钩】的计数（照源码 myPlayed / foePlayed）
     stat: {
       plays: [0, 0], catches: [0, 0], caught: [0, 0],
@@ -1446,6 +1474,9 @@ function newGame(opts) {
         gotSum: [0, 0], thin: [0, 0],
         gotFresh: [0, 0], gotOwn: [0, 0], gotTheirs: [0, 0]
       },
+      // 【倒灌】：side = **带标签打出**的那一方（受害方）。
+      //   fires 兑现几次 / flipped 共翻几张 / hits 翻中几次 / back 洗回几张
+      surge: { fires: [0, 0], flipped: [0, 0], hits: [0, 0], back: [0, 0] },
       // ---- 顺子那两件的诊断口（2026-10-12 加的）----
       //
       // 涉水量出来 +1.01（目标 3~5），而「收整段」只补了 0.20、
@@ -1533,7 +1564,10 @@ function newGame(opts) {
   // 开局各发满 HAND_SIZE，庄家先发、交替（照 newGame 末尾那个循环）
   for (let i = 0; i < HAND_SIZE; i++) {
     drawFor(G, FOE)
-    drawFor(G, ME)
+    if (!(BALANCE === 'secondShort' && i >= HAND_SIZE - BAL_K)) drawFor(G, ME)
+  }
+  if (BALANCE === 'firstDeal') {
+    for (let i = 0; i < BAL_K; i++) drawFor(G, FOE)
   }
   return G
 }
@@ -1822,6 +1856,145 @@ function burnHandOnLand(G, card, at) {
   G.burnHand = G.burnHand.filter(function (c) { return c !== card })
   if (iceMeltsFire(G, at)) return
   G.pileBurn[at] = 1
+}
+
+// ---------- 【倒灌】/【引潮】（原型，2026-10-14） ----------
+//
+// 【倒灌】：带它的牌打出去，**匹配完成之后**从牌库逐张翻牌到堆上，
+// 最多 SURGE_N 张。每翻一张判一次普通匹配（不带技能，照 floodFor）；
+// 一旦匹配中，就把「匹配那张 → 堆顶」那一段**洗回牌库**（谁也不得分），停手。
+// 没中的那几张留在堆上 —— 下一手是贴标签那一方的。
+//
+// 【引潮】：打出后翻开对方手牌，挑 SURGE_TAG 张贴【倒灌】（J 不能挑）。
+const SURGE_N = process.env.SURGE_N ? parseInt(process.env.SURGE_N, 10) : 2
+const SURGE_TAG = process.env.SURGE_TAG ? parseInt(process.env.SURGE_TAG, 10) : 1
+// 翻中之后那一段：'back' 洗回牌库（定义）/ 'score' 记给出牌方 /
+// 'thief' 记给贴标签的一方 / 'keep' 不判匹配
+const SURGE_HIT = process.env.SURGE_HIT || 'back'
+
+function surgeOnHand(G, card) {
+  for (let k = 0; k < G.surgeHand.length; k++) {
+    if (G.surgeHand[k] === card) return true
+  }
+  return false
+}
+
+function dropSurgeHand(G, card) {
+  G.surgeHand = G.surgeHand.filter(function (c) { return c !== card })
+}
+
+// 挑得动的那几张（side = 发动方，挑对面）：J 不能挑，已经带了的不再挑
+function surgePool(G, side) {
+  const other = side === ME ? FOE : ME
+  const theirs = G.hands[other]
+  const out = []
+  for (let i = 0; i < theirs.length; i++) {
+    if (theirs[i].rank === JACK || surgeOnHand(G, theirs[i])) continue
+    out.push(i)
+  }
+  return out
+}
+
+function doSurgeTag(G, side, index) {
+  const other = side === ME ? FOE : ME
+  const card = G.hands[other][index]
+  if (!card || card.rank === JACK || surgeOnHand(G, card)) return
+  G.surgeHand.push(card)
+}
+
+// 洗回牌库：wanted 那几格离开堆、**不进 gone、不记分**。
+// 结冰 / 保护照样挡（口径照 takeAt：冰去标签留下；盾代替宿主走）
+function returnAt(G, wanted) {
+  const keep = { cards: [], byFoe: [], guard: [], vals: [], suit: [], burn: [] }
+  let back = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    if (wanted[i]) {
+      if (!G.iceBlind && frostAt(G, i)) {
+        clearFrostAt(G, i)
+      } else {
+        const ward = wardUnder(G, i)
+        if (ward >= 0) {
+          const shield = pullStacked(G, ward)
+          if (shield) { G.deck.push(shield); back++ }
+        } else {
+          G.deck.push(G.pile[i])
+          back++
+          const under = takeStack(G, i)
+          for (let k = 0; k < under.length; k++) { G.deck.push(under[k]); back++ }
+          continue
+        }
+      }
+    }
+    keep.cards.push(G.pile[i]); keep.byFoe.push(G.pileByFoe[i])
+    keep.guard.push(G.pileGuard[i]); keep.vals.push(rawVals(G, i))
+    keep.suit.push(pileSuitAt(G, i)); keep.burn.push(pileBurnAt(G, i))
+  }
+  G.pile = keep.cards; G.pileByFoe = keep.byFoe; G.pileGuard = keep.guard
+  G.pileVals = keep.vals; G.pileSuit = keep.suit; G.pileBurn = keep.burn
+  G.iceBlind = false
+  expireHeld(G)
+  expireStacked(G)
+  G.deck = shuffle(G.rng, G.deck)
+  return back
+}
+
+// side = 打出那张带【倒灌】的一方（翻上去的牌算他的）
+function surgeFor(G, side) {
+  const sg = G.stat.surge
+  sg.fires[side]++
+  let flipped = 0
+  // 'redo'：中的那张洗回去、**接着翻**，直到堆上留下 SURGE_N 张没中的。
+  // 每次兑现正好放 SURGE_N 张 → N 为偶数时牌库奇偶不变。
+  // tries 是防死循环的闸（牌库剩的全都配得上时）
+  if (SURGE_HIT === 'redo') {
+    // 牌库不足 SURGE_N 张就不翻 —— 只翻 1 张会在终局打乱奇偶
+    //（SURGE_SHORT=1 关掉这道闸，对照用）
+    if (process.env.SURGE_SHORT !== '1' && G.deck.length < SURGE_N) return
+    let tries = 0
+    while (G.deck.length > 0 && flipped < SURGE_N && tries < 20) {
+      tries++
+      const card = G.deck.pop()
+      if (catchStart(G, card, side, [], false) >= 0) {
+        sg.hits[side]++
+        sg.back[side]++
+        G.deck.push(card)
+        G.deck = shuffle(G.rng, G.deck)
+        continue
+      }
+      pushPile(G, card, side, GUARD_NONE, landVals(G, card, [], false))
+      flipped++
+    }
+    sg.flipped[side] += flipped
+    return
+  }
+  while (G.deck.length > 0 && flipped < SURGE_N) {
+    const card = G.deck.pop()
+    const at = SURGE_HIT === 'keep' ? -1 : catchStart(G, card, side, [], false)
+    pushPile(G, card, side, GUARD_NONE, landVals(G, card, [], false))
+    flipped++
+    if (at >= 0) {
+      sg.hits[side]++
+      if (SURGE_HIT === 'score') {
+        sg.back[side] += collect(G, side, at, G.pile.length - at)
+      } else if (SURGE_HIT === 'flip') {
+        // 「这一串」= **翻出来的那几张**：只把它们洗回去，堆上原有的不动
+        sg.back[side] += returnAt(G, G.pile.map(function (c, i) {
+          return i >= G.pile.length - flipped
+        }))
+      } else if (SURGE_HIT === 'one') {
+        // 只把**中的那一张**（刚翻上去、在堆顶）洗回去，前面没中的留在堆上
+        sg.back[side] += returnAt(G, G.pile.map(function (c, i) {
+          return i === G.pile.length - 1
+        }))
+      } else if (SURGE_HIT === 'thief') {
+        sg.back[side] += collect(G, side === ME ? FOE : ME, at, G.pile.length - at)
+      } else {
+        sg.back[side] += returnAt(G, G.pile.map(function (c, i) { return i >= at }))
+      }
+      break
+    }
+  }
+  sg.flipped[side] += flipped
 }
 
 // 给第 i 格贴一层火，**三道闸照 wildfireFor**：
@@ -2356,6 +2529,9 @@ function wantReverse(G, side, card, skills) {
 // 数的是「打出过几张」（照源码 myPlayed / foePlayed，在 playFor 开头 +1），
 // 所以钓到牌的那几张也占名额 —— 跟源码一样
 function firmGuardFor(G, side) {
+  if (BALANCE === 'firstGuard' && side === FOE && G.stat.plays[FOE] <= BAL_K) {
+    return GUARD_FOE
+  }
   if (!hasSpecial(G, side, SP.FIRMHOOK)) return GUARD_NONE
   if (G.stat.plays[side] > FIRM_GUARD) return GUARD_NONE
   return side === ME ? GUARD_ME : GUARD_FOE
@@ -2373,6 +2549,11 @@ function firmGuardFor(G, side) {
 function playFor(G, side, index, ai) {
   const card = takeFromHand(G, side, index)
   const skills = skillsOf(G, side, card)
+  // 【倒灌】：打出时摘掉标签，匹配完之后兑现（两条 resolveMatch 后面各一处）
+  const surged = surgeOnHand(G, card)
+  if (surged) dropSurgeHand(G, card)
+  // 谁打了最后一手（BALANCE=pileNotLast 读它）
+  G.lastSide = side
   G.stat.plays[side]++
   // 「往堆底落」现在有两条来路，而**两条的性质不一样**：
   //   【寒流】—— **强制**。它的落堆底是延命手段（见下），不是一次选择；
@@ -2441,6 +2622,7 @@ function playFor(G, side, index, ai) {
     // 漏在这儿的话凝水 / 净水 / 抬水 那几手就不蔓延、不闭合
     burnStep(G, side)
     resolveMatch(G, side, card, skills, sink)
+    if (surged) surgeFor(G, side)
     endPlay(G, side)
     return
   }
@@ -2476,6 +2658,7 @@ function playFor(G, side, index, ai) {
   // 见 burnStep 那段（扫走整堆时刚打那张也在里面，于是双吃那道闸是免费的）
   burnStep(G, side)
   resolveMatch(G, side, card, skills, sink)
+  if (surged) surgeFor(G, side)
   endPlay(G, side)
 }
 
@@ -3204,6 +3387,14 @@ function afterPlay(G, side, skills, played, ai) {
       doDead(G, side, at)
     }
   }
+  // 引潮：贴 SURGE_TAG 张【倒灌】，一张一张挑（每挑一次重算池子，照死水）
+  if (has(skills, SK.SURGE)) {
+    for (let n = 0; n < SURGE_TAG; n++) {
+      const at = ai.surgePick(G, side)
+      if (at < 0) break
+      doSurgeTag(G, side, at)
+    }
+  }
   if (has(skills, SK.SWAPCARD) || has(skills, SK.UNHOOK) || has(skills, SK.PRESS)) {
     const which = has(skills, SK.SWAPCARD) ? SK.SWAPCARD
       : (has(skills, SK.UNHOOK) ? SK.UNHOOK : SK.PRESS)
@@ -3342,6 +3533,8 @@ function probeFor(G, side, card) {
 }
 
 function shuffleBack(G, card) {
+  // 回了牌库的牌不再带【倒灌】
+  dropSurgeHand(G, card)
   G.deck.push(card)
   G.deck = shuffle(G.rng, G.deck)
 }
@@ -4564,7 +4757,7 @@ function harvestCount(G, card, skills, side) {
 // 两个版本**叠加**：带满篓的角色又在槽里插了满篓，上限就是 6
 function handLimit(G, side) {
   const other = side === ME ? FOE : ME
-  let want = HAND_SIZE
+  let want = HAND_SIZE + G.handAdj[side]
   if (heldOn(G, SK.CREEL, side)) want = want + 1
   if (hasSpecial(G, side, SP.CREEL)) want = want + 1
   if (heldOn(G, SK.NARROW, other)) want = want - 1
@@ -4770,6 +4963,12 @@ function playGame(opts, ai) {
     }
     playFor(G, side, index, ai)
   }
+  // 削后手优势的那两条「终局剩堆」规则。走 harvestPile 而不是直接加分 ——
+  // 叠放、gone、六条数组的账都在那儿算，自检的「分数 == gone」才对得上
+  if (G.over && G.pile.length > 0 && (BALANCE === 'pileFirst' || BALANCE === 'pileNotLast')) {
+    const to = BALANCE === 'pileFirst' ? FOE : (G.lastSide === ME ? FOE : ME)
+    harvestAt(G, to, G.pile.map(function () { return true }))
+  }
   // 最后一手留下的状态 —— 循环已经退出，开头那次检查看不到它
   if (G.onStep) G.onStep(G)
   if (guard <= 0) {
@@ -4806,6 +5005,7 @@ module.exports = {
   emptyLoadout, slotLabels, isSuitSlot, slotCover, roleCover, roleSlotCount,
   kitFromRole, kitWithOne, coverageOf, baitRankOf,
   triggersOf, skillsOf, isZero, deadPool, DEAD_COUNT,
+  surgePool, surgeOnHand, SURGE_N, SURGE_TAG,
   has, cardVals, valuesOf, anyEquals, canCatch, catchStart,
   isFrozen, heldOn, opponentOpen, inPile, topCards, handLimit, harvestCount,
   // 【伏流】的代价旋钮 —— ai.js 的「安全饵」判断要读它

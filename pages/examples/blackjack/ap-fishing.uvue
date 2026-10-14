@@ -1008,6 +1008,9 @@
   // 这一方打出过几张牌 —— 【稳钩】要数「前 N 张」
   let myPlayed : number = 0
   let foePlayed : number = 0
+  // 最后一手是谁打的 —— 终局剩堆归**另一方**（见 checkOver 的 leftoverFor）。
+  // playFor 每次出牌都写，所以「技能逼着打」「对流插的那张」都算一手
+  let lastByFoe : boolean = false
 
   // 特殊技能的几个定值。不升级，所以每件就一个数 ——
   // 挑定的理由在 draw-skills 的 SPECIAL_SKILLS 表里各自那段
@@ -4381,6 +4384,7 @@
     } else {
       myPlayed = myPlayed + 1
     }
+    lastByFoe = byFoe
     // ---- 带「优先」的两件在**钓牌判定之前**结算 ----
     //
     // 顺序：先染水（定花色），再沉底（定落点）。两件都改钓牌判定的输入，
@@ -7400,8 +7404,9 @@
   // 掏库：从牌库顶掏 SPILL_COUNT 张，当 0 点扔到堆上。
   //
   // 它**烧牌库** —— 双方共用一个牌库，烧掉的谁也摸不到，所以这一局提前收场。
-  // 「堆里剩的牌谁都不算分」，于是领先的时候这是催命，落后的时候是自杀。
-  // 那条双刃全在玩家自己算，代码这儿只管照做
+  // 原先「堆里剩的牌谁都不算分」，于是领先的时候这是催命，落后的时候是自杀。
+  // 2026-10-14 起终局剩堆归没打最后一手的一方，那条双刃的算法跟着变了 ——
+  // 而且它掏的张数（SPILL_COUNT）改奇偶的影响也随之消失。代码这儿只管照做
   function spillFor(byFoe : boolean) {
     let got = 0
     for (let n = 0; n < SPILL_COUNT; n++) {
@@ -7675,12 +7680,55 @@
     }
     over.value = true
     const stuck = hand.value.length + foeHand.value.length
-    message.value = stuck > 0
-      ? '双方都打不出牌了（还有 ' + stuck + ' 张冻着）。堆里剩下的 '
-        + pile.value.length + ' 张不算分。'
-      : '牌都打完了。堆里剩下的 ' + pile.value.length + ' 张不算分。'
+    const left = leftoverFor()
+    message.value = (stuck > 0
+      ? '双方都打不出牌了（还有 ' + stuck + ' 张冻着）。'
+      : '牌都打完了。') + left
     settle()
     return true
+  }
+
+  // ---------- 终局剩堆归「没打最后一手」的一方（2026-10-14 规则变更） ----------
+  //
+  // 原先是「堆里剩下的牌不算分」。那条让**最后一手**成了全局最值钱的位置：
+  // 一局 52 手，后手打第 52 手，模拟器量出后手优势 +3.03 分（胜率 58%），
+  // 其中 96% 出在最后 8 手（前 36 手双方只差 +0.10）。
+  //
+  // **为什么归「另一方」而不是写死归先手**：两条在基线上一样（总手数是偶数，
+  // 没打最后一手的就是先手），但凡是改了总手数奇偶的技能（洪水、择饵、
+  // 探潮……把牌不经过手直接放上堆）都会让最后一手易手，写死先手就治不了它们
+  //（洪水 D 照旧 +3.60）。认「谁打了最后一手」之后奇偶不再值钱
+  //（洪水 D +0.58、择饵 +0.21、探潮 −0.02）。
+  //
+  // 走 takeAt —— 结冰和保护照样挡（跟别的收牌路一个口径），
+  // 冻着的那格留在堆上、不计分。带来的新问题记在设计文档「终局剩堆」那一节
+  function leftoverFor() : string {
+    const size = pile.value.length
+    if (size == 0) {
+      return ''
+    }
+    // 收牌的豁免是「这一手」的，终局不是谁的一手
+    iceBlindNow = false
+    const toFoe = !lastByFoe
+    const gone = goneRanks.value.slice(0)
+    let got = 0
+    for (let i = size - 1; i >= 0; i--) {
+      // **先问再取** —— takeAt 会把盾消耗掉（照 finishCatch 那条）
+      const blocked = blockedAt(i)
+      got = got + takeAt(i, gone)
+      if (!blocked) {
+        removePileAt(i)
+      }
+    }
+    goneRanks.value = gone
+    expireHeld()
+    expireStacked()
+    if (toFoe) {
+      foeScore.value = foeScore.value + got
+    } else {
+      myScore.value = myScore.value + got
+    }
+    return '堆里剩下的 ' + got + ' 张归没打最后一手的' + (toFoe ? '庄家' : '你') + '。'
   }
 
   // 结算照排竿：
@@ -8605,6 +8653,7 @@
     sealedRank.value = ''
     myPlayed = 0
     foePlayed = 0
+    lastByFoe = false
     // 沉底那个开关也归零。它保持状态是**一局之内**的事 ——
     // 跨局留着的话，你上一局开着它，这一局头一张牌就莫名其妙落到了堆底
     sinkOn.value = false

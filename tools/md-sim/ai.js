@@ -64,7 +64,11 @@ function randomFree(G, side) {
 //
 // 能钓就挑钓得最多的；钓不到时会记牌的挑「外面剩得最少」的点数当饵，
 // 不拿 J 当饵；挑饵时顺手能发动技能的，只要不比最安全那张差 1 张以上就优先
+const SURGE_AVOID = process.env.SURGE_AVOID ? parseFloat(process.env.SURGE_AVOID) : 0
+
 function pickCard(G, side) {
+  // 关卡表的 random：连钓都不挑（照源码 foePickCard 开头那一支）
+  if (G.random[side]) return randomFree(G, side)
   const hand = G.hands[side]
   const lo = G.loadouts[side]
   let best = -1
@@ -176,6 +180,11 @@ function pickCard(G, side) {
     //   那张躺在堆底，谁匹配到它就通吃整堆，所以加价 `堆张数 × 0.5`。
     //   技能删了，而这条判据正是它那 0.79 分的来源
     //   （强制 −0.45 → 可选 +0.34）。将来再做「落堆底」类效果要先算这笔〕
+    // 【倒灌】：带它的牌当饵会给对手铺 SURGE_N 张。SURGE_AVOID 是
+    // 受害方「知道它、尽量不拿它当饵」的折扣（0 = 无视标签，量上限用）
+    if (SURGE_AVOID > 0 && R.surgeOnHand(G, card)) {
+      score = score + SURGE_AVOID
+    }
     if (score < pickScore) {
       pickScore = score
       pick = i
@@ -319,7 +328,28 @@ function deadPick(G, side) {
   return best
 }
 
+// 【引潮】给对方哪张贴【倒灌】：**他马上会打的那张**。
+// 钓得着的最优先（他这手就会打它；收完堆变薄，翻上去的牌更难翻中、
+// 留给我钓），其次点数大的（不像小点数那样常被留着当饵）
+function surgePick(G, side) {
+  const other = side === R.ME ? R.FOE : R.ME
+  const theirs = G.hands[other]
+  const pool = R.surgePool(G, side)
+  let best = -1
+  let bestScore = -1
+  for (let i = 0; i < pool.length; i++) {
+    const card = theirs[pool[i]]
+    let score = card.value
+    if (R.canCatch(G, card, other)) score += 50
+    if (score > bestScore) {
+      bestScore = score
+      best = pool[i]
+    }
+  }
+  return best
+}
+
 module.exports = {
   pickCard, swapPick, pickDeck, tideSink, freezePick, takePick, twinPick,
-  deadPick, outsideCount, baitRisk, faceOfValue
+  deadPick, surgePick, outsideCount, baitRisk, faceOfValue
 }

@@ -1479,7 +1479,12 @@ export const DIFF_NAMES : string[] = ['简单', '普通', '困难']
 // 困难给 5 —— 最多槽的角色（江口闸官）有 4 个槽，至少得留一格周转
 const LIBRARY_CAPS : number[] = [8, 6, 5]
 // 生命：输一关扣 1 点、退回上一个商店；扣光了整轮作废
-const DIFF_LIVES : number[] = [3, 2, 1]
+//
+// 2026-10-14：3/2/1 → 4/3/2。终局剩堆改成归「没打最后一手」的一方之后，
+// 闯关里玩家（永远后手）丢了那 +3 分的后手补贴。`md-sim/campaign.js` 量出
+// 每一轮大约多输 1 次（简单 +1.18、普通 +0.87、困难 +1.86，几乎全在深海四关），
+// 正好是一条命的量。困难因此不再是「一命通关」—— 取舍记在设计文档「终局剩堆」那一节
+const DIFF_LIVES : number[] = [4, 3, 2]
 
 export function libraryCapOf(diff : number) : number {
   return diff >= 0 && diff < LIBRARY_CAPS.length ? LIBRARY_CAPS[diff] : LIBRARY_CAPS[1]

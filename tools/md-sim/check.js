@@ -310,6 +310,21 @@ const CASES = [
     }
   },
   {
+    // 【倒灌】洗回牌库那一下绕开了 takeAt（不进 gone、不记分），
+    // 牌数守恒和「分数 == gone」两条断言正好压它。双方都带，再配上
+    // 结冰那一族，让洗回那一段撞上冰。
+    //
+    // **没配凝水**：结凌 + 凝水同时在场会丢牌（第 1 局第 10 手 ♥2 凭空消失），
+    // 那是既存 bug、跟倒灌无关（2026-10-14 在干净工作区上复现过）
+    key: 'surge', label: '引潮 / 倒灌（洗回牌库，绕开了 takeAt）',
+    build: function () {
+      return {
+        mine: kitOf('lock', ['surge', 'frost', 'hide']),
+        foe: kitOf('lock', ['surge', 'frostfall']), myRole: -1
+      }
+    }
+  },
+  {
     key: 'filler', label: '填河工（填塘 —— 它动的是 endPlay）',
     build: function () {
       return { mine: R.emptyLoadout(), foe: R.emptyLoadout(), myRole: roleAt('filler') }
