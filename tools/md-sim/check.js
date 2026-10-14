@@ -27,9 +27,13 @@ const AI = require('./ai.js')
 //
 // 52 张牌只能待在这六个地方。
 //
-// **G.dead 不是桶** —— 它是「这张是废牌」的标记集合，牌本身照旧待在
-// deck / hands / pile 里（见 isDead）。要是局首总和不等于 52，那就是
-// 这份清单漏了地方，脚本会直接说「该补桶」而不是甩锅给规则。
+// 要是局首总和不等于 52，那就是这份清单漏了地方，
+// 脚本会直接说「该补桶」而不是甩锅给规则。
+//
+// 〔原先这儿写着「G.dead 不是桶」—— 那张清单 2026-10-14 删了
+//   （死水改成直接把牌变成 0 点牌）。**那种「标记集合不算桶」的提醒
+//   仍然有效**，现在的实例是 G.wild（通配）和 G.frostHand / G.burnHand：
+//   牌本身照旧待在 deck / hands / pile 里，别重复计数〕
 const BUCKETS = ['deck', 'handME', 'handFOE', 'pile', 'stacked', 'gone']
 
 function buckets(G) {
@@ -90,7 +94,7 @@ function check(G, st, where) {
       return '局首总张数 ' + n + ' ≠ 52 —— 桶清单漏了地方\n'
         + '    现在数的是：' + BUCKETS.join(' + ') + '\n'
         + '    明细：' + bucketText(b) + '\n'
-        + '    （另外 dead=' + G.dead.length + ' held=' + G.held.length + '）\n'
+        + '    （另外 held=' + G.held.length + '）\n'
         + '    **这不是规则 bug，是 check.js 要补桶。**'
     }
   } else if (n !== st.total) {

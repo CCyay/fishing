@@ -1195,23 +1195,52 @@ function has(list, skill) {
   return list.indexOf(skill) >= 0
 }
 
-// ---------- 【死水】废掉的那几张牌 ----------
+// ---------- 【死水】：把对手的手牌**变成 0 点牌**（2026-10-14 改） ----------
 //
-// 存**牌对象的引用**（那几张会在手牌 / 堆 / 牌库之间流转，对象身份不变）。
-// 一局一清 —— 它是「本局」效果，而牌组每局重建但对象是同一批。
+// 原先是个标签（`G.dead` 存牌对象引用 + `isDead` 查表），废法有两层：
+// 点数算 0 **而且**不触发任何技能。现在直接改牌本身 ——
+// 牌面变 `'0'`、点数变 0、点数卡贴的那几个清掉。
 //
-// 为什么不走 held：held 那一族的解除条件是「效果牌离场」，而死水**不可解**
-//（废牌打出去就清掉了，所以不需要解法 —— 规格见 draw-skills 那条）
+// ---- 这么改省掉的和换来的 ----
+//
+// 省掉：整个 `G.dead` 数组、`isDead` 的查表、`skillsOf` / `valuesOf` /
+//   `mergeFor` 里那三处特判。**而且不引入新词条** —— 「置 0」是现成的词。
+//
+// 换来三件行为变化，三件都是好的：
+//
+//   **花色槽照旧触发** —— `triggersOf` 查不到 `'0'`（它不在 SKILL_RANKS 里，
+//     那张表只有 A–10 / Q / K），但花色没变，♠7 变成 ♠0 还是黑桃。
+//     于是对手**有决策**：那张牌还能为花色槽那件技能打出去，放弃匹配。
+//     原先两层全掐，他只能当垃圾扔。
+//   **别的技能能救它** —— 比如合流（吃邻居的点数）。原先 `valuesOf`
+//     第一行 `return [0]` 盖掉所有分支，现在它是一张普通的 0 点牌，
+//     照「置 0」词条那句「它还在点数这条轴上」。
+//     **那就是这一族原先缺的对位解。**
+//   **牌面自己会显示** —— 手牌上那张从「♠7」变成「♠0」，不用加角标。
+//
+// ---- 代价要认 ----
+//
+// 死水原先实测 **X = +3.33**（档内），而上面那两条新互动（花色槽照旧、
+// 合流能救）都在削它。**改完必须重量**，价钱跟着重定。
+//
+// 另一个已知偏差：`outsideCount` 数「这个点数外面还剩几张」读的是
+// `G.rankTotal[rank]`（每个点数固定 4 张）。一张 7 变成 0 之后 7 实际
+// 只剩 3 张，而那张表没动 —— 所以 AI 会**以为外面还有一张 7**。
+// 方向是高估对手威胁、打得更保守，不会崩
 
-function isDead(G, card) {
-  return G.dead.indexOf(card) >= 0
+// 这张牌被死水置 0 了吗 —— 现在就是看牌面
+function isZero(card) {
+  return card.rank === ZERO_RANK
 }
 
 // ---- 这儿曾经有个 `isBlank`（「点数失效但技能照旧触发」的标记）----
 //
-// 删了。留一句记着：真要那种语义，**不能用 rank='-' 实现** ——
+// 删了。留一句记着：真要那种语义，**不能用改 rank 实现** ——
 // 那会连 rank 一起改掉，于是那张牌再也触发不了它原本那个点数槽。
-// 死水的 `G.dead` 也不行（它同时掐掉技能触发）。全表现在没有这种语义
+//
+// 死水（现在是 rank → `'0'`）也不行，它恰恰就是上面那个毛病的实例：
+// 点数槽跟着没了。**全表现在没有「点数失效但点数槽照旧触发」这种语义** ——
+// 而死水只保住了**花色槽**，那是靠「花色没变」而不是靠特判
 
 // 打出这张牌会触发哪几件技能（照源码 ap-fishing 的 skillsOf）。
 //
@@ -1223,7 +1252,12 @@ function isDead(G, card) {
 // 分两层是照源码的结构：triggersOf 在 draw-skills.uts（纯函数、只看配装），
 // skillsOf 在 ap-fishing.uvue（查死牌再调它）
 function skillsOf(G, side, card) {
-  if (isDead(G, card)) return []
+  // 〔原先这儿有一行 `if (isDead(G, card)) return []` ——
+  //   死水改成「把牌变成 0 点牌」之后不需要了：`triggersOf` 查
+  //   SKILL_RANKS（A–10 / Q / K）找不到 `'0'`，点数槽自然不触发。
+  //
+  //   **而花色槽照旧触发**，那是有意的 —— ♠7 变成 ♠0 还是黑桃，
+  //   所以对手还能为花色槽那件技能打出它。见 isZero 上面那段〕
   return triggersOf(G.loadouts[side], card)
 }
 
@@ -1239,8 +1273,13 @@ function doDead(G, side, index) {
   const theirs = G.hands[other]
   if (index < 0 || index >= theirs.length) return
   const card = theirs[index]
-  if (card.rank === JACK || isDead(G, card)) return
-  G.dead.push(card)
+  if (card.rank === JACK || isZero(card)) return
+  // **三个字段一起改**：只改牌面的话 cardVals 读 card.value 还是 7；
+  // 只改 value 的话 triggersOf 读 rank 还是会触发 7 槽；
+  // extra 不清的话一张 ♠3·7 置 0 之后还剩个 7
+  card.rank = ZERO_RANK
+  card.value = 0
+  card.extra = []
 }
 
 // 挑得动的那几张的下标（side = 发动方，挑的是对面的手牌）
@@ -1249,7 +1288,7 @@ function deadPool(G, side) {
   const theirs = G.hands[other]
   const out = []
   for (let i = 0; i < theirs.length; i++) {
-    if (theirs[i].rank === JACK || isDead(G, theirs[i])) continue
+    if (theirs[i].rank === JACK || isZero(theirs[i])) continue
     out.push(i)
   }
   return out
@@ -1359,8 +1398,8 @@ function newGame(opts) {
     // 一手一次的旗。takeAt 里立，**harvestAt 把堆重建完之后**才兑现：
     // 「堆上剩下的牌」指的是收完之后剩下的，而 takeAt 是逐格调的 ——
     // 在那儿贴火会贴到即将离场的牌上，既没意义又算不准
-    // 【死水】废掉的那几张牌（对象引用）。一局一清 —— G 每局新建，所以自动
-    dead: [],
+    // 〔`dead: []` 删了（2026-10-14）—— 死水改成**直接把牌变成 0 点牌**，
+    //   不再需要一张「哪几张被废了」的清单。见 isZero 上面那段〕
     // 【通配】贴过标签的那几张牌（存**牌对象引用**，照 dead 那个模式）。
     // 读的时候比 G.pile[i]，所以牌一离开堆标签自动失效 —— 见 isWildAt
     wildTag: [],
@@ -1925,73 +1964,16 @@ function pushPile(G, card, side, guard, vals) {
   burnHandOnLand(G, card, G.pile.length - 1)
 }
 
-// ---------- 【布火】：插到**任意一格**（六条并行数组一起 splice） ----------
+// 〔【布火】的 insertPile（插到任意一格）和 pickInsertAt（选最优格）都删了。
 //
-// 堆原先只有两个落点（堆顶 pushPile / 堆底 unshiftPile），这是第三个。
-// 六条数组必须同时 splice —— 少一条就错位，而错位的表现是
-// 「点数 / 花色 / 火跟牌错开」那种静默错（见 pushPile 那段）。
-//
-// at 允许等于 pile.length（= 插在堆顶，退化成 pushPile）
-function insertPile(G, card, side, guard, vals, at) {
-  const to = at < 0 ? 0 : (at > G.pile.length ? G.pile.length : at)
-  G.pile.splice(to, 0, card)
-  G.pileByFoe.splice(to, 0, side === FOE)
-  G.pileGuard.splice(to, 0, guard)
-  G.pileVals.splice(to, 0, vals)
-  G.pileSuit.splice(to, 0, card.suit)
-  G.pileBurn.splice(to, 0, burnOnLand(G))
-  frostOnLand(G, card, side, to)
-  burnHandOnLand(G, card, to)
-}
+//   两条留下来的东西：
+//   **堆有三个落点就得有三条 splice 路，而六条并行数组必须同时动** ——
+//     少一条就「点数 / 花色 / 火跟牌错开」，而那是静默错（见 pushPile 那段）；
+//   **「自选位置」类技能要穷举实现，不要启发式** —— 这种技能跟它的
+//     无选择版本唯一的分别就是**选择权**，用启发式量出来会是
+//     「AI 挑得多好」而不是技能的上限（野火的 pickBurnAt 还在用这条）。〕
 
-// 【布火】插哪一格最好：枚举所有位置，模拟「插进去 + 自带火 + 蔓延一轮」，
-// 优先**能当场燃尽**的，否则取盖得最多的。
-//
-// ---- 这儿按最优选法实现，那是有意的 ----
-//
-// 照 pickBurnAt 那段的同一个理由：这件技能跟「自带燃烧」的唯一分别
-// 就是**选择权**，用启发式实现量出来会是「AI 挑得多好」而不是技能的上限。
-// 而「自选落堆位置」这个候选当初正是被判「AI 量不出来」才搁下的 ——
-// 这儿绕开那个坑的办法跟野火一样：穷举 + 跟 burnStep 同一套判据
-function pickInsertAt(G) {
-  const size = G.pile.length
-  let best = size
-  let bestScore = -1
-  for (let at = 0; at <= size; at++) {
-    const burn = []
-    const blocked = []
-    for (let i = 0; i < size; i++) {
-      burn.push(pileBurnAt(G, i) > 0 ? 1 : 0)
-      // **frostAt 而不是 iceMeltsFire** —— 这是预估，不能动盘面
-      blocked.push(wardAt(G, i) || frostAt(G, i))
-    }
-    burn.splice(at, 0, 1)
-    blocked.splice(at, 0, false)
-    const n = burn.length
-    const next = burn.slice(0)
-    for (let i = 0; i < n; i++) {
-      if (burn[i] === 0) continue
-      if (i > 0 && !blocked[i - 1]) next[i - 1] = 1
-      if (i < n - 1 && !blocked[i + 1]) next[i + 1] = 1
-    }
-    let lit = 0
-    let all = true
-    for (let i = 0; i < n; i++) {
-      if (next[i] === 1) lit++
-      else all = false
-    }
-    // 能当场燃尽的一律优先（收整堆），同为燃尽则堆越厚越好；
-    // 烧不尽的局面里盖得多的好（火线留下来，下一手继续推）
-    const score = all ? 1000 + n : lit
-    if (score > bestScore) {
-      bestScore = score
-      best = at
-    }
-  }
-  return best
-}
-
-// 沉底：插到堆底（照 unshiftPile）
+// 落堆底（照 unshiftPile）
 function unshiftPile(G, card, side, guard, vals) {
   G.pile.unshift(card)
   G.pileByFoe.unshift(side === FOE)
@@ -2058,14 +2040,14 @@ function cardVals(card) {
 // 收色也在「拿点数换一次按花色的清扫」这一类里，所以跟顺色、洪水一起。
 // G 是为了齐顶 —— 它要读堆才算得出「最大的那个点数」
 function valuesOf(G, card, skills) {
-  // 【死水】废掉的牌算 **0 点**。判在最前面，盖掉下面所有分支 ——
-  // 「废了」就是废了，不该还受别的技能摆布。
+  // 〔原先这儿有一支「死水废掉的牌算 0 点，判在最前面盖掉下面所有分支」。
+  //   死水改成「把牌变成 0 点牌」之后不需要了：`cardVals` 读 card.value
+  //   就是 0。
   //
-  // 0 点而不是无点数：0 点还在点数这条轴上（见底压得动、撒网按偶数收得走），
-  // 无点数就彻底出局、反而**更安全** —— 废牌不该附赠保护
-  if (isDead(G, card)) {
-    return [0]
-  }
+  //   连带一个**有意的行为变化** —— 原先那行 return 盖掉所有分支，
+  //   现在它是一张普通的 0 点牌，所以别的技能（合流吃点数之类）救得动它。
+  //   照「置 0」词条那句「它还在点数这条轴上」，而且那是这一族
+  //   原先缺的对位解。见 isZero 上面那段〕
   // 〔抹点数那一族（压邻 / 掏手 / 掏库 / 封色 / 分水 / 退潮）2026-10-14 全删了，
   //   它们在这儿那几支跟着删〕
   // 全表的收牌类技能都靠这一条挡（收一片的代价是这张不钓）
@@ -2476,34 +2458,19 @@ function playFor(G, side, index, ai) {
   }
   if (sink) {
     unshiftPile(G, card, side, GUARD_NONE, worth)
-  } else if (has(skills, SK.TORCH)) {
-    // 【布火】自选落堆位置。
-    //
-    // **只改这一次落堆**，resolveMatch 里那次放回不动 —— 蔓延（burnStep）
-    // 排在 resolveMatch **之前**，所以选位置的收益在那一下就结算完了。
-    // 放回堆顶只影响「它落稳之后在哪」，不影响这一手。
-    //
-    // 沉底排在前面：两件撞在一张牌上时沉底赢（它是强制的，布火是选择）
-    insertPile(G, card, side, GUARD_NONE, worth, pickInsertAt(G))
   } else {
     pushPile(G, card, side, GUARD_NONE, worth)
   }
-  // 【燎原】原先在这儿自带 1 层火（点在它落下的那一格，所以「火从哪头
-  // 烧起」是它的决策）。技能删了 —— 蔓延并进【燃烧】关键词之后它是白牌。
+  //〔【布火】原先在这儿自选落堆位置（insertPile + pickInsertAt），
+  //  【燎原】原先自带 1 层火，【合流】原先〔优先〕叠邻居。三件都删了。
   //
-  // 沸水删了之后 burnOnLand 恒为 0，新落的牌要等蔓延烧过来 ——
-  // 除了燃烧那三件（余烬 / 引火 / 接火），它们在 afterPlay 里自带火
-  // ---- 【合流】〔优先〕：它落堆之后，把紧挨着它那张叠到自己下面 ----
+  //  合流留下一条**排序判据**，而它对以后任何「落堆之后再动一下」的
+  //  效果都成立：**那种效果必须排在钓牌判定之前**，两个理由 ——
+  //    改点数的话判定读 valuesOf，排后面这个点数就白给了；
+  //    移堆位的话吃水（从堆顶累加）在判定里读堆。
   //
-  // 排在这一段的**最后**：染水和燎原讲的是「它落下来那一瞬间带着什么」
-  //（花色、火），合流讲的是「它落稳了之后再动一下」。
-  //
-  // 排在钓牌判定**之前**是硬性的，两条都要紧：
-  //   它多一个点数 —— 判定读 valuesOf，排在后面这个点数就白给了；
-  //   它移掉一个堆位 —— 量水数张数、吃水从堆顶累加，两件都在判定里读堆
-  if (has(skills, SK.MERGE)) {
-    mergeFor(G, side, card)
-  }
+  //  沸水删了之后 burnOnLand 恒为 0，新落的牌要等蔓延烧过来 ——
+  //  除了引火 / 传火，它们在 afterPlay 里自带火〕
   afterPlay(G, side, skills, card, ai)
   // 【燃烧】：蔓延 + 若全堆带火则收走整堆。**必须排在匹配前面** ——
   // 见 burnStep 那段（扫走整堆时刚打那张也在里面，于是双吃那道闸是免费的）
@@ -2636,8 +2603,11 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   const burn = pileBurnAt(G, at0)
   const suit = pileSuitAt(G, at0)
   removePileAt(G, at0)
-  // 量水是技能，已经在 afterPlay 里结算过了 —— 匹配这一步不再算它
-  const skills = cardSkills.filter(function (s) { return s !== SK.MEASURE })
+  //〔量水删了，这儿原先把它从 skills 里剔掉（它已经在 afterPlay 里结算过，
+  //  匹配这一步不该再算一次）。那条**判据还在管事**：
+  //  凡是在 afterPlay 里就结算完的收牌件，匹配这一步都得把它排除，
+  //  否则同一个效果算两遍。现在没有这样的件了，所以直接用 cardSkills〕
+  const skills = cardSkills
   // J 落在空堆上：没有可通吃的，就只勾走它自己（记 1 分）
   if (card.rank === JACK && G.pile.length === 0) {
     pushPile(G, card, side, GUARD_NONE, vals)
@@ -3042,7 +3012,9 @@ function mergeFor(G, side, card) {
   // **邻居**无点数：没有点数可吃，但堆位照样少一个、收走时照样算一张。
   //
   // 三种情况邻居都照吃（已经叠到底下了），只是点数不记
-  if (now.length === 0 || isDead(G, card) || gained.length === 0) return
+  // 〔`isDead(G, card)` 那一项删了：死水改成「把牌变成 0 点牌」之后，
+  //   它就是一张普通的 0 点牌 —— 合流吃得动它的邻居，**那是对位解**〕
+  if (now.length === 0 || gained.length === 0) return
   for (let k = 0; k < gained.length; k++) {
     if (now.indexOf(gained[k]) < 0) now.push(gained[k])
   }
@@ -3180,16 +3152,12 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.CREEL) && inPile(G, played)) {
     G.held.push({ source: played, skill: SK.CREEL, target: null, side: side })
   }
-  // 组合技【干塘】：退潮 × 见底撞在同一张牌上时不分别结算 ——
-  // 整堆各减这张的牌面点数，收走归零的
-  const combo = has(skills, SK.EBB) && has(skills, SK.LOWTIDE)
-  if (combo) {
-    ebbTideFor(G, side, played)
-  } else if (has(skills, SK.LOWTIDE)) {
+  //〔组合技【干塘】（退潮 × 见底撞在同一张牌上 → 整堆各减这张的牌面点数、
+  //  收走归零的）跟着退潮一起没了。`ebbTideFor` 也删了。
+  //  **它是全表唯一一个「两件撞一张牌就换一种结算」的组合技** ——
+  //  那条形状还可以用，只是现在没有活着的件在用它〕
+  if (has(skills, SK.LOWTIDE)) {
     lowTideFor(G, side)
-  }
-  if (!combo && has(skills, SK.EBB)) {
-    ebbFor(G, played)
   }
   if (has(skills, SK.FLOOD)) {
     floodFor(G, side)
@@ -3266,10 +3234,7 @@ function afterPlay(G, side, skills, played, ai) {
     const tops = topCards(G, PICK_LOOK)
     doPickDeck(G, ai.pickDeck(G, tops), tops.length)
   }
-  // 同花：翻牌库顶拿第一张同花色的，翻过的洗回去。不停人
-  if (has(skills, SK.SUITFIND) && G.deck.length > 0) {
-    suitFindFor(G, side, played)
-  }
+  //〔同花删了（翻牌库顶拿第一张同花色的）。`suitFindFor` 跟着删〕
   // 同号：牌库里同点数的那几张挑一张
   if (has(skills, SK.TWIN)) {
     const pool = twinPool(G, played)
@@ -3630,8 +3595,11 @@ function castFor(G, side, card) {
 // 传 −1。无点数的牌和护着的牌一概跳过
 // ---------- 【通配】：贴在牌上的标签 ----------
 //
-// **存牌对象引用的清单**，不加第八条并行数组 —— 照【死水】那个现成模式
-//（`G.dead`）。标签跟着**牌**走，所以 pushPile / removePileAt / harvestAt
+// **存牌对象引用的清单**，不加第八条并行数组。
+//
+// 这个模式原先是跟【死水】的 `G.dead` 学的，而死水 2026-10-14 改成了
+// 「直接把牌变成 0 点牌」、那张清单删了 —— 所以现在**这儿是唯一的样板**。
+// 标签跟着**牌**走，所以 pushPile / removePileAt / harvestAt
 // 那六处一个都不用改,也就不会出「少一条就错位」那种事。
 //
 // 读的时候比 `G.pile[i]`，所以牌一离开堆标签自动失效 ——
@@ -4464,7 +4432,9 @@ function burnSweepCount(G, card, skills, side) {
   const size = G.pile.length
   // 空堆：落下去就 1 张。自带火的话当场闭合收走自己（兜底那条），
   // 但门槛 > 1 时那条兜底不响
-  const sink = has(skills, SK.SINK)
+  // 落堆底的只剩寒流（强制）和逆流（角色技，可选）—— 点数技能【沉底】删了
+  const sink = (ICE_SINK && has(skills, SK.COLDHUE))
+    || wantReverse(G, side, card, skills)
   //
   // ---- 1 张的燃尽**报 0**，那是有意的，而且是量出来的 ----
   //
@@ -4490,54 +4460,24 @@ function burnSweepCount(G, card, skills, side) {
   // 新落那张带不带火：
   //   **野火不带** —— 它是「选堆上一张点」，而它刚落堆也在候选里，
   //     所以点哪张由下面的 pickBurnAt 决定；
-  //   **燃烧那三件自带** —— 余烬 / 引火 / 接火落堆那一下就着
-  const selfBurn = has(skills, SK.EMBER) || has(skills, SK.KINDLE)
-    || has(skills, SK.RELAY) || has(skills, SK.CHAIN) || has(skills, SK.TINDER)
-    || has(skills, SK.TORCH)
-  // ---- 【布火】的落点也要在预估里跑一遍 ----
-  //
-  // 不跑 AI 就看不见它**唯一**的用处（选位置让蔓延盖更宽），于是会把它
-  // 当成一张普通的自带火牌打。而这件技能跟自带火的分别整个在那个选择权上
-  //（野火那边量过：选 1 张比自带火值 +1.54）。
-  //
-  // 用 pickInsertAt —— **跟真正落堆时同一个函数**，两处选法不一致的话
-  // AI 算出的闭合和真实发生的闭合是两回事，而那种 bug 是静默的
-  const torchAt = has(skills, SK.TORCH) ? pickInsertAt(G) : -1
+  //   **引火 / 传火自带** —— 落堆那一下就着
+  const selfBurn = has(skills, SK.KINDLE) || has(skills, SK.CHAIN)
   if (sink) {
     burn.unshift(selfBurn ? 1 : 0)
     blocked.unshift(false)
-  } else if (torchAt >= 0) {
-    burn.splice(torchAt, 0, 1)
-    blocked.splice(torchAt, 0, false)
   } else {
     burn.push(selfBurn ? 1 : 0)
     blocked.push(false)
   }
   const n = burn.length
-  // ---- 【接火】的区间也要在预估里跑一遍 ----
+  // 〔【接火】的区间预估和【布火】的落点预估都删了（两件技能都删了）。
   //
-  // 不跑 AI 就看不见它**唯一**的用处（一次盖任意宽度），于是把它当成
-  // 一张普通的自带火牌打 —— 那量出来的是「自带火」的分，不是接火的分。
-  //
-  // **余烬和引火反过来，故意不估**：
-  //   余烬的效果在「它被收走时」—— 那是未来，一步贪心估不出来；
-  //   引火的效果在「手里那几张之后落堆时」—— 同样是未来。
-  // 两件因此会被 AI 低估成「一张自带火的牌」。这个偏低的**方向是安全的**
-  //（不会为了估出来的幻觉去打次优牌，照 `wants` 那次的教训），
-  // 但读数的时候要记着：它们的实测值是下限
-  if (has(skills, SK.RELAY)) {
-    const at = sink ? 0 : n - 1
-    let from = at
-    for (let i = at - 1; i >= 0; i--) {
-      if (burn[i] === 1) {
-        from = i
-        break
-      }
-    }
-    for (let i = from; i <= at; i++) {
-      if (!blocked[i]) burn[i] = 1
-    }
-  }
+  //   它们留下一条**还在管事的**，而**引火现在就在吃这个亏**：
+  //   **效果在「未来」的技能，一步贪心估不出来** ——
+  //   引火贴的是手牌，那几张之后落堆才生效，所以 AI 把它低估成
+  //  「一张自带火的牌」。这个偏低的**方向是安全的**
+  //（不会为了幻觉打次优牌，照 `wants` 那次的教训），
+  //   但读数时要记着：**引火 +4.92 是下限。**〕
   // 【野火】点那一下：**调 wildfireFor 用的同一个 pickBurnAt** ——
   // 两处选法不一致的话，AI 算出的闭合和真实发生的闭合是两回事，
   // 而那种 bug 是静默的
@@ -4865,7 +4805,7 @@ module.exports = {
   // 连 levels 一起删了，换成角色模型
   emptyLoadout, slotLabels, isSuitSlot, slotCover, roleCover, roleSlotCount,
   kitFromRole, kitWithOne, coverageOf, baitRankOf,
-  triggersOf, skillsOf, isDead, deadPool, DEAD_COUNT,
+  triggersOf, skillsOf, isZero, deadPool, DEAD_COUNT,
   has, cardVals, valuesOf, anyEquals, canCatch, catchStart,
   isFrozen, heldOn, opponentOpen, inPile, topCards, handLimit, harvestCount,
   // 【伏流】的代价旋钮 —— ai.js 的「安全饵」判断要读它
