@@ -165,6 +165,14 @@ function note(G, st, where) {
   }
   if (G.frostHand.length > 0) st.keySeen++
 
+  // 火那一边同理，而且**这一边更要紧**：「六条硬断言全过」在一个
+  // 一张火都没点着的局里也会全过 —— 那时候过的是空气。
+  // 新搬进来那三件是不是真的在贴火，只有正面数才知道
+  for (let i = 0; i < G.pile.length; i++) {
+    if (G.pileBurn[i] > 0) { st.burnSeen++; break }
+  }
+  if (G.burnHand.length > 0) st.burnKeySeen++
+
   // 甲、iceBlind 在两手之间还是 true。
   //
   // 它在 playFor 开头被重设、在 harvestAt 末尾被清 —— 可是
@@ -189,6 +197,23 @@ function note(G, st, where) {
       break
     }
   }
+
+  // 丁、burnHand 同上（【引火】预约的那层火）。两个数组同一个形状，
+  // 所以同一个漏法 —— 分开数是为了知道是哪一族漏的
+  for (let i = 0; i < G.burnHand.length; i++) {
+    const c = G.burnHand[i]
+    if (G.hands[R.ME].indexOf(c) < 0 && G.hands[R.FOE].indexOf(c) < 0) {
+      st.burnLeak++
+      break
+    }
+  }
+
+  // 〔戊、原先查 `emberFired` 跨手立着（【余烬】的死亡触发旗）。
+  //   余烬 2026-10-14 删了，这一条跟着删。
+  //
+  //   它留下一条还能复用的检查形状：**凡是「立旗 → 下一步兑现」的机制，
+  //   都要查那面旗会不会跨手立着** —— 立着说明有一条路绕过了兑现点。
+  //   现在还活着的同形状机制只剩**对流**（G.forceStep / G.forceUsed）。〕
 }
 
 // ---------- 配装 ----------
@@ -224,7 +249,11 @@ function kitOf(roleKey, keys) {
   }))
 }
 
-// ---------- 四组配置 ----------
+// 哪几组**该**见到冰 / 火。见 main 里那段：正面点名，不靠 key 猜
+const FROST_CASES = ['frostfall', 'frost', 'fire']
+const BURN_CASES = ['burn', 'fire']
+
+// ---------- 六组配置 ----------
 //
 // 顺序是故意的：base 过不了就不用看后面三组 —— 那说明坏的不是新东西
 const CASES = [
@@ -248,11 +277,31 @@ const CASES = [
     }
   },
   {
-    key: 'fire', label: '结冰四件 vs 燃烧两件（冰火相消的对撞）',
+    // 四个槽，而燃烧那一族现在有七件（野火 + 六个候选）—— 装不下。
+    // 挑的是**最可能出错的四件**：两件定稿的（传火的连锁会反复取牌、
+    // 引火的手牌火要跨手兑现）、布火（它动了落堆本身，六条数组 splice）、
+    // 余烬（死亡触发，唯一会在 takeAt 里立旗的）。
+    //
+    // 野火**故意不带** —— 它不走 lightAt（自己过滤完再 doWildPick），
+    // 所以它压不到新那几件共用的那道闸
+    key: 'burn', label: '燃烧四件（传火 / 引火 / 布火 / 余烬）',
+    build: function () {
+      return {
+        mine: kitOf('lock', ['chain', 'kindle', 'place', 'ember']),
+        foe: R.emptyLoadout(), myRole: -1
+      }
+    }
+  },
+  {
+    // **这一组是冲着「冰火不共存」那条断言来的** —— 两边各四件，
+    // 相消的两个方向（addFrostAt 清火 / iceMeltsFire 清冰）在这儿
+    // 每局要撞上几十次。原先这组写的是 ['wild', 'boil']，
+    // 可沸水 2026-10-13 就删了 —— 那会让整组直接抛「没有这个技能」
+    key: 'fire', label: '结冰四件 vs 燃烧四件（冰火相消的对撞）',
     build: function () {
       return {
         mine: kitOf('lock', ['frost', 'hide', 'coldhue', 'frostfall']),
-        foe: kitOf('lock', ['wild', 'boil']), myRole: -1
+        foe: kitOf('lock', ['chain', 'kindle', 'place', 'ember']), myRole: -1
       }
     }
   },
@@ -282,6 +331,8 @@ function runCase(cs, n, seed) {
   const st = {
     iceBlindBetween: 0, heldStale: 0, frostLeak: 0,
     frostSeen: 0, keySeen: 0,
+    burnSeen: 0, burnKeySeen: 0,
+    burnLeak: 0,
     steps: 0, games: 0
   }
   let bad = null
@@ -363,22 +414,40 @@ function main() {
 
     console.log('✓ ' + cs.key + '  ' + cs.label)
     console.log('    ' + st.games + ' 局 / ' + st.steps + ' 手，六条硬断言全过')
-    // 带冰的那三组要是一张冰都没见过，那是**检查器没在工作**，
-    // 不是「冰很干净」。这一行就是来掀掉那种假绿灯的
-    if (cs.key !== 'base' && cs.key !== 'filler') {
+    // ---- 该见到的标签见到了吗 ----
+    //
+    // 「六条硬断言全过」在一个**标签根本没生效**的局里也会全过 ——
+    // 那时候过的是空气。所以每组正面点名它该见到什么。
+    //
+    // 名单**显式写，不靠 key 猜**：原先写的是「除了 base 和 filler
+    // 都该有冰」，可 burn 组装的是燃烧四件、一件冰技能都没有，
+    // 于是被自己的检查器误报成「断言没跑到」。取反的名单每加一组
+    // 就得重想一次，正面点名不会
+    if (FROST_CASES.indexOf(cs.key) >= 0) {
       if (st.frostSeen === 0) {
         console.log('    ⚠ 一张堆上的冰都没见过 —— 冰那两条断言等于没跑。'
           + '对一下 SK.FROST 的下标和这几件技能的 key')
         failed++
       } else {
-        console.log('    冰出现在 ' + st.frostSeen + ' 手、手里的钥匙 '
-          + st.keySeen + ' 手（断言确实跑到了）')
+        console.log('    冰：堆上 ' + st.frostSeen + ' 手、手里的钥匙 '
+          + st.keySeen + ' 手')
+      }
+    }
+    if (BURN_CASES.indexOf(cs.key) >= 0) {
+      if (st.burnSeen === 0) {
+        console.log('    ⚠ 一张堆上的火都没见过 —— 新那三件根本没生效。'
+          + '对一下 SK.EMBER/KINDLE/RELAY 的下标和 afterPlay 那一段')
+        failed++
+      } else {
+        console.log('    火：堆上 ' + st.burnSeen + ' 手、手里预约的 '
+          + st.burnKeySeen + ' 手')
       }
     }
     const obs = []
     if (st.iceBlindBetween > 0) obs.push('iceBlind 手间为真 ' + st.iceBlindBetween + ' 次')
     if (st.heldStale > 0) obs.push('held 有过期 source ' + st.heldStale + ' 手')
     if (st.frostLeak > 0) obs.push('frostHand 有离手的牌 ' + st.frostLeak + ' 手')
+    if (st.burnLeak > 0) obs.push('burnHand 有离手的牌 ' + st.burnLeak + ' 手')
     if (obs.length > 0) console.log('    观察：' + obs.join('、'))
     console.log('')
   }

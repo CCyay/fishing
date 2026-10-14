@@ -30,10 +30,43 @@ const WATCH = [
     group: '钓牌判定与出牌',
     // 「先结算技能、再匹配」那次重构把 afterPlay 拆成了 head / tail 两段，
     // 匹配挪进了 resolveMatch —— 这几个都得盯着
+    // 2026-10-14 补了五个，各有各的理由（都是以前漏的）：
+    //   **takeAt / blockedAt** —— 全局**唯一的收牌闸门**。结冰、保护、
+    //     叠放全挂在这两个上，漏掉它们等于漏掉「牌到底收不收得走」；
+    //   **rawVals** —— 「写 pileVals 必须读 rawVals」那条判据的落点。
+    //     读错会把在场效果**永久烙进**堆上那张牌（合流 / 焦壳那一类 bug）；
+    //   **suitLeads** —— 一色的条件本体。`suitifyFor` 原先在名单里，可
+    //     判定在 suitLeads 里，所以把「打平算不算」改掉是**报不出来的**
+    //    （2026-10-14 那次改条件就正好落在这个盲区上）；
+    //   **landVals 已在** —— 留着这条注记提醒：点数那一层有三个入口
+    //     （valuesOf / landVals / rawVals），三个都得盯
     names: ['catchStart', 'canCatch', 'playFor', 'resolveMatch', 'removePileAt',
       'afterPlay', 'afterPlayHead', 'afterPlayTail', 'measureFor', 'valuesOf',
       'landVals', 'cardVals', 'anyEquals', 'guardedAgainst', 'finishCatch',
-      'pushPile', 'unshiftPile', 'suitifyFor', 'pileValsAt', 'pileSuitAt', 'pileRed']
+      'pushPile', 'unshiftPile', 'suitifyFor', 'suitLeads', 'pileValsAt',
+      'pileSuitAt', 'pileRed', 'takeAt', 'blockedAt', 'rawVals']
+  },
+  {
+    file: 'ap-fishing.uvue',
+    group: '关键词：燃烧 / 结冰 / 通配',
+    // ---- 这一组整个是 2026-10-14 新加的〔以前完全没盯〕----
+    //
+    // 三套关键词是这一季加的，而**它们一个都不在监视里** ——
+    // 也就是说这张网恰好没覆盖最新、最没定下来的那部分代码。
+    //
+    // 三套各自的要紧处：
+    //   **燃烧** —— burnStep 是「燃尽」的判定（排在 resolveMatch 之前，
+    //     次序本身是规则的一部分）；spreadFire 是关键词级的蔓延，
+    //     不挂在任何技能上，所以改了没人会想起来；
+    //   **结冰** —— frostAt / frostOnLand 管「冰贴在哪」，
+    //     iceMeltsFire 是冰火相消，coldHueOn 是寒流的持续钥匙；
+    //   **通配** —— bestChainAt / markChain 是顺子匹配的本体，
+    //     而 straightCount / wadeCount 是**庄家的估值**：
+    //     那两个漏掉的后果不是「庄家笨一点」，是整件技能在庄家手里作废
+    names: ['burnStep', 'spreadFire', 'wildfireFor', 'pickBurnAt', 'pileBurnAt',
+      'frostAt', 'frostOnLand', 'coldHueOn', 'iceMeltsFire',
+      'isWildAt', 'bestChainAt', 'markChain', 'straightFor',
+      'straightCount', 'wadeCount']
   },
   {
     file: 'ap-fishing.uvue',

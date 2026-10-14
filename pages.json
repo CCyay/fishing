@@ -130,6 +130,18 @@
         "backgroundColorBottom": "#0B5D3B"
       }
     },
+    {
+      "path": "pages/examples/blackjack/draw-duel",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "摸打配装手册（draw）",
+        "disableScroll": true,
+        "pageOrientation": "landscape",
+        "backgroundColor": "#0B5D3B",
+        "backgroundColorTop": "#0B5D3B",
+        "backgroundColorBottom": "#0B5D3B"
+      }
+    },
 
     {
       "path": "pages/index/index",

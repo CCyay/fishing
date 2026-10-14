@@ -1,7 +1,7 @@
 // 摸打钓鱼 · 模拟器入口
 //
 //   node sim.js base                     跑基准（双方都不带角色不带技能），对照设计文档
-//   node sim.js one <key> [选项]          量一件点数技能的分差
+//   node sim.js one <key> [选项]          量一件点数技能：后手 / 先手 / X / D
 //   node sim.js all [选项]                所有点数技能跑一遍，出一张表
 //   node sim.js pair <keyA> <keyB> [选项] 量两件技能装在一起的分差（组合技用）
 //   node sim.js vs <我的> <对手的> [选项]  我带一件、**对手带一件**（反制型技能用）
@@ -13,6 +13,20 @@
 // `pair` 和 `vs` 的区别要分清：**pair 两件都在我这边，vs 分在两边。**
 // 一件「专门破对手某样东西」的技能在 pair 里量不出来 ——
 // 那两件都归我，它只会去破我自己的东西（抄底撞上过这堵墙，见 cmdVs）
+//
+// ---- `one` 的口径对齐了 `all`〔2026-10-14〕----
+//
+// 改之前 `one` 报的是**单侧（后手）、而且对手不带角色**，可它把那个数
+// 印成「分差」—— 读起来就像「这件技能值多少」。两条都是 `all` 在
+// 2026-10-12 明确判废的口径（理由见 cmdAll 上面那段）。
+//
+// **那是【燃烧】族重建那一轮记错数的来源**：六个候选的后手值被当成 X
+// 写进文档，引火因此少定了一档价（真实 X +4.92 对记录的 +4.25）。
+// 偏得整齐是因为这一族的 D 小（+0.17~+0.67）—— 差得不够大，看不出错。
+//
+// 现在 `one` 跑三格（基线 / 我带 / 对手带）并报四个数，
+// 跟全表可以直接比。**`pair` 还用着老的 `measure`** —— 协同是差中之差，
+// 那两条偏差相减时大部分抵掉，所以没动它。
 //
 // 选项：
 //   -n 40000        跑几局（默认 20000）
@@ -114,6 +128,8 @@ function run(n, seed, mine, foe, opts) {
     // 顺子那两件的诊断口（见 rules.js 的 stat.straight / stat.wade）
     straight: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
     wade: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    // 顺流（按排序收牌）—— 跟上面两件同一组列，所以下面共用同一个循环和同一张表
+    order: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
     // 【野火】的诊断口（见 rules.js 的 stat.wild）—— 查那个非单调
     wild: {
       fires: [0, 0], took: [0, 0], blank: [0, 0], burnSum: [0, 0],
@@ -156,6 +172,7 @@ function run(n, seed, mine, foe, opts) {
       for (let k = 0; k < keys.length; k++) {
         sum.straight[keys[k]][s] += G.stat.straight[keys[k]][s]
         sum.wade[keys[k]][s] += G.stat.wade[keys[k]][s]
+        sum.order[keys[k]][s] += G.stat.order[keys[k]][s]
       }
       const wk = ['fires', 'took', 'blank', 'burnSum',
         'reapSum', 'reapOwn', 'reapTheirs', 'sweeps', 'sweepSum']
@@ -301,6 +318,8 @@ function loadoutWith(key, roleKey, slotAt) {
   const lo = R.kitWithOne(role, slotAt, at)
   return {
     lo: lo, def: R.SKILLS[at], role: role, slotAt: slotAt,
+    // `at` 是给 measureBoth 用的 —— 它要自己再 kitWithOne 两次（镜像那一格）
+    at: at,
     cover: R.coverageOf(lo, at)
   }
 }
@@ -344,29 +363,81 @@ function measureSpecial(args, role) {
   }
 }
 
-// 「江口闸官 · 第 1 个槽（A）」这样一行，报表抬头用
+// 一件技能的**两侧**分差。口径跟 `all` / `vs` 一致。
+//
+// ---- 为什么另开一个，不改上面那个 `measure` ----
+//
+// `measure` 有两处**已经被 `all` 判废的**口径（理由写在 cmdAll 上面那段）：
+//
+//   **只量后手一侧** —— 先手溢价的跨度是 −0.01 ~ +4.31，
+//     只看一侧等于对一半的技能系统性偏；
+//   **对手不带角色** —— 实测偏差 ±1.2（洪水 −1.23、抬水 +0.48），
+//     方向因技能而异，没法用一个修正值盖掉。
+//
+// 而 `one` 一直在用它，**于是它报的「分差」既是单侧的、又是旧口径的**。
+// 那正是【燃烧】族重建那一轮把后手值当 X 记进文档的来源
+//（六个候选全错同一格，引火因此少定了一档价）。
+//
+// `measure` 没删，因为 `pair` 还用着它 —— 协同是**差中之差**，
+// 那两条口径偏差在相减时大部分抵掉。改 `one` 不该顺手动 `pair`
+function measureBoth(args, role, slotAt, skillAt) {
+  const o = rolesFor(args, role, true)
+  const empty = R.emptyLoadout()
+  const lo = R.kitWithOne(role, slotAt, skillAt)
+  // 三格：基线（都空）/ 我带 / 对手带。照 cmdAll
+  const C = run(args.n, args.seed, empty, empty, o)
+  const D = run(args.n, args.seed, lo, empty, o)
+  const A = run(args.n, args.seed, empty, lo, o)
+  const baseDiff = meanDiff(C)
+  const back = meanDiff(D) - baseDiff
+  const front = baseDiff - meanDiff(A)
+  return {
+    base: C, test: D, baseDiff: baseDiff,
+    back: back, front: front,
+    x: (back + front) / 2,
+    d: (front - back) / 2,
+    se: Math.sqrt(stderrOf(D) * stderrOf(D) + stderrOf(C) * stderrOf(C)),
+    winGain: avg(D.wins[R.ME], D.games) - avg(C.wins[R.ME], C.games)
+  }
+}
+
+// 「江口闸官 · 第 1 个槽（A，4 张牌）」这样一行，报表抬头用。
+//
+// **张数走 `slotCover`，不走 `coverageOf`** —— 后者返回的是标签字符串
+//（'A' / '2' / '4'），而原先这行写成「管 」+ 那个字符串，
+// 于是点数槽读出来是「管 2」「管 4」，看着像张数。三个都是 4 张
 function whereText(made) {
   const role = R.DRAW_ROLES[made.role]
+  const slot = role.slots[made.slotAt]
   return role.name + ' · 第 ' + (made.slotAt + 1) + ' 个槽（'
-    + role.slots[made.slotAt] + '）· 管 ' + made.cover
+    + slot + '，' + R.slotCover(slot) + ' 张牌）'
 }
 
 function cmdOne(args) {
   const made = loadoutWith(args._[1], args.role, args.slot)
-  const m = measure(args, made.lo, made.role)
+  const m = measureBoth(args, made.role, made.slotAt, made.at)
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
   console.log('【' + made.def.name + '】' + made.def.key
-    + ' · ' + whereText(made) + ' · ' + args.n + ' 局\n')
-  console.log('  分差（已扣掉后手基线 +' + f2(meanDiff(m.base)) + '）：'
-    + (m.gain >= 0 ? '+' : '') + f2(m.gain) + ' 分   标准误 ' + f2(m.se))
-  console.log('  胜率：' + pct(avg(m.test.wins[R.ME], m.test.games))
+    + ' · ' + whereText(made) + ' · ' + args.n + ' 局 · ' + specialNote(args, made.role) + '\n')
+  // 四个数照 `all`：**定价看 X，平衡看 D**
+  console.log('  后手 ' + sign(m.back) + '   先手 ' + sign(m.front)
+    + '   X ' + sign(m.x) + '   D ' + sign(m.d) + '   标准误 ' + f2(m.se))
+  // 建议价的口径跟 cmdAll 逐字一致（锚 25 + X×21、取整到 5、两种不给干净数）
+  console.log('  建议价：' + (m.x <= 0 ? '—（X ≤ 0 是效果问题，不是定价问题）'
+    : String(Math.round((25 + m.x * 21) / 5) * 5)
+      + (Math.abs(m.d) > 1 ? '?　—— |D| > 1，先修平衡再谈价' : '')))
+  console.log('\n  胜率：' + pct(avg(m.test.wins[R.ME], m.test.games))
     + '（基线 ' + pct(avg(m.base.wins[R.ME], m.base.games)) + '，'
     + (m.winGain >= 0 ? '+' : '') + pct(m.winGain) + '）')
-  console.log('  带技能那方：每局钓到 ' + f1(avg(m.test.catches[R.ME], m.test.games))
+  console.log('  带技能那方（后手格）：每局钓到 '
+    + f1(avg(m.test.catches[R.ME], m.test.games))
     + ' 次（基线 ' + f1(avg(m.base.catches[R.ME], m.base.games)) + '），每次收 '
     + f2(avg(m.test.caught[R.ME], m.test.catches[R.ME])) + ' 张（基线 '
     + f2(avg(m.base.caught[R.ME], m.base.catches[R.ME])) + '）')
-  console.log('\n  基线**也带这个角色**（槽全空），所以上面那个分差里没有'
-    + '「' + R.DRAW_ROLES[made.role].special + '」的份。')
+  console.log('\n  基线（双方同角色、槽全空）：后手分差 ' + sign(m.baseDiff)
+    + ' —— D 的上限就是它。')
+  console.log('  口径跟 `all` 一致：双方同角色、各插同一个槽、**两侧都量**，'
+    + '所以这几个数可以直接跟全表比。')
 }
 
 // ---------- all：全表一张定价表 ----------
@@ -752,11 +823,14 @@ function cmdVs(args) {
     }
     const sdRows = [
       sdRow('伏流·后手', D.straight, R.ME), sdRow('伏流·先手', A.straight, R.FOE),
-      sdRow('涉水·后手', D.wade, R.ME), sdRow('涉水·先手', A.wade, R.FOE)
+      sdRow('涉水·后手', D.wade, R.ME), sdRow('涉水·先手', A.wade, R.FOE),
+      // 顺流不是顺子（它看位置次序，不看值连不连），但要回答的问题
+      // 和要看的四列**一模一样**，所以共用这张表
+      sdRow('顺流·后手', D.order, R.ME), sdRow('顺流·先手', A.order, R.FOE)
     ].filter(function (r) { return r !== null })
     if (sdRows.length > 0) {
-      console.log('\n  ---- 诊断：顺子怎么凑成的 ----')
-      console.log('            打出次数   凑成率   平均链长   每次收成')
+      console.log('\n  ---- 诊断：成段的那几件怎么凑成的（顺子 / 排序）----')
+      console.log('            打出次数   凑成率   平均段长   每次收成')
       for (let i = 0; i < sdRows.length; i++) console.log(sdRows[i])
       console.log('\n  「凑成率」低 → 瓶颈在**发动条件**；')
       console.log('  「每次收成」低 → 瓶颈在**收法**；')

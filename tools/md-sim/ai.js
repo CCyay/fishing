@@ -80,12 +80,13 @@ function pickCard(G, side) {
     // 「这张沉底能钓到」，而 wantSink 只在打出**之后**决定落点，
     // 牌已经挑定了。所以逆流在庄家手里被低估 —— roles 那张表量出来的
     // 是它的**下限**。改源码的话是在上面那一行或上接 wantSink
-    const sink = R.has(skills, SK.SINK)
-    const at = R.catchStart(G, card, side, skills, sink)
+    //〔点数技能【沉底】删了，这儿原先按它算落堆底那一头。
+    //  逆流那个缺口照旧：挑牌阶段不知道「这张落堆底能钓到」〕
+    const at = R.catchStart(G, card, side, skills, false)
     let caught = 0
     if (at >= 0) {
-      // 收几张：普通是「匹配那张到堆顶」再加自己，沉底是「堆底到匹配那张」
-      caught = sink ? at + 2 : G.pile.length - at + 1
+      // 收几张：「匹配那张到堆顶」再加自己
+      caught = G.pile.length - at + 1
     }
     // 收色、撒网不走点数判定，所以上面那一下对它们一概是 -1 ——
     // 不单独估一次，AI 就会把一张能扫掉半个堆的牌当普通饵打出去
@@ -144,63 +145,37 @@ function pickCard(G, side) {
       || (R.has(skills, SK.PEEK) && pairFreeze)
       || (R.has(skills, SK.LANTERN) && pairFreeze)
       || (R.has(skills, SK.SUITIFY) && pairSuitLine)
-      // 连竿空钩也照样再给一张 —— 当饵顺手白拿一次出牌机会
-      || R.has(skills, SK.AGAIN)
+      // 燃烧那两件：落堆就贴火，钓不钓到都发动 —— 当饵白赚一层火
+      || R.has(skills, SK.KINDLE) || R.has(skills, SK.CHAIN)
       // 挂在牌上的两件新的（窄口、满篓）要求这张留在堆上，跟照水同理
       || R.has(skills, SK.NARROW) || R.has(skills, SK.CREEL)
       // 动对方手牌、从牌库检索这几件钓不钓到都照样发动，当饵白赚一次
       || R.has(skills, SK.PRESS) || R.has(skills, SK.UNHOOK)
       || R.has(skills, SK.SWAPCARD) || R.has(skills, SK.TWIN)
-      || R.has(skills, SK.SUITFIND)
-      // 抹点数那一族：三件在场效果得让这张留在堆上（照照水），
-      // 掏手、掏库钓不钓到都照样发动，拿来当饵是白赚
-      || R.has(skills, SK.VOID) || R.has(skills, SK.HUEVOID)
-      || R.has(skills, SK.ODD)
-      || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
-      // 退潮自己算 0 点，永远钓不到 —— 拿它当饵是它唯一的用法
-      || R.has(skills, SK.EBB)
       // 凝水 / 净水 / 抬水**压根不落堆**（叠到别的牌上去了），所以也
       // 谈不上钓 —— 它们换的是一次精确操作。拿它们当「饵」是唯一的用法，
       // 而且比别的饵更安全：牌出场了，对手连收都收不着
       || R.has(skills, SK.CALM) || R.has(skills, SK.CLEAN)
       || R.has(skills, SK.RAISE)
-      // 抄底无点数 → 它**永远钓不到牌**，所以「当饵」是它唯一的落地方式。
-      // 效果（掀走叠放的牌）在 afterPlay 里立刻结算，钓不钓到都一样发动
-      || R.has(skills, SK.DREDGE)
     if (wants && score <= fewest + 1) {
       score = score - 1.5
     }
-    // 抹点数那四件自己**没有点数**（分水有），所以当饵格外安全 ——
-    // 落堆之后没人按点数钓得上它。那正是这一族「堆冻住、让它长厚」的根基。
-    // 退潮也在这儿：0 点互不匹配，按点数一样钓不上它
-    if (R.has(skills, SK.VOID) || R.has(skills, SK.HUEVOID)
-      || R.has(skills, SK.DUMP) || R.has(skills, SK.SPILL)
-      || R.has(skills, SK.EBB)
-      // 抄底也无点数，同一条理由
-      || R.has(skills, SK.DREDGE)
-      // 伏流也无点数 —— 它凑不成顺子时就留在堆上，而且谁也按点数
-      // 钓不走它（「当任意点数」**只在它自己那条判定路径上**成立）。
-      //
-      // **跟着 FLOW_VOID 那个旋钮走**：关掉无点数那一档它就有点数了，
-      // 于是不再是钓不走的安全饵，这一分不能给
-      || (R.FLOW_VOID && R.has(skills, SK.FLOW))) {
+    // 〔压底族六件、抄底、连竿、同花、余烬 / 接火 / 添柴 / 布火
+    //   在 2026-10-14 那一轮全删了，各自的分支跟着删。
+    //   删除理由见 rules.js 的 SK 表和设计文档〕
+    //
+    // 伏流无点数 —— 它凑不成顺子时就留在堆上，而且谁也按点数钓不走它
+    //（「当任意点数」**只在它自己那条判定路径上**成立），所以当饵格外安全。
+    //
+    // **跟着 FLOW_VOID 那个旋钮走**：关掉无点数那一档它就有点数了，
+    // 于是不再是钓不走的安全饵，这一分不能给
+    if (R.FLOW_VOID && R.has(skills, SK.FLOW)) {
       score = score - 1.0
     }
-    // ---- 【抄底】：**场上叠着几张，它就值几分** ----
-    //
-    // 全表唯一一件「收益当场数得出来」的技能 —— 掀几张就是几分，
-    // 没有匹配、没有运气。所以判断只有一条：**现在叠着几张**。
-    //
-    // 场上一张都没叠的时候这儿不减分，它就退回上面那两支（无点数的安全饵）
-    // —— 那正是「无点数是它的兜底不是代价」想要的结果。
-    // 0.8 一张：三张起就压过下面沉底空钩那条风险
-    if (R.has(skills, SK.DREDGE)) {
-      score = score - G.stacked.length * 0.8
-    }
-    // **沉底空钩是最危险的下饵**：那张躺在堆底，谁匹配到它就通吃整堆
-    if (R.has(skills, SK.SINK)) {
-      score = score + G.pile.length * 0.5
-    }
+    // 〔【沉底】原先在这儿加风险：**空钩沉底是最危险的下饵** ——
+    //   那张躺在堆底，谁匹配到它就通吃整堆，所以加价 `堆张数 × 0.5`。
+    //   技能删了，而这条判据正是它那 0.79 分的来源
+    //   （强制 −0.45 → 可选 +0.34）。将来再做「落堆底」类效果要先算这笔〕
     if (score < pickScore) {
       pickScore = score
       pick = i

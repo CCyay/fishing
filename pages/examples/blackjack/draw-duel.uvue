@@ -1,0 +1,743 @@
+<template>
+  <view class="page">
+    <!-- 状态栏占位：原生导航栏去掉了（pages.json 的 navigationStyle: custom），
+         见 App.uvue 的 .bj-status-bar -->
+    <view class="bj-status-bar"></view>
+    <!-- 没有标题和说明：横屏只有三百多 px 高，一个标题就吃掉
+         两块配装各十几 px。而这一页打开时玩家已经知道自己在看什么 ——
+         标题是给「找得到路」用的，这儿没有路要找。
+         返回钮并到底下那一排 -->
+
+    <!-- ===== 两个人各一块。**这一页不滚** ===== -->
+    <!--
+      所以主体只放**速查表**：谁是谁、哪个槽装了什么。
+      技能的全文说明、名词、规则一律收进底下那三颗钮。
+
+      依据是实体对战的实际节奏：自己那 2~4 件技能**读一遍就记住了**，
+      之后整局要反复瞄的只有「我这个槽管哪几张牌、装的是哪件」——
+      而那正好是一行能写完的东西
+    -->
+    <view
+      v-for="(ri, si) in roles"
+      :key="'dp-' + si"
+      class="side-box"
+      :class="{ 'side-flip': isFlipped(si) }">
+      <!-- 身份压成**一行**。
+           原先它占了左边一整栏（118px 定宽），而那一栏只放得下名字和
+           一颗钮 —— 白占了说明文字的宽度，两块各浪费一次。
+           横过来之后技能说明能用满整块宽度（~690px），基本不折行 -->
+      <view class="side-head">
+        <text :id="'md-duel-name-' + si" class="side-who">{{ SIDE_NAMES[si] }}</text>
+        <text class="side-name">{{ DRAW_ROLES[ri].name }}</text>
+        <text class="side-cover">盖 {{ roleCover(ri) }} 张</text>
+        <view class="side-gap"></view>
+        <!-- 翻 180° 给坐对面那个人读 —— 见 toggleFlip 那段 -->
+        <view :id="'md-duel-flip-' + si" class="flip-btn" @click="toggleFlip(si)">
+          <text class="flip-text">翻转</text>
+        </view>
+      </view>
+
+      <!-- 一行一件技能 —— 槽标签 / 管几张 / 名字 / **效果全文**。
+           常驻技算第一行（它不占槽，但它是整局都在的那件）-->
+      <view class="slot-line">
+        <text class="slot-tag slot-tag-always">常驻</text>
+        <text class="slot-num"></text>
+        <text class="slot-skill">{{ specialNameOf(ri) }}</text>
+        <text class="slot-desc">{{ specialDescOf(ri) }}</text>
+      </view>
+      <view
+        v-for="(label, k) in DRAW_ROLES[ri].slots"
+        :key="'dsl-' + si + '-' + k"
+        :id="'md-duel-sheet-' + si + '-' + k"
+        class="slot-line">
+        <text class="slot-tag">{{ label }}</text>
+        <text class="slot-num">{{ slotCover(label) }}张</text>
+        <text
+          class="slot-skill"
+          :class="{ 'slot-blank': skillAt(si, k) < 0 }">{{ skillAt(si, k) >= 0 ? DRAW_SKILLS[skillAt(si, k)].name : '空着' }}</text>
+        <text class="slot-desc">{{ skillAt(si, k) >= 0 ? DRAW_SKILLS[skillAt(si, k)].desc : '' }}</text>
+      </view>
+
+      <!-- 双触发留在主页面 —— 它是**只有这套配装才有**的信息，
+           而且整局要反复想（「我这张 ♥3 是不是双的」）-->
+      <text class="side-double">{{ doubleTextOf(ri) }}</text>
+    </view>
+
+
+    <!-- 三颗钮。**技能全文也在里头** —— 那是这一页能不滚的关键：
+         两个人四到八件技能的说明铺出来有二三十行，一屏装不下 -->
+    <view class="book-acts">
+      <view id="md-duel-back" class="card-btn card-btn-back" @click="goBack">
+        <text class="card-btn-text">返回</text>
+      </view>
+      <view id="md-duel-skills" class="card-btn card-btn-main" @click="showSkills = true">
+        <text class="card-btn-text card-btn-text-dark">技能说明</text>
+      </view>
+      <view id="md-duel-terms" class="card-btn" @click="showTerms = true">
+        <text class="card-btn-text">名词（{{ terms.length }}）</text>
+      </view>
+      <view id="md-duel-rules" class="card-btn" @click="showRules = true">
+        <text class="card-btn-text">规则</text>
+      </view>
+    </view>
+
+    <!-- ===== 技能说明：双方的常驻技 + 已配技能全文 ===== -->
+    <view v-if="showSkills" class="mask">
+      <view class="book-box">
+        <view class="book-head">
+          <text class="book-title">技能说明</text>
+          <view id="md-duel-skills-close" class="book-close" @click="showSkills = false">
+            <text class="card-btn-text">收起来</text>
+          </view>
+        </view>
+        <scroll-view class="book-body sv-out" direction="vertical">
+          <view v-for="(ri, si) in roles" :key="'dsp-' + si" class="rule-sec">
+            <text class="rule-title">{{ SIDE_NAMES[si] }}　{{ DRAW_ROLES[ri].name }}</text>
+            <!-- 常驻技摆最前：它不占槽、整局都在 -->
+            <view class="my-skill">
+              <view class="my-skill-head">
+                <text class="my-skill-cover">常驻</text>
+                <text class="my-skill-name">{{ specialNameOf(ri) }}</text>
+              </view>
+              <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
+            </view>
+            <view
+              v-for="(label, k) in DRAW_ROLES[ri].slots"
+              :key="'dsd-' + si + '-' + k"
+              class="my-skill">
+              <view class="my-skill-head">
+                <text class="my-skill-cover">{{ label }}</text>
+                <text class="my-skill-name">{{ skillAt(si, k) >= 0 ? DRAW_SKILLS[skillAt(si, k)].name : '空着' }}</text>
+                <text v-if="skillAt(si, k) >= 0 && DRAW_SKILLS[skillAt(si, k)].first" class="my-skill-pick">优先</text>
+              </view>
+              <text v-if="skillAt(si, k) >= 0" class="my-skill-desc">{{ DRAW_SKILLS[skillAt(si, k)].desc }}</text>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
+    </view>
+
+    <!-- ===== 名词：双方用到的词合起来印一份 =====
+         实体对战时玩家手边没有规则弹窗，技能说明里全是【燃烧】【结冰】
+         这类词 —— 查不到定义规则就执行不下去。
+
+         **合起来印一份**而不是各印一份：两边重合度很高（9 条基础词是
+         共同的），分开印等于把同样的字抄两遍 -->
+    <view v-if="showTerms" class="mask">
+      <view class="book-box">
+        <view class="book-head">
+          <text class="book-title">名词</text>
+          <view id="md-duel-terms-close" class="book-close" @click="showTerms = false">
+            <text class="card-btn-text">收起来</text>
+          </view>
+        </view>
+        <scroll-view class="book-body sv-out" direction="vertical">
+          <view
+            v-for="(one, ti) in terms"
+            :key="'dtm-' + ti"
+            :id="'md-duel-term-' + ti"
+            class="term-row">
+            <text class="term-word">{{ one.word }}</text>
+            <text class="term-desc">{{ one.desc }}</text>
+          </view>
+        </scroll-view>
+      </view>
+    </view>
+
+    <!-- ===== 规则：只印跟实体对战有关的那几节 =====
+         「闯关」「商店」「难度」「终局对决」讲的是手机那套单人流程
+         （金币、生命、技能库），拿真牌打的时候一条都用不上 -->
+    <view v-if="showRules" class="mask">
+      <view class="book-box">
+        <view class="book-head">
+          <text class="book-title">规则</text>
+          <view id="md-duel-rules-close" class="book-close" @click="showRules = false">
+            <text class="card-btn-text">收起来</text>
+          </view>
+        </view>
+        <scroll-view class="book-body sv-out" direction="vertical">
+          <!-- 规则表是跟手机玩法共用的，里面写「庄家先手」——
+               实体对战没有庄家，所以这儿点一句，不去改那张共用的表 -->
+          <text class="term-desc">下面是对局规则。实体对战时「庄家」就是**先出牌的那个人**（甲）。</text>
+          <view v-for="(sec, ri) in duelRules" :key="'drs-' + ri" class="rule-sec">
+            <text class="rule-title">{{ sec.title }}</text>
+            <text
+              v-for="(line, li) in sec.lines"
+              :key="'drl-' + ri + '-' + li"
+              class="term-desc">{{ line }}</text>
+          </view>
+        </scroll-view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  // ==========================================================
+  // ---------- 实战模式的配装手册（2026-10-14） ----------
+  // ==========================================================
+  //
+  // 两个人在 `draw-levels` 那个弹层里轮流配好之后跳到这儿。这一页**只读**：
+  // 它不跑对局、不写存档、不改任何状态 —— 两个人拿真扑克牌打，
+  // 手机摆在桌上当规则手册。
+  //
+  // ---- 为什么是独立页面而不是弹层 ----
+  //
+  // 弹层那个盒子（.skill-box 300×340）装不下两个人的配装加一整份名词解释，
+  // 而这是份**两个人隔着桌子读**的东西。
+  //
+  // 代价是词表得搬出 uvue（`<script setup>` 不导出任何东西）——
+  // 搬成了 `draw-terms.uts`，顺带让规则面板和这一页读同一份。
+  //
+  // ---- 配装怎么过来的 ----
+  //
+  // 经 URL，照 goFinalRole 那条先例（`?mode=final&role=R&slots=k,k,k`）：
+  //
+  //   ?rA=2&sA=1,-1,7&rB=5&sB=3,9
+  //
+  // 只传下标 —— 技能表和词表这一页自己 import。**空槽传 -1**，
+  // 所以不能用「丢空段」的那种切法（照 draw-save 里 textToOwner 那条教训）
+  // `ref` / `onLoad` / `getCurrentPages` 在 uni-app x 的 uts 里是**全局的**，
+  // 不用 import —— 从 'vue' 引 onLoad 会直接报
+  // 「does not provide an export named 'onLoad'」
+  import {
+    DRAW_SKILLS,
+    DRAW_ROLES,
+    SPECIAL_SKILLS,
+    specialIndexOf,
+    isSuitSlot,
+    roleCover,
+    slotLabels,
+    slotCover
+  } from '@/pages/examples/blackjack/draw-skills.uts'
+  import {
+    Term,
+    termsFor,
+    RuleSec,
+    RULES,
+    DUEL_RULE_TITLES
+  } from '@/pages/examples/blackjack/draw-terms.uts'
+
+  const SIDE_NAMES : string[] = ['甲', '乙']
+
+  const showSkills = ref<boolean>(false)
+  const showTerms = ref<boolean>(false)
+  const showRules = ref<boolean>(false)
+
+  // ---- 每块配装能单独翻 180° ----
+  //
+  // 实体对战是**两个人面对面坐**，手机摆在桌子中间 —— 一个人正着看，
+  // 另一个人看到的是倒的。所以常态是**一块正、一块反**。
+  //
+  // 按块翻而不是整页翻：整页翻了只是把「谁倒着看」换成另一个人，
+  // 等于没解决
+  const flips = ref<boolean[]>([] as boolean[])
+
+  function isFlipped(si : number) : boolean {
+    return si < flips.value.length && flips.value[si]
+  }
+
+  function toggleFlip(si : number) {
+    const next = flips.value.slice(0)
+    while (next.length <= si) {
+      next.push(false)
+    }
+    next[si] = !next[si]
+    flips.value = next
+  }
+
+  // 规则表是跟手机玩法共用的，这儿按标题白名单筛 ——
+  // 见 DUEL_RULE_TITLES 那段：闯关 / 商店 / 难度 / 终局那四节
+  // 讲的是单人流程，拿真牌打用不上
+  const duelRules = computed<RuleSec[]>(() : RuleSec[] => {
+    const out : RuleSec[] = []
+    for (let i = 0; i < RULES.length; i++) {
+      if (DUEL_RULE_TITLES.indexOf(RULES[i].title) >= 0) {
+        out.push(RULES[i])
+      }
+    }
+    return out
+  })
+
+  // 两个角色（DRAW_ROLES 下标）
+  const roles = ref<number[]>([] as number[])
+  // 两人各自的槽配置，-1 = 空着
+  const slots = ref<number[][]>([] as number[][])
+  // 手册要印的词条
+  const terms = ref<Term[]>([] as Term[])
+
+  // 参数取值一律走 `('' + x)` 再 parseInt —— **照 ap-fishing 的 onLoad**
+  //（那边是 `parseInt('' + role)`）。options 里的值不是干净的 string，
+  // 直接 `text!` 或者 `parseInt(text, 10)` 在 uts 那边过不去
+  onLoad((options : OnLoadOptions) => {
+    const nextRoles : number[] = []
+    const nextSlots : number[][] = []
+    const rA = optInt(options, 'rA')
+    if (rA >= 0 && rA < DRAW_ROLES.length) {
+      nextRoles.push(rA)
+      nextSlots.push(optSlots(options, 'sA', DRAW_ROLES[rA].slots.length))
+    }
+    const rB = optInt(options, 'rB')
+    if (rB >= 0 && rB < DRAW_ROLES.length) {
+      nextRoles.push(rB)
+      nextSlots.push(optSlots(options, 'sB', DRAW_ROLES[rB].slots.length))
+    }
+    roles.value = nextRoles
+    slots.value = nextSlots
+    terms.value = collectTerms(nextRoles, nextSlots)
+    // 翻转标记跟 roles 对齐，默认都正着 —— 谁要翻自己点
+    const nextFlips : boolean[] = []
+    for (let i = 0; i < nextRoles.length; i++) {
+      nextFlips.push(false)
+    }
+    flips.value = nextFlips
+  })
+
+  function optInt(options : OnLoadOptions, key : string) : number {
+    const raw = options[key]
+    if (raw == null || ('' + raw) == '') {
+      return -1
+    }
+    const n = parseInt('' + raw)
+    return isNaN(n) ? -1 : n
+  }
+
+  // 'sA=1,-1,7' → [1, -1, 7]。
+  //
+  // **按 count 定长**，不信 URL 里有几段 —— 少了补 -1、多了截掉。
+  // 空槽传的是 '-1' 而不是空串，所以 split(',') 够用
+  //（空串那种切法会丢段，见 draw-save.uts 的 textToOwner 那条教训）
+  function optSlots(options : OnLoadOptions, key : string, count : number) : number[] {
+    const out : number[] = []
+    const raw = options[key]
+    const parts = (raw == null ? '' : ('' + raw)).split(',')
+    for (let i = 0; i < count; i++) {
+      if (i >= parts.length) {
+        out.push(-1)
+        continue
+      }
+      const n = parseInt(parts[i])
+      out.push(isNaN(n) ? -1 : n)
+    }
+    return out
+  }
+
+  // 第 si 个人第 k 个槽嵌的技能，-1 = 空
+  function skillAt(si : number, k : number) : number {
+    if (si >= slots.value.length) {
+      return -1
+    }
+    const row = slots.value[si]
+    if (k >= row.length) {
+      return -1
+    }
+    const skill = row[k]
+    return skill >= 0 && skill < DRAW_SKILLS.length ? skill : -1
+  }
+
+  // 双方用到的词条合成一份。
+  //
+  // 收集源是**已配的技能 + 两人的常驻特殊技** —— 没配上的那几件不生效，
+  // 印出来是噪音（而且会让两个人以为对方带着它）
+  function collectTerms(rs : number[], ss : number[][]) : Term[] {
+    const texts : string[] = []
+    let anyFirst = false
+    for (let s = 0; s < rs.length; s++) {
+      texts.push(specialDescOf(rs[s]))
+      const row = ss[s]
+      for (let k = 0; k < row.length; k++) {
+        const skill = row[k]
+        if (skill >= 0 && skill < DRAW_SKILLS.length) {
+          texts.push(DRAW_SKILLS[skill].desc)
+          if (DRAW_SKILLS[skill].first) {
+            anyFirst = true
+          }
+        }
+      }
+    }
+    return termsFor(texts, anyFirst)
+  }
+
+  function specialNameOf(ri : number) : string {
+    const at = specialIndexOf(DRAW_ROLES[ri].special)
+    return at < 0 ? '' : SPECIAL_SKILLS[at].name
+  }
+
+  function specialDescOf(ri : number) : string {
+    const at = specialIndexOf(DRAW_ROLES[ri].special)
+    return at < 0 ? '' : SPECIAL_SKILLS[at].desc
+  }
+
+  // 哪几张牌会**同时触发两件技能**（花色槽 × 点数槽的交叉）。
+  //
+  // 跟 draw-levels 那边同名函数是**两份**，而这是有意的：那一份绑在
+  // 那个页面的配装编辑流程上，这一份只认「角色是谁」。
+  // 两份都只读 DRAW_ROLES[ri].slots，不会分叉
+  function doubleTextOf(ri : number) : string {
+    const slotList = DRAW_ROLES[ri].slots
+    const suits : string[] = []
+    const ranks : string[] = []
+    for (let i = 0; i < slotList.length; i++) {
+      const labels = slotLabels(slotList[i])
+      for (let j = 0; j < labels.length; j++) {
+        if (isSuitSlot(labels[j])) {
+          suits.push(labels[j])
+        } else {
+          ranks.push(labels[j])
+        }
+      }
+    }
+    if (suits.length == 0 || ranks.length == 0) {
+      return '没有双触发的牌（槽位全是' + (suits.length > 0 ? '花色' : '点数') + '）。'
+    }
+    let text = ''
+    for (let s = 0; s < suits.length; s++) {
+      for (let r = 0; r < ranks.length; r++) {
+        text = text + (text == '' ? '' : '、') + suits[s] + ranks[r]
+      }
+    }
+    return '双触发：' + text + ' —— 这几张会同时触发两件技能。'
+  }
+
+  // 这一页可能被直接打开（栈底），那时 navigateBack 没得退 ——
+  // 照 ap-fishing 的 goBack 那条先例用 redirectTo 兜底
+  function goBack() {
+    const pages = getCurrentPages()
+    if (pages.length > 1) {
+      uni.navigateBack()
+      return
+    }
+    uni.redirectTo({ url: '/pages/examples/blackjack/draw-levels' })
+  }
+</script>
+
+<style>
+  /* 顶上留 10px —— 甲那块的外框不贴着状态栏。
+     底下不留：那排按钮自己带 padding */
+  .page {
+    flex: 1;
+    padding: 10px 14px 0 14px;
+    background-color: #0B5D3B;
+  }
+
+  /* 返回钮窄一点 —— 它不像那三颗是「要读的东西」，
+     只是条退路，不该跟它们抢宽度 */
+  .card-btn-back {
+    flex: 0;
+    width: 62px;
+  }
+
+  /* **这一页一个 scroll-view 都没有**（弹层里面才有），
+     所以页面本身没东西可滚 —— 配上 pages.json 的 disableScroll 就是死的 */
+
+  /* ---- 一行一件技能 ----
+
+     [A] 4张 磁钩 它还能匹配点数比它大 1 的牌
+
+     四列：槽标签（定宽）/ 张数（定宽）/ 名字（定宽）/ **效果吃掉剩下的**。
+     前三列定宽是为了让四行的说明**左边缘对齐** —— 不然每行的起点
+     跟着技能名的长短跳，隔着桌子扫起来很累。
+
+     `align-items: flex-start` 而不是 center：效果文字会折行，
+     折了之后标签该留在第一行的高度上 */
+  .slot-line {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-top: 4px;
+  }
+
+  .slot-tag {
+    color: #3b2a00;
+    background-color: #e8b23a;
+    font-size: 11px;
+    font-weight: bold;
+    border-radius: 5px;
+    padding: 1px 6px;
+    width: 46px;
+    text-align: center;
+  }
+
+  /* 常驻技那一行的标签换个色 —— 它不占槽，跟下面几行不是一类 */
+  .slot-tag-always {
+    color: #d8f0e4;
+    background-color: #1b8a58;
+  }
+
+  .slot-num {
+    color: #9fd9bd;
+    font-size: 10px;
+    margin-left: 5px;
+    width: 28px;
+  }
+
+  .slot-skill {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: bold;
+    margin-left: 5px;
+    width: 52px;
+  }
+
+  /* 效果全文。横屏下右栏有五百多 px 宽，一条说明基本一行放得完 ——
+     那就是为什么这一页要横屏 */
+  .slot-desc {
+    color: #d8f0e4;
+    font-size: 10px;
+    line-height: 14px;
+    margin-left: 4px;
+    flex: 1;
+  }
+
+  /* 空槽压暗 —— 8 件里挑不出合适的是正常局面，不该看着像出错 */
+  .slot-blank {
+    color: #6fae92;
+    font-weight: normal;
+  }
+
+  .side-double {
+    color: #9fd9bd;
+    font-size: 10px;
+    line-height: 14px;
+    margin-top: 5px;
+  }
+
+  /* 名词 / 规则两颗钮。固定在底部，不跟着配装滚 */
+  .book-acts {
+    flex-direction: row;
+    padding: 8px 0 12px 0;
+  }
+
+  .card-btn {
+    flex: 1;
+    margin-right: 8px;
+    padding: 9px 0;
+    border-radius: 9px;
+    align-items: center;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #1b8a58;
+  }
+
+  .card-btn-main {
+    background-color: #e8b23a;
+    border-color: #e8b23a;
+  }
+
+  .card-btn-text {
+    color: #d8f0e4;
+    font-size: 13px;
+    font-weight: bold;
+  }
+
+  .card-btn-text-dark {
+    color: #3b2a00;
+  }
+
+  .mask {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.6);
+  }
+
+  /* 名词那份有二十来条、每条两三行，所以给得比 draw-levels 的
+     .skill-box（300×340）宽松一些 —— 这是隔着桌子查的东西 */
+  .book-box {
+    width: 330px;
+    padding: 16px;
+    border-radius: 12px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .book-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .book-title {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .book-close {
+    padding: 4px 10px;
+    border-radius: 8px;
+    background-color: #0b5234;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #1b8a58;
+  }
+
+  .book-body {
+    max-height: 440px;
+  }
+
+  /* 一个人一块，两块**平分屏幕剩下的高度**（各 flex: 1）。
+     两块之间留白大一点 —— 隔着桌子看的时候「这是谁的」必须一眼分得开。
+
+     ---- 块内内容垂直居中，那是为了翻转 ----
+
+     内容顶对齐的话空白全在下面，而那一块翻 180° 之后空白跑到上面、
+     字贴着底边 —— 看着像出了错。居中就两个方向都一样 */
+  .side-box {
+    flex: 1;
+    justify-content: center;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  /* 身份那一行：甲 · 角色名 · 盖 N 张 ———————— [翻转] */
+  .side-head {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  /* 把翻转钮推到最右。
+     **这个类是定义了的** —— draw-levels 里有个同类的 .my-skill-gap
+     被用了 10 次却一处都没定义，所以那 10 处的右侧标签其实没被推开 */
+  .side-gap {
+    flex: 1;
+  }
+
+  /* 上下 padding 从 1 加到 3 —— 字号升到 16px 之后 1px 让字贴着边框 */
+  .side-who {
+    color: #3b2a00;
+    background-color: #e8b23a;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 5px;
+    padding: 3px 9px;
+  }
+
+  /* 整块转 180°，给坐对面那个人读。
+     块里的字、槽位、说明全跟着转 —— 那正是要的效果 */
+  .side-flip {
+    transform: rotate(180deg);
+  }
+
+  /* 身份那一行的最右端 */
+  .flip-btn {
+    padding: 2px 10px;
+    border-radius: 8px;
+    background-color: #0b5234;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  .flip-text {
+    color: #e8b23a;
+    font-size: 11px;
+    font-weight: bold;
+  }
+
+  /* 角色名是这一块的招牌 —— 隔着桌子第一眼要看的就是它，
+     所以给到 20px（比技能名 12px 大一截，层级一眼分得开） */
+  .side-name {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: bold;
+    margin-left: 8px;
+  }
+
+  .side-cover {
+    color: #9fd9bd;
+    font-size: 10px;
+    margin-left: 7px;
+  }
+
+  .rule-sec {
+    margin-top: 10px;
+  }
+
+  .rule-title {
+    color: #e8b23a;
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  /* 槽位行。类名跟 draw-levels 那边一样是**有意的** ——
+     两处是同一个东西（一个槽 + 嵌在里面的技能），长得一样才认得出。
+     uvue 的页面样式不跨页，所以这儿得再写一份 */
+  .my-skill {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background-color: #0b5234;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #1b8a58;
+  }
+
+  .my-skill-head {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .my-skill-cover {
+    color: #3b2a00;
+    background-color: #9fd9bd;
+    font-size: 10px;
+    border-radius: 8px;
+    padding: 2px 6px;
+  }
+
+  .my-skill-name {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+    margin-left: 6px;
+    flex: 1;
+  }
+
+  .my-skill-pick {
+    color: #3b2a00;
+    background-color: #e8b23a;
+    font-size: 10px;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 2px 7px;
+  }
+
+  .my-skill-desc {
+    color: #d8f0e4;
+    font-size: 11px;
+    line-height: 17px;
+    margin-top: 5px;
+  }
+
+  .term-row {
+    margin-top: 7px;
+  }
+
+  .term-word {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .term-desc {
+    color: #9fd9bd;
+    font-size: 11px;
+    line-height: 17px;
+    margin-top: 2px;
+  }
+</style>

@@ -111,8 +111,9 @@
               'card-guarded': pileGuard[index] != GUARD_NONE,
               'card-warded': wardAt(index),
               'card-burning': pileBurnAt(index) > 0,
+              'card-wild': isWildAt(index),
               'card-murked': murked(index),
-              'card-pickable': pilePick >= 0,
+              'card-pickable': canPickAt(index),
               'card-caught': catching && inCatch(index),
               'card-flying': flyOn && inCatch(index)
             }"
@@ -433,6 +434,10 @@
               跟堆上那个角标**用同一个字、同一个色**，因为它是同一个标签
             -->
             <text v-if="frostOnHand(card)" class="card-frost-tag">冰</text>
+        <!-- 【引火】预约的火。跟「冰」挤在同一个角 —— 两个同时挂上
+             （引火 + 藏凌）的时候它们落堆就相消，所以玩家看到两个标签
+             本身就是「这张落下去两个都没」的提示 -->
+        <text v-if="burnOnHand(card)" class="hand-burn-tag">火</text>
             <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
             <text v-else-if="foeKnows(index)" class="card-seen">被看</text>
           </view>
@@ -602,6 +607,8 @@
     SK_HIDE,
     SK_COLDHUE,
     SK_FROSTFALL,
+    SK_CHAIN,
+    SK_KINDLE,
     STRAIGHT_MIN,
     DEAD_COUNT,
     DUMP_COUNT,
@@ -1063,6 +1070,24 @@
   // 要叠上去的那张。等你点堆上一张的这段时间它**不在任何地方** ——
   // 已经从手牌拿走了、又还没进堆，所以得单独存着
   const pickCard = ref<PlainCard | null>(null)
+  // ---------- 【野火】挑牌时要记住的技能表 ----------
+  //
+  // 凝水那三件不需要这个：它们在落堆**之前**丢弃牌，挑完直接走 afterPlay
+  //（从头跑一遍尾段）。而野火**已经落堆了**，挑完还得走燃烧那一步
+  //（蔓延 + 燃尽）和匹配 —— 所以它要从 TAIL_REST 接着走，
+  // 而 afterPlayTail 要技能表。
+  //
+  // 不用 ref：它跟 pendingSkills 一样是「这一手之内」的，不进界面
+  let pickSkills : number[] = []
+  // ---------- 【伏流】这一手贴过标签了吗 ----------
+  //
+  // **重入闸。** 伏流挑完标签之后 onPilePick 会重新调一次 straightFor
+  //（贴完要当场用那个标签判顺子），而 straightFor 里那个「玩家侧就暂停」
+  // 的分支只看 `!byFoe` —— 不挡的话会**再暂停一次,死循环**。
+  //
+  // 不能靠 `pilePick` 判：那个在 onPilePick 开头就清了。
+  // 每手在 playFor 开头清、每局在 newGame 里清
+  let flowPicked : boolean = false
   // 择饵等你从牌库顶五张里挑一张。
   //
   // 这儿把**牌面存了一份**（pickTops），而不是现场从 deck 取 ——
@@ -1137,6 +1162,16 @@
   const TAIL_WADE : number = 3
   const TAIL_WILD : number = 4
   const TAIL_REST : number = 5
+  // ---- 【燃尽】那一步的哨兵（2026-10-14）----
+  //
+  // 它**不是一个技能段**，而是「整条尾段走完之后、匹配之前」那一步
+  //（蔓延 + 全堆带火则扫整堆，见 burnStep）。
+  //
+  // 它要单独一个号，而且 finishSweep 认到它时要**直接走 resolveMatch、
+  // 不回 afterPlayTail** —— 因为尾段后半那几件（死水、摘钩、对换、压舱…）
+  // **没有 `from <=` 守卫**（它们各自 return，靠的是「一回合只停一次」），
+  // 回去就会重跑一遍。那是 TAIL_* 那段注释里警告过的第二种错法
+  const TAIL_BURN : number = 6
 
   function inCatch(index : number) : boolean {
     if (catchSet.value.length > 0) {
@@ -1264,6 +1299,42 @@
       }
     }
     frostHand = keep
+  }
+
+  // ---------- 【引火】的手牌火（2026-10-14） ----------
+  //
+  // burnHand：手里**预约了火**的那几张。照 frostHand，而且是同一个理由 ——
+  // 挂进 held 会被 expireHeld 按「source 还在不在堆上」立刻清掉。
+  //
+  // 跟冰**不一样**的地方要记住：火只在堆上做事（蔓延、燃尽），
+  // 所以手里这一层纯粹是**预约** —— 落堆那一下兑现成 pileBurn，
+  // 带在手里什么也不做。冰在手里是钥匙（豁免），火在手里不是
+  let burnHand : PlainCard[] = []
+
+  function burnOnHand(card : PlainCard) : boolean {
+    for (let i = 0; i < burnHand.length; i++) {
+      if (burnHand[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+
+  function addBurnHand(card : PlainCard) {
+    if (burnOnHand(card)) {
+      return
+    }
+    burnHand = burnHand.concat([card])
+  }
+
+  function dropBurnHand(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < burnHand.length; i++) {
+      if (burnHand[i] != card) {
+        keep.push(burnHand[i])
+      }
+    }
+    burnHand = keep
   }
 
   // 这一手打出的牌**自带结冰**吗（这一族的共同前缀）。
@@ -1754,6 +1825,46 @@
       }
     }
     return false
+  }
+
+  // ---------- 【通配】贴过标签的那几张牌 ----------
+  //
+  // 存**牌对象引用**，照 deadCards 那个模式 —— 而**不是**加第七条
+  // 并行数组。那不是图省事：标签跟着**牌**走，所以 pushPile /
+  // removePileAt / 收牌重建那六处一处都不用改，也就不会出
+  //「六条并行数组少一条就错位」那种事。
+  //
+  // 读的时候比 `pile.value[i]`，所以牌一离开堆标签自动失效 ——
+  // 词条里那句「钓走了标签也跟着没」是这么实现的，不需要清理代码。
+  //
+  // 清单会随局面长一点（离场的牌还留在里面），那是**故意的**：
+  // 清理要在每条收牌路后面各加一次，而那正是 burnOnLand 那段警告的
+  //「写在调用处就一定会漏」。比引用，零维护
+  const wildCards = ref<PlainCard[]>([] as PlainCard[])
+
+  function isWild(card : PlainCard) : boolean {
+    for (let i = 0; i < wildCards.value.length; i++) {
+      if (wildCards.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 堆上第 index 格带通配吗
+  function isWildAt(index : number) : boolean {
+    if (index < 0 || index >= pile.value.length) {
+      return false
+    }
+    return isWild(pile.value[index])
+  }
+
+  function addWild(card : PlainCard) {
+    if (isWild(card)) {
+      return
+    }
+    // **换引用而不是 push** —— 它是 ref，照 addHeld / deadCards 那条理由
+    wildCards.value = wildCards.value.concat([card])
   }
 
   // 打出这张牌会触发哪几件技能。
@@ -2532,8 +2643,42 @@
       return '抬水：点堆上一张给它加 ' + pickStep.value
         + ' 点 —— 加完它会判一次匹配'
     }
+    // 野火：提示里**点出那条最优选法**，因为它是这件技能的全部决策，
+    // 而玩家第一次玩算不出来（火有两条前沿、蔓延在同一手内结算）
+    if (pilePick.value == SK_WILD) {
+      return '野火：点堆上一张给它贴【燃烧】—— 点在没烧着那一段的中间，'
+        + '火往两边各爬一格，全场烧着就整堆收走'
+    }
+    // 伏流：同理点出选法 —— 通配是**填缺口**用的，而「哪儿是缺口」
+    // 要在堆上心算点数，第一次玩算不出来
+    if (pilePick.value == SK_FLOW) {
+      return '伏流：点堆上一张给它贴【通配】—— 它凑顺子时算任意点数，'
+        + '所以点在能补上缺口的那张；贴完这一手当场判顺子'
+    }
     return ''
   })
+
+  // 堆上第 index 格现在点得点不得（界面高亮用）。
+  //
+  // 凝水 / 净水 / 抬水：堆上哪张都行。
+  // **野火不行** —— 已经烧着的、带保护的、带冰的那几格点不着
+  //（跟 wildfireFor 里那个 free 列表同一个条件）。
+  //
+  // 不把这三条写进界面的话，玩家会去点一个点不动的格子、
+  // 然后以为是 bug —— 而规则上那三格确实是「挡住了」
+  function canPickAt(index : number) : boolean {
+    if (pilePick.value < 0) {
+      return false
+    }
+    if (pilePick.value == SK_WILD) {
+      return pileBurnAt(index) == 0 && !wardAt(index) && !frostAt(index)
+    }
+    // 伏流：已经带通配的那张再贴一次是空操作，所以点不着
+    if (pilePick.value == SK_FLOW) {
+      return !isWildAt(index)
+    }
+    return true
+  }
 
   // 玩家点了堆上第 index 张（-1 = 不挑）。
   //
@@ -2544,11 +2689,64 @@
     if (which < 0) {
       return
     }
+    // 点不着的格子当没点（界面上它也没高亮，见 canPickAt）——
+    // 野火那一档会有这种格子（已烧着 / 带保护 / 带冰）。
+    // **不能当成「不挑」**：那会把这一手的点火机会白扔掉
+    if (index >= 0 && !canPickAt(index)) {
+      return
+    }
     const step = pickStep.value
     const card = pickCard.value
     pilePick.value = -1
     pickStep.value = 0
     pickCard.value = null
+    // ---- 【野火】走的是另一条路：它**已经落堆了** ----
+    //
+    // 凝水那三件在落堆之前就把牌丢弃了，所以挑完（或不挑）直接
+    // 走 afterPlay 从头跑尾段。野火不行 —— 它的牌在堆上，
+    // 而尾段已经跑到它那一段了，回头重跑会把前面那些技能再触发一遍。
+    //
+    // 所以它从 **TAIL_REST**（野火之后那一段）接着走，而且**必须接**：
+    // 后面还有燃烧那一步（蔓延 + 燃尽）和匹配。
+    //
+    // 「不挑」也照样接 —— 不挑只是没点火，这一手的其余部分照常
+    if (which == SK_WILD) {
+      const skills = pickSkills
+      pickSkills = []
+      if (index >= 0 && index < pile.value.length) {
+        doWildPick(false, index)
+      } else {
+        message.value = message.value + ' 野火：没挑，这一手没点火。'
+      }
+      afterPlayTail(false, skills, TAIL_REST)
+      return
+    }
+    // ---- 【伏流】：贴完标签**还要回去判顺子** ----
+    //
+    // 这是跟野火不一样的地方：野火贴完火就完事了（燃尽那一步在后面的
+    // 通路里），而伏流贴完得**当场**用那个标签去凑顺子 ——
+    // 所以它不能像野火那样直接跳到下一段，得重新走一次 straightFor。
+    //
+    // 重入时 `pilePick` 已经清了（上面那几行），所以那个
+    //「玩家侧就暂停」的分支不会再触发 —— 不然会无限等下去
+    if (which == SK_FLOW) {
+      const skills = pickSkills
+      pickSkills = []
+      // 立起重入闸 —— 下面那次 straightFor 不能再暂停一遍（见它那段）
+      flowPicked = true
+      if (index >= 0 && index < pile.value.length) {
+        addWild(pile.value[index])
+        message.value = message.value + ' 伏流：给第 ' + (index + 1)
+          + ' 张贴上【通配】。'
+      } else {
+        message.value = message.value + ' 伏流：没挑，这一手没贴标签。'
+      }
+      // 开演收牌特效了就别往下走，演完由 finishSweep 接
+      if (!straightFor(false, skills)) {
+        afterPlayTail(false, skills, TAIL_WADE)
+      }
+      return
+    }
     if (card == null || index < 0 || index >= pile.value.length) {
       // 没挑：那张牌**哪儿都没去** —— 没进堆、也没叠上去，等于出场了。
       // 代价在发动那一刻就付了（照开包「放弃」那条规矩）
@@ -3528,6 +3726,9 @@
     pileSuit.value = pileSuit.value.concat([card.suit])
     pileBurn.value = pileBurn.value.concat([burnOnLand()])
     frostOnLand(card, byFoe, pile.value.length - 1)
+    // 【引火】预约的那层火在这儿兑现。**排在 frostOnLand 后面** ——
+    // 见 burnHandOnLand 那段：冰先贴、火后到，两个才相消得对
+    burnHandOnLand(card, pile.value.length - 1)
   }
 
   // 插到**堆底**（下标 0）。【沉底】走这条。
@@ -3542,6 +3743,7 @@
     pileSuit.value = ([card.suit] as string[]).concat(pileSuit.value)
     pileBurn.value = ([burnOnLand()] as number[]).concat(pileBurn.value)
     frostOnLand(card, byFoe, 0)
+    burnHandOnLand(card, 0)
   }
 
   // ---------- 落堆那一下的结冰：**钥匙在这儿变成障碍** ----------
@@ -3565,6 +3767,60 @@
     if (hand || frostFallOn()) {
       addFrostAt(at, byFoe)
     }
+  }
+
+  // ---------- 贴一层火：**这一族唯一的入口** ----------
+  //
+  // 三道闸照野火那边的 free 过滤：
+  //   已经着了 → 空操作（「加上标签」对已有标签的牌本来就是空操作）；
+  //   带【保护】→ **点不着**（堆上有一张就让「全堆带火」永远不成立 ——
+  //     一张牌锁死整条线，这一族最漂亮的现成对位解）；
+  //   带【结冰】→ 相消，两个一起消失。
+  //
+  // 返回真 = 这一格**新着了**。野火不走这儿（它自己过滤完再 doWildPick），
+  // 新来的那几件一律走这儿 —— 三道闸写两遍必有一遍写漏
+  function lightAt(index : number) : boolean {
+    if (index < 0 || index >= pile.value.length) {
+      return false
+    }
+    if (pileBurnAt(index) > 0 || wardAt(index)) {
+      return false
+    }
+    if (iceMeltsFire(index)) {
+      return false
+    }
+    const next = pileBurn.value.slice(0)
+    next[index] = 1
+    pileBurn.value = next
+    return true
+  }
+
+  // 落堆那一下把手里预约的火兑现（照 frostOnLand 的位置调）。
+  //
+  // **冰先贴、火后到**：pushPile 里 frostOnLand 排在这个函数前面，
+  // 所以一张同时带冰带火的牌落下时，冰先贴上、火再来相消 ——
+  // 两个一起消失，跟【结冰】词条那句一致。反过来排就成了
+  // 「火贴不上、冰还留着」
+  function burnHandOnLand(card : PlainCard, at : number) {
+    if (!burnOnHand(card)) {
+      return
+    }
+    dropBurnHand(card)
+    lightAt(at)
+  }
+
+  // 【传火】的连锁：牌库里找一张**同点数**的拿到手。
+  //
+  // 同点数就是同一件技能（技能按点数槽分配），所以这就是
+  // 【获取下一张】那个词条的语义 —— 走 pullFromDeck，所以**取完洗牌库**，
+  // 那是词条写明的代价（而且它会毁掉你自己攒的情报）
+  function nextSameRank(byFoe : boolean, card : PlainCard) : boolean {
+    for (let i = deck.value.length - 1; i >= 0; i--) {
+      if (deck.value[i].rank == card.rank) {
+        return pullFromDeck(byFoe, deck.value[i])
+      }
+    }
+    return false
   }
 
   // 堆上第 index 张带着几层火。读不出来算 0（跟 pileSuitAt 同一个兜底理由）
@@ -3628,10 +3884,11 @@
   // 「我后打，堆上有对手刚放的牌」），强制加打拆的是后手自己的优势
   const againWaiting = ref<boolean>(false)
 
-  // 【一色】（原【染水】）：堆上**它的花色是张数最多的之一** → 整堆连它收走。
+  // 【一色】（原【染水】）：堆上**它的花色严格最多** → 整堆连它收走。
   //
-  // 含它自己数；打平也算（「最多的之一」）；堆上至少还得有 1 张别的牌 ——
-  // 不然空堆上打它就是稳拿 1 分。不是最多就什么也不做。
+  // 含它自己数；**打平不算**（2026-10-14 从「最多的之一」收紧，见 suitLeads）；
+  // 堆上至少还得有 1 张别的牌 —— 不然空堆上打它就是稳拿 1 分。
+  // 不是最多就什么也不做。
   //
   // ---- 2026-10-12 改的，原先是「把整堆染成它的花色」----
   //
@@ -3656,7 +3913,7 @@
       return false
     }
     if (!suitLeads(card, false, byFoe)) {
-      message.value = message.value + who + '堆上 ' + card.suit + ' 不是最多的，没收成。'
+      message.value = message.value + who + '堆上 ' + card.suit + ' 不是最多的（打平不算），没收成。'
       return false
     }
     const all : number[] = []
@@ -3668,9 +3925,27 @@
     return startSweep(byFoe, all, skills, TAIL_HEAD)
   }
 
-  // 堆上它的花色是不是张数最多的那门（打平也算 —— 没有哪门比它多就行）。花色按牌堆上记的算，
-  // 两色在场时同色的两门算一门（走 sameSuit）。
+  // 堆上它的花色是不是**严格**最多的那门（打平**不算** —— 别的门必须都比它少）。
+  // 花色按牌堆上记的算，两色在场时同色的两门算一门（走 sameSuit）。
   // extra = 它还没落堆（庄家估算用），把它自己补算一张
+  //
+  // ---- 「打平也算」→「严格最多」〔2026-10-14〕----
+  //
+  // 原先是 `n > mine`（打平放行）。换成 `n >= mine` 的理由：
+  //
+  // **一色的分跟覆盖面成正比、而且零饱和** —— 模拟器量出每张恒定
+  // ≈1.08 分，从 4 张一路线性到 16 张（候潮渔翁那个 16 张槽 X=+17.00、
+  // 胜率 96.9%）。它不饱和是因为**收成跟堆的状态无关**：条件满足就整堆走，
+  // 堆是 1 张还是 5 张都只算一次成功。别的清场件（洪水 / 吃水 / 撒网）
+  // 的收成取决于堆有多厚，清空之后下一次自动变小，**自带饱和**。
+  //
+  // 而「打平也算」在 3.1 张的薄堆上几乎总是满足 ——
+  // 三张牌四门花色，平局太常见。严格最多把条件重新挂回堆的形状。
+  //
+  // 改完实测（20000 局）：4 张 **+2.81** / 8 张 **+5.56** / 16 张 **+10.71**，
+  // **三档保留率都是 63%** —— 条件的宽严是个乘性因子，跟槽大小无关，
+  // 它等比压低整条线而保留斜率。而「斜率」是这一类技能有意保留的卖点
+  //（见设计文档『技能必须通用』里那条「依赖大槽是允许的」）
   function suitLeads(card : PlainCard, extra : boolean, byFoe : boolean) : boolean {
     let mine = extra ? 1 : 0
     for (let i = 0; i < pile.value.length; i++) {
@@ -3689,7 +3964,8 @@
           n = n + 1
         }
       }
-      if (n > mine) {
+      // **>= 不是 >** —— 打平就不算，见上面那段
+      if (n >= mine) {
         return false
       }
     }
@@ -3751,18 +4027,18 @@
       || hasTrigger(skills, SK_VOID) || hasTrigger(skills, SK_DUMP)
       || hasTrigger(skills, SK_SPILL) || hasTrigger(skills, SK_HUEVOID)
       // （【燎原】原先在这一族，技能删了 —— 蔓延并进【燃烧】关键词）
-      // ---- 【野火】回到这一族（2026-10-13 定稿）----
+      // ---- 【野火】**不在这一族**（2026-10-14 最终）----
       //
-      // 中间试过两档，都撤了：**条件性无点数**（取到燃料才无点数）
-      // 和**置 0**。现在是无条件无点数，回到最初的样子。
+      // 代价条款在它身上改过四次（无条件无点数 → 条件性 → 置 0 →
+      // 不改点数 → 无点数），而最后的答案是「**这个问题不存在**」：
       //
-      // 它付的是这一族的**标准代价**，所以不需要任何例外条款 ——
-      // 那两档都是在给它开例外，而开例外要么破不变量、
-      // 要么得在词条里再立一条规矩。
+      // 【燃烧】拿到收割权之后（燃尽：全堆带火 → 整堆归出牌方），
+      // 野火**不收牌**了 —— 它只点一张火。所以「收一片的代价是这张不钓」
+      // 压根不适用，它**保留点数、照常匹配**。
       //
-      // 注意这跟【燃烧】关键词**无关**：关键词不碰点数（定稿第 2 条），
-      // 这一条是野火**这一件技能**自己的代价
-      || hasTrigger(skills, SK_WILD)
+      // 双吃也不用挡：燃尽扫走整堆时它自己也在里面、被收走了，
+      // 于是 resolveMatch 找不到它（顺序：落堆 → 场上效果 → 卡牌效果 →
+      // 燃烧 → 匹配）。那道闸是**顺序给的，不是代价给的**
       // 抄底的无点数是**兜底**不是代价：棋盘上没叠放时它什么也收不到，
       // 那就至少是一张钓不走的安全饵（没这道兜底它就是「单买是废的」）
       || hasTrigger(skills, SK_DREDGE)) {
@@ -4142,6 +4418,8 @@
     //（堆上那张的点数早写进 pileVals 了，是持久的）
     mergeCard = null
     mergeGain = [] as number[]
+    // 【伏流】那个重入闸 —— 它是「这一手之内」的（见它的声明处）
+    flowPicked = false
     // 「往堆底落」有三条来路，名字各不相同：
     //   点数槽的【沉底】—— 打出覆盖面里的牌就**强制**落堆底；
     //   角色的【逆流】 —— **每回合你自己选**（开关见 sinkOn / wantSink）；
@@ -4705,7 +4983,7 @@
     if (hasTrigger(skills, SK_AGAIN) && !againUsed.value) {
       againPending = true
     }
-    // 【一色】它的花色最多（之一）就整堆收走。跟量水一样排最前面，演完从 afterPlayHead 接着走
+    // 【一色】它的花色严格最多就整堆收走。跟量水一样排最前面，演完从 afterPlayHead 接着走
     if (suitifyFor(byFoe, skills)) {
       return
     }
@@ -4875,6 +5153,46 @@
     //
     // 排在这儿（afterPlay）而不是 playFor：它贴的是「打出这张之后
     // 手里剩下的」，所以得等那张牌已经离手
+    // ---- 【传火】：自带火 + 【获取下一张】 ----
+    //
+    // 排在结冰那几件**前面**，理由跟量水 / 一色一样：它改的是
+    // **燃尽的判定输入**（pileBurn），而燃尽在匹配之前判（见 burnStep）。
+    // 排到后面就赶不上这一手的燃尽，而差一拍就是对手的一个回合。
+    //
+    // X = +4.67（模拟器口径）/ 价 125。连锁值 3 分 —— 它把触发间隔压短，
+    // **上一次贴的火还没被钓走就又来一张**
+    if (hasTrigger(skills, SK_CHAIN) && lastPlayed != null) {
+      const lit = inPile(lastPlayed!) && lightAt(pileIndexOf(lastPlayed!))
+      const got = nextSameRank(byFoe, lastPlayed!)
+      message.value = message.value + (byFoe ? ' 庄家传火：' : ' 传火：')
+        + (lit ? '它自带燃烧' : '它没点着')
+        + (got ? '，又从牌库取了一张同点数的（牌库已洗）。' : '，牌库里没有同点数的了。')
+    }
+    // ---- 【引火】：自带火 + 给手里**同颜色**的牌预约火 ----
+    //
+    // 限幅按颜色是量出来的，不是美感：「最多 N 张」那一档的幅度悬崖
+    // 就在可调范围里（2→3 从 +4.85 跳到 +7.11），而且 desc 答不上
+    // 「哪 N 张」—— 火在手里什么也不做、落堆才生效，让玩家挑是个假决策。
+    //
+    // 形状照【藏凌】（下面那一段），所以两件撞在一张牌上时
+    // 手里那几张会同时带冰带火 —— 落堆时相消，自洽，不用特判
+    if (hasTrigger(skills, SK_KINDLE) && lastPlayed != null) {
+      const lit = inPile(lastPlayed!) && lightAt(pileIndexOf(lastPlayed!))
+      const mine = byFoe ? foeHand.value : hand.value
+      let fired = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (isRedSuit(mine[i].suit) == isRedSuit(lastPlayed!.suit)
+          && !burnOnHand(mine[i])) {
+          addBurnHand(mine[i])
+          fired = fired + 1
+        }
+      }
+      message.value = message.value + (byFoe ? ' 庄家引火：' : ' 引火：')
+        + (lit ? '它自带燃烧；' : '它没点着；')
+        + (fired > 0
+          ? '手里 ' + fired + ' 张同色的带上了燃烧 —— 那几张落堆就是火。'
+          : '手里没有同色的牌。')
+    }
     if (hasTrigger(skills, SK_HIDE)) {
       const mine = byFoe ? foeHand.value : hand.value
       let iced = 0
@@ -5210,6 +5528,19 @@
         message.value = message.value + ' 庄家观潮，把牌库顶 '
           + sunk + ' 张沉了下去。'
       }
+    }
+    // ---- 【燃烧】那一步：蔓延 + 燃尽判定，**排在匹配之前** ----
+    //
+    // 结算顺序：落堆 → 场上效果 → 卡牌效果（上面那一整串）→
+    // **燃烧（这儿）** → 匹配。
+    //
+    // 它在这儿而不在 endPlay 里（蔓延原先在那儿），是因为排在匹配前面
+    // 「一张牌收两次」那道闸就是免费的 —— 燃尽扫走整堆时刚打那张
+    // 也在里面，被收走了，匹配自然碰不到它。
+    //
+    // 开演扫牌特效了就别走匹配，演完由 finishSweep 认 TAIL_BURN 接过去
+    if (burnStep(byFoe, skills)) {
+      return
     }
     // 技能都结算完了，轮到这张牌去匹配（见 resolveMatch）
     resolveMatch(byFoe)
@@ -5731,6 +6062,14 @@
     sweepSkills = []
     if (sweepNext == TAIL_HEAD) {
       afterPlayHead(byFoe, skills)
+    } else if (sweepNext == TAIL_BURN) {
+      // 【燃尽】扫完 → **直接走匹配**，不回 afterPlayTail。
+      // 回去的话尾段后半那几件（死水、摘钩、对换、压舱…）会重跑 ——
+      // 它们没有 `from <=` 守卫（见 TAIL_BURN 那段）。
+      //
+      // 而匹配这时候基本是空走：燃尽扫走了整堆，刚打那张也在里面，
+      // 所以 resolveMatch 里 pileIndexOf 找不着它、直接 endPlay
+      resolveMatch(byFoe)
     } else {
       afterPlayTail(byFoe, skills, sweepNext)
     }
@@ -6145,7 +6484,11 @@
     // 先求堆上最大点数 —— 数组开多大得先知道
     let top = 0
     for (let i = 0; i < pile.value.length; i++) {
-      if (i == skipAt || guardedAgainst(i, byFoe) || matchLocked(i, byFoe)) {
+      // 带【通配】的牌**不进这张表** —— 它能当任意点数，钉在牌面那个
+      // 点数上反而是错的。它在凑链时变成一个「任意填一格」的额度，
+      // 而那个额度**要带着位置**（见 wildAts / pickWildStraight）
+      if (i == skipAt || guardedAgainst(i, byFoe) || matchLocked(i, byFoe)
+        || isWildAt(i)) {
         continue
       }
       const vals = pileValsAt(i)
@@ -6161,7 +6504,11 @@
       deepest.push(-1)
     }
     for (let i = 0; i < pile.value.length; i++) {
-      if (i == skipAt || guardedAgainst(i, byFoe) || matchLocked(i, byFoe)) {
+      // 带【通配】的牌**不进这张表** —— 它能当任意点数，钉在牌面那个
+      // 点数上反而是错的。它在凑链时变成一个「任意填一格」的额度，
+      // 而那个额度**要带着位置**（见 wildAts / pickWildStraight）
+      if (i == skipAt || guardedAgainst(i, byFoe) || matchLocked(i, byFoe)
+        || isWildAt(i)) {
         continue
       }
       const vals = pileValsAt(i)
@@ -6188,46 +6535,12 @@
   // 次判据**非有不可**：同样长的顺子常常有好几条（堆上 5 6 7 8 的时候，
   // 它当 4 或者当 9 都凑得出四张），而「先找到的赢」会默默地
   // 总是选点数小的那条 —— 那是个任意的选择，而且它系统性地偏向堆的一头
-  function bestStraight(deepest : number[]) : number[] {
-    let bestFrom = -1
-    let bestTo = -1
-    let bestLen = 0
-    let bestLo = -1
-    const top = deepest.length - 1
-    for (let a = 0; a <= top; a++) {
-      for (let b = a + STRAIGHT_MIN - 1; b <= top; b++) {
-        // 同一张 A 不能在一条顺子里当两次（1 和 14 都在区间里，见 withHighAce）
-        if (a <= 1 && b >= HIGH_ACE) {
-          continue
-        }
-        let holes = 0
-        // 这条顺子最深那张在堆上第几格
-        let lo = -1
-        for (let v = a; v <= b; v++) {
-          if (deepest[v] < 0) {
-            holes = holes + 1
-            continue
-          }
-          if (lo < 0 || deepest[v] < lo) {
-            lo = deepest[v]
-          }
-        }
-        // 正好缺一个 → 那个缺口由它填。缺 0 个说明它没地方站
-        //（那条顺子不含它，而「含自己」是这件技能的规则）
-        if (holes != 1) {
-          continue
-        }
-        const len = b - a + 1
-        if (len > bestLen || (len == bestLen && lo >= 0 && lo < bestLo)) {
-          bestFrom = a
-          bestTo = b
-          bestLen = len
-          bestLo = lo
-        }
-      }
-    }
-    return [bestFrom, bestTo]
-  }
+  // `bestStraight`（恰好缺一个、由打出那张当通配填）和 `bestGapped`
+  //（步长 2、不含自己）两个函数**删了** —— 合成了下面那个 bestChainAt。
+  //
+  // 合并的理由不是去重：两件新效果各需要**两种填格手段的组合**
+  //（伏流 = 堆上的通配 + 严格连续；涉水 = 自带通配 + 差 2），
+  // 而那在两个各自写死判据的专用函数里表达不出来。
 
   // ---------- 【涉水】：顺子的**步长**放宽到 2 ----------
   //
@@ -6244,21 +6557,48 @@
   // 涉水挑顺子：相邻差 1 或 2 都算（= 区间里不能有两个连续的空位），至少 STRAIGHT_MIN 张。
   // **这张牌可以不参与**：堆上任何地方凑出来都算，不要求含它的点数。
   // 先比张数，张数一样取最深那条
-  function bestGapped(deepest : number[]) : number[] {
+  // ---------- 堆上带【通配】的那几格（深的在前） ----------
+  //
+  // 顺序**必须**跟 markChain 那边一致 —— 两处按同一个顺序把通配分配给
+  // 空位，所以「判出来用了哪几张」和「收走哪几张」才对得上。
+  // 不一致的话会收错牌，而那种 bug 是静默的
+  function wildAtsOf(skipAt : number, byFoe : boolean) : number[] {
+    const out : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i == skipAt || guardedAgainst(i, byFoe) || matchLocked(i, byFoe)) {
+        continue
+      }
+      if (isWildAt(i)) {
+        out.push(i)
+      }
+    }
+    return out
+  }
+
+  // ---------- 挑一条顺子：三种东西能填空位 ----------
+  //
+  // 这一个函数替掉了原来的 bestStraight / bestGapped 两个 ——
+  // 两件新效果各需要**两种填格手段的组合**，分成两个专用函数写不下：
+  //
+  //   伏流 = 堆上的通配（wildRoom 张）+ 严格连续（step 1），不自带通配
+  //   涉水 = 自带通配（一次）+ 差 2 也算（step 2）
+  //
+  // 填空位的优先级是定死的：**先用堆上的通配，再用自带的那一次**。
+  // 那个顺序要紧 —— 堆上的通配用掉会被收走（它是链上的牌），
+  // 而自带的那个本来就要跟着走，所以先花掉"已经在场上"的那几张更划算。
+  //
+  // 判据照原来两个函数那条：**先比张数，张数相同取最深**。
+  // 次判据非有不可 —— 同样长的顺子常有好几条，而「先找到的赢」
+  // 会默默地总选点数小的那条（系统性偏向堆的一头）
+  function bestChainAt(deepest : number[], wildRoom : number,
+    selfWild : boolean, step : number) : number[] {
     let bestFrom = -1
     let bestTo = -1
     let bestCount = 0
     let bestLo = -1
     const top = deepest.length - 1
     for (let a = 0; a <= top; a++) {
-      // 两端必须有牌
-      if (deepest[a] < 0) {
-        continue
-      }
-      for (let b = a + 2; b <= top; b++) {
-        if (deepest[b] < 0) {
-          continue
-        }
+      for (let b = a + STRAIGHT_MIN - 1; b <= top; b++) {
         // 同一张 A 不能在一条顺子里当两次（1 和 14 都在区间里，见 withHighAce）
         if (a <= 1 && b >= HIGH_ACE) {
           continue
@@ -6266,20 +6606,37 @@
         let count = 0
         let lo = -1
         let gap = 0
+        let room = wildRoom
+        let selfLeft = selfWild ? 1 : 0
         let broken = false
         for (let v = a; v <= b; v++) {
-          if (deepest[v] < 0) {
-            gap = gap + 1
-            if (gap >= 2) {
-              broken = true
-              break
+          if (deepest[v] >= 0) {
+            gap = 0
+            count = count + 1
+            if (lo < 0 || deepest[v] < lo) {
+              lo = deepest[v]
             }
             continue
           }
-          gap = 0
-          count = count + 1
-          if (lo < 0 || deepest[v] < lo) {
-            lo = deepest[v]
+          if (room > 0) {
+            // 堆上的通配填这一格：**算链上的一张**，而且它的位置
+            // 在 markChain 那边会被标上（它不在 deepest 里，所以要单独标）
+            room = room - 1
+            count = count + 1
+            gap = 0
+            continue
+          }
+          if (selfLeft > 0) {
+            selfLeft = 0
+            count = count + 1
+            gap = 0
+            continue
+          }
+          // 真空位。step=1 一个都不许；step=2 最多一个连着
+          gap = gap + 1
+          if (gap >= step) {
+            broken = true
+            break
           }
         }
         if (broken || count < STRAIGHT_MIN) {
@@ -6296,6 +6653,40 @@
     return [bestFrom, bestTo]
   }
 
+  // ---------- 把这条链上的牌标进 wanted ----------
+  //
+  // 它**重走一遍** bestChainAt 的分配逻辑（同一个优先级、同一个顺序），
+  // 而不是让那个函数把结果传回来 —— UTS 里返回复合结构要先声明类型，
+  // 而重走一遍只有十几行、还顺带保证了两处口径一致。
+  //
+  // ---- 带通配那几格**必须标上**，这一条在模拟器里踩过坑 ----
+  //
+  // 带通配的牌不进 deepest（它能当任意点数），所以**只按 deepest 标**
+  // 会漏掉它们 —— 它们算进了链长、却收不走。
+  // 那个缺陷量过：伏流 +4.02 掉到 +2.65，而且「贴得越多越差」
+  //（+2.65 / +1.40 / +0.58），因为每贴一张就从表里拿掉一个真点数。
+  //
+  // > **「某张牌不按它的点数参与判定」和「它照样要被收走」是两件事。**
+  function markChain(wanted : boolean[], deepest : number[],
+    span : number[], wildAts : number[], selfWild : boolean) {
+    let used = 0
+    let selfLeft = selfWild ? 1 : 0
+    for (let v = span[0]; v <= span[1]; v++) {
+      if (deepest[v] >= 0) {
+        wanted[deepest[v]] = true
+        continue
+      }
+      if (used < wildAts.length) {
+        wanted[wildAts[used]] = true
+        used = used + 1
+        continue
+      }
+      if (selfLeft > 0) {
+        selfLeft = 0
+      }
+    }
+  }
+
 
   // 【涉水】打出后堆上有顺子就收走**组成顺子的那几张**（每个点数取最深那张）。
   // 这张牌可以不参与：没参与就留在堆上，接着照常去匹配。夹在中间的牌不收
@@ -6305,22 +6696,23 @@
     if (at0 < 0) {
       return false
     }
-    const deepest = withHighAce(deepestByVal(-1, byFoe))
-    const span = bestGapped(deepest)
+    // skipAt = at0：**它自己当通配**，所以不占点数表那一格
+    const deepest = withHighAce(deepestByVal(at0, byFoe))
+    const wildAts = wildAtsOf(at0, byFoe)
+    const span = bestChainAt(deepest, wildAts.length, true, 2)
     if (span[0] < 0) {
       message.value = message.value + who
-        + '堆上凑不出顺子（相邻差 1 或 2，至少 ' + STRAIGHT_MIN + ' 张）。'
+        + '凑不出顺子（相邻差 1 或 2，至少 ' + STRAIGHT_MIN + ' 张）。'
       return false
     }
     const wanted : boolean[] = []
     for (let i = 0; i < pile.value.length; i++) {
-      wanted.push(false)
+      // 它自己**一定跟着走** —— 它当通配，是链上的一员。
+      //（原先那条「这张可以不参与」撤了：那是全表唯一一个双收的口子，
+      //  量过值 +1 分，而靠违反「收一片的代价是这张不钓」撑起来的分不留）
+      wanted.push(i == at0)
     }
-    for (let v = span[0]; v <= span[1]; v++) {
-      if (deepest[v] >= 0) {
-        wanted[deepest[v]] = true
-      }
-    }
+    markChain(wanted, deepest, span, wildAts, true)
     const taken = harvestIndices(wanted)
     message.value = message.value + who + '堆上凑成 ' + valueFace(span[0]) + '–'
       + valueFace(span[1]) + ' 的顺子，收走 ' + taken.length + ' 张。'
@@ -6330,33 +6722,94 @@
 
   // 【伏流】它当任意点数去凑顺子（它是那唯一的空位），凑成就收走**它自己 + 组成顺子的那几张**
   //（每个点数取最深那张）。夹在中间的牌不收。凑不成就按普通点数匹配
+  // 伏流贴哪一格：**试一遍，挑凑出最长顺子的那个**。
+  //
+  // 按最优实现是有意的（照野火那条）：这件技能跟涉水的唯一分别就是
+  //「标签贴哪 + 标签会攒」，按启发式实现量出来是「AI 挑得多好」、
+  // 不是技能的上限。
+  //
+  // 暴力试 —— 堆常年 3 张，最多试 3 次，不值得优化。
+  // **庄家和玩家用同一个函数**：玩家按最优挑、庄家乱点的话对局不公平，
+  // 而那种不公平是静默的（界面上看不出来）
+  function pickWildAt(byFoe : boolean) : number {
+    let bestAt = -1
+    let bestCount = -1
+    for (let i = 0; i < pile.value.length; i++) {
+      if (isWildAt(i)) {
+        continue
+      }
+      const save = wildCards.value
+      wildCards.value = save.concat([pile.value[i]])
+      const deepest = withHighAce(deepestByVal(-1, byFoe))
+      const span = bestChainAt(deepest, wildAtsOf(-1, byFoe).length, false, 1)
+      wildCards.value = save
+      // 「长度」用区间长度近似（真正的张数要重走一遍 markChain）——
+      // 挑格子这一步够用，而且三个候选里排序不会因此变
+      const len = span[0] < 0 ? 0 : span[1] - span[0] + 1
+      if (len > bestCount) {
+        bestCount = len
+        bestAt = i
+      }
+    }
+    return bestAt
+  }
+
   function straightFor(byFoe : boolean, skills : number[]) : boolean {
     const who = byFoe ? ' 庄家伏流：' : ' 伏流：'
     const at0 = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
     if (at0 < 0) {
       return false
     }
-    const deepest = withHighAce(deepestByVal(at0, byFoe))
-    const span = bestStraight(deepest)
+    // ---- 先贴标签，再判顺子。顺序是硬的 ----
+    //
+    // 标签改变点数表（带通配的牌不进表、变成填格额度），所以贴完才判。
+    // 反过来的话这一手的标签白贴，只对**下一手**有用。
+    //
+    // 玩家侧要**暂停挑牌**，而暂停点跟凝水那三件不一样：
+    // 那三件在落堆**之前**丢弃牌、挑完直接 afterPlay；
+    // 伏流**已经落堆了**，挑完还得判顺子、走燃烧那一步、再匹配。
+    // 所以它记下技能表，挑完从 TAIL_WADE（伏流之后那一段）接着走
+    // `flowPicked` 是**重入闸**，不是可选的优化：
+    // 挑完之后 onPilePick 会**重新调一次 straightFor**（贴完要当场判顺子），
+    // 而这个分支只看 `!byFoe` 的话会**再暂停一次 → 死循环**。
+    // `pilePick` 那时已经清了，所以不能靠它判
+    if (!byFoe && !flowPicked && pile.value.length > 0) {
+      pilePick.value = SK_FLOW
+      pickStep.value = 0
+      pickCard.value = lastPlayed
+      pickSkills = skills
+      return true
+    }
+    if (byFoe) {
+      const at = pickWildAt(true)
+      if (at >= 0) {
+        addWild(pile.value[at])
+        message.value = message.value + who + '给第 ' + (at + 1) + ' 张贴上【通配】。'
+      }
+    }
+    // skipAt = −1：它**不**当通配了（那一档归涉水），所以它自己那一格
+    // 照常进点数表、按它的真点数参与
+    const deepest = withHighAce(deepestByVal(-1, byFoe))
+    const wildAts = wildAtsOf(-1, byFoe)
+    const span = bestChainAt(deepest, wildAts.length, false, 1)
     if (span[0] < 0) {
       message.value = message.value + who
-        + '堆上凑不出顺子（要连着 ' + STRAIGHT_MIN + ' 个点数）。'
+        + '凑不出顺子（要连着 ' + STRAIGHT_MIN + ' 个点数）。'
       return false
     }
     const wanted : boolean[] = []
     for (let i = 0; i < pile.value.length; i++) {
-      wanted.push(i == at0)
+      wanted.push(false)
     }
-    let wild = -1
-    for (let v = span[0]; v <= span[1]; v++) {
-      if (deepest[v] < 0) {
-        wild = v
-        continue
-      }
-      wanted[deepest[v]] = true
+    markChain(wanted, deepest, span, wildAts, false)
+    // 顺子必须含它自己 —— 那是「不要求参与」撤回之后的通则
+    //（不含它就双收：顺子收别处那几张、它还在堆上、普通匹配照常走）
+    if (!wanted[at0]) {
+      message.value = message.value + who + '凑出来的顺子不含这一张，不发动。'
+      return false
     }
     const taken = harvestIndices(wanted)
-    message.value = message.value + who + '它当 ' + valueFace(wild) + '，凑成 '
+    message.value = message.value + who + '凑成 '
       + valueFace(span[0]) + '–' + valueFace(span[1]) + ' 的顺子，收走 '
       + taken.length + ' 张。'
     return startSweep(byFoe, taken, skills, TAIL_WADE)
@@ -6395,155 +6848,95 @@
   // 收走的那几张走收牌特效（照收色、撒网），演完从 TAIL_REST 接着走
   function wildfireFor(byFoe : boolean, skills : number[]) : boolean {
     const who = byFoe ? ' 庄家野火：' : ' 野火：'
-    // ---------- 连锁：从牌库取一张同点数的，取到了它就无点数 ----------
+    // ---------- 定稿（2026-10-14）：**选择 1 张牌带上【燃烧】** ----------
     //
-    // 这一条治的是一个**数值不匹配**，而那个不匹配是量出来的：
+    // X = +3.85 / 价 105。连锁、无点数、收火那三样**全删了** ——
+    // 【燃烧】拿到收割权之后（燃尽：全堆带火 → 整堆归出牌方），
+    // 野火只需要点一张火。
     //
-    //   燃烧的留存   3.3 回合（堆上的牌平均活这么久）
-    //   原来的间隔   26 回合（单点数槽一局触发约 2 次）
+    // 点得着的那几格：没烧着、没保护、没冰。
     //
-    // 差八倍。而原效果需要覆盖 **22 张以上**才打平，全表最大的槽
-    // 只有 12 张 —— 所以它在**每一个槽上都是负分**（实测 X = −0.50）。
-    // 无论怎么调幅度都没用，兑现必须不依赖「等下一次触发」。
-    //
-    // 取一张同点数的回手里，间隔就变成 1~2 回合 —— 它**自己制造下一次触发**。
-    // 连带一个好性质：**它不再挑槽**（自己造触发，跟覆盖面脱钩了）。
-    //
-    // ---- 取的条件是「**还能触发野火**」，不是「同点数」（2026-10-13）----
-    //
-    // 同点数只是单点数槽上的那个**特例**。连锁要的从来不是点数一样，
-    // 是「这张打出去会不会又带野火」—— 槽可以挂多个标签（几个点数、
-    // 甚至整个花色），所以那两件事不等价。词条见规则弹窗的
-    //【获取下一张】（draw-levels.uvue 的 TERMS）。
-    //
-    // 池子因此跟着槽宽走：单点数槽 4 张、多点数槽 12~16、花色槽 12。
-    // 那让它从「定值技能」变成「上槽前要先看槽」的技能，而宽槽上的
-    // 大数**不是 bug** —— 收一片类随槽宽放大是全表既有的性质
-    //（一色点数槽 +4.54 / 花色槽 +12.21，野火还比它弱）。
-    //
-    // ---- 「取不到就不变」那个兜底**去掉了** ----
-    //
-    // 它原先值 +0.66，可那是在**旧的燃烧规则**下：那时收成/次 只有 0.30、
-    // 代价是 0.94，所以「不发动就不付钱」是唯一能止血的办法。
-    //
-    // 燃烧改成自带「无点数」之后（见 pileValsAt），烧过的牌对手钓不走了，
-    // 收成/次 往贴火量 2.11 爬 —— **代价终于盖得住**，补丁就不需要了。
-    // 实测野火 +0.50 → **+3.28**（标准槽），第一次进目标档 +3~+5。
-    //
-    // 所以现在一律：取没取到都**置 0** + 收火。取没取到只决定连锁断不断
-    let took = false
-    if (lastPlayed != null) {
-      const pool = fuelPool(byFoe)
-      if (pool.length > 0) {
-        took = pullFromDeck(byFoe, pool[0])
+    // **这儿不消耗保护** —— 保护的代价是「垫着的牌代替宿主**被收走**」，
+    // 而这一下挡的是点火，不是收牌。点不着就是点不着，盾不掉。
+    //（老版野火会掀盾，因为那时它收牌。）
+    const free : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pileBurnAt(i) == 0 && !wardAt(i) && !frostAt(i)) {
+        free.push(i)
       }
     }
-    // 它**无条件无点数**（valuesOf 里那一族），所以这儿不用再标记什么 ——
-    // 取没取到只决定**连锁断不断**，不决定付不付钱
-    if (took) {
-      message.value = message.value + who + '从牌库捞了一张还带野火的，这张自己归 0。'
-    } else {
-      message.value = message.value + who + '牌库里没有带野火的了，连锁断在这儿（这张照样归 0、照样收火）。'
-    }
-    const size = pile.value.length
-    if (size == 0) {
-      message.value = message.value + who + '场上没有牌。'
+    if (free.length == 0) {
+      message.value = message.value + who + '场上没有点得着的牌。'
       return false
     }
-    const next = pileBurn.value.slice(0)
-    const taken : number[] = []
-    const wardHit : number[] = []
-    let lit = 0
-    let held2 = 0
-    // 冰火相消吃掉的格数（播报用）
-    let melted = 0
-    for (let i = 0; i < size; i++) {
-      // 保护：挡掉点火，保护消耗。它既不着火、也不被收走
-      if (wardAt(i)) {
-        wardHit.push(i)
-        continue
-      }
-      if (pileBurnAt(i) > 0) {
-        // 已经着了 → 再点一次就烧穿。但护着的牌拿不走（火留着）。
-        //
-        // 原先这儿还有一条 `!took`（取不到就不收火）——
-        // **去掉了**：现在取没取到都置 0，所以双吃那条闸由置 0 管，
-        // 不再需要「不收火」来兜。取没取到只决定连锁断不断
-        if (guardedAgainst(i, byFoe) || matchLocked(i, byFoe)) {
-          held2 = held2 + 1
-          continue
-        }
-        taken.push(i)
-        continue
-      }
-      // ---- 【结冰】：冰火相消，两个一起消失 ----
-      //
-      // 带冰的格子**点不着** —— 冰化了、火也没贴上（见 TERMS 结冰那条）。
-      // 所以一片冰场能吃掉一次野火的点火，而代价是那片冰没了。
-      //
-      // 它跟上面保护那一支的区别：保护**挡掉**点火（火没贴上、保护还在，
-      // 要等收牌才消耗）；结冰是**互毁**（两个都没了）
-      if (iceMeltsFire(i)) {
-        melted = melted + 1
-        continue
-      }
-      next[i] = 1
-      lit = lit + 1
+    if (byFoe) {
+      doWildPick(true, pickBurnAt(free))
+      return false
     }
-    pileBurn.value = next
-    // ---- 保护挡掉点火，而**垫着那张跟着离场** ----
+    // 等你点堆上一张。提示条和「不挑」按钮见 pilePickText。
     //
-    // 保护的代价一律是「垫着的牌代替宿主被收走」，不管收它的是什么 ——
-    // 野火这儿挡的不是收牌而是点火，可消耗方式一样：盾走、宿主留。
-    //
-    // 所以那几张盾的 rank 要进 goneRanks（庄家记牌的依据），
-    // 而且**算野火那一方的分** —— 它确实拿走了那几张牌。
-    //
-    // 在**算完之后**才消耗：wardUnder 读的是 pile 的下标，
-    // 清早了上面那个循环就判不出来
-    if (wardHit.length > 0) {
-      const gone = goneRanks.value.slice(0)
-      let shields = 0
-      for (let k = 0; k < wardHit.length; k++) {
-        const at = wardUnder(wardHit[k])
-        if (at < 0) {
-          continue
-        }
-        const shield = pullStacked(at)
-        if (shield != null) {
-          gone.push(shield!.rank)
-          shields = shields + 1
-        }
-      }
-      if (shields > 0) {
-        goneRanks.value = gone
-        if (byFoe) {
-          foeScore.value = foeScore.value + shields
-        } else {
-          myScore.value = myScore.value + shields
-        }
-      }
-    }
-    let note = who
-    if (taken.length > 0) {
-      note = note + '烧穿 ' + taken.length + ' 张'
-    }
-    if (lit > 0) {
-      note = note + (taken.length > 0 ? '，' : '') + '点着 ' + lit + ' 张'
-    }
-    if (wardHit.length > 0) {
-      note = note + '，' + wardHit.length + ' 张被凝水挡住（保护没了）'
-    }
-    if (held2 > 0) {
-      note = note + '，' + held2 + ' 张护着的烧不走'
-    }
-    if (melted > 0) {
-      note = note + '，' + melted + ' 张结冰跟火一起化了'
-    }
-    message.value = message.value + note + '。'
-    return startSweep(byFoe, taken, skills, TAIL_REST)
+    // **暂停点在这儿是有讲究的**：野火跟凝水那三件不一样 ——
+    // 那三件在落堆**之前**丢弃牌，挑完直接走 afterPlay；
+    // 野火**已经落堆了**，挑完还得走燃烧那一步（蔓延 + 燃尽）和匹配。
+    // 所以它得记下技能表，挑完从 TAIL_REST（野火之后那一段）接着走
+    pilePick.value = SK_WILD
+    pickStep.value = 0
+    pickCard.value = lastPlayed
+    pickSkills = skills
+    return true
   }
 
+  // 真正点那一下。两侧共用 —— 庄家不点屏幕，它走 pickBurnAt 选下标
+  function doWildPick(byFoe : boolean, at : number) {
+    if (at < 0 || at >= pile.value.length) {
+      return
+    }
+    const next = pileBurn.value.slice(0)
+    next[at] = 1
+    pileBurn.value = next
+    message.value = message.value + (byFoe ? ' 庄家野火：' : ' 野火：')
+      + '给第 ' + (at + 1) + ' 张贴上【燃烧】。'
+  }
+
+  // 「选 1 张」挑哪一格：只剩一张点得着的就点它（**能一手燃尽就燃尽**），
+  // 否则点**最长那段连续没烧着**的中间。
+  //
+  // ---- 为什么中间是最优 ----
+  //
+  // 火有两条前沿，而蔓延在**同一手之内**结算：点中间一次盖 3 格、
+  // 点堆顶只盖 2 格。所以 3 张的堆上选中间**当场燃尽收 3 张**，
+  // 而「自带燃烧」（只点自己落下那一格）烧不尽。
+  // 实测那个差额是 **+1.54 分** —— 是这件技能的全部卖点。
+  //
+  // **庄家必须用同一个函数**：玩家按最优选、庄家乱点的话对局不公平，
+  // 而那种不公平是静默的（界面上看不出来）
+  function pickBurnAt(free : number[]) : number {
+    if (free.length <= 1) {
+      return free[0]
+    }
+    let bestFrom = 0
+    let bestLen = 0
+    let from = 0
+    for (let k = 1; k <= free.length; k++) {
+      if (k == free.length || free[k] != free[k - 1] + 1) {
+        if (k - from > bestLen) {
+          bestLen = k - from
+          bestFrom = from
+        }
+        from = k
+      }
+    }
+    return free[bestFrom + ((bestLen - 1) >> 1)]
+  }
+
+  // 旧效果（烧整堆 + 收走带火的）那一整段**删了** —— 收割权归关键词之后
+  // 它就是「一张牌收两次」：野火收走带火的，然后 burnStep 的燃尽
+  // 又把整堆收一次。
+  //
+  // 跟着没了的还有**保护被掀盾**那一支：它的代价是「垫着的牌代替宿主
+  // **被收走**」，而现在野火只点火、不收牌，所以保护只是**挡掉点火**、
+  // 盾留着。那让凝水从「被野火吃掉一层」变成「**一张牌锁死整条线**」
+  //（堆上有一张带保护的就永远烧不尽）。
   // ---------- 压舱 / 摘钩 / 对换：动对方一张手牌 ----------
   //
   // 三件的交互一模一样（点对方手牌那一排），区别只在挑完之后干什么。
@@ -7385,9 +7778,60 @@
   // 所以它比「每回合一次」快，连竿 × 燎原一回合能烧两格。
   // 「没牌可打、跳过回合」那几条路直接调 passTurn，不经过这儿，不蔓延
   function endPlay(byFoe : boolean) {
-    spreadFire()
+    // 【燃烧】那一步**不在这儿了**（2026-10-14）—— 它挪到了匹配**之前**
+    // （afterPlayTail 的末尾，见 burnStep）。
+    //
+    // 挪的理由是那个结算顺序：落堆 → 场上效果 → 卡牌效果 → 燃烧 → 匹配。
+    // 排在匹配前面，「一张牌收两次」那道闸就是免费的 ——
+    // 燃尽扫走整堆时刚打那张也在里面，被收走了，匹配自然碰不到它
     fillPond(byFoe)
     passTurn(byFoe)
+  }
+
+  // ---------- 【燃烧】那一步：蔓延 → 全堆带火就扫整堆（燃尽） ----------
+  //
+  // 排在**匹配之前**，调用点在 afterPlayTail 的末尾。
+  //
+  // ---- 三个口径 ----
+  //
+  //   **堆 1 张就触发** —— 所以野火点在空堆上落下的那张时会当场收走它。
+  //     那是这一族的兜底（照抄底那条「无点数是兜底不是代价」）。
+  //   **堆空不触发** —— 空堆「全带火」是真空真，得显式挡掉。
+  //   **归当前出牌方**，不记谁点的火 —— 所以你点的火可能被对手收走，
+  //     而那正是「什么时候点」成为决策的原因。不记归属也省掉一条并行数组。
+  //
+  // ---- 判定**一手只跑一次**，匹配之后不复查 ----
+  //
+  // 于是匹配收掉几张之后剩下的正好全带火也不触发，要等下一手。
+  // 连带一个真陷阱：**匹配之后留下一个全带火的堆 = 把下一次燃尽送给对手**
+  //（他出牌那张不带火落下 → 蔓延点着它 → 全堆带火 → 他燃尽）。
+  //
+  // ---- 带【保护】的牌点不着，所以它是最强的对位解 ----
+  //
+  // 堆上只要有一张带保护的牌，「全堆带火」就永远不成立 ——
+  // **一张牌锁死整条线**。那一条不用在这儿写：spreadFire 和 wildfireFor
+  // 都跳过带保护的格子，于是这儿的循环自然判不出全带火。
+  //
+  // 返回 **true = 开演收牌特效了**，调用处就别再走匹配 ——
+  // 演完由 finishSweep 认 TAIL_BURN 直接接到 resolveMatch
+  function burnStep(byFoe : boolean, skills : number[]) : boolean {
+    spreadFire()
+    const size = pile.value.length
+    if (size == 0) {
+      return false
+    }
+    for (let i = 0; i < size; i++) {
+      if (pileBurnAt(i) == 0) {
+        return false
+      }
+    }
+    const all : number[] = []
+    for (let i = 0; i < size; i++) {
+      all.push(i)
+    }
+    message.value = message.value + (byFoe ? ' 庄家燃尽：' : ' 燃尽：')
+      + '场上全烧着了，整堆 ' + size + ' 张收走。'
+    return startSweep(byFoe, all, skills, TAIL_BURN)
   }
 
   // ---------- 【填塘】：堆被清空时，从牌库顶补一张 0 点牌 ----------
@@ -7864,13 +8308,23 @@
   // 跟 straightFor 算的是同一件事，差别只有一处：**这儿是落堆之前估的**，
   // 所以堆里还没有它自己 —— 不用跳过 at0，整堆都是候选。
   //
-  // **跟 straightFor 走同一对函数**（deepestByVal / bestStraight），
-  // 所以两处的判定口径不会飘。差别只有一处：skipAt 传 −1 ——
-  // 这儿是**落堆之前**估的，堆里还没有它自己
-  // 庄家估算伏流能收几张：组成顺子的那几张 + 它自己
+  // **跟 straightFor 走同一个函数**（deepestByVal / bestChainAt），
+  // 所以两处的判定口径不会飘 —— 那是硬要求，不是整洁癖：
+  // AI 估出来的收成跟实际发生的不一致时，它会据此打错牌，
+  // 而那种 bug 是静默的（这一季在野火的门槛和发动条件上各栽过一次）。
+  //
+  // ---- 这儿**没有**模拟「贴标签」那一步，所以它是个下限 ----
+  //
+  // 伏流实际会先贴一张通配再判，而贴哪张要试一遍（pickWildAt）。
+  // 在挑牌阶段把那一层也模拟一遍的代价是「堆上每格 × 每张手牌」，
+  // 而挑牌一回合要跑十几次。所以这儿按**不贴标签**估 ——
+  // 于是庄家会**低估**伏流，那跟源码里逆流那个已知缺口同一性质
+  //（挑牌阶段不知道「这张沉底能钓到」）。
+  //
+  // 它只影响庄家打得多好，不影响规则
   function straightCount(card : PlainCard, byFoe : boolean) : number {
     const deepest = withHighAce(deepestByVal(-1, byFoe))
-    const span = bestStraight(deepest)
+    const span = bestChainAt(deepest, wildAtsOf(-1, byFoe).length, false, 1)
     if (span[0] < 0) {
       return 0
     }
@@ -7886,17 +8340,24 @@
 
   // 【涉水】能凑出几张（庄家挑牌的预估）。
   //
-  // 它收**整段**，所以估的是位置范围（跟 straightCount 一个口径）：
-  // 它自己还没落堆、落下去在堆顶，所以上端取 pile.length。
-  // 跟 wadeFor 走同一个 bestGapped，所以两处口径不会飘
-  // 庄家估算涉水能收几张：只数组成顺子的那几张（这张牌不一定在里面）
+  // 庄家估算涉水能收几张。
+  //
+  // **跟 wadeFor 走同一个 bestChainAt**（自带通配 + 步长 2），
+  // 所以两处口径不会飘 —— 那是硬要求：AI 估的跟实际发生的不一致时
+  // 它会据此打错牌，而那种 bug 是静默的。
+  //
+  // 两处差别只有一个：这儿是**落堆之前**估的，堆里还没有它自己，
+  // 所以 skipAt 传 −1（wadeFor 那边传 at0 —— 它自己当通配、不占点数格）。
+  // 结果上等价：两边都是「它不按自己的点数参与」。
+  //
+  // `n` 从 1 起算 —— 它自己当通配，是链上的一员，一定跟着走
   function wadeCount(card : PlainCard, byFoe : boolean) : number {
     const deepest = withHighAce(deepestByVal(-1, byFoe))
-    const span = bestGapped(deepest)
+    const span = bestChainAt(deepest, wildAtsOf(-1, byFoe).length, true, 2)
     if (span[0] < 0) {
       return 0
     }
-    let n = 0
+    let n = 1
     for (let v = span[0]; v <= span[1]; v++) {
       if (deepest[v] >= 0) {
         n = n + 1
@@ -8131,6 +8592,9 @@
     // 结冰那一族：豁免（playFor 每手也重设）和手冰表，开局都清
     iceBlindNow = false
     frostHand = [] as PlainCard[]
+    // 【引火】预约的手牌火跟手冰表一起清（同一个理由：它按牌对象认身份，
+    // 而新一局是新一副牌）
+    burnHand = [] as PlainCard[]
     againPending = false
     againUsed.value = false
     againWaiting.value = false
@@ -8151,6 +8615,9 @@
     // 跨局留着就成了「永久废牌」）。
     // 顺带把挑牌那两个状态也归零，免得上一局停在挑牌中途退出
     deadCards.value = [] as PlainCard[]
+    // 【通配】贴过的那几张、以及伏流那个重入闸
+    wildCards.value = [] as PlainCard[]
+    flowPicked = false
     deadLeft.value = 0
     takeSkill.value = -1
     const data = loadDrawSave()
@@ -8746,6 +9213,16 @@
     background-color: #fff0e6;
   }
 
+  /* 【通配】：这张凑顺子时算任意点数。
+     紫一套 —— 跟火（橙红）、护（蓝）、保护（绿）都分得开。
+     **排在 .card-burning 后面**：两个标签可以同时在（燃烧不改点数、
+     通配也不改点数，互不冲突），而通配是「这张牌算几点」那一类，
+     跟卡面上的点数描色同源，所以让它盖在火色上面 */
+  .card-wild {
+    border-color: #a46bff;
+    background-color: #f3ecff;
+  }
+
   /* 【浊水】藏住的那几格：压暗 + 虚边。
      摆在 .card-burning 后面是有意的 —— 藏住的牌不该还亮着火的颜色
      （烧标已经被 v-if 关掉了，背景色也得跟着让位） */
@@ -8764,13 +9241,30 @@
     font-weight: bold;
   }
 
-  /* 【结冰】的角标。**跟「烧」占同一个位置**（右上）—— 冰和火互斥
-     （相消），所以两个永远不会同时出现，不用另找地方摆 */
+  /* 【结冰】的角标。**跟「烧」占同一个位置**（右上）——
+     **堆上**的冰和火互斥（相消），所以那两个永远不会同时出现。
+
+     注意这条只对堆成立：**手牌上两个可以同时挂着**（引火贴火、
+     藏凌贴冰，而相消是落堆那一下才判的），所以手牌的火角标
+     另摆一行 —— 见 `.hand-burn-tag` */
   .card-frost-tag {
     position: absolute;
     top: 1px;
     right: 3px;
     color: #2f8fd0;
+    font-size: 9px;
+    font-weight: bold;
+  }
+
+  /* 【引火】预约在**手牌**上的火。
+     跟「冰」错开一行（冰在 top:1，这个在 top:11）—— 手牌上两个可以
+     同时挂着，重叠就看不出来有几个。而「同时挂着」本身是有用的信息：
+     它表示这张落下去的时候冰火相消，两个都没 */
+  .hand-burn-tag {
+    position: absolute;
+    top: 11px;
+    right: 3px;
+    color: #e0561f;
     font-size: 9px;
     font-weight: bold;
   }

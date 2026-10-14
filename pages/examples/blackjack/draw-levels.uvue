@@ -153,6 +153,23 @@
           </view>
         </view>
       </view>
+
+      <!-- 实战模式：给**实体对战**发一套配装。
+           手机在这个模式里不跑对局 —— 它只发配装、当规则手册 -->
+      <view class="card card-duel">
+        <view class="card-head">
+          <text class="now-id">实战模式</text>
+          <view class="card-head-gap"></view>
+          <text class="now-reward">拿真牌打</text>
+        </view>
+        <text class="card-slogan">给两个人各发一个角色和 8 件技能，轮流配好，照着手册用真扑克牌对战</text>
+        <text class="diff-note">{{ duelLine }}</text>
+        <view class="card-acts">
+          <view id="md-duel-go" class="card-btn card-btn-main" @click="openDuel">
+            <text class="card-btn-text card-btn-text-dark">{{ duelRoles.length == 0 ? '发两套' : '接着配' }}</text>
+          </view>
+        </view>
+      </view>
     </scroll-view>
 
     <!-- ---------- 终局：选角色卡 + 往槽里嵌技能 ---------- -->
@@ -235,7 +252,7 @@
             <text v-if="slotSkills[si] >= 0" class="my-skill-desc">{{ DRAW_SKILLS[slotSkills[si]].desc }}</text>
             <text v-else class="my-skill-desc">{{ slotHint(label) }}</text>
           </view>
-          <text class="skill-box-empty">{{ doubleHint }}</text>
+          <text class="skill-box-empty">{{ doubleTextOf(roleAt) }}</text>
         </scroll-view>
 
         <!-- 第三步：给这个槽挑技能 -->
@@ -267,6 +284,91 @@
           </view>
           <view class="card-btn" @click="backFinal">
             <text class="card-btn-text">{{ slotPick >= 0 ? '回到槽位' : (roleAt >= 0 ? '换角色' : '关闭') }}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- ---------- 实战模式：两个人轮流配装 ---------- -->
+    <!--
+      流程单向：**甲配** → 按「交给乙」→ **乙配** → 按「出手册」→
+      跳 `draw-duel` 页展示双方。手册不在这儿 —— 它是独立页面，
+      因为两个人要隔着桌子读它，而弹层那个盒子装不下。
+
+      ---- 三处跟终局那个弹层故意不一样 ----
+
+        **遮罩不响应点击**（照存档面板）—— 配一半被误触关掉很烦；
+        **自己的盒子**（.duel-box）—— .skill-box 是 300×340，太挤；
+        **id 一律 md-duel- 前缀** —— ap-fishing.test.js 按 #md-role-0 /
+          #md-slot-0 驱动这个页面，撞上就会把那几条断言带偏
+    -->
+    <!-- `duelRoleNow() >= 0` 这道守卫是**必需的**，不是洁癖：下面整屏都在读
+         DRAW_ROLES[duelRoleNow()]，而 uvue 里数组越界会当场崩。
+         openDuel 保证了开面板时它已经 >= 0，但模板不该依赖调用方 -->
+    <view v-if="showDuel && duelRoleNow() >= 0" class="mask">
+      <view class="duel-box">
+        <!-- 不垫 .my-skill-gap —— .skill-box-head 本身是 space-between。
+             （顺带：那个类在这个文件里被用了 10 次但**一处都没定义**，
+             所以它其实不撑开。既存问题，没在这次动它） -->
+        <view class="skill-box-head">
+          <text class="skill-box-title">{{ DUEL_NAMES[duelSide] }}　配技能</text>
+          <view id="md-duel-close" class="skill-box-close" @click="showDuel = false">
+            <text class="card-btn-text">收起来</text>
+          </view>
+        </view>
+
+        <!-- ===== 配置屏 ===== -->
+        <scroll-view v-if="duelPick < 0" class="duel-body sv-out" direction="vertical">
+          <text class="skill-box-sub">{{ DRAW_ROLES[duelRoleNow()].name }} · {{ specialNameOf(duelRoleNow()) }} · 盖 {{ roleCover(duelRoleNow()) }} 张</text>
+          <text class="skill-box-empty">{{ specialDescOf(duelRoleNow()) }}</text>
+          <view
+            v-for="(label, si) in DRAW_ROLES[duelRoleNow()].slots"
+            :key="'dsl-' + si"
+            :id="'md-duel-slot-' + si"
+            class="my-skill"
+            :class="{ 'my-skill-on': duelSlotsNow()[si] >= 0 }"
+            @click="duelPick = si">
+            <view class="my-skill-head">
+              <text class="my-skill-cover">{{ slotCover(label) }} 张</text>
+              <text class="my-skill-name">{{ label }}</text>
+              <view class="my-skill-gap"></view>
+              <text class="my-skill-pick">{{ duelSlotsNow()[si] >= 0 ? DRAW_SKILLS[duelSlotsNow()[si]].name : '空着，点一下嵌技能' }}</text>
+            </view>
+            <text v-if="duelSlotsNow()[si] >= 0" class="my-skill-desc">{{ DRAW_SKILLS[duelSlotsNow()[si]].desc }}</text>
+            <text v-else class="my-skill-desc">{{ slotHint(label) }}</text>
+          </view>
+        </scroll-view>
+
+        <!-- ===== 挑技能屏：只有发给这个人的那 8 件 ===== -->
+        <scroll-view v-else class="duel-body sv-out" direction="vertical">
+          <text class="skill-box-empty">嵌进 {{ DRAW_ROLES[duelRoleNow()].slots[duelPick] }} 槽（发给{{ DUEL_NAMES[duelSide] }}的 {{ duelPoolNow().length }} 件，配不上的留着不用）</text>
+          <view
+            v-for="(k, pi) in duelPoolNow()"
+            :key="'dsk-' + pi"
+            :id="'md-duel-skill-' + pi"
+            class="my-skill"
+            :class="{ 'my-skill-on': duelSlotsNow()[duelPick] == k, 'my-skill-off': duelUsedElsewhere(k) }"
+            @click="duelEmbed(k)">
+            <view class="my-skill-head">
+              <text class="my-skill-name">{{ DRAW_SKILLS[k].name }}</text>
+              <view class="my-skill-gap"></view>
+              <text v-if="DRAW_SKILLS[k].first" class="my-skill-key">优先</text>
+            </view>
+            <text class="my-skill-desc">{{ DRAW_SKILLS[k].desc }}</text>
+          </view>
+        </scroll-view>
+
+        <view class="card-acts">
+          <!-- 甲配完是「交给乙」，乙配完才出手册 —— 按钮上写明白轮到谁，
+               不然两个人传手机的时候会乱 -->
+          <view v-if="duelPick < 0" id="md-duel-done" class="card-btn card-btn-main" @click="duelNext">
+            <text class="card-btn-text card-btn-text-dark">{{ duelSide + 1 < DUEL_SIDES ? '配好了，交给乙' : '配好了，出手册' }}</text>
+          </view>
+          <view v-if="duelPick >= 0" class="card-btn card-btn-main" @click="duelClear">
+            <text class="card-btn-text card-btn-text-dark">清空这个槽</text>
+          </view>
+          <view v-if="duelPick >= 0" class="card-btn" @click="duelPick = -1">
+            <text class="card-btn-text">回到槽位</text>
           </view>
         </view>
       </view>
@@ -525,8 +627,19 @@
     // 现在闯关要选角色，它们才有了落点
     roleUnlocked,
     ROLE_UNLOCK,
-    ROLE_UNLOCK_CLEAR
+    ROLE_UNLOCK_CLEAR,
+    // 实战模式摇技能池用（48 件里取 8 件不重复）
+    rollSpots
   } from '@/pages/examples/blackjack/draw-skills.uts'
+  // 名词解释。**这张表从本文件搬出去了**（见下面 TERMS 那段注释）——
+  // 规则面板和实战手册（draw-duel.uvue）现在读同一份
+  import {
+    Term,
+    TERMS,
+    termsFor,
+    RuleSec,
+    RULES
+  } from '@/pages/examples/blackjack/draw-terms.uts'
   import {
     DrawSave,
     DRAW_SLOT_COUNT,
@@ -983,86 +1096,23 @@
 
   // ---- 规则弹窗 ----
   //
-  // 写死的文字。规则改了这儿要跟着改 —— 数字（手牌 4 张、生命、技能库上限……）
-  // 跟代码里的常量对应：HAND_SIZE（ap-fishing）、DIFF_LIVES / LIBRARY_CAPS / DIFF_REWARD_RATE
-  //（draw-levels），利息档位见 interestOf
-  type RuleSec = {
-    title : string
-    lines : string[]
-  }
+  // **RULES 和 RuleSec 搬去 `draw-terms.uts` 了**（2026-10-14），
+  // 跟名词表同一个理由：实战配装手册是独立页面，而它也要印规则。
+  // 搬出去之后两处读同一份
   const showRules = ref<boolean>(false)
-  const RULES : RuleSec[] = [
-    { title: '对局', lines: [
-      '一副 52 张。双方开局各 4 张手牌，庄家先手，轮流每回合打 1 张，回合末补足 4 张。',
-      '牌库和双方手牌都空了，积分高的赢。堆里剩下的牌不算分。'
-    ] } as RuleSec,
-    { title: '出一张牌的顺序', lines: [
-      '① 进场：牌落到堆上（沉底的落堆底），先受场上效果影响（压邻、封色、分水……）。',
-      '② 发动这张牌的技能：同一张牌有几个效果时，先执行带「优先」的。',
-      '③ 匹配：这张牌还在堆上的话，跟堆里同点数的牌对上，就收走从那张到堆顶的整段。收走几张记几分。'
-    ] } as RuleSec,
-    // ---- 点数那一节 ----
-    //
-    // 这几条是**全局规则**，不属于任何一件技能 —— 所以技能说明里不写，
-    // 只在这儿写一次。代码里的落点：
-    //   减到 0 为止        → ap-fishing 的 dropVals
-    //   0 不匹配           → ap-fishing 的 anyEquals
-    //   无点数跳过增减     → dropVals 对空列表原样返回
-    //   无点数受「变成 X」 → ap-fishing 的 landVals（分水那一支）
-    //   无点数比大小算最大 → ap-fishing 的 valuesOf（齐顶那一支）
-    { title: '点数', lines: [
-      '点数减不到负数，最小是 0；往上不设限（贴点数卡能叠到多少算多少）。',
-      '0 点不匹配 0 点 —— 两张都见了底的牌不该还能互相钓。（0 跟 1 照旧算「差 1」，磁钩钓得上。）',
-      '一张牌可以同时算几个点数（贴过点数卡的）。任一个点数对得上就算匹配；几个点数全归 0 才算「点数为 0」。',
-      '无点数不受「增减点数」影响（见底、退潮、干塘一概跳过它），但受「变成 X」影响（置 0、置无点数都算）。',
-      '无点数在比较大小时算最大 —— 所以堆上躺着一张无点数的牌，齐顶就抄不到数，白打一张。',
-      '同一张牌上几个「变成 X」一起生效时，后面的盖前面的：分水（置 0）> 封色（置无点数）> 压邻（置无点数）。'
-    ] } as RuleSec,
-    { title: 'J', lines: [
-      'J 只有通吃：堆上有牌时打 J，整堆收走；空堆上打 J 只收走它自己。',
-      'J 不触发任何技能；让牌「没有点数」的场上效果也挡不住它通吃。'
-    ] } as RuleSec,
-    { title: '角色和技能', lines: [
-      '每一轮开局选一张角色卡：它带一件常驻特殊技，还有几个印着点数或花色的槽。',
-      '技能装进槽才生效：打出的牌落在槽上印的点数或花色上，就触发那个槽里的技能。',
-      '技能是通用的，装进哪个槽都行；管哪些牌由槽决定（花色槽 12 张，点数一个 4 张）。'
-    ] } as RuleSec,
-    { title: '闯关', lines: [
-      '一轮 12 关。赢了拿金币（过关奖励 + 胜分，胜分最多 +10），然后进商店。',
-      '没花完的钱每关生利息：攒到 30 给 3，之后每 40 给 5，最多 25。',
-      '输一关扣 1 点生命，退回上一个商店（金币、技能、货架都是那时的样子）；第 1 关输了就重打。生命用完，这一轮作废，从第 1 关重来。',
-      '平局重打这一关，不扣生命。'
-    ] } as RuleSec,
-    { title: '商店和技能库', lines: [
-      '买来的技能先放进技能库，再装进槽。装上、卸下、换槽都不花钱。',
-      '技能库满了就买不了技能，得先卖掉一件；卖出拿回买价的一半。',
-      '道具买了立刻用；货架可以花钱换一批，价钱翻倍涨。'
-    ] } as RuleSec,
-    { title: '难度（一轮开始前选）', lines: [
-      '简单：庄家前 4 关随机出牌、之后不记牌；过关金币 ×2；生命 3；技能库 8 件。',
-      '普通：庄家第 1 关随机出牌、第 3 关起记牌；过关金币 ×1.2；生命 2；技能库 6 件。',
-      '困难：庄家每一关都记牌；过关金币 ×0.75（第 1 关保底 80）；生命 1；技能库 5 件。'
-    ] } as RuleSec,
-    { title: '终局对决', lines: [
-      '一局定胜负，不记账：不发金币、不推关号、不动存档。',
-      '可以自定义角色和技能，也可以随机。难度只管庄家怎么出牌、配装多满。'
-    ] } as RuleSec
-  ]
 
   // ---- 名词解释 ----
   //
-  // 技能说明里会反复用这几个词（「置 0」「无点数」「在场」「优先」……）。
-  // 一件技能的说明只有一两行，塞不进定义 —— 所以定义集中放这儿，
-  // 说明里直接用词。
+  // **这张表搬去 `draw-terms.uts` 了**（2026-10-14）。
   //
-  // **这一份跟技能说明是一套**：往技能表里写新说明的时候，
-  // 要么用这儿已有的词，要么在这儿加一条 —— 自己造一个新说法
-  // 会让同一件事在游戏里有两个名字
-  type Term = {
-    word : string
-    desc : string
-  }
-  const TERMS : Term[] = [
+  // 搬的原因：实战模式的配装手册是**独立页面**（`draw-duel.uvue`），
+  // 而 uvue 的 `<script setup>` **不导出任何东西** —— 手册页一个字都拿不到
+  // 这儿的 const。而实体对战时玩家手边没有规则弹窗，手册必须自带词条。
+  //
+  // 搬出去的附带好处：**规则面板和实战手册从此读同一份**。
+  // 那几十行设计注释（燃烧为什么只剩一句、结冰为什么五句一条都不能省）
+  // 跟着一起搬了，没丢
+  const TERMS_MOVED_AWAY : Term[] = [
     { word: '点数', desc: '牌面印的那个数（A 算 1，Q 算 12，K 算 13）。J 没有点数这条轴，它只通吃。' } as Term,
     { word: '匹配', desc: '你打的牌和堆里某张「算同一个点数」。对上了就收走从那张到堆顶的一整段。' } as Term,
     { word: '堆', desc: '打出去还没被收走的那些牌，横着摆。最早打的在最左（堆底），最新打的在最右（堆顶）。' } as Term,
@@ -1147,6 +1197,17 @@
     // 相消那句**两边都要写**：玩家可能只点开其中一条，
     // 而「冰火不共存」是个双向规则，单边记录等于一半的玩家不知道
     { word: '燃烧', desc: '贴在牌上的标签。场上每打出一张牌（双方的都算），堆上带【燃烧】的牌就给左右各一格的牌也贴上【燃烧】。遇到【结冰】，两个一起消失。' } as Term,
+    // 【燃尽】单独立一条，因为它有三处玩家**算不出来**的东西：
+    //
+    //   **判定在匹配之前，而且一手只判一次** —— 所以匹配收掉几张之后
+    //     剩下的正好全带火也不触发，要等下一手。连带一个真陷阱：
+    //     **匹配之后留下一个全带火的堆 = 把下一次燃尽送给对手**
+    //     （他出牌那张不带火落下 → 蔓延点着它 → 全堆带火 → 他燃尽）。
+    //   **带【保护】的牌点不着** —— 于是堆上只要有一张，「全堆带火」
+    //     永远不成立。那是这条规则最强的对位解，**一张牌锁死整条线**。
+    //   **归「这一手的出牌方」** —— 不记谁点的火。所以你点的火可能被对手收，
+    //     而那正是「什么时候点」成为决策的原因。
+    { word: '燃尽', desc: '堆上的牌全带【燃烧】时，整堆归这一手的出牌方 —— 不管火是谁点的。它在匹配**之前**判，而且一手只判一次：所以你匹配收走几张之后剩下的牌正好全带【燃烧】，这一手也不会触发，要等下一手（那一手是对方的）。带【保护】的牌点不着火，所以堆上只要有一张，就永远烧不尽。' } as Term,
     // 【结冰】这一条有三件事玩家**算不出来**，所以一条都不能省：
     //
     //   它拦的是**收牌**不是匹配（带结冰的牌照旧能当钓点）——
@@ -1169,7 +1230,64 @@
     // 顺子那条**必须**写进词表，而且必须写「10 和 Q 之间断开」——
     // 那一条玩家**算不出来**：J 打出就通吃走了、从不留在堆上，所以堆上
     // 永远没有 11 点。不告诉他，他就只会觉得 Q K 那头的伏流坏了
-    { word: '顺子', desc: '点数连着的几张牌（比如 5 6 7），至少 3 张。堆上的牌不用挨在一起，点数连上就算。注意 J 从不留在堆上（它打出就通吃），所以堆上没有 11 点 —— 10 和 Q 之间是断开的。见底压成 0 点的牌算在 0 这一格（0 和 A 连得上）。' } as Term,
+    { word: '顺子', desc: '点数连着的几张牌（比如 5 6 7），至少 3 张。堆上的牌不用挨在一起，点数连上就算。A 两头都能接（A-2-3 和 Q-K-A 都算，但同一条顺子里只能用一次）。注意 J 从不留在堆上（它打出就通吃），所以堆上没有 11 点 —— 10 和 Q 之间是断开的。见底压成 0 点的牌算在 0 这一格（0 和 A 连得上）。' } as Term,
+    // ---------- 【顺子匹配】：特殊匹配，判在普通匹配**之前** ----------
+    //
+    // 结算顺序（跟【燃烧】那一步同一个位置逻辑）：
+    //
+    //   落堆 → 场上效果 → **特殊匹配（这儿）** → 燃烧 → 普通匹配
+    //
+    // ---- 通则：**顺子必须含你刚打的那张** ----
+    //
+    // 试过「不要求参与」（把涉水那条特例升成通则），**撤回了** ——
+    // 它造成**双收**：顺子收走别处那几张，而你打的那张还在堆上，
+    // 于是普通匹配照常走、这一手收两次。
+    //
+    // 而「必须含它」把那件事挡死了，**而且是免费的**：
+    // 顺子一定收走它（它是链的一员），牌不在堆上了，
+    // 后面 resolveMatch 自然没得判。跟燃尽那道闸同一个原理 ——
+    // **顺序给的,不是条款给的。**
+    //
+    // ---- 【涉水】那条「这张可以不参与」也**撤掉了**，同一个理由 ----
+    //
+    // 它原先是全表唯一一个双收的口子，而那违反「收一片的代价是这张不钓」。
+    //
+    // **代价是明的,旧数就摆在那儿**：`WADE_SELF` 那两档量过 ——
+    //   必须参与 **+1.03** / 可以不参与 **+2.08**（旧口径）。
+    // 所以涉水身上那 **+1 分就是双收**。撤掉它等于把那一分还回去，
+    // 涉水会掉到档外很远，而且跟伏流只差「步长 2 vs 通配」一条 ——
+    // 而通配那条量出来值钱得多（+2.56 vs 那一档）。
+    //
+    // > 那不是撤错了：**一个靠违反不变量撑起来的 +1 分不该留着**。
+    // > 但它意味着涉水需要重新设计，而不只是重新定价。
+    //
+    // ---- 另两件玩家算不出来的 ----
+    //
+    //   **凑不成会退回普通匹配** —— 所以带这类技能的牌不是「只能靠顺子」。
+    //     那是伏流定下来的实现（`FLOW_VOID=0`，注释写着「保留点数，
+    //     凑不成顺子就退回普通点数匹配」），技能说明里读不出来。
+    //   **只收组成顺子的那几张** —— 普通匹配收的是「那一张到堆顶」一整段，
+    //     顺子匹配**不收中间夹着的牌**。两条收法差得很远，不说会算错。
+    { word: '顺子匹配', desc: '**特殊匹配**，判在普通匹配之前。打出后看场上有没有【顺子】—— **不要求你刚打的这张参与**，堆上本来就有就算。凑成就收走**组成顺子的那几张**，跟普通匹配不一样，中间夹着的牌不跟着走。那几张里要是包含你打的这张，它跟着走、这一手就没有普通匹配了；不包含的话它还在堆上，普通匹配照常走。凑不成也只是退回普通匹配，不算白打。一条顺子里至少要有 2 张是真点数的牌。' } as Term,
+    // ---------- 【通配】：顺子那一族的材料 ----------
+    //
+    // 四件事必须写进词条，缺一条玩家就读不懂：
+    //
+    //   **它不改点数** —— 所以贴了通配的牌**照旧钓得走**。那是这一族的
+    //     对位解，跟【燃烧】同一条（标签不碰点数 → 它钓得走 → 有解）。
+    //     不说的话玩家会以为通配是个保护。
+    //   **它留着** —— 标签跟着那张牌，所以堆上的通配会**攒**。那是它跟
+    //     【伏流】自带那一次通配的根本区别，也是这一族第一次有
+    //     「跨回合积累的场面」（燃烧靠这个冲到 +3.85，顺子族一直没有）。
+    //   **它能当 11** —— 于是它**填上了顺子那条里写的那个洞**
+    //     （J 不留堆上 → 没有 11 点 → 10 和 Q 断开）。那是这一族
+    //     结构性的天花板，而通配是唯一拆得掉它的东西。
+    // 「一条顺子里至少 2 张真点数」那道闸**写在【顺子匹配】那条**，
+    // 不写在这儿 —— 它是那条线的规则，不是这个标签的性质
+    //（照「一件事只在一处说」）。那个「2」是要量的数：
+    // 伏流那儿已经有同一道闸（`md-sim/rules.js` 的 `opt.pileMin`，
+    // 原注释写着「防纯手牌凑」）
+    { word: '通配', desc: '贴在牌上的标签。那张牌**凑【顺子】时可以当任意点数**（包括 11 —— 所以它能接上 10 和 Q 之间那个断口）。它**不改变那张牌的点数**，所以照旧有人按点数钓得走它；钓走了标签也跟着没。' } as Term,
     { word: '优先', desc: '这个效果在匹配判定之前结算。同一张牌上有几个效果时，带「优先」的先走（沉底、合流是这一类）。' } as Term,
     { word: '覆盖面 / 盖 N 张', desc: '这套配装一共管多少张牌。花色槽一个管 12 张，点数槽一个点数管 4 张。它是双方唯一能横着比的强度数字。' } as Term,
     { word: '槽', desc: '角色卡上印死的格子，上面写着点数或花色。技能装进槽才生效，管哪些牌由槽决定。' } as Term,
@@ -1281,13 +1399,19 @@
     return at < 0 ? '' : SPECIAL_SKILLS[at].desc
   }
 
-  // 哪些牌会**双触发**（花色槽和数字槽同时命中）—— 开局就该看得见，
-  // 那是这个角色的组合点。没有花色槽的角色不存在双触发
-  const doubleHint = computed<string>(() : string => {
-    if (roleAt.value < 0) {
+  // 哪几张牌会**同时触发两件技能**（花色槽 × 点数槽的交叉）——
+  // 开局就该看得见，那是这个角色的组合点。没有花色槽的角色不存在双触发。
+  //
+  // ---- 从 computed 改成带参函数（2026-10-14）----
+  //
+  // 实战模式要对它自己那个角色算同一件事，而 computed 绑死在 roleAt 上。
+  // 模板里调函数本来就是这个文件的风格（slotsText(ri)、slotHint(label)、
+  // roleCover(ri) 都是），所以改签名比再抄一份便宜
+  function doubleTextOf(ri : number) : string {
+    if (ri < 0 || ri >= DRAW_ROLES.length) {
       return ''
     }
-    const slots = DRAW_ROLES[roleAt.value].slots
+    const slots = DRAW_ROLES[ri].slots
     const suits : string[] = []
     const ranks : string[] = []
     // 一个槽可能印着好几样，所以要摊到标签这一层数
@@ -1311,7 +1435,7 @@
       }
     }
     return '双触发：' + text + ' —— 这几张会同时触发两件技能。'
-  })
+  }
 
   // 打开终局那套三步配装。roleMode 得在这儿置回来 ——
   // 闯关的角色选择用的是同一个弹层，上一次开的可能是那个
@@ -1352,6 +1476,196 @@
         + '&role=' + roleAt.value
         + '&slots=' + slotSkills.value.join(',')
         + '&diff=' + finalDiff.value
+    })
+  }
+
+  // ==========================================================
+  // ---------- 【实战模式】给**实体对战**发配装（2026-10-14）----------
+  // ==========================================================
+  //
+  // 随机发 1 个角色 + DUEL_POOL 件技能，你自己挑着配进槽，
+  // 然后它把这套配装**完整印出来** —— 之后两个人用真扑克牌面对面打，
+  // 手机只干两件事：**发配装**、**当规则手册**。
+  //
+  // 所以这个模式**不跑任何对局逻辑**，也不需要 kitFromRole 那套派生态
+  //（那是给对局用的）。
+  //
+  // ---- 为什么另开一组 ref，不复用终局那套 ----
+  //
+  // 终局的 roleAt / slotSkills / slotPick 有三条路会动它们，每一条都会伤到这儿：
+  //
+  //   **go()** 里 `roleAt = -1; slotSkills = []` 是无条件的，而那条路从关卡卡片
+  //     的「开启挑战」就能走到 —— 一下把实战配装静默擦掉；
+  //   **tapRole** 每次点角色都重置 slotSkills，roleMode=='run' 还会写存档并跳页；
+  //   **goFinalRole** 会 navigateTo 到 ap-fishing —— **实战面板能启动数字对局
+  //     是严重误触**，这个模式的全部前提就是手机上不跑对局。
+  //
+  // 共用 ref 就等于共用这些函数，所以下面那三个操作函数也是自己一份
+  //（照终局的 embed / clearSlot / usedElsewhere 抄的）。
+  //
+  // ---- 不落盘，只存内存 ----
+  //
+  // 「发了就是它」要在**技术上**防死就得写存储，那要动 draw-save.uts 的落盘格式
+  //（加版号兼容分支、写 codec、用 ownerToText/textToOwner 表示空槽）。
+  //
+  // 没那么做，理由是**实体对战是面对面的**：两个人互相看着，
+  // 「界面上不给重摇按钮」这个社交约束已经够了。
+  // 关掉面板**不清空**（再打开还是那一套），换下一局 = 杀掉 app 重开。
+  const DUEL_POOL : number = 8
+  // 两个人：下标 0 = 甲（先配的那个），1 = 乙
+  const DUEL_SIDES : number = 2
+  const DUEL_NAMES : string[] = ['甲', '乙']
+
+  const showDuel = ref<boolean>(false)
+  // 摇到的两个角色（DRAW_ROLES 下标）。空数组 = 还没发过。
+  // **两个不重复** —— 走 rollSpots，所以是「随机取 2 个不同的」
+  const duelRoles = ref<number[]>([] as number[])
+  // 两人各自的技能池（各 DUEL_POOL 件）。
+  //
+  // **各摸各的，互不干扰** —— 共用一个池子会让先配的那个人占便宜
+  //（他先挑走好的）。两边摸到同一件技能不是问题：技能不是牌，
+  // 实体对战时两人各自按自己那张角色卡执行
+  const duelPools = ref<number[][]>([] as number[][])
+  // 两人各自的槽配置，-1 = 空着。每一行的长度 = 那个人角色的槽数
+  const duelSlots = ref<number[][]>([] as number[][])
+  // 现在轮到谁配（0 甲 / 1 乙）。甲配完按钮推进到乙
+  const duelSide = ref<number>(0)
+  // 正在给第几个槽挑技能，-1 = 没在挑
+  const duelPick = ref<number>(-1)
+
+  // 点卡片：没发过就发，发过了接着上次那个人继续配。
+  //
+  // **生成只能在这儿**（点击处理里）—— 放进 computed 或 refresh() 就是
+  // 每次渲染/每次 onShow 偷偷重摇一次，而那正好违反「发了就是它」
+  function openDuel() {
+    if (duelRoles.value.length == 0) {
+      // **不走 roleUnlocked** —— ROLE_UNLOCK 那张平行数组只有 10 格而
+      // 角色有 11 张，第 11 个（填河工）在闯关模式里永久锁死。
+      // 实战不该跟着那个 bug，所以直接在全表里摇
+      const roles = rollSpots(DRAW_ROLES.length, DUEL_SIDES)
+      const pools : number[][] = []
+      const slots : number[][] = []
+      for (let s = 0; s < DUEL_SIDES; s++) {
+        pools.push(rollSpots(DRAW_SKILLS.length, DUEL_POOL))
+        const blank : number[] = []
+        for (let i = 0; i < DRAW_ROLES[roles[s]].slots.length; i++) {
+          blank.push(-1)
+        }
+        slots.push(blank)
+      }
+      duelRoles.value = roles
+      duelPools.value = pools
+      duelSlots.value = slots
+      duelSide.value = 0
+      duelPick.value = -1
+    }
+    showDuel.value = true
+  }
+
+  // 下面这几个都按「当前这个人」取 —— 模板里到处写
+  // duelSlots[duelSide] 会又长又容易错
+  function duelRoleNow() : number {
+    return duelSide.value < duelRoles.value.length ? duelRoles.value[duelSide.value] : -1
+  }
+
+  function duelPoolNow() : number[] {
+    return duelSide.value < duelPools.value.length
+      ? duelPools.value[duelSide.value] : ([] as number[])
+  }
+
+  function duelSlotsNow() : number[] {
+    return duelSide.value < duelSlots.value.length
+      ? duelSlots.value[duelSide.value] : ([] as number[])
+  }
+
+  // 第 side 个人配了几件（卡片和按钮上报进度用）
+  function duelFilled(side : number) : number {
+    if (side >= duelSlots.value.length) {
+      return 0
+    }
+    const row = duelSlots.value[side]
+    let n = 0
+    for (let i = 0; i < row.length; i++) {
+      if (row[i] >= 0) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  // 卡片上那行状态
+  const duelLine = computed<string>(() : string => {
+    if (duelRoles.value.length == 0) {
+      return '还没发 —— 点一下给两个人各发一套'
+    }
+    let text = ''
+    for (let s = 0; s < duelRoles.value.length; s++) {
+      text = text + (text == '' ? '' : '　') + DUEL_NAMES[s] + ' '
+        + DRAW_ROLES[duelRoles.value[s]].name
+        + '（' + duelFilled(s) + '/' + duelSlots.value[s].length + '）'
+    }
+    return text
+  })
+
+  // 这件技能是不是已经嵌在**当前这个人的别的槽**里了（一件只能占一个槽）。
+  // 两个人之间不互斥 —— 他们各有一副角色卡
+  function duelUsedElsewhere(skill : number) : boolean {
+    const row = duelSlotsNow()
+    for (let i = 0; i < row.length; i++) {
+      if (i != duelPick.value && row[i] == skill) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 改二维数组：**外层和内层都要复制**。
+  // 只复制外层的话内层还是同一个引用，uvue 那边可能不重渲染
+  function duelSetSlot(skill : number) {
+    const next = duelSlots.value.slice(0)
+    const row = next[duelSide.value].slice(0)
+    row[duelPick.value] = skill
+    next[duelSide.value] = row
+    duelSlots.value = next
+    duelPick.value = -1
+  }
+
+  function duelEmbed(skill : number) {
+    if (duelPick.value < 0) {
+      return
+    }
+    if (duelUsedElsewhere(skill)) {
+      uni.showToast({ title: '这件已经嵌在别的槽了', icon: 'none' })
+      return
+    }
+    duelSetSlot(skill)
+  }
+
+  function duelClear() {
+    if (duelPick.value < 0) {
+      return
+    }
+    duelSetSlot(-1)
+  }
+
+  // 甲配完 → 交给乙；乙配完 → 跳手册页。
+  //
+  // 配装经 URL 交给手册页，照 goFinalRole 那条先例
+  //（`?mode=final&role=R&slots=k,k,k`）。手册页只读这几个数，
+  // 自己 import 技能表和词表，所以 URL 里只传下标
+  function duelNext() {
+    if (duelSide.value + 1 < DUEL_SIDES) {
+      duelSide.value = duelSide.value + 1
+      duelPick.value = -1
+      return
+    }
+    showDuel.value = false
+    uni.navigateTo({
+      url: '/pages/examples/blackjack/draw-duel'
+        + '?rA=' + duelRoles.value[0]
+        + '&sA=' + duelSlots.value[0].join(',')
+        + '&rB=' + duelRoles.value[1]
+        + '&sB=' + duelSlots.value[1].join(',')
     })
   }
 
@@ -1748,6 +2062,39 @@
   .skill-box-body {
     max-height: 340px;
     margin-top: 8px;
+  }
+
+  /* ---- 实战模式的盒子：比 .skill-box 宽、而且不限高 ----
+
+     .skill-box 是 300×340 的小窗，那个尺寸是给「扫一眼就关掉」的面板定的。
+     实战那份是**配装手册** —— 两个人隔着桌子读、里面还要印全部名词解释，
+     挤在 340px 里得滚十几屏。
+
+     所以同配色、同边框（一眼认得出是同一套 UI），只把尺寸放开 */
+  .duel-box {
+    width: 330px;
+    padding: 16px;
+    border-radius: 12px;
+    background-color: #0e6b45;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #e8b23a;
+  }
+
+  /* **不用 flex: 1，用 max-height** —— .mask 是 align/justify 双居中的，
+     flex: 1 会跟 justify-content: center 打架（盒子撑满之后居中就没意义了）。
+     340 → 460 是在「手册要长」和「小屏别溢出」之间取的：
+     多数手机屏高 600+，460 加上头尾那两块仍然进得去 */
+  .duel-body {
+    max-height: 460px;
+    margin-top: 8px;
+  }
+
+  /* 实战那张牌子。比终局那张再暗一档 —— 它不在那条十二关的线上，
+     也不是「向王座挑战」，它是把牌搬到桌上去 */
+  .card-duel {
+    background-color: #0b3222;
+    border-color: #2f8fd0;
   }
 
   .skill-box-empty {
