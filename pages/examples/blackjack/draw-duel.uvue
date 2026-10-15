@@ -156,9 +156,13 @@
           </view>
         </view>
         <scroll-view class="book-body sv-out" direction="vertical">
-          <!-- 规则表是跟手机玩法共用的，里面写「庄家先手」——
-               实体对战没有庄家，所以这儿点一句，不去改那张共用的表 -->
-          <text class="term-desc">下面是对局规则。实体对战时「庄家」就是**先出牌的那个人**（甲）。</text>
+          <!-- 规则表是跟手机玩法共用的，里面拿「庄家」称呼对面那一方 ——
+               实体对战没有庄家，所以这儿点一句，不去改那张共用的表。
+               〔2026-10-15：先手改成切牌定了，所以「庄家」不能再说成
+                 「先出牌的那个人」—— 那会跟切牌那条绕成循环。
+                 现在把它映射到座位（甲）〕 -->
+          <text class="term-desc">下面是对局规则。实体对战时「庄家」= **甲**（那个洗牌切牌的人）——
+            所以切牌那条读作：红 = 甲先手，黑 = 乙先手。</text>
           <view v-for="(sec, ri) in duelRules" :key="'drs-' + ri" class="rule-sec">
             <text class="rule-title">{{ sec.title }}</text>
             <text

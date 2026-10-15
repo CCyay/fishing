@@ -66,9 +66,62 @@ function randomFree(G, side) {
 // 不拿 J 当饵；挑饵时顺手能发动技能的，只要不比最安全那张差 1 张以上就优先
 const SURGE_AVOID = process.env.SURGE_AVOID ? parseFloat(process.env.SURGE_AVOID) : 0
 
+// ---------- 【洪水】的「偷时间」打法（FLOOD_RUSH，2026-10-15） ----------
+//
+// ⚠ **洪水当天就删了**（它量出来的 X 正是删它的依据），所以这个旋钮现在
+// **开了也不会响** —— `SK.FLOOD` 是 −1，`rushFlood` 里那个 `has` 永不匹配。
+//
+// 整段留着，因为它是一个**可复用的量法**：将来任何「能改变一局长短」的
+// 效果都该拿它量一遍（把 `SK.FLOOD` 换成那件技能即可）。而它得出的那条
+// 判据比洪水本身值钱 —— 见下面「这个数读作上限」那段，以及设计文档
+// 『被删掉的技能』里洪水那一条。
+//
+// **默认关（0）。开启后：领先 + 牌库薄的时候优先打洪水，哪怕它钓不到最多。**
+//
+// 为什么要专门给一件技能建模 —— 这是终局规则换成「牌库空 + 双方各打 1 手
+// 就收摊」之后冒出来的**新病根**：
+//
+//   **牌库张数现在直接决定这一局还有多长。**
+//
+// 于是「抽空牌库」成了领先方的锁胜手段，而洪水是全表唯一能一次抽掉好几张
+// 牌库的技能（从库顶逐张翻到匹配为止）。这条路**旧规则下不存在** ——
+// 那时牌一定会全部打完，谁也没法让游戏早点结束。
+//
+// 这套启发式 `pickCard` 本来量不出它：它是一步贪心，只问「这张能钓几张」，
+// 不读比分、不知道游戏什么时候结束。所以不开这个旋钮量出来的洪水
+// （X +4.77 / D +0.73）是「**没人想到这招**」时的值。
+//
+// ---- 这个数读作上限，不是均值 ----
+//
+// 真人不会每次都这么打（洪水本身也要钓牌，抽库是放弃一次收成），
+// 但他会在该用的时候用。所以开启后量出来的 D 读作
+// 「**洪水的先手溢价最多能被推到多少**」。
+//
+// FLOOD_RUSH = 牌库薄到几张时开始抽。设 8 大致是「还剩两三个回合」。
+const FLOOD_RUSH = process.env.FLOOD_RUSH ? parseInt(process.env.FLOOD_RUSH, 10) : 0
+
+// 领先而且牌库快空了 —— 手里有洪水就打它，把这一局掐短
+function rushFlood(G, side) {
+  if (FLOOD_RUSH <= 0) return -1
+  if (G.deck.length === 0 || G.deck.length > FLOOD_RUSH) return -1
+  const other = side === R.ME ? R.FOE : R.ME
+  // **只有领先才抽** —— 落后的时候缩短这一局是在帮对手
+  if (G.score[side] <= G.score[other]) return -1
+  const hand = G.hands[side]
+  for (let i = 0; i < hand.length; i++) {
+    if (R.isFrozen(G, hand[i])) continue
+    if (R.has(R.skillsOf(G, side, hand[i]), SK.FLOOD)) return i
+  }
+  return -1
+}
+
 function pickCard(G, side) {
   // 关卡表的 random：连钓都不挑（照源码 foePickCard 开头那一支）
   if (G.random[side]) return randomFree(G, side)
+  // 【洪水】偷时间：**排在「挑钓得最多的」之前**，因为它要表达的正是
+  // 「宁可少收一点，也要把这一局掐短」（默认关，见 FLOOD_RUSH 那段）
+  const rush = rushFlood(G, side)
+  if (rush >= 0) return rush
   const hand = G.hands[side]
   const lo = G.loadouts[side]
   let best = -1
@@ -77,15 +130,16 @@ function pickCard(G, side) {
     const card = hand[i]
     if (R.isFrozen(G, card)) continue
     const skills = R.skillsOf(G, side, card)
-    // 这儿只看点数槽的【沉底】，**不看角色的【逆流】** ——
-    // 照源码（foePickCard 那行 `const sink = hasTrigger(skills, SK_SINK)`）。
+    // ---- 挑牌时**一律按「正常落堆」算**，不看落堆底那一头 ----
     //
-    // 那是源码里一个真实的缺口，不是这边搬漏了：挑牌阶段不知道
-    // 「这张沉底能钓到」，而 wantSink 只在打出**之后**决定落点，
-    // 牌已经挑定了。所以逆流在庄家手里被低估 —— roles 那张表量出来的
-    // 是它的**下限**。改源码的话是在上面那一行或上接 wantSink
-    //〔点数技能【沉底】删了，这儿原先按它算落堆底那一头。
-    //  逆流那个缺口照旧：挑牌阶段不知道「这张落堆底能钓到」〕
+    // 〔点数技能【沉底】2026-10-14 删了。这儿原先按它算落堆底，
+    //   照的是源码那行 `const sink = hasTrigger(skills, SK_SINK)`。〕
+    //
+    // 而**【逆流】那个缺口照旧**，它是源码里一个真实的缺口、不是这边搬漏：
+    // 挑牌阶段不知道「这张落堆底能钓到」，而 wantSink 只在打出**之后**
+    // 决定落点，牌已经挑定了。所以逆流在庄家手里被低估 ——
+    // `roles` 那张表量出来的是它的**下限**。
+    // 改的话是在这一行接上 sinkPays
     const at = R.catchStart(G, card, side, skills, false)
     let caught = 0
     if (at >= 0) {

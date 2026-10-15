@@ -312,7 +312,18 @@ describe('/pages/examples/blackjack/ap-fishing', () => {
     expect(await textOf('.foe-title')).toBe(first)
   })
 
-  it('对局：庄家先走完一回合后轮到你，你已自动摸到第 4 张', async () => {
+  it('对局：轮到你的时候手牌正好 4 张', async () => {
+    // ---- 这一条**两种开局都要过**（2026-10-15 切牌定庄之后）----
+    //
+    // 先手由开局那张切牌定（红 = 庄家、黑 = 你），所以这儿有一半的局
+    // 压根没有「庄家先走的那一回合」：
+    //
+    //   庄家先手 —— 等 FOE_TURN_MS，它走完就轮到你，手牌 4 张；
+    //   你先手   —— 一开局就是你的回合，手牌也是 4 张
+    //    （切出来那张进你手里 + 发 3 张，见 newGame 的发牌那段）。
+    //
+    // 所以断言照旧，但它现在同时守着「切牌没把发牌数算错」这件事 ——
+    // 发牌循环漏了那个长度判断的话，先手会拿到 5 张
     page = await program.reLaunch(TABLE_PATH)
     await page.waitFor('view')
     await page.waitFor(FOE_TURN_MS)

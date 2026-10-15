@@ -313,7 +313,8 @@
       <view class="pick-box" @click.stop="noop">
         <view class="pick-head">
           <text class="pick-title">{{ pickTitle }}</text>
-          <text class="pick-sub">{{ picksSlot ? usedSlots + '/' + slotCount + ' 槽' : deckSize + ' 张' }}</text>
+          <!-- `'' +` 打头照 cards.uts 的 faceOf 那条惯例（拼串别用 .toString()） -->
+          <text class="pick-sub">{{ picksSlot ? '' + usedSlots + '/' + slotCount + ' 槽' : '' + deckSize + ' 张' }}</text>
         </view>
         <text class="pick-tip">{{ pickTip }}</text>
 
@@ -529,6 +530,7 @@
     // 牌组的两头：买牌不能超上限、弃饵不能低于下限
     DECK_MIN,
     DECK_CAP,
+    // 〔DECK_PLAY 2026-10-15 删了 —— 买牌那段说明不再报「一局进场几张」〕
     FLAT_REROLL,
     PIP_PRICE,
     interestOf,
@@ -1042,8 +1044,11 @@
     }
     const rank = rankOfText(text)
     const same = countOfRank(save.value, rank)
+    // 「局更长」那半句 2026-10-15 上午去掉过（那会儿开局会把牌库剔到 52 张），
+    // **当天下午又加回来了** —— DECK_PLAY 那道上限删了（见它那块墓碑），
+    // 现在买的牌都会进场，所以代价重新是「一局更长」
     let desc = '加进这一轮的牌组。那个点数多一张，就多一次撞上的机会 ——'
-      + '代价是牌组变厚（局更长，你技能覆盖面的占比被稀释）。'
+      + '代价是牌组变厚，一局就更长，而每张牌被摸到的时机更难算。'
     if (rank == 'J') {
       desc = 'J 通吃：堆上有牌时打出它，整堆收走。所以它比别的牌贵一倍。'
     } else if (rank == ZERO_RANK) {

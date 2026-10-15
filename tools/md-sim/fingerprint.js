@@ -80,9 +80,20 @@ const WATCH = [
   {
     file: 'ap-fishing.uvue',
     group: '回合流转与庄家策略',
+    // trimDeck 是 2026-10-15 加的（现在是「把发完牌之后的牌库凑成偶数」）。
+    //
+    // **盯它而不盯 newGame**：切牌定庄那套规则落在 newGame 里，可那个函数
+    // 几百行、什么都碰，盯它等于天天报警（而噪音多了就没人看警报了）。
+    // trimDeck 小而且只做一件事，它一动就是流通张数的口径动了 ——
+    // 那是模拟器必须跟上的那一类改动。
+    //
+    // checkOver 同一个理由、而且**比它更要紧**：终局规则就在那儿
+    //（牌库空 + 双方各打 1 手 + 出牌数要相等），那三条每一条动了
+    // 都会让整套平衡数作废
     names: ['refill', 'expireGuards', 'checkOver', 'passTurn', 'buildPlainDeck',
-      'drawFor', 'takeFromHand', 'foePickCard', 'baitRisk', 'outsideCount',
-      'foeSwapPick', 'foePickDeck', 'foeFreezePick', 'randomFree', 'buildRankTotals']
+      'trimDeck', 'drawFor', 'takeFromHand', 'foePickCard', 'baitRisk',
+      'outsideCount', 'foeSwapPick', 'foePickDeck', 'foeFreezePick',
+      'randomFree', 'buildRankTotals']
   },
   {
     file: 'ap-fishing.uvue',
@@ -113,14 +124,22 @@ const CONSTS = [
   { file: 'ap-fishing.uvue', name: 'CLEAR_OPEN' },
   { file: 'ap-fishing.uvue', name: 'FIRM_GUARD' },
   { file: 'ap-fishing.uvue', name: 'DEEP_EXTRA' },
-  { file: 'draw-skills.uts', name: 'DUMP_COUNT' },
-  { file: 'draw-skills.uts', name: 'SPILL_COUNT' },
-  { file: 'draw-skills.uts', name: 'EBB_COUNT' },
+  // 〔DUMP_COUNT / SPILL_COUNT / EBB_COUNT 撤掉了（掏手 / 掏库 / 退潮
+  //   三件技能 2026-10-14 删了）—— 照 SUIT_CAPACITY 那次的办法撤，
+  //   留着只会每次报一条 MISSING〕
   // SUIT_CAPACITY 删了（花色槽砍成了一个特殊技能槽），所以这儿也撤掉 ——
   // 留着只会每次都报一条 MISSING，而噪音多了就没人看警报了
   { file: 'draw-skills.uts', name: 'RANK_CAPACITY' },
   { file: 'draw-skills.uts', name: 'BAIT_COUNT' },
-  { file: 'draw-skills.uts', name: 'CYCLE_REFILL' }
+  { file: 'draw-skills.uts', name: 'CYCLE_REFILL' },
+  // 〔DECK_PLAY 撤掉了（2026-10-15 当天加、当天删）——「一局只进场 52 张」
+  //   那道上限随终局规则一起退场。模拟器那边对应的 DECK_SIZE 也删了。
+  //   留着只会每次报一条 MISSING〕
+  //
+  // 终局那两手（2026-10-15）。**模拟器那边是 rules.js 的 TAIL，两个数
+  // 必须一样** —— 这一个动了而那一个没跟上的话，整套平衡数的口径就对不上，
+  // 而那是最难看出来的一类漂移（分差只差零点几分，看着像噪声）
+  { file: 'ap-fishing.uvue', name: 'TAIL_PLAYS' }
 ]
 
 const cache = {}

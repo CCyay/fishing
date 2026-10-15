@@ -37,20 +37,184 @@ const SKILL_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K'
 // HAND_SIZE=3 环境变量：量「双方手牌改 3 张」那个提案用（2026-10-14）
 const HAND_SIZE = process.env.HAND_SIZE ? parseInt(process.env.HAND_SIZE, 10) : 4
 
-// ---- 削后手优势的几条规则（2026-10-14 量的）----
+// ---- 削后手优势的几条规则 ----
 //
-// **pileNotLast 是现行规则**（2026-10-14 定稿，照源码 ap-fishing 的 leftoverFor）：
-// 终局剩下的堆归「没打最后一手」的那一方。原先是「剩堆不算分」——
-// 要量旧规则就设 BALANCE=old（任何不认识的值都等于旧规则）。
+// **现行规则是 `old`（剩堆不算分）**，也就是这个变量的默认值 ——
+// 名字叫 old 是因为它本来就是最早那条规则，中间绕了一圈又回来了。
+// 配套的是 `TAIL_PLAYS = 2` 和 `EVEN`（见下面两段）。
 //
-// 另几条是当时一起量的候选，留着做对照：
+// 剩下几档全是**历史对照档**，一个都不是现行规则：
+//   pileNotLast 终局剩下的堆归「没打最后一手」的那一方（2026-10-14 定稿、10-15 废）
 //   pileFirst   终局剩下的堆归先手（基线上跟 pileNotLast 一样，但治不了改奇偶的技能）
 //   firstDeal   先手开局多发 BAL_K 张（之后照常补到 HAND_SIZE）
 //   secondShort 后手开局少发 BAL_K 张
 //   firstGuard  先手的前 BAL_K 张落堆自带护（照【稳钩】）
-// 数和结论记在设计文档「终局剩堆」那一节
-const BALANCE = process.env.BALANCE || 'pileNotLast'
+//
+// 数和结论记在设计文档『终局那两手』那一节；`pileNotLast` 那一轮的经过
+// 在它上面那块墓碑（『〔作废〕终局剩堆归「没打最后一手」的一方』）。
+//
+// ---- 默认 2026-10-15 从 `pileNotLast` 改回 `old`，因为源码删了 leftoverFor ----
+//
+// 终局换成「牌库空 + 双方各再打 1 手」（TAIL_PLAYS=2）之后，后手优势本来
+// 就没了，再把剩堆判给谁都是过补：实测 TAIL=2 配 pileNotLast 是 −2.23，
+// 配 old 是 +0.31。**两条规则互斥，不是能叠的两件补丁。**
+//
+// `BALANCE=pileNotLast` 还留着，但它现在只是个历史对照档。
+//
+// ---- 下面这段是 pileNotLast 时代的记录，留着备查 ----
+//
+// 一度改成 `pileFirst`，量出来先后手价差 **7.28 分**（后手胜率 29.1%）。
+// 病根是漏算了一件事：**51 手里先手要多打一手**（第 1、3…51 共 26 手，
+// 后手 25 手）。而 `pileFirst` 之下先手那多出来的最后一手是**白打的** ——
+// 他打完游戏就结束，堆上剩的全归他。每局积分 24.0 : 27.0，差的 3 分
+// 就是整个剩堆。
+//
+// `pileNotLast` 正好治这个，文档那句话早写明了：
+// **「归没打最后一手的」让最后一手本身不再值钱。**
+const BALANCE = process.env.BALANCE || 'old'
 const BAL_K = process.env.BAL_K ? parseInt(process.env.BAL_K, 10) : 1
+
+// ---------- 牌库空了还许再打几手（2026-10-15 实验旋钮） ----------
+//
+// 现行规则是「牌库空了，手里那几张打完才收摊」——（HAND_SIZE=4 时）
+// 最后 8 手处在**无补充**状态，而后手优势的 96% 就出在那个阶段
+//（设计文档『终局剩堆』那张拆解表：前 36 手只 +0.10）。
+//
+// 这个旋钮把那个阶段的长度变成参数：
+//
+//   TAIL=2（默认，现行规则）  牌库空后双方各再打 1 手
+//   TAIL=0                    牌库一空立即收摊（手里那几张留在手上，不算分）
+//   TAIL=Infinity             旧规则 —— 打完手牌才收摊（设 TAIL=999 也一样）
+//
+// ---- 要配 `BALANCE=old`（剩堆不算分）量 ----
+//
+// 拿 HAND_SIZE 当代理变量量过一轮（它改的也是无补充阶段的长度 = 2h）：
+//
+//   阶段长度   8 手    6 手    4 手    2 手    → 外推 0 手
+//   剩堆不算分  +3.03  +1.92  +1.25  +0.59      −0.07
+//   剩堆归先手  −0.08  −1.27  −1.87  −2.23      ← 过补，不能并用
+//
+// 两列的差恒为 3.1（= 剩堆的常态厚度），所以**终局一缩短，剩堆归属
+// 就会把平衡推到先手一侧**。TAIL 和 pileNotLast 是互斥的两条路。
+const TAIL = process.env.TAIL === undefined ? 2 : parseInt(process.env.TAIL, 10)
+
+// ---------- DROP：剔完之后再从牌顶拿掉几张（实验旋钮，2026-10-15） ----------
+//
+// 专门用来量**流通张数的奇偶**：DROP=1 / 3 给奇数，DROP=0 / 2 给偶数。
+// 成对比较就能把「奇偶」和「牌少了几张」这两个变量分开 ——
+// 照设计文档『终局剩堆』那张「开局抽掉 k 张」的表（那一轮量出
+// 「抽几张无关，只看奇偶」，奇偶一翻分差摆动 6.3 分）。
+//
+// 为什么还需要它：`TAIL` 那套数全是在**偶数牌组**下跑的（剔牌闸还在），
+// 所以「奇偶在 TAIL 之下不再要紧」目前只是推理。要删掉偶数闸就得先量这个。
+// 默认 0，不影响任何现行口径
+const DROP = process.env.DROP ? parseInt(process.env.DROP, 10) : 0
+
+// ---------- EVEN：收摊时双方出牌数必须相等（2026-10-15） ----------
+//
+// `TAIL` 单独用的话**奇偶还是要紧**，实测（TAIL=2 BALANCE=old，各 20000 局）：
+//
+//   DROP   0(52张偶)  2(50张偶)  1(51张奇)  3(49张奇)
+//   分差    +0.31      +0.30      −0.90      −0.91
+//   出牌   23.0:23.0  22.0:22.0  22.0:23.0  21.0:22.0
+//
+// 病因在出牌那一行：**奇数牌组下先手多打一手**（他摸到最后一张牌，
+// 于是终局那两手里最后一手是他的），而最后一手仍然值钱 —— 无人回应。
+// 摆动 1.21 分，比旧规则的 6.3 分小得多，但不是 0。
+//
+// EVEN=1 把对称性写进**结束条件**：打够 TAIL 手之后，要是双方出牌数不等，
+// 少打的那一方再补一手。奇数牌组下正好多给后手一手（22:23 → 23:23），
+// 最后一手恒归后手，奇偶就不再决定任何事。
+//
+// 它替掉的是源码那道「牌组剔成偶数」的闸（DECK_SIZE / trimDeck），
+// 而且比那道闸好讲：「一局里双方打一样多的牌」是玩家看得见的公平，
+// 剔牌是个他看不见的暗箱。
+//
+// 补不出来就不补（手牌空或全被冻住）—— 不然碰上冻结会死循环。
+//
+// **默认开**（跟源码 checkOver 一致）。EVEN=0 关掉它，量「只有 TAIL、
+// 没有这条补丁」的对照档用
+const EVEN = process.env.EVEN !== '0'
+
+// ---------- 开局切牌定庄（2026-10-15） ----------
+//
+// 翻牌库顶那张给双方看：**红的庄家先手、黑的玩家先手**。
+// 那张牌**进先手的手牌**（对手看得见它），然后双方补齐到 HAND_SIZE。
+//
+// ---- 试过「把那张移出局」，撤了 ----
+//
+// 动机是治平局：52 张全有归属时双方总分恒为 52（偶数），26:26 容易撞上，
+// 平局率 6.4%，而闯关里平局要重打这一关。51 张的和是奇数，打不平 ——
+// 实测平局确实归零。
+//
+// 撤掉有两个理由，第二个是决定性的：
+//
+//   **它牵动的不止一件事** —— 流通牌数的奇偶同时决定「总分和的奇偶」
+//    （平局）、「谁多打一手」、「谁打最后一手」。51 手里先手要多打一手
+//     （26 : 25），所以配 `pileFirst` 时先后手价差飙到 **7.28 分**
+//     （后手胜率 29.1%）；改回 `pileNotLast` 才压到 1.06。
+//   **牌组本来就不是恒 52 张** —— 商店能买卡进牌组。所以「靠奇偶治平局」
+//     这条路从根上就不稳：买一张卡就翻一次，而玩家不会为了奇偶去决定买不买。
+//     平局那个问题会被买卡自然打散，不该在这儿治。
+//
+// ---- 它治的是一个结构性的偏 ----
+//
+// 52 张全要打出 → 总共 52 手 → 先手打第 1、3…51 手，**后手打第 52 手**。
+// 偶数永远是这个结果，所以 `pileNotLast` 之下**剩堆每一局都归先手** ——
+// 那不是概率上的偏，是每一局都如此。设计文档「终局剩堆」第一条
+//「把牌留在堆上成了先手的武器」就是这么来的，而它让「让堆变厚」
+// 那一整类的 D 全飘了（死水 +2.87 / 寒流 +1.37 / 霜降 +1.37 /
+// 藏凌 +1.10 / 净水 +1.35）。
+//
+// 切牌**不改剩堆归属**（照旧归先手），它改的是**谁当先手** ——
+// 于是玩家有一半的局拿得到剩堆。效果一样，但形状更自然：
+// 实体牌桌上「切牌定庄」是现成的仪式，不用解释。
+//
+// 三个后果：
+//
+//   **「终局养厚堆」不再是稳定策略** —— 开局才知道自己是不是先手，
+//     而那一类技能的 D 会跟着减半，不用逐件削；
+//   **闯关的难度结构变了** —— 原先玩家恒后手（文档第四条那张生命表
+//     就是在那个假设上调的），现在他一半的局是先手。
+//     〔重估过了：**生命 4/3/2 退回 3/2/1**，4/3/2 把简单档的通关率推到
+//       75.7%（旧规则基准 60.7%），是过补。数见 campaign.js 和设计文档〕；
+//   **那张牌是公开的** —— 先手的四张手牌里有一张对手看得见，
+//     算是对「先手略优」的一点微调。走 G.seen，现成的。
+//
+// ---- 为什么按红黑而不是点数奇偶 ----
+//
+// 点数奇偶**不是 50/50**：奇数点有 A/3/5/7/9/J/K 七个、偶数只有
+// 2/4/6/8/10/Q 六个 —— **28 : 24，偏 54%**。而这个机制的全部价值
+// 就在于公平，54:46 会让一边系统性占便宜。红黑是 26:26。
+//
+// CUT=0 关掉它（庄家恒先手，量旧口径用）
+const CUT = process.env.CUT !== '0'
+
+// ---------- 这一跑用的是哪一套规则：**一句话，单一来源** ----------
+//
+// 各个脚本的抬头一律印它，**别各自拼 env** —— 「默认值翻了而标签没跟上」
+// 是这个项目栽过两次的坑：
+//
+//   `WADE_SELF` 忘了翻，于是 `all` 整张表拿旧档的数定了新档的价（README 记着）；
+//   `campaign.js` 的抬头写成 `BALANCE === 'old' ? '旧' : '新（剩堆归没打最后一手的）'`，
+//     默认值从 pileNotLast 翻到 old 之后，它把**现行规则印成了「新」那一档**。
+//
+// 标签跟默认值长在同一处，就不会再分叉
+function ruleTag() {
+  const tail = TAIL >= 999 ? '打完手牌' : '牌库空 + 各再打 ' + TAIL + ' 手'
+  const pile = BALANCE === 'pileNotLast' ? '剩堆归没打最后一手的'
+    : (BALANCE === 'pileFirst' ? '剩堆归先手' : '剩堆不算分')
+  const flags = [tail, pile]
+  if (!EVEN) flags.push('EVEN=0（不补手）')
+  if (!CUT) flags.push('CUT=0（庄家恒先手）')
+  if (BALANCE !== 'old' && BALANCE !== 'pileNotLast' && BALANCE !== 'pileFirst') {
+    flags.push('BALANCE=' + BALANCE)
+  }
+  // 「不是现行规则」要**显眼**：拿这种跑出来的数去对文档是最常见的错法
+  const now = TAIL === 2 && BALANCE === 'old' && EVEN && CUT
+  return (now ? '现行' : '⚠ 非现行') + '（' + flags.join(' · ') + '）'
+}
+
 const TIDE_LOOK = 2
 const PICK_LOOK = 5
 
@@ -98,7 +262,16 @@ const SKILLS = [
   { key: 'lantern', name: '照水' },
   { key: 'freeze', name: '冻结' },
   { key: 'lowtide', name: '见底' },
-  { key: 'flood', name: '洪水' },
+  // 〔洪水 2026-10-15 删了（源码那边同一天删的）。表里的条目删掉，
+  //   而 `SK.FLOOD` 改钉成 `SK_GONE`（= −1，永不匹配），所以
+  //   `floodFor` / `FLOOD_CAP` / `FLOOD_MIN` 那几段代码**留着也不会跑**。
+  //   留它们是因为那两个旋钮里记着两轮被数据否决的削弱方案（翻牌上限、
+  //   发动闸），而那是这件技能最值钱的遗产 —— 见 draw-skills 那块墓碑。
+  //
+  //   **这儿原先写的是「条目删掉就够，skAt 返回 −1」—— 那是错的**：
+  //   `skAt` 查不到会抛（而且它该抛）。于是删掉条目之后整个模拟器
+  //   加载即崩，`sim.js` / `campaign.js` / `check.js` 全部起不来。
+  //   删技能的正确做法见 `SK_GONE` 那段〕
   { key: 'pick', name: '择饵' },
   { key: 'suitify', name: '一色' },
   { key: 'deep', name: '归深' },
@@ -129,7 +302,11 @@ const SKILLS = [
   // 对流 / 逆流），而「寒流」正好是个**持续**的东西，对得上它的形状。
   // **key 保留 `coldhue`** —— 存档存的是 key，换了老档就失效
   { key: 'coldhue', name: '寒流' },
-  { key: 'frostfall', name: '霜降' },
+  // 〔霜降 2026-10-15 删了（源码那边同一天）。死因：它是整族唯一的
+  //   「纯障碍」—— 对称效果 + 驻场，两样都是这个玩法的死路。X +1.72，
+  //   而延命那两句（无点数 + 落堆底）加在它身上是 **−2.86**：
+  //   延长一个对称效果的寿命 = 延长你自己付的税。见 ICE_SINK 那段。
+  //   `frostOnLand` / `ICE_LAST` 那几段代码留着不会跑（skAt 返回 −1）〕
   { key: 'kindle', name: '引火' },
   { key: 'order', name: '顺流' },
   { key: 'chain', name: '传火' },
@@ -152,19 +329,69 @@ const SKILLS = [
 // **全部由 key 查出来**。于是增删技能只要动 SKILLS 一处，下标自动跟上；
 // 而 key 写错会得到 −1，`has()` 一概不匹配 —— 那是**看得见**的失败，
 // 不是悄悄跑错一件技能。
+// 查不到的那几个 key 攒这儿，SK 表建完之后一次性报出来（见它下面那段）
+const skMissing = []
+
 function skAt(key) {
   for (let i = 0; i < SKILLS.length; i++) {
     if (SKILLS[i].key === key) return i
   }
-  // 查不到就炸 —— 这一层全是写死的字面量，查不到只可能是打错字，
-  // 而返回 −1 会让它伪装成「没带这件技能」一路跑下去
-  throw new Error('SKILLS 里没有这个 key：' + key)
+  // ---- 查不到**不再抛**〔2026-10-15，同一个坑栽第二次之后改的〕----
+  //
+  // 原先是 `throw`，理由写的是「这一层全是写死的字面量，查不到只可能是
+  // 打错字，而返回 −1 会让它伪装成『没带这件技能』一路跑下去」。
+  // **那个理由只对了一半**：「不能静默」是对的，「抛」是过头的 ——
+  //
+  //   源码那边删一件技能只要从 `DRAW_SKILLS` 去掉就行（`skillIndexOf`
+  //     返回 −1，不抛）；而这边同一个删法会让**模块加载即崩**，
+  //     于是 `sim.js` / `campaign.js` / `check.js` **全部起不来**。
+  //   **洪水栽过一次、霜降栽过第二次**，两次都是「改完游戏去跑模拟器
+  //     才发现」，而且报出来的是一条跟当前工作毫无关系的错。
+  //
+  // 现在返回 `SK_GONE`（永不匹配）**并记一笔**，由下面那段在表建完之后
+  // 打印 —— **不静默，但也不再把整个工具链拖下水**。
+  // 打错字照样会被报出来，而且报得更清楚（一次列出全部，不是撞上第一个就停）
+  skMissing.push(key)
+  return SK_GONE
 }
+
+// ---------- 已删技能的占位：**永不匹配** ----------
+//
+// `has(skills, SK_GONE)` 一概不中，所以那件技能的实现代码留在文件里
+// 但永远不执行 —— 留着是为了那几段设计记录（以及拿它当新原型的参照）。
+//
+// **删技能的时候要用这个，不能把 SK 里那一条直接删掉，也不能继续 skAt** ——
+// 两头都会出事，而且出的事不一样：
+//
+//   继续 `skAt('已删的 key')` → 那一项会落到 `skMissing` 里、
+//     启动时报一行警告。**数是对的**（`SK_GONE` 永不匹配），
+//     但警告会一直跟着你，直到有人来清；
+//   把 `SK.X` 整条删掉 → 读它的地方拿到 `undefined`，`has()` 静默不匹配。
+//     那**看着**跟这儿一样，但它藏住了「还有代码在读一件不存在的技能」
+//     这个事实，下次谁去改那段代码会以为它在生效。
+//
+// 写成有名字的常量就是为了让那个事实留在代码里。
+//
+// ---- 这一条是**跟源码对齐**，不是模拟器自己的发明 ----
+//
+// 源码那边是 `export const SK_FLOOD = skillIndexOf('flood')`，而
+// `skillIndexOf` **查不到返回 −1**（不抛）—— 所以源码删技能时那个导出
+// 自动变成一个永不匹配的 −1，一行都不用改。`draw-skills.uts` 那儿写着
+// 办法：「先让技能失效，再清死代码」，两步走。
+//
+// 模拟器现在也是这个行为了（`skAt` 不再抛，见它那段）——
+// **两边的删法从此一致**，只差一条启动警告提醒你回来清。
+const SK_GONE = -1
 
 const SK = {
   HOOK: skAt('hook'), TIDE: skAt('tide'), PEEK: skAt('peek'),
   SWAP: skAt('swap'), SUITED: skAt('suited'), LANTERN: skAt('lantern'),
-  FREEZE: skAt('freeze'), LOWTIDE: skAt('lowtide'), FLOOD: skAt('flood'),
+  FREEZE: skAt('freeze'), LOWTIDE: skAt('lowtide'),
+  // 洪水 2026-10-15 删了（源码同一天删的）。见 SK_GONE 那段 ——
+  // 这儿曾经拿 skAt 去查那个 key，而那让整个模拟器加载不起来。
+  //（注释里**不写那个调用的字面量** —— 「哪儿还在查已删的 key」
+  //  是要能 grep 出来的，而注释里的字面量会把结果搅浑）
+  FLOOD: SK_GONE,
   PICK: skAt('pick'), SUITIFY: skAt('suitify'),
   // ---- 【沉底】也删了〔2026-10-14〕----
   //
@@ -193,9 +420,16 @@ const SK = {
   //『删掉的技能和删除理由』那一节。三条共同的：
   //
   //   **压底族六件**（压邻 / 掏手 / 掏库 / 分水 / 封色 / 退潮）——
-  //     「替对手攒钱」：堆冻住、长厚，而厚堆的价值归最后能端走的那个人。
-  //     六件 X 全负，而「配一条兑现线」那个架构实测被证伪（七种配对
-  //     全在 +0.02~0.33）；
+  //     死因是**「兑现牌遇不上」**〔2026-10-15 从「替对手攒钱」改写〕：
+  //     压底造的局面（堆上一片钓不动的牌）只活 **3.3 回合**（堆的换手），
+  //     而兑现它的那件「要牌厚」的技能在**另一个槽**上、期望间隔 ≈3.6 手，
+  //     两件还共用每回合唯一一次出牌 —— 兑现平均来晚一步。
+  //     于是六件稳定实现的只有「堆变厚变死」这前半截，而那半截谁都能受益
+  //    （「替对手攒钱」是这个的现象，不是机制）。
+  //     六件 X 全负、**12 张槽上等比更负**（触发更多 = 付更多次代价），
+  //     而「配一条兑现线」那个架构实测被证伪（七种配对全在 +0.02~0.33）——
+  //     病不在缺兑现手段，在窗口对不上。
+  //     **这跟燎原 / 沸水死在同一个常量上**（见下面 CALM 那一带的注释）；
   //   **合流 / 抄底** —— 叠放那一族的兑现和反制，两件都是负的。
   //     合流的病根量清楚了：「多一个匹配点」只算了自己的好处，
   //     而**匹配是双向的**；
@@ -270,7 +504,11 @@ const SK = {
   // 特别要盯 `base` 那六个基线数：堆上常年有冰会让收牌普遍变难，
   // 而「每人每局约 24 分」是全表 X 的共同口径，它一漂别的全要重算
   FROST: skAt('frost'), HIDE: skAt('hide'),
-  COLDHUE: skAt('coldhue'), FROSTFALL: skAt('frostfall'),
+  COLDHUE: skAt('coldhue'),
+  // 霜降 2026-10-15 删了（『结冰族四件』那一节的结论：结凌和霜降两件都删）。
+  // 钉成 SK_GONE 而不是继续查表 —— **这是同一个坑的第二次**
+  //（第一次是洪水）。见 SK_GONE 那段，以及下面 skAt 为什么不再抛
+  FROSTFALL: SK_GONE,
   // ---------- 【燃烧】那一族的三件候选（2026-10-14 搬进来量） ----------
   //
   // 这一族现在**只剩野火一件** —— 燎原 / 焦壳 / 沸水三件全删了（见上面
@@ -366,6 +604,23 @@ const SK = {
   //     加上地板 +1.57 预估 ≈ **+4.5，正好在目标档正中**
   CHAIN: skAt('chain'),
   SURGE: skAt('surge')
+}
+
+// ---------- SK 表建完：把查不到的 key 一次性报出来 ----------
+//
+// 这几行替掉的是 `skAt` 原先那个 `throw`（见它那段）。两个区别都要紧：
+//   **不挂掉工具链** —— 整张表照常建起来，查不到的那几项按 SK_GONE 处理；
+//   **一次列全** —— 原先撞上第一个就停，剩下几个要修一次跑一次才看得见。
+//
+// 走 stderr 而不是 stdout：那几个脚本的输出常被重定向去比对，
+// 警告混进数据里会把 diff 搅浑
+if (skMissing.length > 0) {
+  console.error('⚠ SK 表里有 ' + skMissing.length + ' 个 key 在 SKILLS 里找不到：'
+    + skMissing.join(' ')
+    + '\n  两种可能：**打错字**（那就是 bug，去对一下 SKILLS 表），'
+    + '或者**技能删了而 SK 表没跟上**（洪水、霜降各栽过一次）。'
+    + '\n  后者的正确做法：把 SK 里那一项改成 `SK_GONE`（见它那段注释）——'
+    + '\n  现在这几项已经按 SK_GONE 在跑，所以**数是对的**，但该回来清。')
 }
 
 // ---------- 【寒色】【霜降】加「无点数 + 落堆底」那一档 ----------
@@ -816,12 +1071,11 @@ const WADE_OPT = { self: 'wild', step: 2, pileMin: 1, hand: WADE_HAND }
 // 删它们的时候这边的下标全前移了三位 —— 那正是源码改成 key 认身份
 // 要避免的事，而模拟器是副本，它只要跟着对齐就行
 
-// 掏手、掏库各掏几张。2 是按手牌 4 张定的 —— 掏一半
-const DUMP_COUNT = 2
-const SPILL_COUNT = 2
-// 退潮：**牌堆顶**几张各减它的牌面点数（照 draw-skills 的 EBB_COUNT）。
-// 原先是 2 张、范围是「它自己连左侧两张」
-const EBB_COUNT = 3
+// 〔DUMP_COUNT / SPILL_COUNT（掏手、掏库各掏 2 张）和 EBB_COUNT（退潮
+//   影响堆顶 3 张）都删了 —— 三件技能都删了。
+//   `fingerprint.js` 的 CONSTS 和 `baseline.json` 里对应的三项要跟着删，
+//   不删会每次报一条 MISSING（而噪音多了就没人看警报了，
+//   那是 SUIT_CAPACITY 那次留下的教训）〕
 // 见底：整堆压几点（照 ap-fishing 的 LOW_TIDE_STEP）
 const LOW_TIDE_STEP = 1
 
@@ -1341,12 +1595,28 @@ function coverageOf(lo, skill) {
 
 // ---------- 对局状态 ----------
 
+// 〔DECK_SIZE = 52 删了（2026-10-15）—— 它对应源码的 DECK_PLAY，那个也删了。
+//   「一局只进场 52 张」那道上限随终局规则一起退场，剩下的只有奇偶那一道，
+//   而它现在读 handLimit 算（见 newGame 里剔牌那段），不需要常量。〕
+
 function newGame(opts) {
   const rng = opts.rng
   const deck = shuffle(rng, opts.deck || standardDeck())
   const G = {
     rng: rng,
     deck: deck,
+    // ---- 下面三个在**囤饵塞完牌之后**才定（见那段「剔牌 → 切牌」）----
+    //
+    // 这儿只能先占位：剔牌要排在囤饵后面（它塞 3 张，奇数），
+    // 而切牌要排在 rankTotal 后面（切出那张仍在局内，得算进记牌的底数）。
+    // 而囤饵读 G.roles，所以它非得等 G 造出来。
+    //
+    // cutCard —— 开局切的那张；first —— 它定出来的先手（playGame 读它，
+    // 原先那儿写死 G.turn = FOE）；deckSize —— 这一局有几张牌在流通
+    //（守恒检查读它，**别写死 52**：商店能买卡、囤饵还会塞牌）
+    cutCard: null,
+    first: FOE,
+    deckSize: 0,
     // 两方的手牌、以及「这张被对方看见了吗」
     hands: [[], []],
     seen: [[], []],
@@ -1557,14 +1827,95 @@ function newGame(opts) {
   // 那等于给对手一份错账，而不是给自己一个优势
   baitFor(G, ME)
   baitFor(G, FOE)
+  // ---------- 开局剔牌：把**发完牌之后的牌库**凑成偶数张（2026-10-15） ----------
+  //
+  // 治的是：**流通牌数的奇偶不能让玩家牵着走**（商店能买卡）。
+  //
+  // ---- 当天改过两遍，现在是「只锁奇偶、而且锁牌库」 ----
+  //
+  // 上午是「超过 52 → 剔到 52，是奇数 → 再剔一张」（DECK_SIZE 那道上限）。
+  // 下午终局规则换成 TAIL=2 + 剩堆不算分之后：
+  //
+  //   **52 那道上限删了** —— 一局的长短本来就由牌库张数直接定，
+  //     而上限的代价是把买卡的语义削掉一块（买 12 张剔掉 12 张等于没买）；
+  //   **奇偶那道换了锁的对象** —— 锁「牌组 − 发牌数」而不是锁牌组。
+  //     发几张走 handLimit，而**添手（庄家 +1）/ 掐口（玩家 −1）会让发牌
+  //     总数变成奇数**，那时「牌组偶数」正好得出牌库奇数。原来那道闸漏了
+  //     这两条，而闯关里它们各占一关、恒偏庄家。
+  //
+  // ---- 位置是硬性的：**囤饵之后、rankTotal 之前** ----
+  //
+  // 囤饵塞 BAIT_COUNT = 3 张（**奇数**），排在它前面的话这道闸被它绕过去。
+  // 剔掉的牌这一局不在场，所以又得排在 rankTotal 前面：
+  // 不然庄家的记牌（outsideCount）会把剔掉的也算进「外面还剩几张」。
+  // 源码那边同一个顺序（ap-fishing 的 trimDeck，调用点在两次 baitFor 之后）
+  //
+  // ---- 为什么奇偶在 TAIL 之下还要紧 ----
+  //
+  // 它不再决定「剩堆归谁」（剩堆没归属了），但它决定**终局那几手的结构**。
+  // 实测（TAIL=2、BALANCE=old、各 20000 局，DROP 旋钮造奇偶）：
+  //
+  //              52张偶  50张偶  51张奇  49张奇
+  //   无 EVEN      +0.31   +0.30   −0.90   −0.91
+  //   有 EVEN      +0.31   +0.30   −0.38   −0.40
+  //
+  // 奇数时先手多摸一张 → 牌库空在他的回合末 → 终局是「后手打、先手打、
+  // 后手打」（后手打两手、其中一手被回应），而偶数时是「先手打、后手打」
+  //（后手那一手 100% 无人回应）。后手的终局优势被稀释一半。
+  // EVEN 那条只补回 43%，剩下 0.69 分是结构性的 —— 所以开局就得锁。
+  //
+  // ---- 剔除的语义 ----
+  //
+  // 剔的是**洗过之后的牌顶**，所以剔掉那一张是随机的。
+  // 最多剔 1 张（原先可能剔十几张），所以买卡的语义基本没损耗 ——
+  // 有极小概率剔掉刚买的那张。要「买的保证进场」就得在这儿跳过本轮买的，
+  // 那是商店那边的事
+  const dealt = handLimit(G, FOE) + handLimit(G, ME)
+  while (G.deck.length > dealt && (G.deck.length - dealt) % 2 !== 0) {
+    G.deck.pop()
+  }
+  // 【DROP】剔完之后再拿掉几张 —— 量奇偶用的实验旋钮，默认 0（见文件头那段）。
+  // 排在偶数闸**后面**，不然它拿掉的那张会被闸再补回来，整件事就不响了
+  for (let i = 0; i < DROP && G.deck.length > 0; i++) {
+    G.deck.pop()
+  }
   // 每个点数一共几张（照 buildRankTotals）—— 改造过的牌组不是恒定的 4 张
   for (let i = 0; i < G.deck.length; i++) {
     G.rankTotal[G.deck[i].rank] = (G.rankTotal[G.deck[i].rank] || 0) + 1
   }
-  // 开局各发满 HAND_SIZE，庄家先发、交替（照 newGame 末尾那个循环）
+  // ---- 开局切牌定庄（见文件头 CUT 那段）----
+  //
+  // 翻牌库顶那张：**红 → 庄家先手，黑 → 玩家先手**。
+  //
+  // **排在 rankTotal 之后**：切出那张进了先手的手牌、仍在这一局里，
+  // 所以它得算进记牌的底数（排前面的话庄家那本账少一张）。
+  //
+  // CUT=0 时庄家恒先手（旧口径）。
+  // `opts.fixFirst` 让调用方写死先手（量技能时用，见 sim.js 的 run）——
+  // 不写死的话 ME 一半时间是先手，而「先手值 / 后手值」那套口径
+  // 正是靠「配装给 ME 还是给 FOE」来区分的
+  G.cutCard = CUT && opts.fixFirst === undefined && G.deck.length > 0
+    ? G.deck.pop() : null
+  G.first = opts.fixFirst !== undefined ? opts.fixFirst
+    : (G.cutCard === null ? FOE : (isRedSuit(G.cutCard.suit) ? FOE : ME))
+  // 这一局一共有几张牌在流通（切出来那张也算 —— 它进了先手的手牌）。
+  // **囤饵塞的那几张算在里头**，所以这一行非得排在 baitFor 后面
+  G.deckSize = G.deck.length + (G.cutCard === null ? 0 : 1)
+  // ---- 切出来那张先给先手，**而且对手看得见** ----
+  //
+  // 它是公开翻出来的，所以 seen=true —— 那是先手为「定庄」付的小代价。
+  // 走 giveTo 而不是 drawFor：这张不是从牌库顶摸的，它已经在手上了
+  if (G.cutCard !== null) {
+    giveTo(G, G.first, G.cutCard, true)
+  }
+  // 开局各发满 HAND_SIZE，庄家先发、交替（照 newGame 末尾那个循环）。
+  // **先手已经有切出来那张了**，所以判一下别发超
   for (let i = 0; i < HAND_SIZE; i++) {
-    drawFor(G, FOE)
-    if (!(BALANCE === 'secondShort' && i >= HAND_SIZE - BAL_K)) drawFor(G, ME)
+    if (G.hands[FOE].length < HAND_SIZE) drawFor(G, FOE)
+    if (!(BALANCE === 'secondShort' && i >= HAND_SIZE - BAL_K)
+      && G.hands[ME].length < HAND_SIZE) {
+      drawFor(G, ME)
+    }
   }
   if (BALANCE === 'firstDeal') {
     for (let i = 0; i < BAL_K; i++) drawFor(G, FOE)
@@ -3146,109 +3497,40 @@ function doPilePick(G, which, i, side, step, card) {
   harvestPile(G, side, wanted)
 }
 
-// ---------- 【合流】：把紧挨着它那张叠到自己下面 ----------
+// 〔【合流】删了（把紧挨着它那张叠到自己下面、同时算那张的点数）。
+//   X = −1.14，而它的病根**是全表最常被引用的一条判据**：
 //
-// 「紧挨着它那张」只有一个候选，所以**零 UI**：
-//   普通落堆顶（at = 末尾）→ 它左边那张（at − 1）；
-//   沉底落堆底（at = 0）  → 它右边那张（at + 1）。
+//   > **匹配是双向的。** 注释原先写「三样好处、没有自带坏处」，据此把价
+//   > 提到 150 —— 错在把「多一个匹配点」只算成自己的好处。多一个钓点
+//   > 等于多一条**别人钓它**的路，而它底下压着一张、被钓走就送 2 分。
+//   > **这条是整个压注族的设计依据**（那一族因此一件都不用「追加」）。
 //
-// 三件连带的事：
-//   邻居**连它底下压着的那几张一起**跟过来（它们本来就在它下面），
-//     而那里头的**盾过来之后不再是盾** —— 保护是贴给那一张牌的，
-//     那张牌离场了保护就没有对象（反过来等于让合流顺手偷一层保护）；
-//   邻居身上的**在场效果当场失效**（它不再是当前牌，照净水的先例）；
-//   邻居从它那一格**离场** —— 不是被收走，没人得分。
-//     全表没有别的东西能「不收走就移掉一个堆位」，而那对量水（数张数）
-//     和吃水（累加链）都是实打实的影响
-function mergeFor(G, side, card) {
-  const at = pileIndexOf(G, card)
-  // 按说走不到：调用点紧跟在 pushPile / unshiftPile 后面，牌一定在堆上
-  if (at < 0) return
-  // 紧挨着它那张：它在堆底就看右边，否则看左边
-  const nb = at === 0 ? 1 : at - 1
-  if (nb < 0 || nb >= G.pile.length) return
-  const eaten = G.pile[nb]
-  // 拿副本：pileValsAt 返回的是 pileVals 里那一条的**引用**
-  const gained = pileValsAt(G, nb).slice(0)
-  // 邻居底下压着的那几张跟过来，一律当被埋的牌
-  const under = takeStack(G, nb)
-  G.stacked.push({ host: card, card: eaten, kind: STACK_BURIED })
-  for (let k = 0; k < under.length; k++) {
-    G.stacked.push({ host: card, card: under[k], kind: STACK_BURIED })
-  }
-  // 它身上的在场效果当场失效 —— 它不再是当前牌
-  cleanAt0(G, eaten)
-  // 把邻居那一格从堆上摘掉（六条平行数组一起），**不记分**
-  removePileAt(G, nb)
-  // 自己追加邻居的点数。下标可能因为摘掉邻居挪过了，所以重新找
-  const mine = pileIndexOf(G, card)
-  if (mine < 0) return
-  const now = pileValsAt(G, mine).slice(0)
-  // ---- 三道闸，都是跟别处的口径对齐，不是新立的规矩 ----
-  //
-  // 自己**无点数**（顺色 / 收色换掉了整个点数，或者被封色 / 压邻抹过）：
-  //   那说的是「这张牌的点数这件事本身不算了」，所以追加也进不来 ——
-  //   照顺色作废点数卡那条先例。不加这道，一张顺色牌打合流
-  //   就把无点数吃回了点数，而无点数是那几件换钓牌通道付的代价。
-  // **死水**废掉的牌：valuesOf 第一行就 return [0] 盖掉所有分支（含追加那支），
-  //   这儿不挡的话 pileVals 会写成「0 和 9」而判定只认 0 —— 两张嘴。
-  // **邻居**无点数：没有点数可吃，但堆位照样少一个、收走时照样算一张。
-  //
-  // 三种情况邻居都照吃（已经叠到底下了），只是点数不记
-  // 〔`isDead(G, card)` 那一项删了：死水改成「把牌变成 0 点牌」之后，
-  //   它就是一张普通的 0 点牌 —— 合流吃得动它的邻居，**那是对位解**〕
-  if (now.length === 0 || gained.length === 0) return
-  for (let k = 0; k < gained.length; k++) {
-    if (now.indexOf(gained[k]) < 0) now.push(gained[k])
-  }
-  G.pileVals[mine] = now
-  // 钓牌判定读的是 valuesOf，**不读 pileVals** —— 所以吃到的点数
-  // 还要单独交给它一份（见 G.mergeGain 的声明处）
-  G.mergeCard = card
-  G.mergeGain = gained
-}
+//   另外三条还在管事的：
+//   **无点数不该被「追加」吃回点数** —— 顺色 / 收色换掉整个点数是它们
+//     换钓牌通道付的代价，任何追加类效果都得先检查 `now.length === 0`；
+//   **「不收走就移掉一个堆位」是全表独一份的能力** ——
+//     而它对吃水（累加链）是实打实的影响；
+//   **盾换了宿主就不再是盾** —— 保护是贴给那一张牌的，那张牌离场了
+//     保护就没有对象（不然等于顺手偷一层保护）。〕
 
-// ---------- 【抄底】：掀走堆上所有被叠放的牌 ----------
+// 〔【抄底】删了（掀走堆上所有被叠放的牌）。两条留下来的：
 //
-// 不管宿主 —— 压在底下的全掀出来，宿主留在堆上。
-// 所以它是**保护的硬解**：盾就是被叠放的牌，一次全掀掉，宿主当场裸着。
-//
-// **对双方都生效**，那是有意的：它会把自己垫的盾、埋的牌一起收走，
-// 所以得算「掀掉赚几分 vs 拆掉自己几个锅」。
-// 改成「只收对方的」就没有决策了，只是个按钮。
-//
-// ---- 掀走抬水垫的那张，它加的点数**不退** ----
-//
-// 照净水那条「清标签不清结果」—— 抬水的加点早写进 pileVals 了，
-// 而抄底收的是**牌**，不是账。退回去就得问「退完撞上谁、要不要再判一次
-// 匹配」，那是连锁判定。
-//
-// 不走 harvestAt：被叠放的牌**不在堆上**，而那个函数是按堆的下标走的。
-// 直接结算 + 记分，跟收色散收一个路子
-function dredgeFor(G, side) {
-  if (G.stacked.length === 0) return
-  let got = 0
-  for (let i = 0; i < G.stacked.length; i++) {
-    G.gone.push(G.stacked[i].card.rank)
-    got++
-  }
-  G.stacked = []
-  G.score[side] += got
-  G.stat.catches[side]++
-  G.stat.caught[side] += got
-}
+//   **清标签不清账** —— 抬水的加点早写进 pileVals 了，而「收走那张牌」
+//     不该把账退回去：退了就要问「退完撞上谁、要不要再判一次匹配」，
+//     那是连锁判定。净水那条先例也是这么定的；
+//   **不在堆上的牌不能走 harvestAt** —— 那个函数按堆的下标走。
+//     被叠放的牌、手里的牌都得另走一条结算 + 记分的路。〕
 
 // ---------- 打出之后的技能（照 afterPlay / afterPlayHead / afterPlayTail） ----------
 //
-// 顺序严格照源码：
-//   量水 → 窥视 → 照水 → 压邻 / 封色 / 分水 → 掏手 → 掏库 → 窄口 → 满篓
-//   → 干塘 或 见底 → 退潮 → 洪水 → 收色 → 撒网 → 对换 / 摘钩 / 压舱
-//   → 冻结 → 换水 → 择饵 → 同花 → 同号 → 观潮
+// 顺序严格照源码（删掉的那几件已经从这串里摘了）：
+//   窥视 → 照水 → 窄口 → 满篓 → 见底 → 洪水 → 收色 → 撒网
+//   → 对换 / 摘钩 / 压舱 → 冻结 → 换水 → 择饵 → 同号 → 观潮
 // 源码里收牌要演特效，拆成了 head / tail 两段靠定时器接力；这边直接顺着跑。
 // 玩家那几件要停下来等人选（freezePending 等），模拟里两侧都走 AI 的启发式。
 //
-// 这时候打出那张**已经在堆上**，所以挂效果的那几件（inPile）一般都挂得上 ——
-// 除非量水先把它收走了。挂上之后它要是在匹配那一步钓到牌，效果跟着失效
+// 这时候打出那张**已经在堆上**，所以挂效果的那几件（inPile）一般都挂得上。
+// 挂上之后它要是在匹配那一步钓到牌，效果跟着失效
 function afterPlay(G, side, skills, played, ai) {
   // ---- 燃烧那三件排在**最前面** ----
   //
@@ -3442,19 +3724,6 @@ function afterPlay(G, side, skills, played, ai) {
 
 // 量水：点数正好等于**堆上张数（含它自己）** → 整堆连它一起收走（照 measureFor）。
 // 护着的牌是网里的洞：堆上只要有一张钓不走的，这一网就撒不下去
-function measureFor(G, side, skills, played) {
-  const at = pileIndexOf(G, played)
-  if (at < 0) return
-  const size = G.pile.length
-  if (!anyEquals(valuesOf(G, played, skills), [size], 0)) return
-  for (let i = 0; i < size; i++) {
-    if (i !== at && guardedAgainst(G, i, side)) return
-  }
-  G.stat.catches[side]++
-  G.stat.caught[side] += size
-  collect(G, side, 0, size)
-}
-
 // 观潮：顶上那几张里标了的沉底、没标的留在顶上，两头都保持原来的先后（照 sinkMarked）。
 // marks 跟 topCards 对齐，第 0 个是最顶上那张
 function sinkMarked(G, marks) {
@@ -3550,31 +3819,11 @@ function peekFor(G, side) {
   G.seen[other][pickOne(G.rng, hidden)] = true
 }
 
-// ---------- 掏手 / 掏库：往堆上倒垃圾（照 dumpFor / spillFor） ----------
-//
-// 两件掏出来的牌点数**写死 0，不走 landVals** —— 它们本来就是当垃圾用的，
-// 场上的抹点数效果再抹一遍只会把 0 抹成空，而那恰好破了
-// 「0 点见底扫得走」那条设计（无点数见底跳过）
-
-// 掏手：从对方手里随机掏 DUMP_COUNT 张
-function dumpFor(G, side) {
-  const other = side === ME ? FOE : ME
-  for (let n = 0; n < DUMP_COUNT; n++) {
-    if (G.hands[other].length === 0) break
-    const card = takeFromHand(G, other, randInt(G.rng, G.hands[other].length))
-    pushPile(G, card, other, GUARD_NONE, [0])
-  }
-}
-
-// 掏库：从牌库顶掏 SPILL_COUNT 张。**烧牌库** —— 双方共用一个，
-// 烧掉的谁也摸不到，所以这一局提前收场
-function spillFor(G, side) {
-  for (let n = 0; n < SPILL_COUNT; n++) {
-    if (G.deck.length === 0) break
-    const card = G.deck.pop()
-    pushPile(G, card, side, GUARD_NONE, [0])
-  }
-}
+// 〔掏手 / 掏库（往堆上倒垃圾）都删了。
+//   它们留下一条**还在管事的**：那种「不是打出、只是塞到堆上」的牌
+//   点数要**写死，不走 landVals** —— 场上的落堆效果再作用一遍会
+//   把它变成别的东西。现在走这条路的是【填塘】（补 0 点牌）
+//   和【倒灌】，两处都写死〕
 
 /// ---------- 减点数那一族（照 dropVals / anyLive / dropPile） ----------
 
@@ -3626,32 +3875,13 @@ function lowTideFor(G, side) {
   if (taken.length > 0) harvestPile(G, side, wantedOf(G, taken))
 }
 
-// 组合技【干塘】：退潮 × 见底。整堆各减这张的**牌面点数**，收走归零的（照 ebbTideFor）
-function ebbTideFor(G, side, card) {
-  const step = card.value
-  if (step <= 0 || G.pile.length === 0) return
-  const taken = dropPile(G, step)
-  if (taken.length > 0) harvestPile(G, side, wantedOf(G, taken))
-}
-
-// 退潮：**牌堆顶** EBB_COUNT 张各减这张的牌面点数。**不收牌**（照 ebbFor）。
-// 读牌面点数，不读 valuesOf（那是 0，减 0 等于没减）。
+// 〔【退潮】和组合技【干塘】（退潮 × 见底）都删了。两条留下来的：
 //
-// 范围原先是「它自己连左侧两张」，所以它必须留在堆上、位置还得够深
-//（沉底会把它废掉）。改成堆顶之后**不再依赖它在哪** ——
-// 沉底落堆底、或者被前面的技能收走都照样退。
-// dropVals 对空列表原样返回，所以没有点数的牌自动跳过
-function ebbFor(G, card) {
-  const step = card.value
-  if (step <= 0 || G.pile.length === 0) return
-  const from = Math.max(0, G.pile.length - EBB_COUNT)
-  for (let i = from; i < G.pile.length; i++) {
-    // **rawVals 不是 pileValsAt**：这一行**写** pileVals，
-    // 从带在场效果的那个读就会把效果写死（焦壳在场时 → 空点数永久化）。
-    // 退潮改的是「存着的点数」，所以读也该读存着的
-    G.pileVals[i] = dropVals(rawVals(G, i), step)
-  }
-}
+//   **「写 pileVals 的那一行必须读 rawVals，不能读 pileValsAt」** ——
+//     从带在场效果的那个读会把效果**永久写死**。这是全文最容易犯的一处，
+//     而退潮那一行是它的典型（见 rawVals 那段，见底 / 抬水也走这条）；
+//   **「两件撞一张牌就换一种结算」的组合技形状** —— 干塘是全表唯一一个，
+//     现在没有活着的件在用它，位置空着。〕
 
 // 洪水：从牌库一张张往堆上翻，直到撞上点数（照 floodFor）。
 // 判撞在落堆之前，翻上去的牌不带技能，翻空了就是白打。
@@ -4591,23 +4821,10 @@ function pullFromDeck(G, side, card) {
   return true
 }
 
-// 同花：翻牌库顶拿第一张同花色的，翻过的其余**洗回牌库**
-function suitFindFor(G, side, card) {
-  const flipped = []
-  let got = null
-  while (G.deck.length > 0) {
-    const one = G.deck.pop()
-    // 认牌面花色 —— 牌库里的牌还没落堆，染水碰不到它们
-    if (sameSuit(G, one.suit, card.suit, side)) { got = one; break }
-    flipped.push(one)
-  }
-  if (flipped.length > 0) {
-    G.deck = shuffle(G.rng, G.deck.concat(flipped))
-  }
-  if (got !== null) {
-    giveTo(G, side, got, false)
-  }
-}
+// 〔【同花】删了（翻牌库顶拿第一张同花色的，翻过的洗回牌库）。
+//   它留下一条：**从牌库检索的件，翻过的牌要洗回去而不是沉底** ——
+//   沉底的话玩家就数得出那几张什么时候回来，等于附赠一份牌库情报，
+//   而那不是这类技能卖的东西。【同号】和【传火】的 pullFromDeck 走的是这条〕
 
 // ---------- 这张打出去，会让【燃烧】闭合吗？能的话扫走几张 ----------
 //
@@ -4919,10 +5136,11 @@ function spreadFire(G) {
   G.pileBurn = next
 }
 
-// 跑完一整局。庄家先手（照 newGame 末尾的 startFoeTurn）
+// 跑完一整局。**先手由开局切牌定**（见 newGame 的 CUT 那段）——
+// 原先这儿写死 FOE（庄家恒先手）
 function playGame(opts, ai) {
   const G = newGame(opts)
-  G.turn = FOE
+  G.turn = G.first
   // 不变量自检的钩子（check.js 用）。不传就是 null → 每次迭代一次 falsy
   // 判断，零开销。
   //
@@ -4942,6 +5160,34 @@ function playGame(opts, ai) {
     // 验**上一手**留下的状态。挂在开头而不是结尾 —— 下面两条 continue
     // 会把结尾的检查跳过去
     if (G.onStep) G.onStep(G)
+    // ---------- 【TAIL】牌库空之后只许再打这么多手 ----------
+    //
+    // 默认 Infinity，所以现行规则一个字节都不受影响。
+    //
+    // **判在这儿而不是 checkOver 里**：checkOver 答的是「还打得出牌吗」，
+    // 这条答的是「还许不许打」—— 两件事缠在一起的话，
+    // 「双方都被冻住」那条死锁判断会跟着变味。
+    //
+    // 循环外那段剩堆处理（BALANCE 那一支）照旧生效，G.lastSide 也照旧是
+    // 最后真打了一手的那一方 —— 所以 TAIL 和 BALANCE 能自由组合着量
+    if (TAIL !== Infinity && G.deck.length === 0) {
+      if (G.tailFrom === undefined) G.tailFrom = G.stat.plays[ME] + G.stat.plays[FOE]
+      if (G.stat.plays[ME] + G.stat.plays[FOE] - G.tailFrom >= TAIL) {
+        // 【EVEN】双方出牌数不等就让少打的那一方再补一手（见文件头那段）。
+        //
+        // 两道防护，照源码 checkOver：
+        //   补不出来（手牌空 / 全被冻住）就照旧收摊 —— 不然碰上冻结会死循环；
+        //   **只补一手**（终局最多 TAIL+1 手）—— 差额能大于 1（庄家的
+        //     【再钩】一个回合打两张），不限幅就会一路补到手牌打光
+        const short = G.stat.plays[ME] < G.stat.plays[FOE] ? ME
+          : (G.stat.plays[FOE] < G.stat.plays[ME] ? FOE : -1)
+        const room = G.stat.plays[ME] + G.stat.plays[FOE] - G.tailFrom < TAIL + 1
+        if (!(EVEN && short >= 0 && room && playableCount(G, short) > 0)) {
+          G.over = true
+          break
+        }
+      }
+    }
     const side = G.turn
     G.stat.turns++
     trail.push(side === ME ? 'me' : 'foe')
@@ -5011,5 +5257,7 @@ module.exports = {
   // 【伏流】的代价旋钮 —— ai.js 的「安全饵」判断要读它
   //（FLOW_VOID=0 时它有点数，就不再是钓不走的安全饵了）
   FLOW_VOID,
+  // 这一跑用的是哪一套规则（抬头印它，别各自拼 env —— 见它那段注释）
+  ruleTag,
   newGame, playFor, playGame, valueOfRank
 }

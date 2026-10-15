@@ -90,12 +90,29 @@ function check(G, st, where) {
   // 这样桶清单万一不全，报的是「该补桶」而不是一串假的泄漏
   if (st.total === null) {
     st.total = n
-    if (n !== 52) {
-      return '局首总张数 ' + n + ' ≠ 52 —— 桶清单漏了地方\n'
+    // ---- 判据 2026-10-15 换了：盯**牌库**的奇偶，不盯总数 ----
+    //
+    // 原先判的是「总数 ≤52 而且是偶数」。两半都过期了：
+    //
+    //   **「≤52」** —— DECK_SIZE 那道上限删了，牌组现在可以任意厚；
+    //   **「总数偶数」** —— 剔牌闸锁的是「牌组 − 发牌数」，而发牌数走
+    //     handLimit，**添手（庄家 +1）/ 掐口（玩家 −1）会让它变成奇数** ——
+    //     那时总数正好是奇数。所以总数的奇偶不再是不变量，
+    //     **局首牌库的奇偶**才是（那正是闸保证的东西）。
+    //
+    // 总数那一条换成了个下限，目的没变：抓「桶清单漏了一个」——
+    // 漏一个桶总数会掉到 47 之类，那种错要当场报出来，
+    // 而不是被下面「以局首为基准」那条自校准吞掉。40 是 DECK_MIN。
+    //
+    // 切出来那张**仍在局内**（进了先手的手牌），所以照样数得到。
+    // 〔跑 `DROP=k` 那个实验旋钮时这条会报 —— 它就是故意去改奇偶的〕
+    if (b.deck % 2 === 1 || n < 40) {
+      return '局首牌库 ' + b.deck + ' 张、总数 ' + n
+        + ' —— 牌库该是偶数、总数不该低于 40（见 rules.js 那道剔牌闸）\n'
         + '    现在数的是：' + BUCKETS.join(' + ') + '\n'
         + '    明细：' + bucketText(b) + '\n'
         + '    （另外 held=' + G.held.length + '）\n'
-        + '    **这不是规则 bug，是 check.js 要补桶。**'
+        + '    **这多半不是规则 bug，是 check.js 要补桶。**'
     }
   } else if (n !== st.total) {
     return '牌数不守恒：' + st.total + ' → ' + n + '（' + (n - st.total > 0 ? '+' : '')
@@ -254,7 +271,9 @@ function kitOf(roleKey, keys) {
 }
 
 // 哪几组**该**见到冰 / 火。见 main 里那段：正面点名，不靠 key 猜
-const FROST_CASES = ['frostfall', 'frost', 'fire']
+// 〔'frostfall' 那一组 2026-10-15 改名成 'coldhue' —— 霜降删了，
+//   驻场那一组换寒流当代表〕
+const FROST_CASES = ['coldhue', 'frost', 'fire']
 const BURN_CASES = ['burn', 'fire']
 
 // ---------- 六组配置 ----------
@@ -266,16 +285,23 @@ const CASES = [
     build: function () { return { mine: R.emptyLoadout(), foe: R.emptyLoadout(), myRole: -1 } }
   },
   {
-    key: 'frostfall', label: '霜降单件（驻场效果，最容易出错）',
+    // 〔原先这一组是**霜降**单件（技能 2026-10-15 删了）。换成寒流 ——
+    //   它是这一族现在唯一的驻场件，而「驻场」正是这一组要压的那条路
+    //   （效果挂在一张随时被钓走的牌上，`held` + `inPile` 那套）。
+    //   寒流还多压两条：**无点数**（ICE_VOID）和**落堆底**（ICE_SINK），
+    //   那两条只作用在它身上，没有第二个用例覆盖〕
+    key: 'coldhue', label: '寒流单件（驻场 + 无点数 + 落堆底，最容易出错）',
     build: function () {
-      return { mine: kitOf('lock', ['frostfall']), foe: R.emptyLoadout(), myRole: -1 }
+      return { mine: kitOf('lock', ['coldhue']), foe: R.emptyLoadout(), myRole: -1 }
     }
   },
   {
-    key: 'frost', label: '结冰四件全上（我方）',
+    // 〔霜降删了，所以这一组从四件变**三件**。名字留着 'frost' ——
+    //   它指的是「这一族全上」，不是「四件」〕
+    key: 'frost', label: '结冰族全上（我方三件）',
     build: function () {
       return {
-        mine: kitOf('lock', ['frost', 'hide', 'coldhue', 'frostfall']),
+        mine: kitOf('lock', ['frost', 'hide', 'coldhue']),
         foe: R.emptyLoadout(), myRole: -1
       }
     }
@@ -288,10 +314,14 @@ const CASES = [
     //
     // 野火**故意不带** —— 它不走 lightAt（自己过滤完再 doWildPick），
     // 所以它压不到新那几件共用的那道闸
-    key: 'burn', label: '燃烧四件（传火 / 引火 / 布火 / 余烬）',
+    // 〔原先这组是四件 ['chain','kindle','place','ember'] ——
+    //   布火和余烬 2026-10-14 删了。**这是同一个坑的第二次**
+    //   （见下面 fire 组那条注释：沸水删了没同步，整组抛「没有这个技能」）。
+    //   所以这儿留一句：**删技能的时候要搜一遍 check.js 的 CASES。**〕
+    key: 'burn', label: '燃烧两件（传火 / 引火）',
     build: function () {
       return {
-        mine: kitOf('lock', ['chain', 'kindle', 'place', 'ember']),
+        mine: kitOf('lock', ['chain', 'kindle']),
         foe: R.emptyLoadout(), myRole: -1
       }
     }
@@ -301,11 +331,15 @@ const CASES = [
     // 相消的两个方向（addFrostAt 清火 / iceMeltsFire 清冰）在这儿
     // 每局要撞上几十次。原先这组写的是 ['wild', 'boil']，
     // 可沸水 2026-10-13 就删了 —— 那会让整组直接抛「没有这个技能」
-    key: 'fire', label: '结冰四件 vs 燃烧四件（冰火相消的对撞）',
+    key: 'fire', label: '结冰族 vs 燃烧两件（冰火相消的对撞）',
     build: function () {
       return {
-        mine: kitOf('lock', ['frost', 'hide', 'coldhue', 'frostfall']),
-        foe: kitOf('lock', ['chain', 'kindle', 'place', 'ember']), myRole: -1
+        // 〔霜降 2026-10-15 删了，这一组从四件变三件。
+        //   **撞击密度因此掉了一档** —— 霜降是唯一「落堆就贴冰」的，
+        //   它一走，冰的产出只剩「自带」和「贴手牌」两条路。
+        //   要是哪天这组压不出问题了，先怀疑是密度不够、不是 bug 没了〕
+        mine: kitOf('lock', ['frost', 'hide', 'coldhue']),
+        foe: kitOf('lock', ['chain', 'kindle']), myRole: -1
       }
     }
   },
@@ -320,7 +354,9 @@ const CASES = [
     build: function () {
       return {
         mine: kitOf('lock', ['surge', 'frost', 'hide']),
-        foe: kitOf('lock', ['surge', 'frostfall']), myRole: -1
+        // 〔对手那边原先是 ['surge', 'frostfall'] —— 霜降删了，换寒流。
+        //   这一组要的是「对手也在产冰」，寒流同样满足〕
+        foe: kitOf('lock', ['surge', 'coldhue']), myRole: -1
       }
     }
   },
@@ -454,8 +490,8 @@ function main() {
     }
     if (BURN_CASES.indexOf(cs.key) >= 0) {
       if (st.burnSeen === 0) {
-        console.log('    ⚠ 一张堆上的火都没见过 —— 新那三件根本没生效。'
-          + '对一下 SK.EMBER/KINDLE/RELAY 的下标和 afterPlay 那一段')
+        console.log('    ⚠ 一张堆上的火都没见过 —— 燃烧那几件根本没生效。'
+          + '对一下 SK.WILD/KINDLE/CHAIN 的 key 和 afterPlay 那一段')
         failed++
       } else {
         console.log('    火：堆上 ' + st.burnSeen + ' 手、手里预约的 '

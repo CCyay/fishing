@@ -452,6 +452,29 @@
       <text class="quit-text">退出这一局</text>
     </view>
 
+    <!-- 开局切牌：那张牌先停在中间给人看清，再飞向它该去的那一边。
+         规则是**按红黑**定先后手，所以这一下必须看清花色的颜色 ——
+         那也是底下那行字要带「红 →」「黑 →」的原因。
+
+         它是**纯视觉层**：牌在 newGame 里早就发进手牌了，这儿盖的是副本
+         （见 cutFly 的声明）。所以动画出问题也不影响对局。
+         交互在动画期间由 canPlay 里那条 `cutPhase == 0` 锁住 -->
+    <view v-if="cutPhase > 0" class="cut-layer">
+      <view
+        id="ap-cut-card"
+        class="card cut-card"
+        :class="{ 'cut-card-to-foe': cutPhase == 2 && cutToFoe, 'cut-card-to-me': cutPhase == 2 && !cutToFoe }">
+        <!-- 牌面走 computed（cutFace / cutSuit / cutRed）而不是在模板里
+             断言 `cutFly!` —— 那张牌是可空的，而模板里的非空断言
+             在 uvue 的编译里不保险 -->
+        <text class="card-rank cut-rank" :class="{ 'card-red': cutRed }">{{ cutFace }}</text>
+        <text class="card-suit cut-suit" :class="{ 'card-red': cutRed }">{{ cutSuit }}</text>
+      </view>
+      <!-- 飞走那一段把字一起淡掉 —— 留着的话它会在半空中突然没了牌、
+           只剩一行字，那比没动画更怪 -->
+      <text class="cut-note" :class="{ 'cut-note-gone': cutPhase == 2 }">{{ cutLine }}</text>
+    </view>
+
     <!-- 剩牌：点顶栏那个牌库数字打开。
          ---- 为什么报的是「外面还剩」而不是「牌库里剩」 ----
 
@@ -661,6 +684,8 @@
     DIFF_HARD,
     // 牌组上限。【囤饵】往牌库塞牌之前要兜一道
     DECK_CAP,
+    // 〔DECK_PLAY 2026-10-15 删了 —— 「一局只进场 52 张」那道上限没了，
+    //   现在开局只剔 0~1 张凑牌库的奇偶，见 trimDeck〕
     // 闯关的庄家角色：名字 + 那几条庄家专属特殊技（按关号查，见 foeAt）
     foeRoleAt,
     foeRoleHas,
@@ -1008,9 +1033,54 @@
   // 这一方打出过几张牌 —— 【稳钩】要数「前 N 张」
   let myPlayed : number = 0
   let foePlayed : number = 0
-  // 最后一手是谁打的 —— 终局剩堆归**另一方**（见 checkOver 的 leftoverFor）。
-  // playFor 每次出牌都写，所以「技能逼着打」「对流插的那张」都算一手
-  let lastByFoe : boolean = false
+
+  // ---------- 终局：牌库空了，双方各再打 1 手就收摊（2026-10-15 规则变更） ----------
+  //
+  // 原先是「手里的牌打完才收摊」（各 4 张 = 8 手），而**后手优势的 96%
+  // 就出在那 8 手里**：那个阶段手牌只减不补、选择面逐手萎缩、钓中率往下掉，
+  // 而后手在每一轮都后打、每一手都能回应。拿「无补充阶段的长度」当自变量
+  // 量出来是一条很干净的曲线（各 20000 局，剩堆不算分）：
+  //
+  //   阶段长度   8 手    6 手    4 手    2 手    0 手
+  //   后手分差   +3.03  +1.92  +1.25  +0.31  +0.33
+  //
+  // **2 手和 0 手统计上分不开**（差 0.02，标准误 0.08），所以取 2 手而不是
+  // 「牌库一空立刻停」—— 手里的牌还能打一张（不然玩家是被硬收走东西），
+  // 而且「抽空牌库提前收摊」那条新路子的收益被这两手摊薄。4 手就不行了（+0.82）。
+  //
+  // ---- 它和「堆里剩下的牌不算分」是成套的，拆开用会坏 ----
+  //
+  // 同一组数里，剩堆改判给先手的那一列是 −0.08 / −1.27 / −1.87 / −2.23：
+  // **终局一缩短，后手优势跟着没了，再把剩堆判给先手就是过补。**
+  // 所以 leftoverFor 整个删了（原先它把剩堆判给「没打最后一手」的一方）。
+  //
+  // 换来的是这一整轮要的东西：**剩堆没有收款人，于是「让牌卡在堆上」
+  // 不再偏向任何一方**。实测 D（先手溢价）：死水 +2.87 → +0.08、
+  // 净水 +1.35 → +0.08、寒流 +1.37 → +0.11、霜降 +1.37 → +0.12、
+  // 藏凌 +1.10 → +0.06；逆流船夫 +8.42 → +3.95、深海钓手 +5.95 → +3.05
+  //（那两张文档挂了「要重新定档」的账，就这么结了）。
+  //
+  // 这也是**牌组不用再剔成偶数**的原因（trimDeck 跟着删了）：
+  // 奇偶原先决定「谁打最后一手」，而那件事现在不值钱了。
+  const TAIL_PLAYS : number = 2
+  // 牌库刚空那一刻双方合计打了几手。−1 = 牌库还没空过。
+  // checkOver 拿它数「还许打几手」，newGame 重置
+  let tailFrom : number = -1
+  // ---------- 开局切牌定庄（2026-10-15） ----------
+  //
+  // 这一局谁先手。**开局翻一张定**：红 = 庄家先手、黑 = 你先手
+  //（见 newGame 里切牌那段）。原先这件事是写死的 —— 庄家恒先手。
+  //
+  // 为什么要改：52 张全要打出 → 总共 52 手 → 后手打第 52 手，
+  // 而终局剩堆归「没打最后一手」的一方 → **剩堆每一局都归先手**。
+  // 那不是概率上的偏，是每一局都如此，而闯关里先手恒是庄家 ——
+  // 于是那份补贴每局都落在它身上（设计文档『终局剩堆』第一条、第四条）。
+  //
+  // 切牌不改剩堆归属（照旧归先手），它改的是**谁当先手**：
+  // 于是你有一半的局拿得到剩堆。实体牌桌上「切牌定庄」是现成的仪式，不用解释。
+  //
+  // 只在开局分派一次（newGame 末尾），所以是个普通变量，不是 ref
+  let firstByFoe : boolean = true
 
   // 特殊技能的几个定值。不升级，所以每件就一个数 ——
   // 挑定的理由在 draw-skills 的 SPECIAL_SKILLS 表里各自那段
@@ -1186,6 +1256,53 @@
   const flyOn = ref<boolean>(false)
   const flashMe = ref<boolean>(false)
   const flashFoe = ref<boolean>(false)
+
+  // ---------- 开局切牌的动画（2026-10-15） ----------
+  //
+  // **它是纯视觉层，一条规则都不碰** —— 牌在 newGame 里早就发进手牌了
+  //（见那段 `cutCard` 的处理），这儿只是在上面盖一张一模一样的牌，
+  // 让它从中间飞到该去的那一边。所以动画出任何问题都不会影响对局。
+  //
+  // 为什么要这个动画：切牌定的是**谁先手**，而那是整局唯一一次「凭一张牌
+  // 决定一件大事」。原先它只有一行 message，玩家的体验是
+  // 「我手里莫名多了一张明牌，而且不知道为什么轮到我先打」。
+  //
+  // 两段：先在中间**停住给人看清**（花色和颜色都要看清，因为规则是红黑），
+  // 再飞向目标手牌。两段都走 CSS transition，不用逐帧
+  const cutFly = ref<PlainCard | null>(null)
+  // 飞向哪一边：true = 庄家（往上），false = 你（往下）
+  const cutToFoe = ref<boolean>(false)
+  // 0 = 不显示，1 = 停在中间，2 = 飞走
+  const cutPhase = ref<number>(0)
+  let cutTimer : number = -1
+  // 停多久、飞多久。停的那下要够看清花色 ——
+  // 比收牌特效（亮 500ms）长一点，因为这张牌要「读」而不只是「看到」。
+  //
+  // ⚠ CUT_FLY_MS 要跟 `.cut-card` / `.cut-note` 的 transition-duration
+  // 对上（420ms）。**两处分开写是没办法的事** —— CSS 里读不到 UTS 常量。
+  // 改一个就要改另一个，不然牌会在飞到一半时被 v-if 摘掉
+  const CUT_HOLD_MS : number = 700
+  const CUT_FLY_MS : number = 420
+
+  // 切出那张牌的牌面 —— 模板读这三个，不在模板里断言 `cutFly!`
+  const cutFace = computed<string>(() : string => {
+    const c = cutFly.value
+    return c == null ? '' : rankFace(c!.rank)
+  })
+  const cutSuit = computed<string>(() : string => {
+    const c = cutFly.value
+    return c == null ? '' : c!.suit
+  })
+  const cutRed = computed<boolean>(() : boolean => {
+    const c = cutFly.value
+    return c != null && isRed(c!)
+  })
+  // 「红 → 庄家先手」/「黑 → 你先手」。**这一句是动画的全部信息量** ——
+  // 牌给人看颜色，这行字说它因此定了什么。开局那条 message 里原先也有
+  // 同样一句，重复了，所以那边删掉了（见 newGame 末尾那段）
+  const cutLine = computed<string>(() : string => {
+    return cutToFoe.value ? '红 → 庄家先手' : '黑 → 你先手'
+  })
   // ---------- 挂在牌上的效果 ----------
   //
   // 有几个技能的效果要**跨回合**，而且解除条件是「打出它的那张牌离场」——
@@ -1378,7 +1495,14 @@
 
   // 结算框亮出来停一拍，再让那颗心碎掉；有上一个商店的话，碎完自己退回去
   function loseHeart(before : number, max : number, backToShop : boolean) {
-    heartMax.value = max
+    // 画几个格子：**取「上限」和「手上实际有几点」里大的那个**。
+    //
+    // 两个数会对不上，而且是正常情形：`ensureLives` 只在生命见底时补满，
+    // 所以难度表一调（2026-10-15 生命从 4/3/2 退回 3/2/1），**改版前就在进行中
+    // 的那一轮手上可能比新上限还多一点**。按 max 画的话那一轮会少画一个格子，
+    // 碎掉的那颗就落在了画不出来的位置上。
+    // 存档不去动它 —— 输一次就自己落回上限内，而夹存档等于偷走玩家一条命
+    heartMax.value = before > max ? before : max
     heartBefore.value = before
     heartBroken.value = false
     heartTimer = setTimeout(() => {
@@ -1395,6 +1519,10 @@
       && !swapPending.value && !freezePending.value && !pickPending.value
       && takeSkill.value < 0 && giveBack.value < 0 && !twinPending.value
       && pilePick.value < 0
+      // 切牌还飞在半空 —— 这一条跟 catching 同理（动画期间不许动手）。
+      // 你先手时 startMyTurn 已经跑过了（myTurn=true），所以不拦这一下
+      // 就能抢在那张牌落地之前出牌
+      && cutPhase.value == 0
       && hand.value.length > 0
   })
 
@@ -1922,6 +2050,62 @@
       list[j] = tmp
     }
     return list
+  }
+
+  // ---------- 开局剔牌：把**发完牌之后的牌库**凑成偶数张（最多剔 1 张） ----------
+  //
+  // ---- 2026-10-15 改了两处，先说删掉的那一道闸 ----
+  //
+  // 原先是「剔到不超过 DECK_PLAY（52）张、而且牌组是偶数」。**52 那道上限
+  // 删了**：它当初守的是「技能触发率表按 52 张算」和「一局不越拖越长」，
+  // 可代价是把买卡的语义削掉一块（买 12 张、剔掉 12 张，等于没买）。
+  // 终局规则改成「牌库空 + 双方各打 1 手」之后，一局的长短本来就由牌库
+  // 直接定，上限没必要了 —— 牌组现在可以任意厚（上限只剩 DECK_CAP 那个
+  // 「权重池」语义）。
+  //
+  // ---- 偶数这一道**必须留**，而且锁的是牌库、不是牌组 ----
+  //
+  // 实测（TAIL_PLAYS=2、剩堆不算分、各 20000 局，`md-sim` 的 DROP 旋钮）：
+  //
+  //              52张偶  50张偶  51张奇  49张奇
+  //   后手分差     +0.31   +0.30   −0.90   −0.91
+  //   出牌数相等后  +0.31   +0.30   −0.38   −0.40
+  //
+  // 奇数那两档偏的是**终局那几手的结构**：牌库奇数张时先手多摸一张，于是
+  // 牌库空在他的回合末 ——
+  //   偶数 → 终局是「先手打、后手打」，后手那一手 100% 无人回应；
+  //   奇数 → 终局是「后手打、先手打、后手打」，后手打两手、其中一手被回应。
+  // 后手的终局优势被稀释一半。「双方出牌数要相等」那条（见 checkOver）
+  // 只补回 43%，剩下的 0.69 分补不掉 —— 所以奇偶得在开局就锁死。
+  //
+  // **锁牌库而不是锁牌组**：发几张走 handLimit，而【添手】（庄家 +1）和
+  // 【掐口】（玩家 −1）会让发牌总数变成奇数 —— 那时「牌组偶数」正好
+  // 得出牌库奇数。原先那道闸漏了这两条，而闯关里它们各占一关、恒偏庄家。
+  //
+  // **调用点在 baitFor 之后、buildRankTotals 之前**，两头都是硬性的：
+  //   囤饵塞 3 张（奇数），排在它前面的话这道闸被它绕过去；
+  //   剔掉的牌这一局不在场，所以要在算 rankTotal 之前剔 ——
+  //     不然庄家的记牌（outsideCount）会把剔掉的也算进「外面还剩几张」。
+  //
+  // 剔的是**牌顶**（数组末尾，照 drawFor 的 pop）。洗过了，所以剔掉那一张是随机的。
+  // 返回剔了几张（0 或 1）—— 开局那句 message 要说一声
+  function trimDeck() : number {
+    // 发牌总数。切出来那张算在先手那一份里（它进先手的手牌，见下面发牌那段），
+    // 所以牌库最终是「牌组 − foeDeal − myDeal」
+    const dealt = handLimit(true) + handLimit(false)
+    const rest = deck.value.slice(0)
+    let cut = 0
+    // 一次就够（剔一张奇偶就翻），写成 while 是为了万一 dealt 的算法以后变了。
+    // `> dealt` 那个条件是防护：牌组最少 DECK_MIN 张、dealt 最多 9，
+    // 所以现实里走不到，但少了它、万一牌组薄过发牌数就会 pop 到负数去
+    while (rest.length > dealt && (rest.length - dealt) % 2 != 0) {
+      rest.pop()
+      cut = cut + 1
+    }
+    if (cut > 0) {
+      deck.value = rest
+    }
+    return cut
   }
 
   // 堆里这张对出牌的一方来说是不是被护着：对方护的才挡，自己护的不挡自己
@@ -3843,7 +4027,12 @@
     return index < pile.value.length ? pile.value[index].suit : ''
   }
 
-  // 堆上第 index 张现在是红的吗（染水改过花色就按改后的算）
+  // 堆上第 index 张现在是红的吗。
+  //
+  // 〔原注释写「染水改过花色就按改后的算」—— 染水早改成了【一色】
+  //   （数花色但不改花色）。**现在没有任何效果会改堆上牌的花色**：
+  //   `pileSuit` 的写入点只剩 concat 和收牌后重建。这一层留着是因为
+  //   「花色可以被改」是个合理的设计空间，而不是因为现在有谁在用它〕
   function pileRed(index : number) : boolean {
     return isRedSuit(pileSuitAt(index))
   }
@@ -4378,13 +4567,14 @@
     againWaiting.value = false
     const card = takeFromHand(byFoe, index)
     const skills = skillsOf(byFoe, card)
-    // 数一下这一方打到第几张了 —— 【稳钩】要「前 N 张」
+    // 数一下这一方打到第几张了 —— 【稳钩】要「前 N 张」，
+    // 而两个数加起来是终局那两手的计数器（见 TAIL_PLAYS）。
+    // 所以「技能逼着打」「对流插的那张」也都算一手，那是对的
     if (byFoe) {
       foePlayed = foePlayed + 1
     } else {
       myPlayed = myPlayed + 1
     }
-    lastByFoe = byFoe
     // ---- 带「优先」的两件在**钓牌判定之前**结算 ----
     //
     // 顺序：先染水（定花色），再沉底（定落点）。两件都改钓牌判定的输入，
@@ -7458,6 +7648,15 @@
       clearTimeout(heartTimer)
       heartTimer = -1
     }
+    // 切牌动画那两段。**清掉之后要把 phase 归零**（别的计时器不用，
+    // 因为它们不锁交互）—— 停在 phase 1/2 上的话 canPlay 会一直是 false，
+    // 整局点不动牌
+    if (cutTimer >= 0) {
+      clearTimeout(cutTimer)
+      cutTimer = -1
+      cutPhase.value = 0
+      cutFly.value = null
+    }
   }
 
   // 把这一方的手牌补足到 handLimit。牌库空了就补多少算多少
@@ -7654,9 +7853,15 @@
     return n
   }
 
-  // 再没有能做的事了，就结束。
+  // 一局结束。两条出口，各管一件事：
   //
-  // ---- 判的是「打得出牌吗」，不是「手里有牌吗」 ----
+  //   **牌库空了，而且从那一刻起双方又打了 TAIL_PLAYS 手** —— 正常收摊；
+  //   **牌库空了，而且两边都打不出牌** —— 提前收摊（死锁，理由在下面）。
+  //
+  // 手里剩的和堆上剩的都**不算分**（见 TAIL_PLAYS 那段：剩堆不算分和
+  // 终局只给 2 手是成套的）。所以这个函数不再给任何人加分，只报账。
+  //
+  // ---- 第二条出口判的是「打得出牌吗」，不是「手里有牌吗」 ----
   //
   // 原先这儿写的是「牌库和两边手牌都空了」。那条漏了一个**死锁**：
   //
@@ -7670,66 +7875,103 @@
   // 堆上 3 张、分 32:16，双方交替跳过了 400 个回合）。
   //
   // 改成数「打得出几张」之后，手牌空和全被冻在这件事上等价 ——
-  // 两边都动不了就收摊。被冻着的那张留在手里不算分，跟堆里剩下的一个待遇
+  // 两边都动不了就收摊。
+  //
+  // 这条出口**在终局那条之前判**：牌库空、TAIL 还没用完、可双方都被冻住了，
+  // 那也得收摊（等不到那两手了）
   function checkOver() : boolean {
     if (deck.value.length > 0) {
       return false
     }
-    if (playableCount(false) > 0 || playableCount(true) > 0) {
-      return false
+    // 牌库刚空：记下这一刻的手数。TAIL_PLAYS 从这儿往后数
+    const justEmptied = tailFrom < 0
+    if (justEmptied) {
+      tailFrom = myPlayed + foePlayed
+    }
+    const dead = playableCount(false) == 0 && playableCount(true) == 0
+    if (!dead) {
+      // 终局那两手还没打够
+      if (myPlayed + foePlayed - tailFrom < TAIL_PLAYS) {
+        // ---- 牌库空了，**弹一下告诉玩家** ----
+        //
+        // 走 toast 而不是 message：message 那一行是战况，下一手就被
+        //「庄家打出 ♥7」盖掉了，而「只剩两手」是玩家要据此改打法的事
+        //（手里攒的牌再不打就不算分了）。顶栏那块「牌库 N」只是个数字，
+        // 从 1 变 0 不够显眼
+        if (justEmptied) {
+          uni.showToast({
+            title: '牌库空了 · 双方各再打 1 手就收摊',
+            icon: 'none',
+            duration: 2500
+          })
+        }
+        return false
+      }
+      // ---- 打够了，可双方出牌数不等：少打的那一方再补一手 ----
+      //
+      // 一局里双方该打一样多的牌。平常自然成立（交替出牌），
+      // 歪掉的来路是**牌不经「打出」就离场**那一类：
+      // 洪水（从牌库翻上堆）、填塘、守滩（从手上垫到堆上）、冻结（卡在手里）。
+      // 开局那道奇偶闸管不了它们 —— 它们是局内发生的。
+      //
+      // 实测这条能把奇数牌库那 1.21 分的摆动补回 43%（−0.90 → −0.38）。
+      // 补不回全部是因为「终局那几手的结构」也歪了，那个由开局的闸管
+      //（见 trimDeck）。两条各管一头，都要。
+      //
+      // **少打的那一方正好就是下一个该出牌的** —— 交替出牌自然保证，
+      // 不用在这儿调轮次。只有「跳过回合」会错位，而那种局面下
+      // playableCount 会返回 0，照旧收摊，不会卡住。
+      //
+      // ---- 只补一手，**必须限幅** ----
+      //
+      // 奇数牌库下差额正好是 1，补一手就齐了。可差额**能大于 1**：
+      // 庄家规矩【再钩】（钓到牌可以再打一张）让它一个回合打两张，
+      // 而那时轮次和「谁少打」会错开 —— 不限幅的话这儿会一路放行，
+      // 把「各打 1 手」变成「把手牌全打完」，终局那个阶段就又长回去了。
+      //
+      // 所以终局最多 TAIL_PLAYS + 1 手。补不齐就算了：差额 2 以上是
+      // 技能造成的，那笔账该记在那件技能头上（见设计文档），
+      // 不该让结束条件去兜
+      if (myPlayed != foePlayed
+        && myPlayed + foePlayed - tailFrom < TAIL_PLAYS + 1
+        && playableCount(myPlayed > foePlayed) > 0) {
+        return false
+      }
     }
     over.value = true
-    const stuck = hand.value.length + foeHand.value.length
-    const left = leftoverFor()
-    message.value = (stuck > 0
-      ? '双方都打不出牌了（还有 ' + stuck + ' 张冻着）。'
-      : '牌都打完了。') + left
+    const held = hand.value.length + foeHand.value.length
+    // 手里和堆上剩的都不算分，所以**要把张数报出来** ——
+    // 静默吞掉的话玩家会以为自己少拿了分（而那几张本来就不该进账）
+    const restNote = held + pile.value.length == 0 ? ''
+      : '手里 ' + held + ' 张、堆上 ' + pile.value.length + ' 张都不算分。'
+    message.value = (dead
+      ? '双方都打不出牌了。'
+      : '牌库空了，双方各打完最后一手 —— 收摊。') + restNote
     settle()
     return true
   }
 
-  // ---------- 终局剩堆归「没打最后一手」的一方（2026-10-14 规则变更） ----------
+  // ---------- 〔删了〕leftoverFor：终局剩堆归「没打最后一手」的一方 ----------
   //
-  // 原先是「堆里剩下的牌不算分」。那条让**最后一手**成了全局最值钱的位置：
-  // 一局 52 手，后手打第 52 手，模拟器量出后手优势 +3.03 分（胜率 58%），
-  // 其中 96% 出在最后 8 手（前 36 手双方只差 +0.10）。
+  // 2026-10-14 加的，2026-10-15 删的。**留这块墓碑是为了防止它被捡回来** ——
+  // 它看着是个好主意，而且它解决的那个问题是真的。
   //
-  // **为什么归「另一方」而不是写死归先手**：两条在基线上一样（总手数是偶数，
-  // 没打最后一手的就是先手），但凡是改了总手数奇偶的技能（洪水、择饵、
-  // 探潮……把牌不经过手直接放上堆）都会让最后一手易手，写死先手就治不了它们
-  //（洪水 D 照旧 +3.60）。认「谁打了最后一手」之后奇偶不再值钱
-  //（洪水 D +0.58、择饵 +0.21、探潮 −0.02）。
+  // 它治的病：旧规则「剩堆不算分」让最后一手成了全局最值钱的位置
+  //（后手优势 +3.03、胜率 58%，其中 96% 出在最后 8 手）。把剩堆判给
+  // 没打最后一手的那一方，基线立刻平到 −0.08 —— **因为最后一手收走的
+  // 和剩堆剩下的是同一块牌，两者负相关，所以它是个自动对冲。**
   //
-  // 走 takeAt —— 结冰和保护照样挡（跟别的收牌路一个口径），
-  // 冻着的那格留在堆上、不计分。带来的新问题记在设计文档「终局剩堆」那一节
-  function leftoverFor() : string {
-    const size = pile.value.length
-    if (size == 0) {
-      return ''
-    }
-    // 收牌的豁免是「这一手」的，终局不是谁的一手
-    iceBlindNow = false
-    const toFoe = !lastByFoe
-    const gone = goneRanks.value.slice(0)
-    let got = 0
-    for (let i = size - 1; i >= 0; i--) {
-      // **先问再取** —— takeAt 会把盾消耗掉（照 finishCatch 那条）
-      const blocked = blockedAt(i)
-      got = got + takeAt(i, gone)
-      if (!blocked) {
-        removePileAt(i)
-      }
-    }
-    goneRanks.value = gone
-    expireHeld()
-    expireStacked()
-    if (toFoe) {
-      foeScore.value = foeScore.value + got
-    } else {
-      myScore.value = myScore.value + got
-    }
-    return '堆里剩下的 ' + got + ' 张归没打最后一手的' + (toFoe ? '庄家' : '你') + '。'
-  }
+  // 它带来的病，也是真的：**剩堆有了收款人，「让牌卡在堆上」就开始偏向
+  // 那个人**。而偶数牌组下剩堆每一局都归先手，于是「让堆变厚」整整一族
+  // 全飘了（死水 D +2.87 / 寒流 +1.37 / 霜降 +1.37 / 藏凌 +1.10 /
+  // 净水 +1.35 / 逆流船夫 +8.42 / 深海钓手 +5.95）。
+  //
+  // **换掉它的是 TAIL_PLAYS**（见那段）：不去配平最后一手的价值，而是
+  // 把产生那个价值的阶段删掉。那样剩堆就不需要收款人 —— 上面那一族的 D
+  // 实测全塌到 ±0.12。
+  //
+  // 要再捡回它的话，先读 TAIL_PLAYS 那段里的四档数：**两条规则并用会
+  // 过补到 −2.23**，它们是互斥的两条路，不是能叠的两件补丁。
 
   // 结算照排竿：
   //   赢了 —— 推进到下一关、发金币（过关奖励 + 胜分奖励，胜分有上限）、掷一次技能；
@@ -7751,11 +7993,23 @@
         : (myScore.value > foeScore.value ? '赢了 · 这一局不记账' : '输了 · 这一局不记账')
       return
     }
-    if (myScore.value == foeScore.value) {
-      outcome.value = OUT_DRAW
-      rewardText.value = '平局，这一关重打，本轮进度不变'
-      return
-    }
+    // ---------- 平局**算过关**（2026-10-15 改）----------
+    //
+    // 原先是「重打这一关，不扣生命」。改了两个理由：
+    //
+    //   **治不了根**：平局率 6.4%，而它由「双方总分和是偶数」决定 ——
+    //     52 张全有归属，26:26 很容易撞上。想靠改牌数凑奇数来消掉它
+    //     又行不通，因为商店能买卡、牌组大小本来就在变。
+    //   **重打是唯一的痛点**：一轮 12 关大概要重打 0.8 次，而重打的那一关
+    //     题目没变（庄家配装不重摇，见 draw-save 的 settleWin 那段）——
+    //     所以它不是一次新的挑战，只是把同一关再打一遍。
+    //
+    // 而金币**自然就少** —— 它是「过关奖励 + 胜分 + 利息」，
+    // 而胜分 = 分差，平局时正好是 0。所以不用加任何特殊规则：
+    // 平局落在「分差 0」那一档，拿得到过关奖励和利息，拿不到胜分。
+    //
+    // 下面那段发奖励的代码**一个字都不用改** —— margin 自己会算成 0。
+    // 所以这儿不 return，直接往下走
     if (myScore.value < foeScore.value) {
       // 扣 1 点生命。还有剩就退回上一个商店（金币、技能、货架都是那时候的样子），
       // 第 1 关前面没有商店就重打第 1 关；扣光了整轮作废（见 draw-save 的 settleLoss）
@@ -7787,7 +8041,10 @@
     settleWin(data, id, gain)
     saveDraw(data)
     save.value = data
-    rewardText.value = '获得 ' + gain + ' 金币（胜分 +' + margin
+    // 平局单独说一句 —— 不然玩家看到「获得 N 金币（胜分 +0）」会以为算错了。
+    // 它确实过关了，只是没有胜分那一笔
+    rewardText.value = (myScore.value == foeScore.value ? '平局算过关 · ' : '')
+      + '获得 ' + gain + ' 金币（胜分 +' + margin
       + (interest > 0 ? '，利息 +' + interest : '') + '）'
     outcome.value = id >= DRAW_RUN_LENGTH ? OUT_CLEAR : OUT_WIN
     if (outcome.value == OUT_WIN) {
@@ -8055,8 +8312,20 @@
     // 现在只有牌库空了才说一句 —— 那是局面变了、值得提一嘴；
     // 平常就让 message 留着上一条战况（庄家刚打了什么、钓走几张），
     // 「现在该你」那半归 turnText 说。两半各说一件事，不重复
+    //
+    // ---- 这句话 2026-10-15 改了：终局不再是「打完手牌」 ----
+    //
+    // 原先是「牌库空了，手里这 N 张打完就收摊」。现在牌库空后只剩
+    // TAIL_PLAYS 手（见那段），手里剩的不算分 —— 所以要报的是
+    // **还剩几手**，而且得说清那几张作废了，不然玩家还按老规则攒牌
     if (deck.value.length == 0) {
-      message.value = '牌库空了，手里这 ' + hand.value.length + ' 张打完就收摊。'
+      const left = TAIL_PLAYS - (myPlayed + foePlayed - tailFrom)
+      message.value = (left >= 2
+        ? '牌库空了 —— 双方各再打 1 手就收摊。'
+        : (left == 1
+          ? '牌库空了 —— 你打完这一手就收摊。'
+          : '补最后一手 —— 双方要打一样多的牌。'))
+        + '手里剩 ' + hand.value.length + ' 张，收摊时不算分。'
     }
   }
 
@@ -8653,7 +8922,9 @@
     sealedRank.value = ''
     myPlayed = 0
     foePlayed = 0
-    lastByFoe = false
+    // 牌库还没空过（见 TAIL_PLAYS）。**不重置的话第二局开局就直接收摊** ——
+    // 上一局结束时它停在一个正数上，而 checkOver 读的是「现在的手数减它」
+    tailFrom = -1
     // 沉底那个开关也归零。它保持状态是**一局之内**的事 ——
     // 跨局留着的话，你上一局开着它，这一局头一张牌就莫名其妙落到了堆底
     sinkOn.value = false
@@ -8776,7 +9047,37 @@
     // 先算的话庄家会一直以为 7 只有四张，而牌桌上有七张
     baitFor(false)
     baitFor(true)
+    // ---- 凑成「发完牌之后牌库是偶数」，**在囤饵之后、算 rankTotal 之前** ----
+    //
+    // 两头都是硬性的，理由见 trimDeck 那段。最多剔 1 张。
+    //
+    // **返回值（剔了几张）现在没人读** —— 开局那句话不再报它（见下面那段：
+    // 剔 1 张玩家无能为力，报它只是制造一个「我的牌被动过」的疑问）。
+    // 调用本身当然不能删，它改的是 deck
+    trimDeck()
     buildRankTotals(deck.value)
+    // ---- 切牌定庄：翻牌库顶那张，红 = 庄家先手、黑 = 你先手 ----
+    //
+    // **排在 buildRankTotals 之后**：切出来那张进先手的手牌、仍在这一局里，
+    // 所以它得算进 rankTotal（庄家的记牌靠那个底数）。
+    //
+    // 为什么按红黑不按点数奇偶：奇数点有 A/3/5/7/9/J/K 七个、偶数只有
+    // 2/4/6/8/10/Q 六个 —— **28:24，偏 54%**。而这个机制的全部价值就在公平。
+    //
+    // 牌本身在下面发牌那段给先手（进手牌、而且**对手看得见**），
+    // 所以这儿先从牌库拿掉。牌库空了（理论上走不到）就照旧庄家先手
+    let cutCard : PlainCard | null = null
+    if (deck.value.length > 0) {
+      const rest = deck.value.slice(0)
+      // 先接成 const 再赋给那个可空的变量 —— 下面读花色读的是 one，
+      // 不靠「赋值之后它就非空了」那种收窄
+      const one = rest.pop()!
+      deck.value = rest
+      cutCard = one
+      firstByFoe = isRedSuit(one.suit)
+    } else {
+      firstByFoe = true
+    }
     hand.value = []
     handSeen.value = []
     foeHand.value = []
@@ -8796,7 +9097,7 @@
     heartMax.value = 0
     heartBroken.value = false
     outcome.value = OUT_NONE
-    // 开局双方各发满手牌，庄家先发、轮流来；然后庄家先手。
+    // 开局双方各发满手牌，庄家先发、轮流来；**先手由切牌定**（见上面那段）。
     // 之后每个回合结束各自补足回这个数（见 passTurn）。
     //
     // **发几张走 handLimit，不写死 HAND_SIZE** —— 添手（庄家 +1）和
@@ -8805,11 +9106,31 @@
     const foeDeal = handLimit(true)
     const myDeal = handLimit(false)
     const deal = foeDeal > myDeal ? foeDeal : myDeal
+    // ---- 切出来那张先给先手，**而且对手看得见** ----
+    //
+    // 它是公开翻出来的，所以标成「对方知道这张」—— 那是先手为「定庄」
+    // 付的小代价（对「先手略优」的一点微调）。
+    //
+    // 两条路照摘钩 / 对换那两处的写法（手牌 concat + 标记 concat）：
+    //   庄家先手 → foeShown 标 true，于是它那张在你眼里是明的（见 foeOpen）；
+    //   你先手   → handSeen 标 true，于是你那张挂着「被看」角标（见 foeKnows）。
+    // UI 两头都是现成的，不用加东西
+    if (cutCard != null) {
+      if (firstByFoe) {
+        foeHand.value = foeHand.value.concat([cutCard!])
+        foeShown.value = foeShown.value.concat([true])
+      } else {
+        hand.value = hand.value.concat([cutCard!])
+        handSeen.value = handSeen.value.concat([true])
+      }
+    }
+    // 发到各自的上限。**先手已经有切出来那张了**，所以判一下长度别发超 ——
+    // 「庄家先发、交替」那个次序照旧（添手 / 掐口走 handLimit，起手就算上）
     for (let i = 0; i < deal; i++) {
-      if (i < foeDeal) {
+      if (i < foeDeal && foeHand.value.length < foeDeal) {
         drawFor(true)
       }
-      if (i < myDeal) {
+      if (i < myDeal && hand.value.length < myDeal) {
         drawFor(false)
       }
     }
@@ -8839,14 +9160,74 @@
         pushPile(one, true, GUARD_NONE, [0] as number[])
       }
     }
+    // ---- 开局那句话：**只说别处看不到的** ----
+    //
+    // 2026-10-15 砍过一轮。原先它是六段：关号 + 关名 + 随机 + 对手名 +
+    // 剔了几张 + 切牌 + 补几张。砍掉四段，依据是「这条信息在界面上
+    // 有没有第二个出处」：
+    //
+    //   **关号 / 关名** —— 顶栏的 `levelTitle` 就是它；
+    //   **对手名**     —— 庄家那一行第一个标签就是它（`ap-foe-role`）；
+    //   **补足几张**   —— 手牌摆在那儿，数得出来；而且规则面板里有；
+    //   **剔了几张**   —— 最多 1 张（凑牌库的奇偶），而玩家对此无能为力，
+    //                     报它只是制造一个「我的牌被动过」的疑问。
+    //
+    //   **切牌 / 谁先手** —— **交给动画**（见 cutFly 那段）：那张牌会停在
+    //                     屏幕中间、底下一行「黑 → 你先手」，比塞进这行字里
+    //                     醒目得多。而且这行 message 第一手打完就被战况覆盖了，
+    //                     本来也留不住。
+    //
+    // 于是只剩一段：**这一关庄家是不是随机出牌**。它不是技能，所以庄家那行
+    // 标签里没有它，别处也看不到 —— 这是唯一一条非得用文字说的。
+    // 不是随机关的话这行就是空的，状态行只剩 turnText（「你的回合 · 打出一张」），
+    // 那是对的：没有新消息就不要占一行
     message.value = finalMode
-      ? '终局 · 双方都是随机满配，一局定胜负。庄家先手，打完一张补足 '
-        + HAND_SIZE + ' 张。'
-      : '第 ' + level.value.id + ' 关「' + level.value.name + '」。'
-        + (level.value.random ? '这一关庄家随机出牌。' : '')
-        + (foeRoleName.value == '' ? '' : '对手：' + foeRoleName.value + '。')
-        + '庄家先手，每回合打一张，回合末补足 ' + myDeal + ' 张。'
-    startFoeTurn()
+      ? '终局 · 双方随机满配，一局定胜负。'
+      : (level.value.random ? '这一关庄家随机出牌。' : '')
+    // ---- 切牌有动画的话，**等它演完再开第一个回合** ----
+    //
+    // 不等的话：庄家先手时 startFoeTurn 排的是 FOE_DELAY_MS(600ms) 的表，
+    // 而动画要 700+420ms —— 庄家会在那张牌还飞在半空时就打出第一张，
+    // 两个动画叠在一起谁也看不清。
+    //
+    // 而且这一下不能用「把 FOE_DELAY 调长」来糊 —— 你先手时同样要等，
+    // 不然你能在牌飞着的时候点手牌出牌
+    if (cutCard != null) {
+      startCutFly(cutCard!, firstByFoe)
+    } else {
+      beginFirstTurn()
+    }
+  }
+
+  // ---------- 切牌动画：停在中间给人看清，再飞到该去的那一边 ----------
+  //
+  // 纯视觉（见 cutFly 那段的声明）：牌早就发进手牌了，这儿盖的是一张副本。
+  // 所以**它失败了也只是没动画，对局照常**；而反过来，
+  // 动画期间要锁住出牌（见 canPlay 读 cutPhase），不然你能抢在它落地前出牌
+  function startCutFly(card : PlainCard, toFoe : boolean) {
+    cutFly.value = card
+    cutToFoe.value = toFoe
+    cutPhase.value = 1
+    cutTimer = setTimeout(() => {
+      // 第二段：加上飞走那个 class，CSS transition 自己走完
+      cutPhase.value = 2
+      cutTimer = setTimeout(() => {
+        cutPhase.value = 0
+        cutFly.value = null
+        cutTimer = -1
+        beginFirstTurn()
+      }, CUT_FLY_MS)
+    }, CUT_HOLD_MS)
+  }
+
+  // 第一个回合。先手由切牌定（原先这段写死 startFoeTurn）。
+  // startMyTurn 只在牌库空 / 手牌全冻时动 message，所以不会盖掉开局那句
+  function beginFirstTurn() {
+    if (firstByFoe) {
+      startFoeTurn()
+    } else {
+      startMyTurn()
+    }
   }
 
   // 终局模式的「关卡」：把摇出来的那套庄家配装塞进一个临时的关卡对象。
@@ -9821,6 +10202,73 @@
     align-items: center;
     justify-content: center;
     background-color: rgba(0, 0, 0, 0.6);
+  }
+
+  /* ---------- 开局切牌那一层 ---------- */
+
+  /* 比 .mask 淡得多（0.3 对 0.6）：这一下**不是弹窗**，底下的牌桌
+     还要看得见（你刚发到的四张手牌就在下面）。暗底只是为了让
+     中间那张牌成为焦点 —— 开局时堆是空的，所以挡不住什么 */
+  .cut-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.3);
+  }
+
+  /* 切出来那张：比桌上的牌大一倍多（46×64 → 96×134）。
+     放大是因为它要被「读」—— 规则按红黑定先后手，花色的颜色
+     得一眼看清，而 46px 宽的花色只有 12px 高。
+
+     transition 的时长要跟 CUT_FLY_MS 对上（420ms）。**两个数分在
+     两处是没办法的事**（CSS 里读不到 UTS 常量），所以那边的注释
+     指回这儿 */
+  .cut-card {
+    width: 96px;
+    height: 134px;
+    margin-right: 0;
+    border-color: #ffd54f;
+    transition-property: transform, opacity;
+    transition-duration: 420ms;
+  }
+
+  .cut-rank {
+    font-size: 40px;
+  }
+
+  .cut-suit {
+    font-size: 26px;
+  }
+
+  /* 飞向庄家（屏幕上方那排手牌）/ 飞向你（下方那排）。
+     位移给得比实际距离短一点、同时淡出 —— 淡出之后它在哪已经
+     不要紧了，而「一路飞到位」在不同屏高上会错位 */
+  .cut-card-to-foe {
+    opacity: 0;
+    transform: translateY(-200px);
+  }
+
+  .cut-card-to-me {
+    opacity: 0;
+    transform: translateY(200px);
+  }
+
+  /* 「黑 → 你先手」那行字。摆在牌下面，跟牌一起淡掉 */
+  .cut-note {
+    margin-top: 14px;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: bold;
+    transition-property: opacity;
+    transition-duration: 420ms;
+  }
+
+  .cut-note-gone {
+    opacity: 0;
   }
 
   .result-box {

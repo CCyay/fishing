@@ -117,6 +117,16 @@ function run(n, seed, mine, foe, opts) {
     games: 0, plays: [0, 0], catches: [0, 0], caught: [0, 0],
     jackCatches: [0, 0], skillCatch: [0, 0],
     score: [0, 0], wins: [0, 0], draws: 0, leftover: 0, turns: 0,
+    // 收摊时双方手里剩的牌（2026-10-15 加）。**守恒检查要它** ——
+    // 终局改成「牌库空 + 各打 1 手」之后手里恒剩几张，
+    // 不算进来的话那条检查每次都报「对不上 6 张」
+    handLeft: 0,
+    // 开局切牌定庄之后，玩家先手了几局、两种局面各自的分差和胜场。
+    // 合计数会把这两种局面平均掉，而那正是这次改动要看的东西
+    meFirst: 0, diffFirst: 0, diffSecond: 0, winFirst: 0, winSecond: 0,
+    // 这一批每局的牌组大小之和。**守恒基准读它，不写死 52** ——
+    // 商店能买卡进牌组，所以牌组大小会变（见 rules.js 的 G.deckSize）
+    deckSizeSum: 0,
     // 每局的分差，用来算标准差（判断「这个差值是不是跑够了」）
     diffs: [],
     // 【洪水】的诊断口（见 rules.js 的 stat.flood）
@@ -149,7 +159,16 @@ function run(n, seed, mine, foe, opts) {
       foeRole: o.foeRole === undefined ? -1 : o.foeRole,
       // 改造过的牌组（cards 命令用）。每局现造一副 —— 牌是按对象认的，
       // 两局共用同一批对象不出错，但现造最省心
-      deck: o.deckFn ? o.deckFn() : undefined
+      deck: o.deckFn ? o.deckFn() : undefined,
+      // ---- 量技能时**写死庄家先手**（见 rules.js 的 fixFirst）----
+      //
+      // 开局切牌定庄之后 ME 有一半的局是先手，而「这件技能在先手手里
+      // 值多少 / 后手手里值多少」那套口径（measureBoth 的 A / D 两格）
+      // 正是靠**配装给 ME 还是给 FOE** 来区分的 —— 先后手一随机，
+      // 两格就都变成了「一半先手一半后手」，D 直接失去意义。
+      //
+      // 所以除了 base（它要量的就是切牌本身），一律固定
+      fixFirst: o.freeFirst ? undefined : R.FOE
     }, AI)
     sum.games++
     for (let s = 0; s < 2; s++) {
@@ -182,10 +201,29 @@ function run(n, seed, mine, foe, opts) {
     }
     sum.turns += G.stat.turns
     sum.leftover += G.pile.length
+    sum.handLeft += G.hands[R.ME].length + G.hands[R.FOE].length
     if (G.score[R.ME] > G.score[R.FOE]) sum.wins[R.ME]++
     else if (G.score[R.FOE] > G.score[R.ME]) sum.wins[R.FOE]++
     else sum.draws++
-    sum.diffs.push(G.score[R.ME] - G.score[R.FOE])
+    const diff = G.score[R.ME] - G.score[R.FOE]
+    sum.diffs.push(diff)
+    sum.deckSizeSum += G.deckSize
+    // ---- 按「玩家是先手还是后手」分两组 ----
+    //
+    // 开局切牌定庄之后（见 rules.js 的 CUT），**「后手分差」这个说法
+    // 本身就没意义了** —— 谁是后手每局在变，一个合计数把两种局面
+    // 平均掉，正好把这次改动要看的东西抹掉。
+    //
+    // 要看的是：玩家先手时赚多少、后手时亏多少，**以及两者差多少**
+    //（那个差就是先后手的真实价差，而它现在由剩堆归属撑着）
+    if (G.first === R.ME) {
+      sum.meFirst++
+      sum.diffFirst += diff
+      if (G.score[R.ME] > G.score[R.FOE]) sum.winFirst++
+    } else {
+      sum.diffSecond += diff
+      if (G.score[R.ME] > G.score[R.FOE]) sum.winSecond++
+    }
   }
   return sum
 }
@@ -214,9 +252,15 @@ function f2(x) { return x.toFixed(2) }
 // ---------- base：对照设计文档的基础数据 ----------
 
 function cmdBase(args) {
-  const sum = run(args.n, args.seed, R.emptyLoadout(), R.emptyLoadout())
+  // **只有 base 走自由先手** —— 它要量的正是切牌定庄本身
+  //（别的命令固定庄家先手，见 run 里 fixFirst 那段）
+  const sum = run(args.n, args.seed, R.emptyLoadout(), R.emptyLoadout(),
+    { freeFirst: true })
   const g = sum.games
-  console.log('基准：双方都没技能、都会记牌，跑 ' + g + ' 局（种子 ' + args.seed + ' 起）\n')
+  // 规则那一段读 R.ruleTag()，**不自己拼 env** —— 抬头印错档位的话，
+  // 底下那些数会被当成现行规则的数记进文档（那是 campaign.js 栽过的）
+  console.log('基准：双方都没技能、都会记牌，跑 ' + g + ' 局（种子 ' + args.seed + ' 起）')
+  console.log('规则 ' + R.ruleTag() + '\n')
 
   // ---- 三列：你 / 庄家 / 两人平均 ----
   //
@@ -231,28 +275,38 @@ function cmdBase(args) {
   }
   const perGame = function (side) { return avg(sum.score[side], g) }
   const catches = function (side) { return avg(sum.catches[side], g) }
+  // ---- 最后一列是**参考值**，2026-10-15 整列换过 ----
+  //
+  // 原先对的是设计文档 v2 那张表（26 次 / 约 9 次 / 34% / 2.75 张 / 24 分 / 22%），
+  // 那一列是「剩堆不算分 + 打完手牌」时代量的。终局改成
+  // 「牌库空 + 双方各打 1 手」之后六个数有四个变了 —— 一局从 52 手掉到 46 手，
+  // 于是钓牌次数跟着少（8.9 → 7.7），而 J 的张数没变、总钓牌次数变少，
+  // 所以 **J 占比反而升了**（22.7% → 25.7%）。「每次平均收」升到 2.85 是
+  // 同一个来路：少掉的那 6 手正是终局手牌萎缩期，那几手的收成最薄。
+  //
+  // 对不上的时候先问「是不是终局规则又动了」—— 这六个数全是它的函数
   const rows = [
     ['每人每局出牌',
       f1(avg(sum.plays[R.ME], g)), f1(avg(sum.plays[R.FOE], g)),
-      f1(both(function (s) { return avg(sum.plays[s], g) })), '26 次'],
+      f1(both(function (s) { return avg(sum.plays[s], g) })), '23 次'],
     ['每人每局钓到',
-      f1(catches(R.ME)), f1(catches(R.FOE)), f1(both(catches)), '约 9 次'],
+      f1(catches(R.ME)), f1(catches(R.FOE)), f1(both(catches)), '约 7.7 次'],
     ['钓到占出牌',
       pct(avg(sum.catches[R.ME], sum.plays[R.ME])),
       pct(avg(sum.catches[R.FOE], sum.plays[R.FOE])),
-      pct(both(function (s) { return avg(sum.catches[s], sum.plays[s]) })), '34%'],
+      pct(both(function (s) { return avg(sum.catches[s], sum.plays[s]) })), '33%'],
     ['每次平均收',
       f2(avg(sum.caught[R.ME], sum.catches[R.ME])),
       f2(avg(sum.caught[R.FOE], sum.catches[R.FOE])),
-      f2(both(function (s) { return avg(sum.caught[s], sum.catches[s]) })), '2.75 张'],
+      f2(both(function (s) { return avg(sum.caught[s], sum.catches[s]) })), '2.85 张'],
     ['每人每局积分',
-      f1(perGame(R.ME)), f1(perGame(R.FOE)), f1(both(perGame)), '约 24 分'],
+      f1(perGame(R.ME)), f1(perGame(R.FOE)), f1(both(perGame)), '约 21.8 分'],
     ['J 通吃占所有钓牌',
       pct(avg(sum.jackCatches[R.ME], sum.catches[R.ME])),
       pct(avg(sum.jackCatches[R.FOE], sum.catches[R.FOE])),
-      pct(both(function (s) { return avg(sum.jackCatches[s], sum.catches[s]) })), '22%']
+      pct(both(function (s) { return avg(sum.jackCatches[s], sum.catches[s]) })), '25.7%']
   ]
-  console.log('  项                 你(后手)   庄家(先手)  两人平均   文档 v2')
+  console.log('  项                 你(后手)   庄家(先手)  两人平均   参考值')
   console.log('  ' + '-'.repeat(62))
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
@@ -261,8 +315,16 @@ function cmdBase(args) {
   }
   console.log('')
   console.log('  后手胜率 ' + pct(avg(sum.wins[R.ME], g))
-    // 参考值随终局规则变（2026-10-14）：旧规则 57–59%，新规则约 46.5%
-    + (process.env.BALANCE === 'old' ? '（旧规则文档 57–59%）' : '（新规则约 46.5%）')
+    // 参考值随终局规则变，换过两次：
+    //   「剩堆不算分 + 打完手牌」 57–59%
+    //   「剩堆归没打最后一手的」  约 46.5%
+    //   **现行（牌库空 + 各打 1 手 + 剩堆不算分）约 48%，平局掉到 3.7%**
+    //     —— 平局变少是因为双方总分不再恒为 52（手里和堆上剩的都不算分）
+    //
+    // **默认值跟 rules.js 一致（'old'）** —— 那边 2026-10-15 把默认从
+    // pileNotLast 换过来了，这儿读 env 要用同一个默认，不然不设变量时报错档
+    + ((process.env.BALANCE || 'old') === 'old'
+      ? '（现行约 48%）' : '（剩堆归没打最后一手的那档：约 46.5%）')
     + '· 先手 ' + pct(avg(sum.wins[R.FOE], g))
     + ' · 平局 ' + pct(avg(sum.draws, g)))
   console.log('  后手分差（你 − 庄家）：' + (meanDiff(sum) >= 0 ? '+' : '') + f2(meanDiff(sum))
@@ -273,12 +335,41 @@ function cmdBase(args) {
   // 两人收走的 + 堆里剩的必须等于一副牌。差一张就说明收牌区间、
   // 记分或者 splice 那一套有重复或漏算 —— 这条过了，
   // 上面那些数才值得讨论
+  // ---- 切牌定庄：分两组看，合计数在这件事上没意义 ----
+  //
+  // 切牌改的是「谁当先手」，所以要看的是**两组的差** —— 那个差就是
+  // 先后手的真实价差。
+  //
+  // 〔原先这儿写「它主要由剩堆归属撑着」。那是 pileNotLast 时代的话 ——
+  //   现在剩堆谁都不算分，残余的价差来自**终局那几手的结构**
+  //  （最后一手面对一个常态厚度的堆而无人回应），现行约 +0.31。
+  //   见设计文档『终局那两手』〕
+  const nFirst = sum.meFirst
+  const nSecond = g - nFirst
+  console.log('')
+  console.log('  ---- 开局切牌定庄（红 = 庄家先手，黑 = 玩家先手；那张牌给先手）----')
+  console.log('    玩家先手 ' + f1(avg(nFirst, g) * 100) + '% 的局'
+    + '（该是 50% 上下 —— 红黑各 26 张）')
+  console.log('    玩家先手时：分差 ' + f2(avg(sum.diffFirst, nFirst))
+    + '　胜率 ' + f1(avg(sum.winFirst, nFirst) * 100) + '%')
+  console.log('    玩家后手时：分差 ' + f2(avg(sum.diffSecond, nSecond))
+    + '　胜率 ' + f1(avg(sum.winSecond, nSecond) * 100) + '%')
+  console.log('    先后手价差：' + f2(avg(sum.diffFirst, nFirst) - avg(sum.diffSecond, nSecond))
+    + ' 分　←（这个数越大，「抢先手」越值钱）')
+  console.log('')
+
   const collected = perGame(R.ME) + perGame(R.FOE)
   const left = avg(sum.leftover, g)
-  const total = collected + left
-  const deckSize = 52
+  // **手里剩的也要算进来**（2026-10-15）：终局改成「牌库空 + 各打 1 手」
+  // 之后牌不再全部打出，手里恒剩几张。漏了它这条检查每次都报「对不上 6 张」，
+  // 而那是三个桶里最容易被忘掉的一个
+  const held = avg(sum.handLeft, g)
+  const total = collected + left + held
+  // **不写死 52** —— 商店能买卡进牌组，所以牌组大小是会变的。
+  // 读每局实际的 G.deckSize（见 rules.js）
+  const deckSize = avg(sum.deckSizeSum, g)
   console.log('  牌数守恒：收走 ' + f1(collected) + ' + 堆里剩 ' + f1(left)
-    + ' = ' + f1(total) + '（一副 ' + deckSize + ' 张）'
+    + ' + 手里剩 ' + f1(held) + ' = ' + f1(total) + '（一副 ' + deckSize + ' 张）'
     + (Math.abs(total - deckSize) < 0.05 ? ' ✓' : '  ← 对不上，去查 collect / harvestPile'))
 }
 
@@ -350,18 +441,39 @@ function measure(args, loadout, role) {
   }
 }
 
-// 一个角色的**常驻技能**值多少分：同一批种子，一边带角色（槽全空）、
-// 一边完全不带角色。相减就是那件特殊技能
+// 一个角色的**常驻技能**值多少分。
+//
+// ---- 三格，照 measureBoth（2026-10-15 补的）----
+//
+// 原先只有两格（基线 + 我带），所以它只报「后手带着值多少」，**给不出 D**。
+// 那个缺口在终局规则换掉之后变得要紧：全表（`all`）的 D 全部重量过了，
+// 可角色表还是单侧的，于是「逆流船夫 / 深海钓手偏不偏先手」这个问题
+// 根本没有读数 —— 而那两张正是文档挂着「要重新定档」的。
+//
+//   C    = 双方都不带角色（基线）
+//   back = 我（ME，后手）带      → meanDiff(D格) − meanDiff(C)
+//   front= 对手（FOE，先手）带   → meanDiff(C) − meanDiff(A格)
+//   X = (back+front)/2    D = (front−back)/2
+//
+// `gain` 保留 = back，老调用方（cmdRole 那条「分差」列）不受影响
 function measureSpecial(args, role) {
   const empty = R.emptyLoadout()
-  const base = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
-  const test = run(args.n, args.seed, empty, empty, { myRole: role, foeRole: -1 })
+  const C = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
+  const D = run(args.n, args.seed, empty, empty, { myRole: role, foeRole: -1 })
+  const A = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: role })
+  const baseDiff = meanDiff(C)
+  const back = meanDiff(D) - baseDiff
+  const front = baseDiff - meanDiff(A)
   return {
-    base: base,
-    test: test,
-    gain: meanDiff(test) - meanDiff(base),
-    se: Math.sqrt(stderrOf(test) * stderrOf(test) + stderrOf(base) * stderrOf(base)),
-    winGain: avg(test.wins[R.ME], test.games) - avg(base.wins[R.ME], base.games)
+    base: C,
+    test: D,
+    gain: back,
+    back: back,
+    front: front,
+    x: (back + front) / 2,
+    d: (front - back) / 2,
+    se: Math.sqrt(stderrOf(D) * stderrOf(D) + stderrOf(C) * stderrOf(C)),
+    winGain: avg(D.wins[R.ME], D.games) - avg(C.wins[R.ME], C.games)
   }
 }
 
@@ -436,8 +548,14 @@ function cmdOne(args) {
     + ' 次（基线 ' + f1(avg(m.base.catches[R.ME], m.base.games)) + '），每次收 '
     + f2(avg(m.test.caught[R.ME], m.test.catches[R.ME])) + ' 张（基线 '
     + f2(avg(m.base.caught[R.ME], m.base.catches[R.ME])) + '）')
-  console.log('\n  基线（双方同角色、槽全空）：后手分差 ' + sign(m.baseDiff)
-    + ' —— D 的上限就是它。')
+  // ---- 「D 的上限 = 基线优势」那句话 2026-10-15 删了 ----
+  //
+  // 它是基线 +3.03 时代的判据。终局规则改成「牌库空 + 各打 1 手」之后
+  // 基线只剩 +0.3，于是**任何正 D 都"超限"**，那条判据没意义了。
+  // 现在两条合用：相对标准误显著 + 相对比例模型偏离（见下面那行）
+  console.log('\n  基线（双方同角色、槽全空）：后手分差 ' + sign(m.baseDiff))
+  console.log('  **D 要跟标准误比，别跟基线比** —— |D| < ' + f2(m.se * 2)
+    + '（两个标准误）统计上分不开。')
   console.log('  口径跟 `all` 一致：双方同角色、各插同一个槽、**两侧都量**，'
     + '所以这几个数可以直接跟全表比。')
 }
@@ -525,9 +643,22 @@ function cmdAll(args) {
     + '（标准误 ' + f2(stderrOf(C)) + '）')
   console.log('  每件的标准误约 ' + f2(lines.length > 0 ? lines[0].se : 0)
     + ' —— 比它小的差异不作数')
-  console.log('\n  目标档位：单件每局 +3 ~ +5 分（看 **X** 这一列）。')
-  console.log('  **D ≈ 2 的件要当心** —— 那说明它抹掉了后手的结构性优势')
-  console.log('  （基线优势 ' + f2(baseDiff) + ' 就是 D 的上限）。')
+  // 目标档位 2026-10-15 从「+3~5」降下来：每人每局积分从 24.4 掉到 21.8
+  //（终局规则换了），比例没变、绝对值跟着走
+  console.log('\n  目标档位：单件每局 +2.7 ~ +4.5 分（看 **X** 这一列）。')
+  // ---- 判 D 的办法换了（2026-10-15）----
+  //
+  // 原先是「D ≈ 2 要当心，基线优势就是 D 的上限」。基线只剩 +0.3 之后
+  // 那条失效了（任何正 D 都"超限"）。现在两条合用：
+  //
+  //   **跟标准误比** —— |D| < 2σ 统计上分不开；
+  //   **跟比例模型比** —— D 大体正比于基线优势（先手在劣势侧，技能给他的
+  //     边际收益更高），所以旧口径的 D 乘上「现基线÷3.03」就是它的"正常值"。
+  //     偏离那个值的才是真偏向。实测全表只有洪水 / 择饵偏离。
+  console.log('  **D 要跟标准误比，别跟基线比**（基线只剩 ' + f2(baseDiff)
+    + '，拿它当上限的话任何正 D 都"超限"）——')
+  console.log('  |D| < ' + f2((lines.length > 0 ? lines[0].se : 0) * 2)
+    + ' 统计上分不开；再大的要对着比例模型看（见设计文档『终局那两手』）。')
   console.log('  X ≤ 0 的件不给建议价：那不是定价问题，是效果问题。')
   console.log('\n  换 --role / --slot 会改覆盖面，数就不能跟这一列比了。')
   console.log('  常驻特殊技能用 `roles` 子命令。')
@@ -538,9 +669,13 @@ function cmdAll(args) {
 function cmdRoles(args) {
   console.log('八个角色的**常驻特殊技能**，各跑 ' + args.n + ' 局（种子 '
     + args.seed + ' 起）')
-  console.log('槽一律空着 —— 量的是那件常驻技能本身，不含槽里插的东西\n')
-  console.log('  角色    特殊技      覆盖    槽        分差     标准误   胜率')
-  console.log('  ' + '-'.repeat(66))
+  console.log('槽一律空着 —— 量的是那件常驻技能本身，不含槽里插的东西')
+  // X / D 两列是 2026-10-15 补的（原先只有单侧的「分差」）——
+  // 口径跟 `all` / `one` 一致，所以这几个数可以直接跟全表比
+  console.log('口径跟 `all` 一致：三格（基线 / 我带 / 对手带），**两侧都量**\n')
+  console.log('  角色    特殊技      覆盖    槽          后手    先手'
+    + '       X       D   胜率')
+  console.log('  ' + '-'.repeat(78))
   const lines = []
   for (let i = 0; i < R.DRAW_ROLES.length; i++) {
     const role = R.DRAW_ROLES[i]
@@ -548,21 +683,27 @@ function cmdRoles(args) {
     lines.push({
       name: role.name, sp: role.special,
       cover: R.roleCover(i), slots: role.slots.join('/'),
-      gain: m.gain, se: m.se,
+      back: m.back, front: m.front, x: m.x, d: m.d, se: m.se,
       win: m.winGain,
       note: R.SP_NOTE[role.special] || ''
     })
   }
-  lines.sort(function (a, b) { return b.gain - a.gain })
+  // 按 X 排（原先按单侧的 gain）—— X 才是「这件常驻技多强」
+  lines.sort(function (a, b) { return b.x - a.x })
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]
     console.log('  ' + l.name.padEnd(8)
       + l.sp.padEnd(12)
       + (l.cover + ' 张').padEnd(8)
-      + l.slots.padEnd(10)
-      + ((l.gain >= 0 ? '+' : '') + f2(l.gain)).padStart(7)
-      + f2(l.se).padStart(9)
-      + ((l.win >= 0 ? '+' : '') + pct(l.win)).padStart(8))
+      + l.slots.padEnd(12)
+      + sign(l.back).padStart(7)
+      + sign(l.front).padStart(8)
+      + sign(l.x).padStart(8)
+      + sign(l.d).padStart(8)
+      // |D| 超过两个标准误的标出来 —— 那才是「真的偏」
+      + (Math.abs(l.d) > l.se * 2 ? ' ←' : '  ')
+      + ((l.win >= 0 ? '+' : '') + pct(l.win)).padStart(7))
   }
   const noted = lines.filter(function (l) { return l.note !== '' })
   if (noted.length > 0) {
@@ -571,8 +712,11 @@ function cmdRoles(args) {
       console.log('  ⚠ ' + noted[i].name + '（' + noted[i].sp + '）：' + noted[i].note)
     }
   }
-  console.log('\n  目标档位：一件常驻特殊技每局 +3 ~ +5 分（设计文档 13.3 第六条）。')
-  console.log('  【深钩】文档里记着超标（手估约 9 分），这张表是来验它的。')
+  // 目标档位 2026-10-15 从「+3~5」降下来（每人每局 24.4 → 21.8 分，
+  // 终局规则换了），跟槽技能同一个口径
+  console.log('\n  目标档位：一件常驻特殊技每局 +2.7 ~ +4.5 分（看 **X**）。')
+  console.log('  **D 要跟标准误比，别跟基线比** —— 每件的标准误约 '
+    + f2(lines.length > 0 ? lines[0].se : 0) + '，`←` 标的是 |D| > 2σ 的。')
   console.log('  表里没有【稳钩】—— 它的效果实现了，但没有角色带它（磐石删了）。')
 }
 

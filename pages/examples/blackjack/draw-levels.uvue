@@ -124,9 +124,10 @@
           <view class="card-head-gap"></view>
           <text class="now-reward">不记账</text>
         </view>
-        <!-- 只留口号。机制那段（随机满配、不记账、不推关号……）删了 ——
-             「不记账」右上角那个标签已经点出来了，剩下的上桌自然知道 -->
-        <text class="card-slogan">使出你的全力向王座发起挑战</text>
+        <!-- 〔口号也删了（2026-10-15）。机制那段先删的，理由是
+             「不记账」那个标签已经点出来了；口号跟着删是同一条理由的下一步 ——
+             它一个字的信息都没有，而「难度」那一排紧接着就要玩家做决定。
+             标题「终局对决」+ 标签「不记账」+ 难度，三样已经说完了〕 -->
         <!-- 终局难度摆在牌子上，直接开打也按它来。
              跟角色面板里那一排是同一个值（finalDiff），哪边改都一样 -->
         <view class="diff-row">
@@ -193,7 +194,8 @@
       <view class="skill-box" @click.stop="noop">
         <view class="skill-box-head">
           <text id="md-role-title" class="skill-box-title">{{ roleAt < 0 ? (roleMode == 'run' ? '这一轮用谁' : '选一张角色卡') : DRAW_ROLES[roleAt].name }}</text>
-          <text class="skill-box-sub">{{ roleAt < 0 ? DRAW_ROLES.length + ' 个' : '盖住 ' + roleCover(roleAt) + ' 张牌' }}</text>
+          <!-- `'' +` 打头照 cards.uts 的 faceOf 那条惯例（见 mySkills 那段） -->
+          <text class="skill-box-sub">{{ roleAt < 0 ? '' + DRAW_ROLES.length + ' 个' : '盖住 ' + roleCover(roleAt) + ' 张牌' }}</text>
         </view>
 
         <!-- 第一步：角色列表。卡片跟「角色」图鉴那边同一个样子：
@@ -210,7 +212,7 @@
               <text class="my-skill-name">{{ role.name }}</text>
               <text class="my-skill-key">{{ specialNameOf(ri) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-cover">{{ roleOpen(ri) ? roleCover(ri) + ' 张' : roleLock(ri) }}</text>
+              <text class="my-skill-cover">{{ roleOpen(ri) ? '' + roleCover(ri) + ' 张' : roleLock(ri) }}</text>
             </view>
             <text class="my-skill-level">槽：{{ slotsText(ri) }}</text>
             <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
@@ -835,7 +837,15 @@
       out.push({
         skill: k,
         owned: true,
-        cover: DRAW_SKILLS[k].unlock + ' 金币',
+        // `'' +` 打头照 `cards.uts` 的 `faceOf`（拼串用 `'' + value`，
+        // 而且**别写 `.toString()`** —— 编译到 Kotlin 是 `Number.toString(10)`，
+        // Number 上没有那个带进制的重载，整个包编译不过）。
+        //
+        // 〔**它不是「null 金币」那个 bug 的原因** —— 我一度以为是，
+        //   真正的原因是 `draw-skills.uts` 的 DRAW_SKILLS 表里漏下了一个
+        //   孤立的 `{`（删霜降时留的），数组因此多出一个空对象项。
+        //   见那儿的墓碑注释。这一行按惯例写成这样，但别拿它解释那个 bug〕
+        cover: '' + DRAW_SKILLS[k].unlock + ' 金币',
         name: DRAW_SKILLS[k].name,
         level: '',
         desc: DRAW_SKILLS[k].desc,
