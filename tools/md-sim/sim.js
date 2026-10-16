@@ -61,6 +61,12 @@
 //   → 双方都带、槽全空的**基线格**就已经是 后手 −12.23 分 / 胜率 11.2%
 //   （江口闸官同一格：+1.94 / 54.5%）
 //
+// ⚠ **【候潮渔翁】和【涨落】2026-10-16 删了**（常驻 X=−8.87，全表唯一超 2σ 的）。
+// 这个文件里还有三处拿它当例子（425、956、970 行附近）——
+// **那些例子一个都不删**：它们讲的是量法（基线不能借、残差会伪装成结论），
+// 而那条教训不依赖那件技能还在不在表里。只是别再照那几行去跑命令，
+// `--role tidal` 现在查不到。
+//
 // 基线歪 12 分，四格相减出来的数就全是噪声。而这还不是最坏的 ——
 // 最坏的是它**伪装成结论**：野火在那个角色上报「先后手差 21.19 分」，
 // 我一度读成「机制出了环」，其实那是基线的歪被技能一半抹平留下的残差。
@@ -136,8 +142,26 @@ function run(n, seed, mine, foe, opts) {
       gotFresh: [0, 0], gotOwn: [0, 0], gotTheirs: [0, 0]
     },
     // 顺子那两件的诊断口（见 rules.js 的 stat.straight / stat.wade）
-    straight: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    //
+    // straight 多三列（failFires / tagged / wildUsed）—— 那是
+    // 【失败补偿】（`FLOW_FAIL_TAG`）的诊断口，只在那个旋钮开着时才非零。
+    // wade / order 没有这一档，所以下面那个共用循环**只跑前四个 key**，
+    // 这三列单独累加
+    straight: {
+      fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
+      failFires: [0, 0], tagged: [0, 0], wildUsed: [0, 0]
+    },
     wade: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    // 【传火】的诊断口（见 rules.js 的 stat.chain）—— `lit` 是
+    // `CHAIN_HUE` 那个方案的成败指标，比 X 先看
+    chain: { fires: [0, 0], lit: [0, 0], nextGot: [0, 0] },
+    // 【分饵】的诊断口 —— `tookMine` / `tookFoe` 不相等就是拿了奇数张
+    gift: { fires: [0, 0], tookMine: [0, 0], tookFoe: [0, 0] },
+    // 【漫流】—— 跟顺子那两件同一组列（所以下面共用那个循环），外加 pushed
+    brim: {
+      fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
+      pushed: [0, 0]
+    },
     // 顺流（按排序收牌）—— 跟上面两件同一组列，所以下面共用同一个循环和同一张表
     order: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
     // 【野火】的诊断口（见 rules.js 的 stat.wild）—— 查那个非单调
@@ -192,6 +216,21 @@ function run(n, seed, mine, foe, opts) {
         sum.straight[keys[k]][s] += G.stat.straight[keys[k]][s]
         sum.wade[keys[k]][s] += G.stat.wade[keys[k]][s]
         sum.order[keys[k]][s] += G.stat.order[keys[k]][s]
+        sum.brim[keys[k]][s] += G.stat.brim[keys[k]][s]
+      }
+      sum.brim.pushed[s] += G.stat.brim.pushed[s]
+      // 失败补偿那三列只有 straight 有
+      const fk = ['failFires', 'tagged', 'wildUsed']
+      for (let k = 0; k < fk.length; k++) {
+        sum.straight[fk[k]][s] += G.stat.straight[fk[k]][s]
+      }
+      const ck = ['fires', 'lit', 'nextGot']
+      for (let k = 0; k < ck.length; k++) {
+        sum.chain[ck[k]][s] += G.stat.chain[ck[k]][s]
+      }
+      const gk = ['fires', 'tookMine', 'tookFoe']
+      for (let k = 0; k < gk.length; k++) {
+        sum.gift[gk[k]][s] += G.stat.gift[gk[k]][s]
       }
       const wk = ['fires', 'took', 'blank', 'burnSum',
         'reapSum', 'reapOwn', 'reapTheirs', 'sweeps', 'sweepSum']
@@ -673,37 +712,58 @@ function cmdRoles(args) {
   // X / D 两列是 2026-10-15 补的（原先只有单侧的「分差」）——
   // 口径跟 `all` / `one` 一致，所以这几个数可以直接跟全表比
   console.log('口径跟 `all` 一致：三格（基线 / 我带 / 对手带），**两侧都量**\n')
-  console.log('  角色    特殊技      覆盖    槽          后手    先手'
-    + '       X       D   胜率')
-  console.log('  ' + '-'.repeat(78))
+  console.log('  角色    特殊技      槽数  覆盖    常驻 X      D'
+    + '    满配    每槽')
+  console.log('  ' + '-'.repeat(72))
+  // ---------- 满配那一格：**槽数才是角色强度的主导因素** ----------
+  //
+  // 加这一列是因为「常驻技定档」那个问题问错了对象。证据：
+  // **填河工和江口闸官都是 4 槽**，可常驻技一个 +0.04、一个 +5.35 ——
+  // 而两张卡的实际强度差得远没有那个数那么多，因为**4 个槽本身**
+  // 就值一大截（一件技能平均 X ≈ +2.2，真人会挑强的，所以更高）。
+  //
+  // 所以要定档的是**角色总强度 = 常驻技 + 槽**，而「每槽边际值」
+  // 是把两样换算到同一把尺子上的那个系数。它一直没人量过
+  const empty = R.emptyLoadout()
+  const baseRun = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
+  const baseD = meanDiff(baseRun)
   const lines = []
   for (let i = 0; i < R.DRAW_ROLES.length; i++) {
     const role = R.DRAW_ROLES[i]
     const m = measureSpecial(args, i)
+    // 满配：同一张卡插满槽（KIT_ORDER 前 N 件）。跟基线比，所以它
+    // **含常驻技**那一份 —— 「每槽」那一列把常驻减掉再除槽数
+    const full = run(args.n, args.seed, R.kitFromRole(i, kitFor(i)), empty,
+      { myRole: i, foeRole: -1 })
+    const fullGain = meanDiff(full) - baseD
+    const nSlots = role.slots.length
     lines.push({
       name: role.name, sp: role.special,
       cover: R.roleCover(i), slots: role.slots.join('/'),
+      nSlots: nSlots,
       back: m.back, front: m.front, x: m.x, d: m.d, se: m.se,
+      full: fullGain,
+      perSlot: nSlots > 0 ? (fullGain - m.back) / nSlots : 0,
       win: m.winGain,
       note: R.SP_NOTE[role.special] || ''
     })
   }
-  // 按 X 排（原先按单侧的 gain）—— X 才是「这件常驻技多强」
-  lines.sort(function (a, b) { return b.x - a.x })
+  // **按「满配」排序** —— 那才是玩家实际拿到手的强度。
+  // 原先按常驻技的 X 排，而那一列现在只是总强度的一半
+  lines.sort(function (a, b) { return b.full - a.full })
   const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]
     console.log('  ' + l.name.padEnd(8)
       + l.sp.padEnd(12)
-      + (l.cover + ' 张').padEnd(8)
-      + l.slots.padEnd(12)
-      + sign(l.back).padStart(7)
-      + sign(l.front).padStart(8)
-      + sign(l.x).padStart(8)
+      + String(l.nSlots).padStart(2) + ' 个'
+      + (' ' + l.cover + ' 张').padEnd(8)
+      + sign(l.x).padStart(7)
       + sign(l.d).padStart(8)
       // |D| 超过两个标准误的标出来 —— 那才是「真的偏」
-      + (Math.abs(l.d) > l.se * 2 ? ' ←' : '  ')
-      + ((l.win >= 0 ? '+' : '') + pct(l.win)).padStart(7))
+      + (Math.abs(l.d) > l.se * 2 ? '←' : ' ')
+      + sign(l.full).padStart(8)
+      + sign(l.perSlot).padStart(8))
   }
   const noted = lines.filter(function (l) { return l.note !== '' })
   if (noted.length > 0) {
@@ -712,25 +772,61 @@ function cmdRoles(args) {
       console.log('  ⚠ ' + noted[i].name + '（' + noted[i].sp + '）：' + noted[i].note)
     }
   }
-  // 目标档位 2026-10-15 从「+3~5」降下来（每人每局 24.4 → 21.8 分，
-  // 终局规则换了），跟槽技能同一个口径
-  console.log('\n  目标档位：一件常驻特殊技每局 +2.7 ~ +4.5 分（看 **X**）。')
-  console.log('  **D 要跟标准误比，别跟基线比** —— 每件的标准误约 '
+  // ---- 四列怎么读（2026-10-16 改了判据，见设计文档『角色总强度』）----
+  //
+  // 原先只有「常驻 X」一列，而目标档位是「常驻技每局 +2.7~4.5」。
+  // **那条判据问错了对象** —— 填河工和江口闸官都是 4 槽，可常驻技
+  // 一个 +0.04、一个 +5.35，而玩家拿到手的强度差得远没那么多。
+  console.log('\n  **要定档的是「满配」那一列** —— 那是玩家实际拿到手的强度。')
+  console.log('  常驻 X 和槽数是它的两个来源，而「每槽」是把两样换算到'
+    + '同一把尺子上的系数。')
+  console.log('  读法：**常驻技强就该少给槽，常驻技弱就用多槽补偿** ——'
+    + '两样都给（或都不给）才是失衡。')
+  console.log('\n  D 要跟标准误比，别跟基线比 —— 每件的标准误约 '
     + f2(lines.length > 0 ? lines[0].se : 0) + '，`←` 标的是 |D| > 2σ 的。')
+  console.log('  「常驻 X」那一列有几件恒等于 0，而那是**量法问题不是设计问题**：'
+    + '信息类 AI 不读（镜湖占卜师 —— 清水是这一族仅剩的一件），')
+  console.log('  花色 / 点数类在槽全空时无效（夜钓客 / 赌船荷官）——'
+    + '照【归深】那个先例。看它们要看「满配」。')
   console.log('  表里没有【稳钩】—— 它的效果实现了，但没有角色带它（磐石删了）。')
 }
 
 // ---------- role：一个角色打满槽 ----------
 
+// ---------- 插满槽时插什么：**按「真人会买的」顺序** ----------
+//
+// 原先 `role` 命令插的是**表序前 N 件** —— 磁钩 / 观潮 / 窥视 / 换水，
+// 而它们的 X 是 **+1.19 / +1.04 / 0.00 / +0.69**，全表最弱的几件。
+//（那个 0.00 就是窥视，它 2026-10-16 删了 —— 这条教训比那件技能活得久）
+// 后果有两层，第二层才是要命的：
+//
+//   它系统性**低估**角色（插的是弱件）；
+//   而且**对槽多的角色低估更多** —— 第 3、4 件比第 1、2 件更弱。
+//     于是 4 槽的卡和 2 槽的卡量出来差不多，**而槽数正是角色强度的
+//     主导因素**。十一张卡的数因此不可比。
+//
+// 这个名单按 X 降序，跟 `campaign.js` 的 `PLAYER_POOL` 同源
+//（「X ≥ 1.5 而且游戏里在卖」）—— 真人在商店里就是这么挑的。
+//
+// **一件技能插哪种槽都行**（设计文档『技能必须通用』），所以不用管
+// 花色槽 / 点数槽的区别
+const KIT_ORDER = [
+  'chain', 'kindle', 'swapcard', 'flow', 'wild', 'peak', 'draft', 'coldhue'
+]
+
+function kitFor(role) {
+  const n = R.DRAW_ROLES[role].slots.length
+  const picks = []
+  for (let i = 0; i < n; i++) {
+    picks.push(skillIndexOf(KIT_ORDER[i % KIT_ORDER.length]))
+  }
+  return picks
+}
+
 function cmdRole(args) {
   const role = roleIndexOrDie(args._[1] || args.role)
   const r = R.DRAW_ROLES[role]
-  // 槽里插什么会严重影响结果，所以这儿**不替用户选** ——
-  // 按表序把前几件插进去只是一个「有东西」的参照，不是最优配装
-  const picks = []
-  for (let i = 0; i < r.slots.length; i++) {
-    picks.push(i)
-  }
+  const picks = kitFor(role)
   const lo = R.kitFromRole(role, picks)
   const o = { myRole: role, foeRole: -1 }
   const base = run(args.n, args.seed, R.emptyLoadout(), R.emptyLoadout(),
@@ -749,8 +845,9 @@ function cmdRole(args) {
     + ' 分   标准误 ' + f2(se))
   console.log('  胜率 ' + pct(avg(test.wins[R.ME], test.games))
     + '（基线 ' + pct(avg(base.wins[R.ME], base.games)) + '）')
-  console.log('\n  槽里插的是**按表序取的前几件**，不是最优配装 ——'
-    + '这个数只说明「这个角色带着东西大概什么量级」。')
+  console.log('\n  槽里插的是 KIT_ORDER 的前 ' + r.slots.length
+    + ' 件（按 X 降序，跟 campaign 的池子同源）——'
+    + '所以这个数**可以跟别的角色横着比**。')
 }
 
 // ---------- pair：两件装一起（组合技要用的底数） ----------
@@ -972,7 +1069,8 @@ function cmdVs(args) {
       sdRow('涉水·后手', D.wade, R.ME), sdRow('涉水·先手', A.wade, R.FOE),
       // 顺流不是顺子（它看位置次序，不看值连不连），但要回答的问题
       // 和要看的四列**一模一样**，所以共用这张表
-      sdRow('顺流·后手', D.order, R.ME), sdRow('顺流·先手', A.order, R.FOE)
+      sdRow('顺流·后手', D.order, R.ME), sdRow('顺流·先手', A.order, R.FOE),
+      sdRow('漫流·后手', D.brim, R.ME), sdRow('漫流·先手', A.brim, R.FOE)
     ].filter(function (r) { return r !== null })
     if (sdRows.length > 0) {
       console.log('\n  ---- 诊断：成段的那几件怎么凑成的（顺子 / 排序）----')
@@ -982,6 +1080,97 @@ function cmdVs(args) {
       console.log('  「每次收成」低 → 瓶颈在**收法**；')
       console.log('  两样都不低而分差仍低 → 收的那几张**本来也钓得到**')
       console.log('  （洪水那场查出来的那个机制，见 rules.js 的 stat.flood）。')
+      // 漫流多一个数：真推上来几张（牌库不足 2 张时不推，所以它低于 2×层数）
+      if (D.brim.fires[R.ME] > 0) {
+        console.log('\n  漫流**真推上来**：后手 '
+          + f2(avg(D.brim.pushed[R.ME], D.brim.fires[R.ME])) + ' 张/次、先手 '
+          + f2(avg(A.brim.pushed[R.FOE], A.brim.fires[R.FOE])) + ' 张/次'
+          + '（层数 × 2 是上限，牌库不足 2 张时不推）')
+      }
+      // ---- 【失败补偿】那一档的三列（只在 FLOW_FAIL_TAG 开着时打）----
+      //
+      // 这三个数**必须一起读**，单看任何一个都会把成因归错：
+      //
+      //   补偿次数 ≈ 打出次数 × (1 − 凑成率)  → 对得上就说明那一支走到了
+      //   真贴上 / 补偿次数                  → 明显小于 N 就是**手牌贴满了**（饱和）
+      //   用上的 / 真贴上                    → 小就是**兑现链断了**（贴的是手牌，
+      //                                        要等它打出去落堆才成为材料）
+      //
+      // 第三列是这一档的死因所在，而它跟「幅度不够」是两种病、两种解法
+      const ftRow = function (label, sd, s) {
+        if (sd.failFires[s] === 0) return null
+        return '    ' + label.padEnd(10)
+          + f2(avg(sd.failFires[s], args.n)).padStart(8) + ' 次/局'
+          + f2(avg(sd.tagged[s], sd.failFires[s])).padStart(9) + ' 张/次'
+          + f2(avg(sd.wildUsed[s], sd.hits[s])).padStart(9) + ' 张/成'
+      }
+      const ftRows = [
+        ftRow('伏流·后手', D.straight, R.ME),
+        ftRow('伏流·先手', A.straight, R.FOE)
+      ].filter(function (r) { return r !== null })
+      if (ftRows.length > 0) {
+        console.log('\n  ---- 诊断：失败补偿（FLOW_FAIL_TAG）----')
+        console.log('            补偿次数    真贴上     凑成时用上的通配')
+        for (let i = 0; i < ftRows.length; i++) console.log(ftRows[i])
+        console.log('\n  「真贴上」明显小于 N → **手牌贴满了**（饱和，加 N 没用）；')
+        console.log('  「用上的通配」小 → **兑现链断了** —— 贴的是手牌，')
+        console.log('  要等那张牌打出去落堆才成为材料，而堆的换手是 3.3 回合。')
+        console.log('  那是第一条死因（兑现牌遇不上）的变体，加 N 治不了。')
+      }
+    }
+    // ---- 【传火】那两个旋钮的诊断（CHAIN_HUE / CHAIN_NEXT）----
+    //
+    // ⚠ **这一段必须在那个 `if (sdRows.length > 0)` 块外面。**
+    // 2026-10-16 第一版写在里面了，而那个块是「顺子那几件」的 ——
+    // 传火不是顺子件，所以 sdRows 空、整块跳过、**传火的诊断一行都没打**。
+    // 我因此在读那一轮五格矩阵时完全没有诊断列可看，只能从 X 反推。
+    //
+    // 判据：**诊断口要挂在它自己的条件上**（这儿是 `cd.fires[s] === 0`），
+    // 别挂在别人的块里 —— 那种漏不报错，只是静默地什么都不打。
+    const chRow = function (label, cd, s) {
+      if (cd.fires[s] === 0) return null
+      return '    ' + label.padEnd(10)
+        + f2(avg(cd.fires[s], args.n)).padStart(8) + ' 次/局'
+        + f2(avg(cd.lit[s], cd.fires[s])).padStart(9) + ' 张/次'
+        + pct(avg(cd.nextGot[s], cd.fires[s])).padStart(10)
+    }
+    const chRows = [
+      chRow('传火·后手', D.chain, R.ME),
+      chRow('传火·先手', A.chain, R.FOE)
+    ].filter(function (r) { return r !== null })
+    if (chRows.length > 0) {
+      console.log('\n  ---- 诊断：传火（CHAIN_HUE / CHAIN_NEXT）----')
+      console.log('            发动次数   同色点着   连锁取到率')
+      for (let i = 0; i < chRows.length; i++) console.log(chRows[i])
+      console.log('\n  「同色点着」是**新**点着几张 —— 已经着火的那几格 lightAt')
+      console.log('  返回假、不计数，所以它低于「堆上同颜色有几张」。实测 0.70。')
+      console.log('  **别只看这个数判成「点不着几张所以弱」** —— 实测同颜色那档')
+      console.log('  值 +2.12，因为堆薄同时让**燃尽**更容易达成（点着 1 张 + 它自己')
+      console.log('  就可能是全堆带火，实测燃尽率 71~91%）。')
+      console.log('  **堆薄对「点几张」和「燃不燃尽」符号相反**，所以别照直觉改回去。')
+      console.log('  「连锁取到率」在 noburn 档下 = 没燃尽的比例 × 牌库里还有同点数的比例。')
+    }
+    // ---- 【分饵】的诊断（GIFT_LOOK / GIFT_FOE / GIFT_FATE）----
+    const gfRow = function (label, gd, s) {
+      if (gd.fires[s] === 0) return null
+      return '    ' + label.padEnd(10)
+        + f2(avg(gd.fires[s], args.n)).padStart(8) + ' 次/局'
+        + f2(avg(gd.tookMine[s], gd.fires[s])).padStart(9) + ' 张给己'
+        + f2(avg(gd.tookFoe[s], gd.fires[s])).padStart(9) + ' 张给敌'
+    }
+    const gfRows = [
+      gfRow('分饵·后手', D.gift, R.ME),
+      gfRow('分饵·先手', A.gift, R.FOE)
+    ].filter(function (r) { return r !== null })
+    if (gfRows.length > 0) {
+      console.log('\n  ---- 诊断：分饵（GIFT_LOOK / GIFT_FOE / GIFT_FATE）----')
+      console.log('            发动次数   给自己     给对手')
+      for (let i = 0; i < gfRows.length; i++) console.log(gfRows[i])
+      console.log('\n  两列**相等**才是偶数张离库（不翻牌库奇偶）。')
+      console.log('  `GIFT_FOE=0` 那一档是**对照组**：它让拿牌数变成奇数，')
+      console.log('  所以两档的 **D 之差**就是「奇偶那道缝」在这件技能上值多少')
+      console.log('  （填塘那次量过同一条缝：X=0.00 而 D=+0.80，完美反对称）。')
+      console.log('  「给自己」低于 1.00 → 牌库快空时看都看不到 1 张。')
     }
     // ---- 【洪水】的诊断口 ----
     //

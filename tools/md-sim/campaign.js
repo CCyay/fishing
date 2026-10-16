@@ -68,7 +68,10 @@ const FOE_ROLES = [
   { name: '礁石海女', specials: ['pinch'], slots: [['freeze', 2, false]] },
   { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 2, false], ['hook', 1, false]] },
   { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, true]] },
-  { name: '雾港守灯人', specials: ['dryup'], slots: [['lantern', 2, false], ['freeze', 2, false]] },
+  // 〔2026-10-16 照水 ×2 → **死水 ×1**（照水删了）。理由见 draw-levels 那一关的注释。
+  //   对这个报表的意义：这一关**第一次有了模拟器量得到的槽技能**（枯水仍然没模），
+  //   所以它的数字从「两件白板」变成「一件白板」—— 还是下限，但下限抬高了〕
+  { name: '雾港守灯人', specials: ['dryup'], slots: [['dead', 1, false], ['freeze', 2, false]] },
   { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 1, true], ['lowtide', 1, false]] },
   // ---- 11 / 12 关 2026-10-15 改过两轮（曲线倒挂：11 关比关底难 21 个点）----
   //
