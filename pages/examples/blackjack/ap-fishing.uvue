@@ -398,6 +398,19 @@
       <text class="sink-note">{{ sinkOn ? '这一张会打到堆底，收「堆底 → 匹配那张」' : '照常落堆顶' }}</text>
     </view>
 
+    <!-- 【换竿】的开关：跟逆流同一个样式、同一个位置（两件不会同时出现，
+         各自只在带它的角色上）。开着时手牌底下那行技能名会跟着对调 -->
+    <view v-if="hasSwitchSpecial" class="sink-row" @click="switchOn = !switchOn">
+      <text class="sink-btn" :class="{ 'sink-btn-on': switchOn }">{{ switchOn ? '换竿 · 开' : '换竿 · 关' }}</text>
+      <text class="sink-note">{{ switchOn ? '两个槽的技能对调了' : '各槽发动各自的技能' }}</text>
+    </view>
+
+    <!-- 【分竿】：三档轮着按。手牌底下那行技能名跟着变，看得见这一档发哪件 -->
+    <view v-if="hasOneRodSpecial" class="sink-row" @click="rodMode = (rodMode + 1) % 3">
+      <text class="sink-btn" :class="{ 'sink-btn-on': rodMode != 0 }">{{ rodText }}</text>
+      <text class="sink-note">{{ rodMode == 0 ? '同时发动两件的牌照常两件都发' : '同时发动两件的牌只发这一件' }}</text>
+    </view>
+
     <!-- 你的手牌：点一张打出。牌底下的小字是这张会触发的技能。
          「你的手牌 N 张 · 点一张打出」那个标题去掉了 ——
          牌就在眼前，而「点一张打出」是这一页唯一的操作，不用每局提醒 -->
@@ -667,6 +680,9 @@
     SP_CYCLE,
     // 【归十】：你打出的 Q K 都算 10（见 valuesOf）
     SP_TENS,
+    SP_SWITCH,
+    SP_ONEROD,
+    swapLoadout,
     CYCLE_REFILL,
     BAIT_COUNT,
     baitRankOf
@@ -2008,7 +2024,82 @@
     if (isDead(card)) {
       return [] as number[]
     }
-    return triggersOf(loadoutOf(byFoe), card.suit, card.rank)
+    return oneRod(byFoe, triggersOf(switchedLoadout(byFoe), card.suit, card.rank))
+  }
+
+  // ---------- 【换竿】：两个点数槽的技能对调，开关照【逆流】 ----------
+  //
+  // 只在 skillsOf 这一个入口生效 —— 所有「这张牌触发什么」都走它，
+  // 所以手牌底下那行小字、庄家估牌、afterPlay 结算一起跟着变，不用逐处改。
+  //
+  // 开关**保持状态**、一局一清（照 sinkOn 那两条理由）
+  const switchOn = ref<boolean>(false)
+  // 庄家那一侧的开关。它不按按钮 —— foePickCard 每回合两种都估一遍，
+  // 挑收得多的那种留在这儿，playFor / afterPlay 读到的就是它挑定的
+  const foeSwitchOn = ref<boolean>(false)
+
+  const hasSwitchSpecial = computed<boolean>(() : boolean => {
+    return hasSpecial(false, SP_SWITCH)
+  })
+
+  // ---------- 【分竿】：同时发动两件时可以只发一件 ----------
+  //
+  // 也只在 skillsOf 这个入口生效。三档：0 两件都发、1 只发第一件、2 只发第二件
+  //（「第一件」是 triggersOf 先排的那件 —— 双竿客的第一个 ♠ 槽）。
+  // 只发动一件的牌上，界面那行技能名也只剩一件，所以玩家看得见现在是哪一档
+  const rodMode = ref<number>(0)
+  const foeRodMode = ref<number>(0)
+
+  const hasOneRodSpecial = computed<boolean>(() : boolean => {
+    return hasSpecial(false, SP_ONEROD)
+  })
+
+  const rodText = computed<string>(() : string => {
+    if (rodMode.value == 1) {
+      return '分竿 · 只发第一件'
+    }
+    if (rodMode.value == 2) {
+      return '分竿 · 只发第二件'
+    }
+    return '分竿 · 两件都发'
+  })
+
+  function oneRod(byFoe : boolean, list : number[]) : number[] {
+    if (list.length != 2 || !hasSpecial(byFoe, SP_ONEROD)) {
+      return list
+    }
+    const mode = byFoe ? foeRodMode.value : rodMode.value
+    if (mode == 1 || mode == 2) {
+      return [list[mode - 1]] as number[]
+    }
+    return list
+  }
+
+  // 庄家挑牌时要试几档：换竿 2 档（关 / 开）、分竿 3 档、别的角色 1 档
+  function foeModeCount() : number {
+    if (hasSpecial(true, SP_SWITCH)) {
+      return 2
+    }
+    if (hasSpecial(true, SP_ONEROD)) {
+      return 3
+    }
+    return 1
+  }
+
+  function setFoeMode(m : number) {
+    foeSwitchOn.value = m == 1 && hasSpecial(true, SP_SWITCH)
+    foeRodMode.value = hasSpecial(true, SP_ONEROD) ? m : 0
+  }
+
+  function switchedLoadout(byFoe : boolean) : DrawLoadout {
+    const lo = loadoutOf(byFoe)
+    if (!hasSpecial(byFoe, SP_SWITCH)) {
+      return lo
+    }
+    if (!(byFoe ? foeSwitchOn.value : switchOn.value)) {
+      return lo
+    }
+    return swapLoadout(lo, byFoe ? foeRole.value : myRole.value)
   }
 
   // 手牌底下那行小字：这张会触发的技能名
@@ -8729,38 +8820,47 @@
     }
     let best = -1
     let bestCaught = 0
-    for (let i = 0; i < foeHand.value.length; i++) {
-      const card = foeHand.value[i]
-      // 被你冻住的，它也打不出去
-      if (isFrozen(card)) {
-        continue
-      }
-      const skills = skillsOf(true, card)
-      const sink = hasTrigger(skills, SK_SINK)
-      const at = catchStart(card, true, skills, sink)
-      let caught = 0
-      if (at >= 0) {
-        // 收几张：普通是「匹配那张到堆顶」+ 自己，
-        // 沉底是「堆底到匹配那张」+ 自己（方向反的，见 playFor）
-        caught = sink ? at + 2 : pile.value.length - at + 1
-      }
-      // ---- 收色、撒网的收成得单独估 ----
-      //
-      // 它们不走点数判定（收色连点数都没有，见 valuesOf），所以上面那个
-      // catchStart 对它们一概返回 -1 —— 不单独估一次，庄家就会把一张
-      // 能扫掉半个堆的牌当普通饵打出去。
-      //
-      // 估的是**实际收成**（照 hueFor / castFor 的口径），不是近似值：
-      // 两件都是遍历堆、数命中几张，算一遍不比猜便宜
-      const harvest = harvestCount(card, skills, true)
-      if (harvest > caught) {
-        caught = harvest
-      }
-      if (caught > bestCaught) {
-        bestCaught = caught
-        best = i
+    // 【换竿】【分竿】：每一档各估一遍，挑收得多的那档（同样多的话取第 0 档）。
+    // 估牌时 skillsOf 读的就是那两个开关，所以这儿只要拨一下再算
+    let bestMode = 0
+    const modes = foeModeCount()
+    for (let m = 0; m < modes; m++) {
+      setFoeMode(m)
+      for (let i = 0; i < foeHand.value.length; i++) {
+        const card = foeHand.value[i]
+        // 被你冻住的，它也打不出去
+        if (isFrozen(card)) {
+          continue
+        }
+        const skills = skillsOf(true, card)
+        const sink = hasTrigger(skills, SK_SINK)
+        const at = catchStart(card, true, skills, sink)
+        let caught = 0
+        if (at >= 0) {
+          // 收几张：普通是「匹配那张到堆顶」+ 自己，
+          // 沉底是「堆底到匹配那张」+ 自己（方向反的，见 playFor）
+          caught = sink ? at + 2 : pile.value.length - at + 1
+        }
+        // ---- 收色、撒网的收成得单独估 ----
+        //
+        // 它们不走点数判定（收色连点数都没有，见 valuesOf），所以上面那个
+        // catchStart 对它们一概返回 -1 —— 不单独估一次，庄家就会把一张
+        // 能扫掉半个堆的牌当普通饵打出去。
+        //
+        // 估的是**实际收成**（照 hueFor / castFor 的口径），不是近似值：
+        // 两件都是遍历堆、数命中几张，算一遍不比猜便宜
+        const harvest = harvestCount(card, skills, true)
+        if (harvest > caught) {
+          caught = harvest
+        }
+        if (caught > bestCaught) {
+          bestCaught = caught
+          best = i
+          bestMode = m
+        }
       }
     }
+    setFoeMode(bestMode)
     if (best >= 0) {
       return best
     }
@@ -8928,6 +9028,11 @@
     // 沉底那个开关也归零。它保持状态是**一局之内**的事 ——
     // 跨局留着的话，你上一局开着它，这一局头一张牌就莫名其妙落到了堆底
     sinkOn.value = false
+    // 【换竿】【分竿】的开关同理
+    switchOn.value = false
+    foeSwitchOn.value = false
+    rodMode.value = 0
+    foeRodMode.value = 0
     // 【死水】废掉的那几张：一局一清。
     //
     // **这条非清不可** —— 它存的是牌对象的引用，而牌组是同一副、

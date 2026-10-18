@@ -115,6 +115,18 @@ function rushFlood(G, side) {
   return -1
 }
 
+// 挑牌时要试几档（照源码 foeModeCount）：换竿 2、分竿 3、别的 1
+function modeCount(G, side) {
+  if (R.hasSpecial(G, side, R.SP.SWITCH)) return 2
+  if (R.hasSpecial(G, side, R.SP.ONEROD)) return 3
+  return 1
+}
+
+function setMode(G, side, m) {
+  G.switchOn[side] = m === 1 && R.hasSpecial(G, side, R.SP.SWITCH)
+  G.rodMode[side] = R.hasSpecial(G, side, R.SP.ONEROD) ? m : 0
+}
+
 function pickCard(G, side) {
   // 关卡表的 random：连钓都不挑（照源码 foePickCard 开头那一支）
   if (G.random[side]) return randomFree(G, side)
@@ -126,35 +138,44 @@ function pickCard(G, side) {
   const lo = G.loadouts[side]
   let best = -1
   let bestCaught = 0
-  for (let i = 0; i < hand.length; i++) {
-    const card = hand[i]
-    if (R.isFrozen(G, card)) continue
-    const skills = R.skillsOf(G, side, card)
-    // ---- 挑牌时**一律按「正常落堆」算**，不看落堆底那一头 ----
-    //
-    // 〔点数技能【沉底】2026-10-14 删了。这儿原先按它算落堆底，
-    //   照的是源码那行 `const sink = hasTrigger(skills, SK_SINK)`。〕
-    //
-    // 而**【逆流】那个缺口照旧**，它是源码里一个真实的缺口、不是这边搬漏：
-    // 挑牌阶段不知道「这张落堆底能钓到」，而 wantSink 只在打出**之后**
-    // 决定落点，牌已经挑定了。所以逆流在庄家手里被低估 ——
-    // `roles` 那张表量出来的是它的**下限**。
-    // 改的话是在这一行接上 sinkPays
-    const at = R.catchStart(G, card, side, skills, false)
-    let caught = 0
-    if (at >= 0) {
-      // 收几张：「匹配那张到堆顶」再加自己
-      caught = G.pile.length - at + 1
-    }
-    // 收色、撒网不走点数判定，所以上面那一下对它们一概是 -1 ——
-    // 不单独估一次，AI 就会把一张能扫掉半个堆的牌当普通饵打出去
-    const harvest = R.harvestCount(G, card, skills, side)
-    if (harvest > caught) caught = harvest
-    if (caught > bestCaught) {
-      bestCaught = caught
-      best = i
+  // 【换竿】【分竿】：每一档各估一遍，挑收得多的那档（照源码 foePickCard）。
+  // skillsOf 读的就是 G.switchOn / G.rodMode，所以拨一下再算就行
+  let bestMode = 0
+  const modes = modeCount(G, side)
+  for (let m = 0; m < modes; m++) {
+    setMode(G, side, m)
+    for (let i = 0; i < hand.length; i++) {
+      const card = hand[i]
+      if (R.isFrozen(G, card)) continue
+      const skills = R.skillsOf(G, side, card)
+      // ---- 挑牌时**一律按「正常落堆」算**，不看落堆底那一头 ----
+      //
+      // 〔点数技能【沉底】2026-10-14 删了。这儿原先按它算落堆底，
+      //   照的是源码那行 `const sink = hasTrigger(skills, SK_SINK)`。〕
+      //
+      // 而**【逆流】那个缺口照旧**，它是源码里一个真实的缺口、不是这边搬漏：
+      // 挑牌阶段不知道「这张落堆底能钓到」，而 wantSink 只在打出**之后**
+      // 决定落点，牌已经挑定了。所以逆流在庄家手里被低估 ——
+      // `roles` 那张表量出来的是它的**下限**。
+      // 改的话是在这一行接上 sinkPays
+      const at = R.catchStart(G, card, side, skills, false)
+      let caught = 0
+      if (at >= 0) {
+        // 收几张：「匹配那张到堆顶」再加自己
+        caught = G.pile.length - at + 1
+      }
+      // 收色、撒网不走点数判定，所以上面那一下对它们一概是 -1 ——
+      // 不单独估一次，AI 就会把一张能扫掉半个堆的牌当普通饵打出去
+      const harvest = R.harvestCount(G, card, skills, side)
+      if (harvest > caught) caught = harvest
+      if (caught > bestCaught) {
+        bestCaught = caught
+        best = i
+        bestMode = m
+      }
     }
   }
+  setMode(G, side, bestMode)
   if (best >= 0) return best
   if (!G.smart[side]) return randomFree(G, side)
 

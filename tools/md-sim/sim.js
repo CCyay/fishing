@@ -8,6 +8,7 @@
 //   node sim.js vs <key> <key>            同一件传两次 = 量它在**先手/后手**各值多少
 //   node sim.js roles [选项]              八个角色各自的常驻技能值多少分
 //   node sim.js role <key> [选项]         一个角色打满槽，对照空装
+//   node sim.js switch <keyA> <keyB>      【换竿】值多少：两岸船家两个槽插这两件，开关 vs 不带
 //   node sim.js cards [选项]              零点牌 / 无点数牌掺进牌组，局面怎么变
 //
 // `pair` 和 `vs` 的区别要分清：**pair 两件都在我这边，vs 分在两边。**
@@ -1208,6 +1209,48 @@ function cmdVs(args) {
     + '   胜率 ' + pct(avg(B.wins[R.ME], B.games)))
 }
 
+// ---------- switch：【换竿】本身值多少 ----------
+//
+// `roles` 量常驻技时槽一律空着，而换竿对调的是**两个槽里的技能** ——
+// 空槽对调还是空槽，那一格恒为 0。所以它得单开一条：两个槽插上给定的两件，
+// 同一套配装**带不带换竿**各跑一遍，差出来的才是换竿自己。
+//
+// 口径照 `roles` / `all`：两侧都量（后手 / 先手），报 X 和 D。
+// 对手一律空手、不带角色。
+//
+// AI 每手把开、关两种都估一遍（ai.js 的 pickCard），挑收得多的那种 ——
+// 当饵那一支不看换竿（开关落回关），所以这个数是它的**下限**
+function cmdSwitch(args) {
+  const role = roleIndexOrDie('banks')
+  const slots = R.DRAW_ROLES[role].slots
+  const atA = skillIndexOf(args._[1])
+  const atB = skillIndexOf(args._[2])
+  const lo = R.kitFromRole(role, [atA, atB])
+  const empty = R.emptyLoadout()
+  // 同一套配装，常驻技关 / 开
+  const offBack = run(args.n, args.seed, lo, empty, { myRole: -1, foeRole: -1 })
+  const onBack = run(args.n, args.seed, lo, empty, { myRole: role, foeRole: -1 })
+  const offFront = run(args.n, args.seed, empty, lo, { myRole: -1, foeRole: -1 })
+  const onFront = run(args.n, args.seed, empty, lo, { myRole: -1, foeRole: role })
+  const base = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
+  const back = meanDiff(onBack) - meanDiff(offBack)
+  const front = meanDiff(offFront) - meanDiff(onFront)
+  const kitBack = meanDiff(offBack) - meanDiff(base)
+  const kitFront = meanDiff(base) - meanDiff(offFront)
+  const se = Math.sqrt(stderrOf(onBack) * stderrOf(onBack) + stderrOf(offBack) * stderrOf(offBack))
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
+  console.log('【换竿】· ' + R.DRAW_ROLES[role].name + ' · 槽 1（' + slots[0] + '）'
+    + R.SKILLS[atA].name + ' / 槽 2（' + slots[1] + '）' + R.SKILLS[atB].name
+    + ' · ' + args.n + ' 局\n')
+  console.log('  两件技能本身（不带换竿，对照空手）：X ' + sign((kitBack + kitFront) / 2)
+    + '   D ' + sign((kitFront - kitBack) / 2))
+  console.log('  换竿在这之上多出来的：            X ' + sign((back + front) / 2)
+    + '   D ' + sign((front - back) / 2) + '   （后手 ' + sign(back)
+    + ' / 先手 ' + sign(front) + '，标准误约 ' + f2(se) + '）')
+  console.log('\n  目标档位：一件常驻特殊技每局 +2.7 ~ +4.5 分（看 **X**）。')
+  console.log('  AI 当饵时不拨开关，所以这是换竿的下限。')
+}
+
 // ---------- 入口 ----------
 
 function main() {
@@ -1221,6 +1264,7 @@ function main() {
   if (cmd === 'vs') return cmdVs(args)
   if (cmd === 'roles') return cmdRoles(args)
   if (cmd === 'role') return cmdRole(args)
+  if (cmd === 'switch') return cmdSwitch(args)
   if (cmd === 'cards') return cmdCards(args)
   console.log('不认识的命令：' + cmd + '\n看文件头的注释，或者 README.md')
 }

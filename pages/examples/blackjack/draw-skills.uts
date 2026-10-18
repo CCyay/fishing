@@ -2696,6 +2696,16 @@ export const SKILL_RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '
 export type DrawLoadout = {
   rankOwner : number[]
   suitOwner : number[]
+  // **第二层花色槽** —— 一张卡上印了两个同花色的槽时，第二个槽那件落在这儿。
+  //
+  // 只有【双竿客】（`['♠', '♠']`）用得上：两个槽管的是**同一批** 12 张 ♠，
+  // 所以每一张 ♠ 都同时触发两件技能 —— 重叠格从「两个槽碰巧有交集」
+  // 变成整张卡的全部内容。
+  //
+  // 没改成「每门花色一个数组」是因为别的读者（存档、庄家、组合技播报）
+  // 全都按 suitOwner[s] 读一格；多一条平行数组只碰 triggersOf / isEquipped /
+  // coverageText / removeSkill 四处。点数槽没有这一层 —— 没有卡印两个同点数的槽
+  suitOwner2 : number[]
 }
 
 // 原先这儿还有个 rankCap 字段（这一轮点数槽有几格，【加权】能抬一格）
@@ -3055,6 +3065,61 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
     // 「J 不触发任何技能」，归十不该是第一个破例的
     key: 'tens', name: '归十',
     desc: '你打出的 Q、K 都算 10 点（J 不算）'
+  },
+  {
+    // 换竿：两个点数槽的技能可以对调。配【两岸船家】（`['3', '9']`）。
+    //
+    // ---- 它是「用一个槽的点数发动另一个槽的技能」**收窄**之后的样子 ----
+    //
+    // 不收窄的版本（任意槽之间借）实际效果是**所有槽并成一个大槽、
+    // 每次挑最好的那件**：江口闸官四个小槽会变成一件清场技插在 16 张上 ——
+    // 正撞上「清场技插大槽一局响六七次，很凶」那条。
+    // 它还顺手删掉了角色卡的核心决策「哪件技能插哪个槽」。
+    //
+    // 收窄的办法是**落在角色上，不落在判定里**（照【两色】那条先例）：
+    // 带它的角色只有两个单点数槽，所以它最多把 4 + 4 张并成「8 张、
+    // 每次二选一」—— 跟背篓渔夫一个 '6 7' 槽一样宽，多出来的只是选择。
+    //
+    // ---- 说明里不写「回合」 ----
+    //
+    // 第一版写的是「你每回合可以选择让两个点数槽的技能对调」，退回了：
+    // 它要说的只是「这张牌可以发动另一个槽那件」，回合是界面的事，不是规则。
+    // 界面上照【逆流】做成一个**保持状态**的开关 —— 开着就是「用另一件」，
+    // 你随时改得动，所以它就是「可以」的那个选择本身
+    //
+    // ---- 已知的弱点 ----
+    //
+    // 两个槽都插了技能才有意义；只插一件的话，开关等于「这件技能
+    // 换到另一个点数上触发」——不更强，只是换个位置
+    key: 'switch', name: '换竿',
+    desc: '你点数槽的牌可以改为发动另一个点数槽的技能'
+  },
+  {
+    // 分竿：一张牌同时发动两件技能时，可以只发动其中一件。配【双竿客】。
+    //
+    // ---- 它补的是双竿客量出来的那个洞 ----
+    //
+    // 两件插同一门 ♠，每张 ♠ 都同时发动两件 —— 而**一半的搭配在同一张牌上
+    // 互相拆台**（`sim.js pair <A> <B> --role tworod`，2026-10-15）：
+    //
+    //   见底 + 磁钩  −3.98   见底置 0，磁钩的「+1」就没东西可加
+    //   收色 + 撒网  −8.36   收色无点数，撒网没有奇偶可追
+    //   压舱 + 摘钩  −6.25   动对方手牌那几件一手只结算一件
+    //   冻结 + 磁钩  −1.79   一件要它留在堆上、一件要它钓走
+    //   归深 + 磁钩  +0.38   不拆台的搭配就是正常相加
+    //
+    // 所以双竿客的问题不是「不够强」，是**能装的组合只有一半**。
+    // 分竿让拆台的那一半也装得上：撞上的时候挑一件，不撞的时候两件照发。
+    //
+    // ---- 它不卖强度，卖构筑自由 ----
+    //
+    // 不拆台的搭配上它是空操作，所以它的值**跟你装了什么成正比** ——
+    // 那正是「特殊技和槽指向同一件事」（照赌船荷官的归十）：
+    // 这件常驻技只在这张卡上有意义。
+    //
+    // 界面照【换竿】：一个保持状态的开关，三档轮着按（两件 / 只第一件 / 只第二件）
+    key: 'onerod', name: '分竿',
+    desc: '你的牌同时发动两件技能时，可以只发动其中一件'
   }
 ]
 
@@ -3095,6 +3160,8 @@ export const SP_BAIT : number = specialIndexOf('bait')
 export const SP_TWOCOLOR : number = specialIndexOf('twocolor')
 export const SP_CYCLE : number = specialIndexOf('cycle')
 export const SP_TENS : number = specialIndexOf('tens')
+export const SP_SWITCH : number = specialIndexOf('switch')
+export const SP_ONEROD : number = specialIndexOf('onerod')
 
 // ======================= 角色 =======================
 //
@@ -3364,6 +3431,42 @@ export const DRAW_ROLES : DrawRole[] = [
     // 配中档合适 —— 照「覆盖面越大、特殊技越温和」那条尺子，它不算强
     key: 'filler', name: '填河工', special: 'fillpond', slots: ['A', '5', '8', 'Q'],
     desc: '堆空了它就从牌库补一张死牌 —— 对手清场之后不再白捡一手'
+  },
+  {
+    // ---------- 两岸船家：两个单点数槽，【换竿】在两岸之间摆渡 ----------
+    //
+    // 3 和 9 隔得远，**磁钩连不上** —— 照夜钓客、填河工那条手法：
+    // 堵死点数链，好让「两个槽之间对调」成为这张卡唯一的连接。
+    //
+    // 覆盖面 8 张，全表最小。照「覆盖面越小、配得起越强的特殊技」那条尺子，
+    // 换竿的强度全靠「两件技能每次二选一」，所以槽不能大 ——
+    // 两个大槽对调就回到了收窄之前那个版本
+    key: 'banks', name: '两岸船家', special: 'switch', slots: ['3', '9'],
+    desc: '只有两个小槽，但随时可以对调 —— 打 3 能发动 9 上那件，反过来也行'
+  },
+  {
+    // ---------- 双竿客：两个槽印着同一门 ♠ ----------
+    //
+    // 每一张 ♠（J 除外）都同时触发两件技能 —— **重叠格是这张卡的全部内容**。
+    // 别的带花色槽的角色（镜湖占卜师、深海钓手）只在花色和点数的交集上
+    // 有一两张重叠牌，那是彩蛋；这张卡是 12 张。
+    //
+    // ---- 它答的是「两件式」那条死因 ----
+    //
+    // 「这件造局面、那件兑现」的路线全死了（压底族六件 + 合流 + 抄底），
+    // 病根是两件共用每回合唯一一次出牌、兑现总来晚一步。**两件插在同一批牌上，
+    // 同一张牌就把两件一起打出去**，那个窗口不存在了。
+    //
+    // ---- 覆盖面 12 张，不是 24 ----
+    //
+    // 两个槽管的是同一批牌，roleCover 按标签去重。
+    //
+    // ♠ 是空位：听浪删掉之后没人带 ♠（镜湖占卜师拿 ♥、深海钓手拿 ♣）。
+    //
+    // 常驻技是【分竿】：同一张牌上互相拆台的两件，可以只发动一件
+    //（理由和那组数在 SPECIAL_SKILLS 的分竿那条）
+    key: 'tworod', name: '双竿客', special: 'onerod', slots: ['♠', '♠'],
+    desc: '两个槽都印着 ♠ —— 每张 ♠ 同时发动两件技能'
   }
 ]
 
@@ -3396,6 +3499,52 @@ export function baitRankOf(role : number) : string {
     }
   }
   return ''
+}
+
+// 【换竿】开着时的配装：这个角色的**两个点数槽**互换技能。
+//
+// 只认「恰好两个纯点数槽」的角色（两岸船家）—— 别的形状原样返回，
+// 所以哪天有人给三槽角色配了换竿，它是失效而不是乱换。
+// 点数槽里一个槽管几个点数都行，换的是整个槽：A 槽每个标签都改成 B 的技能
+export function swapLoadout(lo : DrawLoadout, role : number) : DrawLoadout {
+  if (role < 0 || role >= DRAW_ROLES.length) {
+    return lo
+  }
+  const slots = DRAW_ROLES[role].slots
+  const ranked : string[][] = []
+  for (let i = 0; i < slots.length; i++) {
+    const labels = slotLabels(slots[i])
+    let allRank = labels.length > 0
+    for (let j = 0; j < labels.length; j++) {
+      if (isSuitSlot(labels[j])) {
+        allRank = false
+      }
+    }
+    if (allRank) {
+      ranked.push(labels)
+    }
+  }
+  if (ranked.length != 2) {
+    return lo
+  }
+  const a = SKILL_RANKS.indexOf(ranked[0][0])
+  const b = SKILL_RANKS.indexOf(ranked[1][0])
+  if (a < 0 || b < 0) {
+    return lo
+  }
+  const skillA = lo.rankOwner[a]
+  const skillB = lo.rankOwner[b]
+  const next = cloneLoadout(lo)
+  for (let k = 0; k < 2; k++) {
+    const labels = ranked[k]
+    for (let j = 0; j < labels.length; j++) {
+      const at = SKILL_RANKS.indexOf(labels[j])
+      if (at >= 0) {
+        next.rankOwner[at] = k == 0 ? skillB : skillA
+      }
+    }
+  }
+  return next
 }
 
 // 一个槽上印着哪几样（空格分隔）
@@ -3432,10 +3581,20 @@ export function roleCover(role : number) : number {
   if (role < 0 || role >= DRAW_ROLES.length) {
     return 0
   }
+  // **同一个标签只算一次** —— 双竿客两个槽都印着 ♠，管的是同一批 12 张牌，
+  // 不是 24 张。按槽相加的话它会冒成全表最大，困难档（rollRoleKit 只摇
+  // 覆盖面最大的那几个）就只剩它一个
   const slots = DRAW_ROLES[role].slots
+  const seen : string[] = []
   let n = 0
   for (let i = 0; i < slots.length; i++) {
-    n = n + slotCover(slots[i])
+    const labels = slotLabels(slots[i])
+    for (let j = 0; j < labels.length; j++) {
+      if (seen.indexOf(labels[j]) < 0) {
+        seen.push(labels[j])
+        n = n + slotCover(labels[j])
+      }
+    }
   }
   return n
 }
@@ -3566,7 +3725,9 @@ export function roleIndexOf(key : string) : number {
 // **这是个按下标对齐 DRAW_ROLES 的平行数组** —— 加角色必须同时在这儿
 // 加一格，不然那个新角色永远锁着（roleUnlocked 越界返回 false）。
 // 下标顺序：背篓渔夫 潮汐观测员 江口闸官 逆流船夫 镜湖占卜师 深海钓手 鱼塘老板 夜钓客 候潮渔翁 赌船荷官
-//（删听浪的时候这儿跟着少了一格 —— 平行数组就是这个毛病）
+// 填河工 两岸船家 双竿客
+//（删听浪的时候这儿跟着少了一格 —— 平行数组就是这个毛病。
+// 加填河工的时候又漏了一格，它因此在闯关里锁了一阵子；2026-10-15 补上）
 //
 // 门槛现在是 2/2/2/4：通关那一档放出四个
 //（鱼塘老板、夜钓客、候潮渔翁、赌船荷官）。那四个都是**进阶角色** ——
@@ -3576,7 +3737,7 @@ export function roleIndexOf(key : string) : number {
 // **赌船荷官排在通关那一档**是有意的：归十把一个点数槽撑成花色槽那么宽，
 // 而「哪个槽该插什么」要先懂槽这回事才玩得动。
 // 开局就给的话新手只会看见「一个 10 槽」，看不见它背后那 12 张牌
-export const ROLE_UNLOCK : number[] = [0, 0, 6, 6, 9, 9, 99, 99, 99, 99]
+export const ROLE_UNLOCK : number[] = [0, 0, 6, 6, 9, 9, 99, 99, 99, 99, 99, 99, 99]
 // 通关一次才解锁的那两个，门槛写成这个数（关卡总共 12 关，所以 99 等于「得通关」）
 export const ROLE_UNLOCK_CLEAR : number = 99
 
@@ -3619,14 +3780,16 @@ function filled(count : number, value : number) : number[] {
 export function emptyLoadout() : DrawLoadout {
   return {
     rankOwner: filled(SKILL_RANKS.length, -1),
-    suitOwner: filled(SUIT_COUNT, -1)
+    suitOwner: filled(SUIT_COUNT, -1),
+    suitOwner2: filled(SUIT_COUNT, -1)
   }
 }
 
 export function cloneLoadout(lo : DrawLoadout) : DrawLoadout {
   return {
     rankOwner: lo.rankOwner.slice(0),
-    suitOwner: lo.suitOwner.slice(0)
+    suitOwner: lo.suitOwner.slice(0),
+    suitOwner2: lo.suitOwner2.slice(0)
   }
 }
 
@@ -3691,6 +3854,7 @@ export function rankUsed(lo : DrawLoadout) : number {
 // SLOT_* 那三个常量和 slotName、canPlaceIn、rollSlotFor 跟着全删
 export function isEquipped(lo : DrawLoadout, skill : number) : boolean {
   return countOf(lo.rankOwner, skill) > 0 || countOf(lo.suitOwner, skill) > 0
+    || countOf(lo.suitOwner2, skill) > 0
 }
 
 function clearSkill(owner : number[], skill : number) {
@@ -3786,6 +3950,10 @@ export function triggersOf(lo : DrawLoadout, suit : string, rank : string) : num
   if (s >= 0 && lo.suitOwner[s] >= 0) {
     list.push(lo.suitOwner[s])
   }
+  // 第二个同花色槽（双竿客）—— 同一张牌再触发一件，见 DrawLoadout 那段
+  if (s >= 0 && lo.suitOwner2[s] >= 0 && list.indexOf(lo.suitOwner2[s]) < 0) {
+    list.push(lo.suitOwner2[s])
+  }
   const r = rankSlotIndex(rank)
   // 同一个技能插了花色槽又插了点数槽的话只算一次
   if (r >= 0 && lo.rankOwner[r] >= 0 && list.indexOf(lo.rankOwner[r]) < 0) {
@@ -3802,7 +3970,7 @@ export function hasTrigger(list : number[], skill : number) : boolean {
 export function coverageText(lo : DrawLoadout, skill : number) : string {
   let text = ''
   for (let s = 0; s < lo.suitOwner.length; s++) {
-    if (lo.suitOwner[s] == skill) {
+    if (lo.suitOwner[s] == skill || lo.suitOwner2[s] == skill) {
       text = text + (text == '' ? '' : ' ') + SUITS[s]
     }
   }
@@ -3980,7 +4148,12 @@ export function kitFromSlots(slots : KitSlot[], role : number) : DrawKit {
       if (isSuitSlot(labels[j])) {
         const s = SUITS.indexOf(labels[j])
         if (s >= 0) {
-          lo.suitOwner[s] = k
+          // 这门花色已经被前一个槽占了（双竿客的第二个 ♠）→ 落第二层
+          if (lo.suitOwner[s] >= 0 && lo.suitOwner[s] != k) {
+            lo.suitOwner2[s] = k
+          } else {
+            lo.suitOwner[s] = k
+          }
         }
       } else {
         const at = SKILL_RANKS.indexOf(labels[j])
@@ -4068,6 +4241,7 @@ export function removeSkill(lo : DrawLoadout, skill : number) : DrawLoadout {
   const next = cloneLoadout(lo)
   clearSkill(next.rankOwner, skill)
   clearSkill(next.suitOwner, skill)
+  clearSkill(next.suitOwner2, skill)
   return next
 }
 

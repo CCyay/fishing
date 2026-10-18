@@ -1291,7 +1291,11 @@ const SP = {
   BAIT: 'bait', TWOCOLOR: 'twocolor', CYCLE: 'cycle', TENS: 'tens',
   // 填塘：堆被清空时从牌库顶补 1 张置 0 的牌。**全表第一件反清场的** ——
   // 它抹掉的是「收光整堆之后对手白打一手」那 +0.94
-  FILLPOND: 'fillpond'
+  FILLPOND: 'fillpond',
+  // 换竿：两个点数槽的技能可以对调（两岸船家带）。开关由 ai.js 每手两种都估
+  SWITCH: 'switch',
+  // 分竿：一张牌同时发动两件时可以只发一件（双竿客带）。三档由 ai.js 每手估
+  ONEROD: 'onerod'
 }
 
 // 各自那个数（照 SPECIAL_SKILLS 表里挑定的值）
@@ -1311,7 +1315,9 @@ const DEAD_COUNT = 2
 //（磐石删了），所以它压根不会出现在 roles 那张表里
 const SP_NOTE = {
   livewater: 'AI 不读情报（README 第 1 条），所以恒为 0',
-  clear: '同上 —— 看得见对方手牌，但 AI 的挑牌不读这个'
+  clear: '同上 —— 看得见对方手牌，但 AI 的挑牌不读这个',
+  switch: '这张表槽是空的，空槽对调还是空槽 —— 用 `sim.js switch <A> <B>` 量',
+  onerod: '槽空着就没有「同时发动两件」—— 用 `pair <A> <B> --role tworod --special` 对照不带 --special 量'
 }
 
 // 角色表，照 DRAW_ROLES。desc 不搬（报表不用）。
@@ -1331,7 +1337,12 @@ const DRAW_ROLES = [
   { key: 'reckon', name: '赌船荷官', special: SP.TENS, slots: ['10', 'A', '7'] },
   // 填河工：四个**散号**小槽（间距 3~4，磁钩一条链都连不上 ——
   // 照夜钓客那条手法故意堵死点数链）。跟江口闸官是同槽数、反方向的一对
-  { key: 'filler', name: '填河工', special: SP.FILLPOND, slots: ['A', '5', '8', 'Q'] }
+  { key: 'filler', name: '填河工', special: SP.FILLPOND, slots: ['A', '5', '8', 'Q'] },
+  // 两岸船家：两个单点数槽 + 【换竿】（两槽技能可以对调）
+  { key: 'banks', name: '两岸船家', special: SP.SWITCH, slots: ['3', '9'] },
+  // 双竿客：两个槽都印 ♠ → 每张 ♠ 同时触发两件（第二件落 suitOwner2）。
+  // 带【分竿】：两件在同一张牌上拆台时可以只发一件
+  { key: 'tworod', name: '双竿客', special: SP.ONEROD, slots: ['♠', '♠'] }
 ]
 // 角色 key 'flood'（潮汐观测员）和技能 key 'flood'（洪水）撞字 —— 源码里也是这样，
 // 两张表独立查，不会串。【稳钩】没有角色带（磐石删了），所以它的效果
@@ -1367,6 +1378,9 @@ function hasSpecial(G, side, sp) {
 function emptyLoadout() {
   return {
     suitOwner: [-1, -1, -1, -1],
+    // 第二层花色槽（照 DrawLoadout.suitOwner2）：同一门花色印了两个槽时，
+    // 第二个槽那件落这儿。只有双竿客用得上
+    suitOwner2: [-1, -1, -1, -1],
     rankOwner: SKILL_RANKS.map(function () { return -1 })
   }
 }
@@ -1396,10 +1410,17 @@ function slotCover(slot) {
 // 见源码 rollRoleKit 上面那段
 function roleCover(role) {
   if (role < 0 || role >= DRAW_ROLES.length) return 0
+  // 同一个标签只算一次（照 roleCover）—— 双竿客两个 ♠ 槽管的是同一批牌
   const slots = DRAW_ROLES[role].slots
+  const seen = []
   let n = 0
   for (let i = 0; i < slots.length; i++) {
-    n += slotCover(slots[i])
+    const labels = slotLabels(slots[i])
+    for (let j = 0; j < labels.length; j++) {
+      if (seen.indexOf(labels[j]) >= 0) continue
+      seen.push(labels[j])
+      n += slotCover(labels[j])
+    }
   }
   return n
 }
@@ -1424,7 +1445,10 @@ function kitFromRole(role, slotSkills) {
     const labels = slotLabels(slots[i])
     for (let j = 0; j < labels.length; j++) {
       if (isSuitSlot(labels[j])) {
-        lo.suitOwner[SUITS.indexOf(labels[j])] = skill
+        const s = SUITS.indexOf(labels[j])
+        // 这门已经被前一个槽占了（双竿客的第二个 ♠）→ 落第二层
+        if (lo.suitOwner[s] >= 0 && lo.suitOwner[s] !== skill) lo.suitOwner2[s] = skill
+        else lo.suitOwner[s] = skill
       } else {
         const at = SKILL_RANKS.indexOf(labels[j])
         if (at >= 0) lo.rankOwner[at] = skill
@@ -1456,6 +1480,9 @@ function triggersOf(lo, card) {
   const s = SUITS.indexOf(card.suit)
   if (s >= 0 && lo.suitOwner[s] >= 0) {
     out.push(lo.suitOwner[s])
+  }
+  if (s >= 0 && lo.suitOwner2[s] >= 0 && out.indexOf(lo.suitOwner2[s]) < 0) {
+    out.push(lo.suitOwner2[s])
   }
   const r = SKILL_RANKS.indexOf(card.rank)
   if (r >= 0 && lo.rankOwner[r] >= 0 && out.indexOf(lo.rankOwner[r]) < 0) {
@@ -1531,7 +1558,47 @@ function skillsOf(G, side, card) {
   //
   //   **而花色槽照旧触发**，那是有意的 —— ♠7 变成 ♠0 还是黑桃，
   //   所以对手还能为花色槽那件技能打出它。见 isZero 上面那段〕
-  return triggersOf(G.loadouts[side], card)
+  return oneRod(G, side, triggersOf(switchedLoadout(G, side), card))
+}
+
+// 【分竿】（照源码 oneRod）：G.rodMode[side] 0 两件都发、1 只发第一件、2 只发第二件
+function oneRod(G, side, list) {
+  if (list.length !== 2 || !hasSpecial(G, side, SP.ONEROD)) return list
+  const mode = G.rodMode[side]
+  return mode === 1 || mode === 2 ? [list[mode - 1]] : list
+}
+
+// 【换竿】开着时的配装（照源码 switchedLoadout / swapLoadout）。
+// 开关在 G.switchOn[side]，由 ai.js 的 pickCard 每手拨定
+function switchedLoadout(G, side) {
+  const lo = G.loadouts[side]
+  if (!G.switchOn[side] || !hasSpecial(G, side, SP.SWITCH)) return lo
+  return swapLoadout(lo, G.roles[side])
+}
+
+// 这个角色的两个纯点数槽互换技能；不是「恰好两个点数槽」的形状就原样返回
+function swapLoadout(lo, role) {
+  if (role < 0 || role >= DRAW_ROLES.length) return lo
+  const ranked = DRAW_ROLES[role].slots.map(slotLabels).filter(function (labels) {
+    return labels.length > 0 && labels.every(function (l) { return !isSuitSlot(l) })
+  })
+  if (ranked.length !== 2) return lo
+  const a = SKILL_RANKS.indexOf(ranked[0][0])
+  const b = SKILL_RANKS.indexOf(ranked[1][0])
+  if (a < 0 || b < 0) return lo
+  const next = {
+    suitOwner: lo.suitOwner.slice(),
+    suitOwner2: lo.suitOwner2.slice(),
+    rankOwner: lo.rankOwner.slice()
+  }
+  const give = [lo.rankOwner[b], lo.rankOwner[a]]
+  for (let k = 0; k < 2; k++) {
+    for (let j = 0; j < ranked[k].length; j++) {
+      const at = SKILL_RANKS.indexOf(ranked[k][j])
+      if (at >= 0) next.rankOwner[at] = give[k]
+    }
+  }
+  return next
 }
 
 // 废掉对方第 index 张手牌。side = 发动方。
@@ -1585,7 +1652,7 @@ function kitWithOne(role, slotAt, skill) {
 function coverageOf(lo, skill) {
   const out = []
   for (let i = 0; i < lo.suitOwner.length; i++) {
-    if (lo.suitOwner[i] === skill) out.push(SUITS[i])
+    if (lo.suitOwner[i] === skill || lo.suitOwner2[i] === skill) out.push(SUITS[i])
   }
   for (let i = 0; i < lo.rankOwner.length; i++) {
     if (lo.rankOwner[i] === skill) out.push(SKILL_RANKS[i])
@@ -1708,6 +1775,10 @@ function newGame(opts) {
       opts.myRole === undefined ? -1 : opts.myRole,
       opts.foeRole === undefined ? -1 : opts.foeRole
     ],
+    // 【换竿】的开关（两方各一个）。ai.js 每手挑牌时两种都估、留下挑定的那种
+    switchOn: [false, false],
+    // 【分竿】的档位（两方各一个），同上由 ai.js 拨
+    rodMode: [0, 0],
     // 这一方会不会记牌（关卡表的 smart）
     smart: [opts.mineSmart !== false, opts.foeSmart !== false],
     // 这一方**完全随机**出牌吗（关卡表的 random，照源码 foePickCard 开头那一支）。
@@ -5250,7 +5321,7 @@ module.exports = {
   // 连 levels 一起删了，换成角色模型
   emptyLoadout, slotLabels, isSuitSlot, slotCover, roleCover, roleSlotCount,
   kitFromRole, kitWithOne, coverageOf, baitRankOf,
-  triggersOf, skillsOf, isZero, deadPool, DEAD_COUNT,
+  triggersOf, skillsOf, swapLoadout, isZero, deadPool, DEAD_COUNT,
   surgePool, surgeOnHand, SURGE_N, SURGE_TAG,
   has, cardVals, valuesOf, anyEquals, canCatch, catchStart,
   isFrozen, heldOn, opponentOpen, inPile, topCards, handLimit, harvestCount,

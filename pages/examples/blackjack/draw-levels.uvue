@@ -1549,9 +1549,9 @@
   // 每次渲染/每次 onShow 偷偷重摇一次，而那正好违反「发了就是它」
   function openDuel() {
     if (duelRoles.value.length == 0) {
-      // **不走 roleUnlocked** —— ROLE_UNLOCK 那张平行数组只有 10 格而
-      // 角色有 11 张，第 11 个（填河工）在闯关模式里永久锁死。
-      // 实战不该跟着那个 bug，所以直接在全表里摇
+      // **不走 roleUnlocked** —— 实战不看闯关进度，全表里摇。
+      //（原先另有一条理由：ROLE_UNLOCK 少了一格、填河工在闯关里永久锁死。
+      // 那格 2026-10-15 补上了，但「实战不看进度」本身就够了）
       const roles = rollSpots(DRAW_ROLES.length, DUEL_SIDES)
       const pools : number[][] = []
       const slots : number[][] = []
