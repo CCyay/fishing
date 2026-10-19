@@ -1955,7 +1955,7 @@
     if (takeSkill.value == SK_SINKTAG) {
       // 报**还剩几张** + **压几点** —— 两个数玩家都要（照死水报剩几张、
       // 照引潮把后果算给他看）
-      return '沉潮：点庄家手牌给它贴沉降（还剩 ' + sinkLeft.value
+      return '沉潮：点两排任意手牌给它贴沉降（还剩 ' + sinkLeft.value
         + ' 张）· 打出时堆上所有牌 −' + SINK_TAG_STEP
         + ' 点 · J 和已经贴过的点不动'
     }
@@ -6219,11 +6219,15 @@
     // 庄家侧**一张一张来、每次重算池子** —— 上一张贴过之后它就不在
     // sinkPool 里了（不可叠加），不然两张会挑中同一个（照死水那条）
     if (hasTrigger(skills, SK_SINKTAG)) {
-      if (sinkPool(byFoe).length > 0) {
+      // 发动闸也按**两排合计** —— 玩家侧可以挑自己的，
+      // 所以「对手那排全是 J」不该让这件技能整个不发动
+      if (sinkPool(byFoe).length + (byFoe ? 0 : sinkPool(true).length) > 0) {
         if (!byFoe) {
           takeSkill.value = SK_SINKTAG
-          // 挑几张：SINK_TAG_N，但别超过挑得动的数量
-          const room = sinkPool(false).length
+          // 挑几张：SINK_TAG_N，但别超过挑得动的数量。
+          // **两排合计** —— 这一件从双方手牌挑，只数对手那排的话
+          //「他手里全是 J」那种局面会少给名额
+          const room = sinkPool(false).length + sinkPool(true).length
           sinkLeft.value = room < SINK_TAG_N ? room : SINK_TAG_N
           return
         }
@@ -6232,7 +6236,7 @@
           if (at < 0) {
             break
           }
-          doSink(true, at)
+          doSink(true, at, false)
         }
       }
     }
@@ -6958,7 +6962,7 @@
         resolveMatch(false)
         return
       }
-      doSink(false, index)
+      doSink(false, index, false)
       sinkLeft.value = sinkLeft.value - 1
       // 还要挑，而且还有挑得动的（没贴过、不是 J）
       if (sinkLeft.value > 0 && sinkPool(false).length > 0) {
@@ -8300,22 +8304,66 @@
     return out
   }
 
-  // 给对方第 index 张手牌贴【沉降】。byFoe = 发动方
-  function doSink(byFoe : boolean, index : number) {
-    const theirs = byFoe ? hand.value : foeHand.value
+  // 贴【沉降】。**两个布尔，管的是两件不同的事** ——
+  //
+  //   byFoe  **谁发动**（播报里的「庄家沉潮」还是「沉潮」）
+  //   self   贴**发动方自己**那一排吗（沉潮从双方手牌挑，所以必须分开）
+  //
+  // ⚠ 别把这两个合成一个。别的几件（死水 / 引潮）只动对方，所以它们
+  // 一个 `byFoe` 就够了；这一件**双向**，合起来会让「我贴自己的牌」
+  // 播报成「庄家沉潮」（我第一版正是这么写的）
+  function doSink(byFoe : boolean, index : number, self : boolean) {
+    const mineSide = byFoe ? self : !self
+    const theirs = mineSide ? hand.value : foeHand.value
     if (index < 0 || index >= theirs.length) {
       return
     }
     const card = theirs[index]
-    // 两道闸都要在这儿再过一遍 —— 界面那边拦了（card-pickable），
-    // 可庄家走的是 foeSinkPick，**两条路都得过**（照 doDead / doSurge）
+    // 两道闸都要在这儿再过一遍 —— 界面那边拦了（card-pickable / toast），
+    // 可庄家走的是 foeSinkPick，**三条路都得过**（照 doDead / doSurge）
     if (card.rank == JACK || sinkTagOn(card)) {
       return
     }
     addSinkHand(card)
+    // 「你的 / 庄家的」要写明 —— 这一件双向，不写玩家分不出贴给了谁
     message.value = message.value + (byFoe ? ' 庄家沉潮：' : ' 沉潮：')
-      + cardName(card) + ' 带上沉降（打出时堆上所有牌 −'
-      + SINK_TAG_STEP + ' 点）。'
+      + (mineSide ? '你的 ' : '庄家的 ') + cardName(card)
+      + ' 带上沉降（打出时堆上所有牌 −' + SINK_TAG_STEP + ' 点）。'
+  }
+
+  // 【沉潮】挑**自己**这排的某一张（onPlay 分路过来）。
+  //
+  // 跟 onTakeFrom 那条（挑对方）共用同一个 `sinkLeft` 计数 ——
+  // 名额是「从双方手牌里挑 3 张」，不分侧。
+  //
+  // ⚠ 挑得动的判据跟对方那侧**一样**（J 不能挑、已贴过的不能再挑），
+  // 可**没有界面上的 card-pickable 提示**（自己手牌那排本来就全是可点的，
+  // 再加一层高亮会跟「这张钓得着」那个提示打架）。
+  // 所以这儿的 toast 是玩家唯一的反馈，不能省
+  function onSinkMine(index : number) {
+    if (index < 0 || index >= hand.value.length) {
+      return
+    }
+    const card = hand.value[index]
+    if (card.rank == JACK) {
+      uni.showToast({ title: 'J 不能贴沉降', icon: 'none' })
+      return
+    }
+    if (sinkTagOn(card)) {
+      uni.showToast({ title: '这张已经带着沉降了', icon: 'none' })
+      return
+    }
+    // 发动方是我（byFoe=false）、贴我**自己**那一排（self=true）
+    doSink(false, index, true)
+    sinkLeft.value = sinkLeft.value - 1
+    // 还要挑，而且两排还有挑得动的 —— 照 onTakeFrom 那条
+    if (sinkLeft.value > 0
+      && (sinkPool(false).length > 0 || sinkPool(true).length > 0)) {
+      return
+    }
+    takeSkill.value = -1
+    sinkLeft.value = 0
+    resolveMatch(false)
   }
 
   // 庄家给你哪张贴【沉降】：**他马上会打的那张**。
@@ -9459,6 +9507,23 @@
     // 对换的第二步同理：点手牌是「挑这张还给庄家」
     if (giveBack.value >= 0) {
       onGiveBack(index)
+      return
+    }
+    // ---- 【沉潮】正等你挑的时候，点手牌是「给**自己这张**贴沉降」 ----
+    //
+    // 它是这四条分路里**唯一双向的**：换水 / 垫牌 / 对换那三条都是
+    // 「第二步只能点手牌」，而沉潮是「**两排都能点**」——
+    // 对方那排走 onFoeCard，自己这排走这儿。
+    //
+    // 挑自己的理由只有一条：**我带着【21 匹配】**。那样我打出那张时
+    // 压堆造料、而我这一手的吃水立刻吃掉它；更狠的是可以**接在对手
+    // 兑现之后**打，两次 −3 累加成 −6（实测配吃水协同 +0.70，而那是下限）。
+    //
+    // 代价也在那儿：压堆**先搅乱我自己这一手的匹配**，所以通常还是
+    // 全挑对手划算（实测差 0.25 分，约 2σ —— 两个选项接近分不出高下，
+    // 那正是 N=3 这个值选出来的东西）。见 draw-skills 的 SINK_TAG_N 那段
+    if (takeSkill.value == SK_SINKTAG) {
+      onSinkMine(index)
       return
     }
     if (!canPlay.value || index >= hand.value.length) {

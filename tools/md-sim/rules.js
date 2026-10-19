@@ -2849,6 +2849,11 @@ function iceMeltsFire(G, i) {
 function selfFrost(lo) {
   return has(lo, SK.FROST) || has(lo, SK.HIDE)
     || has(lo, SK.COLDHUE) || has(lo, SK.FROSTFALL)
+    // 【凌流】（原型）〔2026-10-19 修〕——  它原先在 `protoOnLand` 里
+    // 直接 `addFrostAt`，**绕过了这条签名**，于是 `iceBlind` 永远是 false、
+    // 它自己那张被自己的冰挡住收不走。那是实现 bug，不是设计问题。
+    // 词条原文第二句：「**手里**带它的牌打出去时，这一手收牌不受【结冰】影响。」
+    || has(lo, SK.ICEWILD)
 }
 
 function frostOnHand(G, card) {
@@ -3039,8 +3044,12 @@ function surgePool(G, side) {
 //
 // 两个旋钮：贴几张（`SINK_TAG_N`）、他打出时整堆减几点（`SINK_TAG_STEP`）。
 // 贴的那张**不摘**（跟推牌一样，打出时才清）
+// ⚠ **默认值 = 游戏里那件技能的样子** —— CLAUDE.md 那条，这个项目
+// 栽过两次（`WADE_SELF` 改定稿忘了翻默认值、`CHAIN_SELF` 默认值从一开始
+// 就不等于 desc）。源码 2026-10-19 把它从 2 定到了 **3**，
+// 理由是「从双方挑」那个决策的平衡点（见 draw-skills 的 SINK_TAG_N 那段）
 const SINK_TAG_N = process.env.SINK_TAG_N
-  ? parseInt(process.env.SINK_TAG_N, 10) : 2
+  ? parseInt(process.env.SINK_TAG_N, 10) : 3
 const SINK_TAG_STEP = process.env.SINK_TAG_STEP
   ? parseInt(process.env.SINK_TAG_STEP, 10) : 3
 
@@ -3727,7 +3736,9 @@ const KINDLE_N = process.env.KINDLE_N ? parseInt(process.env.KINDLE_N, 10) : 0
 // KINDLE_HUE=0 量旧的「全贴」那一档（+7.11）做对比
 const KINDLE_HUE = process.env.KINDLE_HUE !== '0'
 
-function takeAt(G, i, gone) {
+// `side` 2026-10-19 加：**只给诊断用**（那一层盾是谁收牌时打掉的），
+// 规则上一个字都不读它。唯一的调用处是 harvestAt
+function takeAt(G, i, gone, side) {
   // ---- 【结冰】排在保护之前 ----
   //
   // 它不消耗任何东西、也不计分，所以先结算免费的那一层
@@ -3741,6 +3752,11 @@ function takeAt(G, i, gone) {
   if (ward >= 0) {
     const shield = pullStacked(G, ward)
     if (shield) gone.push(shield.rank)
+    // 诊断：这一层盾是谁收牌时打掉的（验「拢水在喂分给对手」那个嫌疑）。
+    // ⚠ **张数不少**：垫牌替宿主离场、算一分，所以 `return 1` 照旧 ——
+    // 这正是【保护】和【结冰】的分野（冰是「不走**也不计分**」，真的少收）
+    if (side === ME) PROTO_STAT.ward.mine++
+    else PROTO_STAT.ward.foe++
     return 1
   }
   // 〔【余烬】的死亡触发原先在这儿立旗（emberOn → G.emberFired）。
@@ -4907,7 +4923,7 @@ function harvestAt(G, side, wanted) {
       // **先问再 takeAt** —— takeAt 会把盾摘掉、把冰化掉，问晚了就判不出来了。
       // blockedAt 同时管结冰和保护（口径必须跟 takeAt 一致）
       const warded = blockedAt(G, i)
-      taken += takeAt(G, i, G.gone)
+      taken += takeAt(G, i, G.gone, side)
       // 挡住了这一下：那一格**留在堆上**，原样保留
       if (!warded) continue
     }
@@ -5476,6 +5492,13 @@ function afterPlay(G, side, skills, played, ai) {
     //   foe   全挑对手（下限）
     //   mine  全挑自己（看「给自己造料」值多少）
     //   split 先把对手贴满，剩下的名额贴自己
+    // ⚠ **一处计数口径的差异，不是行为差异**：源码那边有一道发动闸
+    //（两排都没得贴就整个不发动），而这儿 `fires` 已经先加过了 ——
+    // 所以「贴不到任何一张」的那几次这边算一次发动、源码不算。
+    //
+    // 不改是因为它几乎不发生（要对手 4 张手牌全是 J、而且我自己那排
+    // 也全贴过了），而改了会让之前记的诊断数（每次贴几张）对不上分母。
+    // **X 不受影响**（贴不到就什么都没做）
     const pick = SINK_TAG_PICK
     let got = 0
     let mineGot = 0
@@ -5783,7 +5806,22 @@ const PROTO_STAT = {
   // taggedMine / cashedMine 只在 both 档非零 —— **两侧要分开记**：
   // 对手兑现的那几次料要等我下一手才吃得上，我自己兑现的是同一手结清
   sinktag: { fires: 0, tagged: 0, taggedMine: 0, cashed: 0, cashedMine: 0, zeroed: 0, pileWas: 0 },
-  stow: { fires: 0, stowed: 0, pileWas: 0 },
+  stow: { fires: 0, stowed: 0, pileWas: 0, noIsolated: 0 },
+  // 【保护】的续层动作：**放弃出牌，给一张已带保护的牌再垫 1 张手牌**。
+  //
+  // 源码（`ap-fishing.uvue` 的 `doPad`）早就实现了全套 UI，而**庄家那一侧
+  // 故意没接**，注释写明了理由：「什么时候值得放弃一手去加一层盾得先在
+  // md-sim 里量出来，拿一个没量过的启发式接上去等于把平衡建在猜的数上」。
+  // 这一格就是那笔待办。
+  //
+  //   fires     续了几次
+  //   bare      其中有几次是「目标裸奔」（层数 0）触发的
+  //   waste     垫下去的是废牌（canCatch 为假）的次数
+  //   targets   发动时堆上有几个「通配 + 保护」的目标（≥2 时按用户的说法更划算）
+  pad: { fires: 0, bare: 0, waste: 0, targets: 0 },
+  // 弹药被谁消耗掉了 —— 验「拢水在喂分给对手」那个嫌疑
+  //   mine/foe：那一层盾是**谁收牌**时打掉的
+  ward: { mine: 0, foe: 0 },
   icewild: { fires: 0, iced: 0 },
   drag: { fires: 0, picked: 0, hit: 0, floored: 0 },
   // 【21 匹配】锚点改成「打出那张」之后新开的那一支：**沉底时反着数**。
@@ -5876,14 +5914,105 @@ function protoOnLand(G, side, skills, card) {
   }
   // ---- 【凌流】：自带【结冰】 ----
   //
-  // 走 addFrostAt 那个唯一入口，所以冰火相消和「不可叠加」两道闸都在
+  //〔2026-10-19 **这儿原先是 `addFrostAt(G, at0, side)`，那是错的**。
+  //
+  //  它贴的是「堆上那一格」，而【结冰】这一族的自带走的是**另一条路**：
+  //  `playFor` 里 `selfFrost(skills)` → `addFrostHand` → **`iceBlind`**，
+  //  落堆时再由 `frostOnLand` 把冰贴到堆上。那条路多做一件事 ——
+  //  **把「这一手收牌无视结冰」那道豁免打开**，而豁免正是词条第二句：
+  //
+  //    「**手里**带它的牌打出去时，这一手收牌不受【结冰】影响。」
+  //
+  //  绕过它的后果：凌流自己那张被自己的冰挡住，顺子**每次少收 1 张**
+  //  （`takeAt` 的冰支 `return 0`）。实测 −2.16 全是这个 bug 造的。
+  //
+  //  现在它接在 `selfFrost` 上，这一支只剩诊断计数。
+  //  教训见 CLAUDE.md『用现成关键词时』那一节〕
   if (has(skills, SK.ICEWILD) && at0 >= 0) {
     const st = PROTO_STAT.icewild
     st.fires++
-    if (addFrostAt(G, at0, side)) st.iced++
+    if (frostAt(G, at0)) st.iced++
   }
   // ---- 【拢水】：自己带【通配】+ 收纳堆上 1 张当保护层 ----
   if (has(skills, SK.STOW) && at0 >= 0) stowFor(G, side, at0)
+}
+
+// ---------- 【保护】续层：**放弃出牌，垫 1 张手牌**〔2026-10-19〕 ----------
+//
+// 源码的 `doPad` 早就实现了（含 UI），而庄家侧故意没接 —— 它那段注释写着
+// 「什么时候值得放弃一手去加一层盾**得先在 md-sim 里量出来**」。这就是它。
+//
+// ---- 用户定的策略，三条 ----
+//
+//   「在 通配 + 保护 下面**没有叠放牌**的时候」  → 裸奔优先（层数 0）
+//   「**或者**手上有废牌」                        → 有废牌就续（OR，不是 AND）
+//   「不用太厚，**2、3 层**就可以」               → `PAD_CAP`，默认 2
+//   「堆上有**多个** 通配+保护 的牌时更划算」      → 诊断口记 `targets`
+//
+// ---- 「计入出牌数」这一条是硬的，照源码 doPad ----
+//
+// 它一次挡住两个问题：**补手错位**（checkOver 那条「少打的补一手」
+// 假设了「跳过回合时 playableCount 为 0」，而放弃出牌是第一个反例）
+// 和**牌库奇偶翻转**（「从手上垫到堆上」属于『牌不经打出就离场』，
+// 量级约 0.8 分 —— 填塘 D=+0.80 那个实测）。
+// 计入之后它在所有计数上跟普通一手一样：出牌数 +1、牌库 −1、堆 +1，
+// 只是不判匹配、不触发技能。
+const PAD_CAP = process.env.PAD_CAP ? parseInt(process.env.PAD_CAP, 10) : 2
+// 'waste'（默认）= 只肯拿**废牌**去垫；'bare' = 目标裸奔时拿什么都垫
+const PAD_WHEN = process.env.PAD_WHEN || 'waste'
+// 整件事的总开关。**默认关** —— 不然它会改掉凝水那几格的基准
+const PAD_ON = process.env.PAD_ON === '1'
+
+// 这一手要不要放弃出牌去续层。返回 true = 已经续了（调用方直接交回合）
+function padTurn(G, side) {
+  if (!PAD_ON) return false
+  if (G.hands[side].length === 0) return false
+  // ---- 找目标：**带【保护】标签、而且带【通配】**的那几张 ----
+  //
+  // 「带通配」是用户这条设计的全部意义 —— 续一张光牌的命没有用。
+  // 多个目标时**挑层数最少的**（裸奔的最急）
+  let best = -1
+  let bestLayers = 99
+  let targets = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    if (!wardAt(G, i) || !isWildAt(G, i)) continue
+    targets++
+    const n = wardLayers(G, i)
+    if (n >= PAD_CAP) continue
+    if (n < bestLayers) { bestLayers = n; best = i }
+  }
+  if (best < 0) return false
+  // ---- 挑垫哪一张：**废牌**（打出去钓不到东西的那种）----
+  //
+  // 「废」= `canCatch` 为假。那张牌打出去不但没收成，还给对手送一个钩点 ——
+  // 所以拿它去垫是**双重划算**，而这正是用户说的「手上有废牌」那一条
+  let pick = -1
+  for (let k = 0; k < G.hands[side].length; k++) {
+    const card = G.hands[side][k]
+    if (isFrozen(G, side, card)) continue
+    if (!canCatch(G, card, side)) { pick = k; break }
+  }
+  const bare = bestLayers === 0
+  if (pick < 0) {
+    // 没废牌：只有「目标裸奔 + PAD_WHEN=bare」那一档肯拿好牌去垫
+    if (!(bare && PAD_WHEN === 'bare')) return false
+    for (let k = 0; k < G.hands[side].length; k++) {
+      if (!isFrozen(G, side, G.hands[side][k])) { pick = k; break }
+    }
+    if (pick < 0) return false
+  }
+  const st = PROTO_STAT.pad
+  st.fires++
+  st.targets += targets
+  if (bare) st.bare++
+  if (pick >= 0 && !canCatch(G, G.hands[side][pick], side)) st.waste++
+  const card = G.hands[side][pick]
+  G.hands[side] = G.hands[side].filter(function (c, k) { return k !== pick })
+  // 宿主已经带标签了（目标是按 wardAt 挑的），所以只加弹药
+  G.stacked.push({ host: G.pile[best], card: card, kind: STACK_WARD })
+  // **计入出牌数**（见上面那段）—— 它在计数上跟普通一手完全一样
+  G.stat.plays[side]++
+  return true
 }
 
 // 【拢水】的收纳：把堆上另 1 张牌挪到自己底下，当第一层保护。
@@ -5902,12 +6031,49 @@ function stowFor(G, side, at0) {
   st.pileWas += G.pile.length
   // 自己那张贴【通配】—— 照 tagSelfWild，不重复贴
   if (!isWildAt(G, at0)) G.wildTag.push(G.pile[at0])
-  // 堆底那张（不能是自己）
+  // ---- 挑哪一张收纳：「**对顺子没用、而且对手最想要的那张**」〔用户定〕 ----
+  //
+  // 两条各有一个现成的判法：
+  //
+  //   **对顺子没用** = 它的点数**孤立**（±1 在堆上都找不到）。顺子最短 3 张，
+  //     而孤立点数连两张都接不上 —— 拿走它不减少顺子材料。
+  //     〔近似：没查通配，也没查 A 的两头接。堆只有 2~3 张厚，
+  //       精确算一遍最佳顺子的收益远小于复杂度〕
+  //   **对手最想要** = **下标最小**那张。普通匹配收 `[at, 堆顶]` 一整段，
+  //     所以越深的牌对他越值钱 —— 这跟 `catchStart` 那个「从堆底往上找」
+  //     的循环是同一条判据。
+  //
+  // 两条冲突时**先保顺子**（孤立优先），孤立的里面再取最深的。
+  // 一张孤立的都没有就退回「最深那张」——  这时候两条只能满足后一条。
+  //
+  //〔旧挑法是「堆底那张」，理由写的是「离堆顶最远、对 21 匹配影响最小」。
+  //  它歪打正着了后一半（堆底 = 最深 = 对手最想要），而**前一半完全没做** ——
+  //  拿走的那张可能正是顺子的材料，而这一族的瓶颈就是堆太薄〕
   let at = -1
+  let fallback = -1
   for (let i = 0; i < G.pile.length; i++) {
-    if (i !== at0) { at = i; break }
+    if (i === at0) continue
+    if (fallback < 0) fallback = i
+    const vals = pileValsAt(G, i)
+    if (vals.length === 0) continue
+    // 它的任一点数在堆上有邻居（±1）吗
+    let linked = false
+    for (let k = 0; k < vals.length && !linked; k++) {
+      for (let j = 0; j < G.pile.length; j++) {
+        if (j === i || j === at0) continue
+        const other = pileValsAt(G, j)
+        for (let m = 0; m < other.length; m++) {
+          const d = other[m] - vals[k]
+          if (d === 1 || d === -1) { linked = true; break }
+        }
+        if (linked) break
+      }
+    }
+    if (!linked) { at = i; break }
   }
+  if (at < 0) at = fallback
   if (at < 0) return
+  if (at === fallback && G.pile.length > 2) st.noIsolated++
   const taken = G.pile[at]
   G.pile.splice(at, 1)
   G.pileVals.splice(at, 1)
@@ -7520,6 +7686,12 @@ function playGame(opts, ai) {
     }
     if (G.hands[side].length === 0) {
       // 手里没牌：这回合什么也做不了（照 startMyTurn / foeTurn 那道岔）
+      passTurn(G, side)
+      continue
+    }
+    // 【保护】续层：放弃出牌、垫 1 张手牌（`PAD_ON=1` 才开，见 padTurn）。
+    // 判在 pickCard **之前** —— 它是「这一手不打牌」，不是「打哪张」
+    if (padTurn(G, side)) {
       passTurn(G, side)
       continue
     }
