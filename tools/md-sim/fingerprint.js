@@ -78,9 +78,18 @@ const WATCH = [
     //   「冰火相消」和「不可叠加」两条规则都只写在它里头 ——
     //   `frostOnLand` 变了会报，可绕过它直接改 `addFrostAt` 原先报不出来。
     //   同一天霜降删了，`frostOnLand` 的第二条来路跟着没了〕
+    // 〔2026-10-19 补了三个，都是那次「打出那张自己贴【通配】」改动暴露的：
+    //   **addWild** —— 贴通配**唯一的入口**（照 `addFrostAt` 那条理由）。
+    //     「不叠加」和「标签跟着牌走」两条都只写在它里头，
+    //     而这次改动之后它还是「关键词 → 技能」那条新规则的落点；
+    //   **wadeFor / brimFor** —— 顺子那三件里原先只盯了 `straightFor`，
+    //     可三件共用一套判定、**各自贴自己的标签**，漏盯两件等于
+    //     「同一条规则改了一处、另两处静默留在旧规则上」。
+    //     这次正是三处一起改的〕
     names: ['burnStep', 'spreadFire', 'wildfireFor', 'pickBurnAt', 'pileBurnAt',
       'frostAt', 'frostOnLand', 'addFrostAt', 'coldHueOn', 'iceMeltsFire',
-      'isWildAt', 'bestChainAt', 'markChain', 'straightFor',
+      'isWildAt', 'addWild', 'bestChainAt', 'markChain',
+      'straightFor', 'wadeFor', 'brimFor',
       'straightCount', 'wadeCount']
   },
   {

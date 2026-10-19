@@ -152,9 +152,21 @@ function run(n, seed, mine, foe, opts) {
       failFires: [0, 0], tagged: [0, 0], wildUsed: [0, 0]
     },
     wade: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    // 打出那张自己贴【通配】那次改动的诊断口（见 rules.js 的
+    // stat.selfWildTag）—— 三件顺子技能共用，`CHAIN_SELF_TAG=0` 时
+    // 只有 kept 那一列的含义变成「本来会留下几次」
+    selfWildTag: { fires: [0, 0], kept: [0, 0], oldSeen: [0, 0], oldUsed: [0, 0] },
     // 【传火】的诊断口（见 rules.js 的 stat.chain）—— `lit` 是
     // `CHAIN_HUE` 那个方案的成败指标，比 X 先看
     chain: { fires: [0, 0], lit: [0, 0], nextGot: [0, 0] },
+    // 【21 匹配】的诊断口（见 rules.js 的 stat.draft）——
+    // **预算用掉几成**那一列比 X 先看（见那边的注释）
+    draft: {
+      fires: [0, 0], hits: [0, 0], budSum: [0, 0], sumSum: [0, 0],
+      gotSum: [0, 0], pileSum: [0, 0], zeroIn: [0, 0], zeroOut: [0, 0],
+      stopOver: [0, 0], stopVoid: [0, 0], stopGuard: [0, 0],
+      stopEnd: [0, 0], stopEmpty: [0, 0], stopZero: [0, 0]
+    },
     // 【分饵】的诊断口 —— `tookMine` / `tookFoe` 不相等就是拿了奇数张
     gift: { fires: [0, 0], tookMine: [0, 0], tookFoe: [0, 0] },
     // 【漫流】—— 跟顺子那两件同一组列（所以下面共用那个循环），外加 pushed
@@ -219,10 +231,22 @@ function run(n, seed, mine, foe, opts) {
         sum.brim[keys[k]][s] += G.stat.brim[keys[k]][s]
       }
       sum.brim.pushed[s] += G.stat.brim.pushed[s]
+      // 【21 匹配】—— 列不一样，单独一个循环
+      const dk = ['fires', 'hits', 'budSum', 'sumSum', 'gotSum', 'pileSum',
+        'stopOver', 'stopVoid', 'stopGuard', 'stopEnd', 'stopEmpty', 'stopZero',
+        'zeroIn', 'zeroOut']
+      for (let k = 0; k < dk.length; k++) {
+        sum.draft[dk[k]][s] += G.stat.draft[dk[k]][s]
+      }
       // 失败补偿那三列只有 straight 有
       const fk = ['failFires', 'tagged', 'wildUsed']
       for (let k = 0; k < fk.length; k++) {
         sum.straight[fk[k]][s] += G.stat.straight[fk[k]][s]
+      }
+      // 自己贴【通配】那四列是三件共用的（挂在 G.stat.selfWildTag 上）
+      const tk = ['fires', 'kept', 'oldSeen', 'oldUsed']
+      for (let k = 0; k < tk.length; k++) {
+        sum.selfWildTag[tk[k]][s] += G.stat.selfWildTag[tk[k]][s]
       }
       const ck = ['fires', 'lit', 'nextGot']
       for (let k = 0; k < ck.length; k++) {
@@ -1003,14 +1027,27 @@ function cmdVs(args) {
   const role = roleIndexOrDie(args.role)
   const atMine = skillIndexOf(args._[1])
   const atTheirs = skillIndexOf(args._[2])
-  // 两边各插同一个角色的第一个槽 —— 槽一样大，覆盖面才可比。
+  // 两边各插同一个角色的**同一个槽** —— 槽一样大，覆盖面才可比。
+  //
+  // ---- ⚠ `--slot` 原先在这儿被**静默忽略**〔2026-10-19 修〕 ----
+  //
+  // 这两行本来硬编码 `0`，而 `--slot` 只有 `one` / `all` 那几条认。
+  // 后果是**静默读错口径**：`vs draft draft --role deepline --slot 1`
+  // 看着是在量「K 槽」（4 张），实际量的是深海钓手的**第 0 槽 `♣`**
+  //（13 张花色槽）—— 而覆盖面差 3.25 倍。
+  //
+  // 我就是这么栽的：量出「吃水在 K 槽 7.66、A 槽 3.41」，正要下
+  //「幅度跟槽上那个点数成正比」的结论，**而抖出它的是诊断口的发动次数**
+  //（5.65 次/局 对 1.93 —— 4 张牌的理论值是 ~1.85，5.65 只能是 13 张）。
+  // 那是 CLAUDE.md 第四节那条的又一个实例：**X 看着「合理」说明不了什么。**
   //
   // 常驻技**默认关掉**（`--special` 才带）。原先靠「双方同角色所以
   // 两边的常驻技互相抵掉」，而那条对**不对称的**常驻技不成立 ——
   // 候潮渔翁【涨落】双方都带时，基线格仍然是后手 −12.23 分：
   // 它偏的是**先后手**，不是偏某一方，所以镜像抵不掉它
-  const mine = R.kitWithOne(role, 0, atMine)
-  const theirs = R.kitWithOne(role, 0, atTheirs)
+  const slotAt = args.slot
+  const mine = R.kitWithOne(role, slotAt, atMine)
+  const theirs = R.kitWithOne(role, slotAt, atTheirs)
   const o = rolesFor(args, role, true)
   const empty = R.emptyLoadout()
   const A = run(args.n, args.seed, empty, theirs, o)
@@ -1030,8 +1067,11 @@ function cmdVs(args) {
   const theirGain = meanDiff(C) - meanDiff(A)
   if (mirror) {
     console.log('【' + nameMine + '】在**先手**和**后手**手里各值多少 · '
-      + R.DRAW_ROLES[role].name + ' · 都插第 1 个槽（'
-      + R.DRAW_ROLES[role].slots[0] + '）· ' + specialNote(args, role)
+      // 槽号和槽名都跟着 `--slot` 走〔2026-10-19 修〕——
+      // 原先这两处写死 `1` / `slots[0]`，于是换槽之后**标题照旧报第 1 槽**。
+      // 那比静默忽略 `--slot` 更坏：它会给错数配一个看着对的口径说明
+      + R.DRAW_ROLES[role].name + ' · 都插第 ' + (slotAt + 1) + ' 个槽（'
+      + R.DRAW_ROLES[role].slots[slotAt] + '）· ' + specialNote(args, role)
       + ' · ' + args.n + ' 局\n')
     console.log('    后手（我）手里：  ' + (soloGain >= 0 ? '+' : '') + f2(soloGain)
       + '   标准误 ' + f2(se2(D, C)))
@@ -1117,6 +1157,40 @@ function cmdVs(args) {
         console.log('  要等那张牌打出去落堆才成为材料，而堆的换手是 3.3 回合。')
         console.log('  那是第一条死因（兑现牌遇不上）的变体，加 N 治不了。')
       }
+    }
+    // ---- 打出那张自己贴【通配】的诊断（2026-10-19 规则变更）----
+    //
+    // **挂自己的条件、放在 sdRows 那个块外面** —— 照下面传火那段的教训。
+    //
+    // 这次改动的判定部分一个字没变（填格额度照旧由 `self:'wild'` 给），
+    // 所以 X 的差额**全部**来自「凑不成那张带着标签留在堆上」。
+    // 四列要一起读：
+    //
+    //   留下几次 / 贴了几次   = 失败率（这次改动的入口有多宽）
+    //   发动时见到的旧通配    = 留下来的标签**活到了**下一次吗
+    //   凑成时用上的旧通配    = 它们**变成分了**吗
+    //
+    // 后两列都低 = 标签活不到下一次（堆的换手 3.3 回合）；
+    // 前高后低 = 攒住了但凑不上，那是第一条死因的变体
+    const twRow = function (label, td, s) {
+      if (td.fires[s] === 0) return null
+      return '    ' + label.padEnd(10)
+        + f2(avg(td.fires[s], args.n)).padStart(8) + ' 次/局'
+        + f2(avg(td.kept[s], td.fires[s])).padStart(9) + ' 留/贴'
+        + f2(avg(td.oldSeen[s], td.fires[s])).padStart(9) + ' 张/次'
+        + f2(avg(td.oldUsed[s], td.fires[s])).padStart(9) + ' 张/次'
+    }
+    const twRows = [
+      twRow('后手', D.selfWildTag, R.ME),
+      twRow('先手', A.selfWildTag, R.FOE)
+    ].filter(function (r) { return r !== null })
+    if (twRows.length > 0) {
+      console.log('\n  ---- 诊断：打出那张自己贴【通配】（CHAIN_SELF_TAG）----')
+      console.log('            贴了几次    留下率   见到旧通配  用上旧通配')
+      for (let i = 0; i < twRows.length; i++) console.log(twRows[i])
+      console.log('\n  「见到旧通配」低 → 标签**活不到下一次**（堆的换手 3.3 回合）；')
+      console.log('  「见到」高而「用上」低 → 攒住了但凑不上（第一条死因的变体）。')
+      console.log('  A/B：`CHAIN_SELF_TAG=0` 退回「自带一次、不留标签」那一档。')
     }
     // ---- 【传火】那两个旋钮的诊断（CHAIN_HUE / CHAIN_NEXT）----
     //
@@ -1218,6 +1292,72 @@ function cmdVs(args) {
       console.log('    ' + ownRow('后手（我）', fdMe, R.ME))
       console.log('    ' + ownRow('先手（对手）', fdFoe, R.FOE))
       console.log('\n  「自己的饵」那一列是净增益为 0 的部分（自己抢自己）。')
+    }
+    // ---- 【21 匹配】的诊断口〔2026-10-19，为系列化量矩阵加的〕 ----
+    //
+    // **「预算用掉几成」那一列比 X 先看。** 它决定「调 CAP / 改预算归属」
+    // 这整条分化轴是活的还是死的 —— 富余的话那条轴撞「条件撞局面常量」
+    //（第三条死因），而只看 X 根本看不出来。
+    //
+    // 「为什么停」那四列同理：end 占多数 = 瓶颈是**堆太薄**（那条轴
+    // 要靠【推牌】治），over 占多数才说明预算真的是瓶颈
+    const drMe = D.draft
+    const drFoe = A.draft
+    if (drMe.fires[R.ME] > 0 || drFoe.fires[R.FOE] > 0) {
+      console.log('\n  ---- 诊断：【21 匹配】每次发动（' + args.n + ' 局合计）----')
+      console.log('            发动   凑成率   堆厚   预算   用掉   用掉几成   够着几张')
+      const dRow = function (label, dr, s) {
+        const fires = dr.fires[s]
+        if (fires === 0) return label.padEnd(10) + '（没发动过）'
+        const bud = avg(dr.budSum[s], fires)
+        const used = avg(dr.sumSum[s], fires)
+        return label.padEnd(10)
+          + f2(avg(fires, args.n)).padStart(6) + '/局'
+          + pct(avg(dr.hits[s], fires)).padStart(9)
+          + f2(avg(dr.pileSum[s], fires)).padStart(7)
+          + f2(bud).padStart(7)
+          + f2(used).padStart(7)
+          + pct(bud > 0 ? used / bud : 0).padStart(11)
+          + f2(avg(dr.gotSum[s], fires)).padStart(11)
+      }
+      console.log('    ' + dRow('后手（我）', drMe, R.ME))
+      console.log('    ' + dRow('先手（对手）', drFoe, R.FOE))
+      console.log('\n  ---- 为什么停（占发动次数的比例）----')
+      console.log('            超预算   无点数断链   0点断链   被护   整堆吃完   空堆')
+      const sRow = function (label, dr, s) {
+        const fires = dr.fires[s]
+        if (fires === 0) return label.padEnd(10) + '（没发动过）'
+        return label.padEnd(10)
+          + pct(avg(dr.stopOver[s], fires)).padStart(8)
+          + pct(avg(dr.stopVoid[s], fires)).padStart(13)
+          + pct(avg(dr.stopZero[s], fires)).padStart(10)
+          + pct(avg(dr.stopGuard[s], fires)).padStart(7)
+          + pct(avg(dr.stopEnd[s], fires)).padStart(11)
+          + pct(avg(dr.stopEmpty[s], fires)).padStart(7)
+      }
+      console.log('    ' + sRow('后手（我）', drMe, R.ME))
+      console.log('    ' + sRow('先手（对手）', drFoe, R.FOE))
+      console.log('\n  **「整堆吃完」高 = 瓶颈是堆太薄，不是预算不够** ——')
+      console.log('  那样「调 CAP / 自己不占预算」这条轴是死的（条件撞局面常量）。')
+      // ---- 「21 匹配 和 0 点匹配能不能共存」那个问题的度量 ----
+      console.log('\n  ---- 堆上的 0 点牌归谁（每次发动平均）----')
+      console.log('            这段里收走   段外剩下   段外占比')
+      const zRow = function (label, dr, s) {
+        const fires = dr.fires[s]
+        if (fires === 0) return label.padEnd(10) + '（没发动过）'
+        const zin = avg(dr.zeroIn[s], fires)
+        const zout = avg(dr.zeroOut[s], fires)
+        const tot = zin + zout
+        return label.padEnd(10)
+          + f2(zin).padStart(8)
+          + f2(zout).padStart(11)
+          + (tot > 0 ? pct(zout / tot) : '—').padStart(11)
+      }
+      console.log('    ' + zRow('后手（我）', drMe, R.ME))
+      console.log('    ' + zRow('先手（对手）', drFoe, R.FOE))
+      console.log('\n  **「段外剩下」就是「0 点匹配」能独立拿到的全部** ——')
+      console.log('  21 匹配穿过 0 点牌不花预算也不断链，所以它们几乎都在那一段里。')
+      console.log('  这一列 ≈ 0 就是「两条线共存 = 纯重复」的直接证据。')
     }
     // ---- 【野火】的诊断口：查那个**非单调** ----
     //

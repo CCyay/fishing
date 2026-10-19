@@ -251,6 +251,24 @@ function rushFlood(G, side) {
   return -1
 }
 
+// 【沉降】连击：他刚兑现过，而我手里正好有一张带【沉降】的 —— 打它。
+//
+// 返回手牌下标，-1 = 不接（窗口没开 / 手里没有 / 那张被冻住了）。
+//
+// **默认关**（`SINK_COMBO=1` 开）—— 它是一条**只服务一件技能**的启发式，
+// 而那种东西开着会污染别的量法（照 `FLOOD_RUSH` 那条先例：
+// 它也是默认关的，开着才量洪水的「偷时间」）
+function sinkCombo(G, side) {
+  if (process.env.SINK_COMBO !== '1') return -1
+  if (!R.sinkComboOpen(G, side)) return -1
+  const hand = G.hands[side]
+  for (let i = 0; i < hand.length; i++) {
+    if (R.isFrozen(G, hand[i])) continue
+    if (R.sinkTagOn(G, hand[i])) return i
+  }
+  return -1
+}
+
 function pickCard(G, side) {
   // 关卡表的 random：连钓都不挑（照源码 foePickCard 开头那一支）
   if (G.random[side]) return randomFree(G, side)
@@ -258,6 +276,19 @@ function pickCard(G, side) {
   // 「宁可少收一点，也要把这一局掐短」（默认关，见 FLOOD_RUSH 那段）
   const rush = rushFlood(G, side)
   if (rush >= 0) return rush
+  // ---- 【沉降】连击：**他刚兑现完，我立刻接一张**〔2026-10-19〕 ----
+  //
+  // 用户指出的那个用法：两次 −3 累加成 −6，而堆上平均点数才 6.8 ——
+  // 于是整堆几乎全归 0，我这一手的【21 匹配】立刻收割。
+  // **成本分摊**：第一次压堆的代价是他付的（他那一手的匹配被搅乱）。
+  //
+  // 排在「挑钓得最多的」**之前**，跟 `rushFlood` 同一个位置、
+  // 同一个理由：它表达的是「宁可这一手少收，也要把这个窗口用掉」，
+  // 而那正是一步贪心算不出来的东西（它只看这一手收几张）。
+  //
+  // 窗口只有一手（见 rules 的 sinkComboOpen），所以不接就没了
+  const combo = sinkCombo(G, side)
+  if (combo >= 0) return combo
   const hand = G.hands[side]
   const lo = G.loadouts[side]
   let best = -1
@@ -334,7 +365,10 @@ function pickCard(G, side) {
     const pairSuitLine = R.has(skills, SK.SUITED) || R.has(skills, SK.HUE)
     const wants = R.has(skills, SK.TIDE)
       || R.has(skills, SK.FREEZE)
-      || R.has(skills, SK.LOWTIDE) || R.has(skills, SK.SWAP)
+      // 〔`SK.LOWTIDE`（见底）2026-10-19 从这张清单里去掉 —— 技能删了。
+      //   这张表是「**值得为它打一张次优牌**」的清单，见底在里面是因为
+      //   它那一手本来就不钓牌（自己算 0 点），所以打什么都不亏〕
+      || R.has(skills, SK.SWAP)
       || R.has(skills, SK.PICK)
       // 条件性的，现在只剩一件
       //〔窥视、照水 2026-10-16 删了。那两行原本是

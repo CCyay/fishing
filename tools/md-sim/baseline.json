@@ -1,13 +1,13 @@
 {
   "funcs": {
-    "ap-fishing.uvue:catchStart": "2201f7ff799b",
+    "ap-fishing.uvue:catchStart": "4626378f4b98",
     "ap-fishing.uvue:canCatch": "bd7a0c05f2ab",
-    "ap-fishing.uvue:playFor": "9859f84ec334",
+    "ap-fishing.uvue:playFor": "5647bf79e910",
     "ap-fishing.uvue:resolveMatch": "893f93242df3",
     "ap-fishing.uvue:removePileAt": "76fc35042c64",
     "ap-fishing.uvue:afterPlay": "dd1ccf316e51",
     "ap-fishing.uvue:afterPlayHead": "e2a0f4afafb6",
-    "ap-fishing.uvue:afterPlayTail": "3a59323ebb41",
+    "ap-fishing.uvue:afterPlayTail": "661242889dfc",
     "ap-fishing.uvue:valuesOf": "bd155063ea92",
     "ap-fishing.uvue:landVals": "4a8f82bebdee",
     "ap-fishing.uvue:cardVals": "7e0fd0f22216",
@@ -34,13 +34,16 @@
     "ap-fishing.uvue:pileBurnAt": "598cb4a950bf",
     "ap-fishing.uvue:frostAt": "3f51afd704c3",
     "ap-fishing.uvue:frostOnLand": "19dc953fb06d",
-    "ap-fishing.uvue:addFrostAt": "ff20c23f03f8",
+    "ap-fishing.uvue:addFrostAt": "c87638b7683e",
     "ap-fishing.uvue:coldHueOn": "aa3abc98050b",
     "ap-fishing.uvue:iceMeltsFire": "8ffb478f8fc7",
     "ap-fishing.uvue:isWildAt": "5a0e8d0c8cea",
+    "ap-fishing.uvue:addWild": "c2d9029e02df",
     "ap-fishing.uvue:bestChainAt": "85223baaaa23",
     "ap-fishing.uvue:markChain": "f3bb89ae284c",
-    "ap-fishing.uvue:straightFor": "a1c90af3e829",
+    "ap-fishing.uvue:straightFor": "4318b6479eb5",
+    "ap-fishing.uvue:wadeFor": "ab7bd4322220",
+    "ap-fishing.uvue:brimFor": "ad0737be3757",
     "ap-fishing.uvue:straightCount": "7fb6276a8ba1",
     "ap-fishing.uvue:wadeCount": "1d178fcd74d0",
     "ap-fishing.uvue:lowTideFor": "59b4f393251a",
@@ -120,5 +123,5 @@
     "draw-skills.uts:FUEL_TAG": "1",
     "ap-fishing.uvue:TAIL_PLAYS": "2"
   },
-  "skills": "hook,tide,swap,suited,freeze,lowtide,pick,suitify,deep,peak,hue,cast,press,unhook,swapcard,narrow,creel,twin,draft,soft,dead,calm,clean,wild,raise,flow,wade,frost,hide,coldhue,chain,kindle,surge,fuel,creel,narrow,clear,deephook,beach,jsurge,reverse,bait,twocolor,tens,basket,lock,upstream,mirror,deepline,pond,night,reckon,filler,surgeman"
+  "skills": "hook,tide,swap,suited,freeze,pick,suitify,deep,peak,hue,cast,press,unhook,swapcard,narrow,creel,twin,draft,soft,dead,calm,clean,wild,raise,flow,wade,frost,hide,coldhue,chain,kindle,surge,sinktag,fuel,gift,brim,creel,narrow,clear,deephook,beach,jsurge,reverse,bait,twocolor,tens,basket,lock,upstream,mirror,deepline,pond,night,reckon,filler,surgeman"
 }
