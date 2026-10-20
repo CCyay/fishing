@@ -40,11 +40,22 @@ const WATCH = [
     //    （2026-10-14 那次改条件就正好落在这个盲区上）；
     //   **landVals 已在** —— 留着这条注记提醒：点数那一层有三个入口
     //     （valuesOf / landVals / rawVals），三个都得盯
+    // 〔`measureFor`（量水）2026-10-16 撤了 —— 实现删了，留着每次报一条
+    //   MISSING。照 SUIT_CAPACITY / DECK_PLAY 那两次的办法：**技能一删，
+    //   监视名单跟着删**，噪音多了就没人看警报了〕
+    //
+    // 2026-10-16 补了两个「唯一出口」函数 —— 它们不挂在任何技能上，
+    // 所以改了没人会想起来（跟 spreadFire 同一个理由）：
+    //   **startCatch / startSweep** —— 收牌特效的两个入口，而
+    //     `startSweep` 还带着「演完从哪儿接着走」那个续走参数。
+    //     整堆类技能（一色）全靠它，续走点传错的后果是**后面的技能静默丢掉**；
+    //   **endPlay** —— 一手牌的唯一收尾（交回合、补牌、判终局都在它后面）
     names: ['catchStart', 'canCatch', 'playFor', 'resolveMatch', 'removePileAt',
-      'afterPlay', 'afterPlayHead', 'afterPlayTail', 'measureFor', 'valuesOf',
+      'afterPlay', 'afterPlayHead', 'afterPlayTail', 'valuesOf',
       'landVals', 'cardVals', 'anyEquals', 'guardedAgainst', 'finishCatch',
       'pushPile', 'unshiftPile', 'suitifyFor', 'suitLeads', 'pileValsAt',
-      'pileSuitAt', 'pileRed', 'takeAt', 'blockedAt', 'rawVals']
+      'pileSuitAt', 'pileRed', 'takeAt', 'blockedAt', 'rawVals',
+      'startCatch', 'startSweep', 'endPlay']
   },
   {
     file: 'ap-fishing.uvue',
@@ -63,19 +74,50 @@ const WATCH = [
     //   **通配** —— bestChainAt / markChain 是顺子匹配的本体，
     //     而 straightCount / wadeCount 是**庄家的估值**：
     //     那两个漏掉的后果不是「庄家笨一点」，是整件技能在庄家手里作废
+    // 〔2026-10-16 补了 `addFrostAt`：它是**贴冰唯一的入口**，
+    //   「冰火相消」和「不可叠加」两条规则都只写在它里头 ——
+    //   `frostOnLand` 变了会报，可绕过它直接改 `addFrostAt` 原先报不出来。
+    //   同一天霜降删了，`frostOnLand` 的第二条来路跟着没了〕
+    // 〔2026-10-19 补了三个，都是那次「打出那张自己贴【通配】」改动暴露的：
+    //   **addWild** —— 贴通配**唯一的入口**（照 `addFrostAt` 那条理由）。
+    //     「不叠加」和「标签跟着牌走」两条都只写在它里头，
+    //     而这次改动之后它还是「关键词 → 技能」那条新规则的落点；
+    //   **wadeFor / brimFor** —— 顺子那三件里原先只盯了 `straightFor`，
+    //     可三件共用一套判定、**各自贴自己的标签**，漏盯两件等于
+    //     「同一条规则改了一处、另两处静默留在旧规则上」。
+    //     这次正是三处一起改的〕
     names: ['burnStep', 'spreadFire', 'wildfireFor', 'pickBurnAt', 'pileBurnAt',
-      'frostAt', 'frostOnLand', 'coldHueOn', 'iceMeltsFire',
-      'isWildAt', 'bestChainAt', 'markChain', 'straightFor',
+      'frostAt', 'frostOnLand', 'addFrostAt', 'coldHueOn', 'iceMeltsFire',
+      'isWildAt', 'addWild', 'bestChainAt', 'markChain',
+      'straightFor', 'wadeFor', 'brimFor',
       'straightCount', 'wadeCount']
   },
   {
     file: 'ap-fishing.uvue',
     group: '技能结算',
-    names: ['lowTideFor', 'ebbTideFor', 'ebbFor', 'dropPile', 'dropVals', 'anyLive',
-      'floodFor', 'hueFor', 'castFor', 'harvestIndices', 'harvestCount',
-      'dumpFor', 'spillFor', 'peekFor', 'doPickDeck', 'sinkTops',
+    // 〔2026-10-16 从这一组撤了五个 —— 实现全删了，留着只报 MISSING：
+    //   `ebbFor`（退潮）/ `ebbTideFor`（干塘）/ `floodFor`（洪水）/
+    //   `dumpFor`（掏手）/ `spillFor`（掏库）。
+    //   同一天补了两个还活着的叠放函数：**takeStack / cleanAt0** ——
+    //   「掀掉一格底下压着的几张」和「某张牌不再是当前牌、在场效果当场失效」
+    //   各只有一个出口，而叠放那一族的 bug 全出在这两件事上〕
+    // 〔2026-10-16 补了推牌那一族三个（【引潮】/【推牌】当天落地）：
+    //   **surgeFor** —— 「从牌库往堆上搬牌」**唯一的入口**，而那一类
+    //     改了没人会想起来（跟 spreadFire 同一个理由）。它身上压着四条
+    //     判据：传空 skills、撞上置 0、按层推、不走飞牌特效；
+    //   **doSurge / surgeLayers** —— 贴标签和读层数。层数是用「同一张牌
+    //     在表里出现几次」记的，所以这两个一动，角标和推牌数会一起错〕
+    names: ['lowTideFor', 'dropPile', 'dropVals', 'anyLive',
+      'hueFor', 'castFor', 'harvestIndices', 'harvestCount',
+      'peekFor', 'doPickDeck', 'sinkTops',
       'topCards', 'shuffleBack', 'doFreeze', 'expireHeld', 'heldOn', 'isFrozen',
-      'inPile', 'foeOpen', 'foeKnows']
+      'inPile', 'foeOpen', 'foeKnows', 'takeStack', 'cleanAt0',
+      'surgeFor', 'doSurge', 'surgeLayers',
+      // 【薪潮】贴标签那一步（2026-10-16）。跟 `doSurge` 同级 ——
+      // 它是**盲选那条路**唯一的落点，而盲选跟看着挑的区别
+      //（走 `fuelPending` 而不是 `takeSkill`）全靠它和调用处那一支撑着。
+      // 改错了的表现是**对方手牌被翻开**，而那会静默改掉这件技能的性质
+      'doFuel']
   },
   {
     file: 'ap-fishing.uvue',
@@ -132,6 +174,28 @@ const CONSTS = [
   { file: 'draw-skills.uts', name: 'RANK_CAPACITY' },
   { file: 'draw-skills.uts', name: 'BAIT_COUNT' },
   { file: 'draw-skills.uts', name: 'CYCLE_REFILL' },
+  // ---- 推牌那两个（2026-10-16）----
+  //
+  // **`SURGE_PUSH` 跟 `HAND_SIZE` 同级**：它不是平衡旋钮，是结构性的 ——
+  // 每层偶数才让「任何叠加都不翻牌库奇偶」成立。改成奇数会把终局那道缝
+  // 重新打开（约 0.8 分，见设计文档『终局那两手』），而**整套推牌类的
+  // 数据同时作废**。
+  //
+  // **模拟器那边是 `rules.js` 的 `SURGE_N`，两个数必须一样** ——
+  // 这一个动了那一个没跟上的话，`sim.js` 量的就不是游戏里那个机制了
+  //（跟 `TAIL_PLAYS` ↔ `TAIL` 同一个理由）。
+  { file: 'draw-skills.uts', name: 'SURGE_PUSH' },
+  // 引潮贴几层 = 它的强度旋钮（2 层 → X +2.27）。它跟 SURGE_PUSH 不同级：
+  // 这个可以调，调了只是这一件重定价
+  { file: 'draw-skills.uts', name: 'SURGE_LAYERS' },
+  // 逆涌（开河工）一次推牌几层。同 SURGE_LAYERS —— 技能自己的强度旋钮，
+  // 2 层是量出来的甜点（效率 1 层 0.197 / 2 层 0.260 / 3 层 0.259）。
+  // **模拟器那边是 rules.js 的 JSURGE_LAYERS，两个数必须一样**
+  { file: 'draw-skills.uts', name: 'JSURGE_LAYERS' },
+  // 薪潮给对方几张手牌贴推牌。**钉死 1，而 N=2 量出来 +4.73 超档** ——
+  // 所以改它等于让这件技能出档，而不只是重定价。
+  // 模拟器那边是 rules.js 的 FUEL_TAG
+  { file: 'draw-skills.uts', name: 'FUEL_TAG' },
   // 〔DECK_PLAY 撤掉了（2026-10-15 当天加、当天删）——「一局只进场 52 张」
   //   那道上限随终局规则一起退场。模拟器那边对应的 DECK_SIZE 也删了。
   //   留着只会每次报一条 MISSING〕
@@ -198,17 +262,86 @@ function constOf(text, name) {
 
 // draw-skills.uts 里所有 `key: 'x', name:` 的顺序。
 //
-// 它一次抓三张表（DRAW_SKILLS、SPECIAL_SKILLS、DRAW_ROLES），因为三张
-// 都是这个写法 —— 而那正好是我们要的：模拟器的 SK 是写死的下标表，
-// 点数技能的表序一变它就全错；特殊技能和角色虽然按 key 查（删一件不会错位），
-// 但增删本身也该报出来，好去核对 rules.js 那边的 SP / DRAW_ROLES
+// 它一次抓三张**活**表（DRAW_SKILLS、SPECIAL_SKILLS、DRAW_ROLES），
+// 因为三张都是这个写法 —— 而那正好是我们要的：模拟器的 SK 是按 key 查的，
+// 可表序一变 `all` 的报表顺序就全变；特殊技能和角色的增删也该报出来，
+// 好去核对 rules.js 那边的 SP / DRAW_ROLES。
+//
+// ---- ⚠ 必须跳过 `DEAD_SKILLS`（2026-10-16 修）----
+//
+// 那张表（已删技能的机器可读名单，`refs.js` 的依据）**用的是同一个写法**，
+// 于是它那 16 件被当成「还活着」抓进来 —— 这一项当场报了一次假警报：
+// 「技能表变了」，而多出来的正是 boil / spread / spill / dump / … 那一串。
+//
+// **这是同一个坑的第二次**：`refs.js` 第一版也栽在这儿（而且更糟 ——
+// 它把已删技能算成活的，整个检查反了过来）。
+//
+// 教训是一样的：**同一个数据写法现在出现在四张表里，所以「扫到就算」
+// 一定错。** 以后再加这种「key + name」的表，先想一遍谁在扫它。
+//
+// ---- ⚠ 这个数**不是「几件技能」**（2026-10-16 第三次栽在同一个坑上）----
+//
+// `--save` 原先印「56 件技能」，而 56 是**三张表的条目数之和**：
+//   `DRAW_SKILLS` 34（真正装得进槽的）+ `SPECIAL_SKILLS` 11 + `DRAW_ROLES` 11。
+//
+// 顺带解释一个对不上的数：`refs.js` 同时印「活着 54 件」—— 它扫的是同样
+// 三张表，但它的 `LIVE` 是**字典**（`LIVE[k] = …`），所以重复的 key 塌掉了。
+// **差的那 2 个是 `creel` 和 `narrow`**：满篓 / 窄口各自既是一件技能、
+// 又是一件常驻特殊技，两张表里都有。56 − 2 = 54，两边都没错，只是口径不同。
+//
+// 前两次栽在**扫错了表**（把 `DEAD_SKILLS` 当活的），这次栽在**标签**上 ——
+// 抓三张表是故意的，可印出来说「件技能」。
+// 所以下面分开数、分开印：**这个脚本里凡是跨表汇总的数，标签必须写明口径。**
 function skillKeys() {
   const text = read('draw-skills.uts')
+  // **挖掉 DEAD_SKILLS 那一段，不是切掉它往后的全部** ——
+  // 它在文件中间（`DRAW_SKILLS` 之后、`SPECIAL_SKILLS` 之前），
+  // 一刀切会把后两张活表一起丢掉（那会报一串假的「少了 11 件」）。
+  // 这一下差点就写错了，而**两种写法的区别只看输出看不出来**
+  // —— 错的那版会报「技能表变了」，跟修之前的假警报长得一样
+  let live = text
+  const at = text.indexOf('export const DEAD_SKILLS')
+  if (at >= 0) {
+    const end = text.indexOf('\n]', at)
+    live = text.slice(0, at) + (end < 0 ? '' : text.slice(end))
+  }
   const out = []
   const re = /key:\s*'([a-z0-9]+)',\s*name:/g
   let m
-  while ((m = re.exec(text)) !== null) {
+  while ((m = re.exec(live)) !== null) {
     out.push(m[1])
+  }
+  return out
+}
+
+// 按表分别数，只为把 `--save` 那句话印准（见 skillKeys 上面那段）。
+//
+// **三个数各自都要报**，不只报总和：删一件技能和删一张角色卡都会让总和
+// −1，而要核对的东西完全不同（前者改 rules.js 的 SK / SKILLS，
+// 后者改 DRAW_ROLES 和庄家的挂关名单）
+function tableCounts() {
+  const text = read('draw-skills.uts')
+  const marks = [
+    { name: 'DRAW_SKILLS', label: '技能' },
+    { name: 'SPECIAL_SKILLS', label: '常驻特殊技' },
+    { name: 'DRAW_ROLES', label: '角色卡' }
+  ]
+  // 每张表的起点，外加 DEAD_SKILLS —— 它夹在中间，是**边界**不是内容
+  const bounds = []
+  for (let i = 0; i < marks.length; i++) {
+    const at = text.indexOf('export const ' + marks[i].name)
+    bounds.push({ at: at, label: marks[i].label })
+  }
+  const deadAt = text.indexOf('export const DEAD_SKILLS')
+  if (deadAt >= 0) bounds.push({ at: deadAt, label: null })
+  bounds.sort(function (a, b) { return a.at - b.at })
+  const out = []
+  for (let i = 0; i < bounds.length; i++) {
+    if (bounds[i].at < 0 || bounds[i].label === null) continue
+    const end = i + 1 < bounds.length ? bounds[i + 1].at : text.length
+    const seg = text.slice(bounds[i].at, end)
+    const hit = seg.match(/key:\s*'[a-z0-9]+',\s*name:/g)
+    out.push(bounds[i].label + ' ' + (hit ? hit.length : 0) + ' 件')
   }
   return out
 }
@@ -245,8 +378,11 @@ function main() {
   if (process.argv.indexOf('--save') >= 0) {
     fs.writeFileSync(BASE_FILE, JSON.stringify(now, null, 2) + '\n')
     const n = Object.keys(now.funcs).length
+    // 条目总数后面**必须跟着分表的数** —— 「56 件技能」那句话骗过人一次
+    //（真正装得进槽的只有 34 件，另 22 个是特殊技和角色卡）
     console.log('已存基准：' + n + ' 个函数、' + Object.keys(now.consts).length
-      + ' 个常量、' + now.skills.split(',').length + ' 件技能')
+      + ' 个常量、' + now.skills.split(',').length + ' 个表项（'
+      + tableCounts().join(' + ') + '）')
     return
   }
   if (!fs.existsSync(BASE_FILE)) {
@@ -280,10 +416,18 @@ function main() {
   }
   console.log('⚠ 源码动过了 —— 下面这些要跟 rules.js / ai.js 核对一遍：\n')
   if (skillsChanged) {
-    console.log('  【技能表变了】')
+    console.log('  【三张表变了】（技能 / 常驻特殊技 / 角色卡，按文件顺序串起来）')
     console.log('    基准：' + base.skills)
     console.log('    现在：' + now.skills)
-    console.log('    rules.js 的 SK 常量和 SKILLS 表要跟着改（下标必须一一对应）\n')
+    console.log('    现在的分表：' + tableCounts().join(' + '))
+    // **按变的是哪一张分别说** —— 原先一律写「rules.js 的 SK 常量和 SKILLS
+    // 表要跟着改」，而那只对第一张表成立。角色卡变了要改的是另外两处，
+    // 照那句话去改会白忙一趟（而且会以为自己核过了）
+    console.log('    改哪儿看变的是哪一张：')
+    console.log('      技能       → rules.js 的 SK 常量和 SKILLS 表（下标必须一一对应）')
+    console.log('      常驻特殊技 → rules.js 的 SP 和 SPECIALS')
+    console.log('      角色卡     → rules.js 的 DRAW_ROLES，以及庄家挂哪一关'
+      + '（draw-levels.uts）\n')
   }
   if (constChanged.length) {
     console.log('  【常量变了】')

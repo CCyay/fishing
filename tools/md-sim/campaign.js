@@ -68,8 +68,14 @@ const FOE_ROLES = [
   { name: '礁石海女', specials: ['pinch'], slots: [['freeze', 2, false]] },
   { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 2, false], ['hook', 1, false]] },
   { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, true]] },
-  { name: '雾港守灯人', specials: ['dryup'], slots: [['lantern', 2, false], ['freeze', 2, false]] },
-  { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 1, true], ['lowtide', 1, false]] },
+  // 〔2026-10-16 照水 ×2 → **死水 ×1**（照水删了）。理由见 draw-levels 那一关的注释。
+  //   对这个报表的意义：这一关**第一次有了模拟器量得到的槽技能**（枯水仍然没模），
+  //   所以它的数字从「两件白板」变成「一件白板」—— 还是下限，但下限抬高了〕
+  { name: '雾港守灯人', specials: ['dryup'], slots: [['dead', 1, false], ['freeze', 2, false]] },
+  // 〔见底 2026-10-19 删了，那一格**空出来没补**（用户定「其他不用」）——
+  //   所以这一关从三条腿（守滩 / 见底 / 染水）变两条腿，跟着变简单。
+  //   它养厚堆的手段（守滩）还在，**把厚堆变现的手段没了**〕
+  { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 1, true]] },
   // ---- 11 / 12 关 2026-10-15 改过两轮（曲线倒挂：11 关比关底难 21 个点）----
   //
   // **第一轮改错了**：把关底的结冰两件换成吃水 + 撒网（理由是「各自独立兑现」），
@@ -140,7 +146,14 @@ function foeMode(diff, level, ease) {
 const PLAYER_POOL = [
   'flow', 'chain', 'swapcard', 'kindle', 'hide', 'coldhue', 'wild',
   'draft', 'peak', 'wade', 'unhook', 'suitify', 'cast', 'raise', 'suited',
-  'dead', 'hue', 'lowtide', 'press'
+  // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。
+  //   **留着的后果是静默的**：
+  //   ⚠ 写这条注释时**带引号写了那个 key，refs.js 当场误报成真引用** ——
+  //   它扫的是 PLAYER_POOL 块里的字符串字面量，不分代码和注释。
+  //   所以墓碑注释里**别带引号写已删的 key**。
+  //   留着它的后果：`playerKit` 查不到就往槽里塞 −1（空槽），
+  //   玩家配装随机少一件，通关率跟着虚低 —— 洪水栽过的正是这一处〕
+  'dead', 'hue', 'press'
 ]
 const PLAYER_ROLE = 'lock'
 
