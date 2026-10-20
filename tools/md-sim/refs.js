@@ -169,7 +169,17 @@ const SIM_ONLY = {
   probe: '探潮',
   order: '顺流',
   cross: '对流',
-  surge: '引潮 / 倒灌'
+  surge: '引潮 / 倒灌',
+  // 结冰族 2026-10-20 那一轮的对照件（封凌 / 隔凌就是从这批里挑出来的）
+  icelock: '锁冰',
+  icedraw: '冰钓',
+  icecolor: '冰色',
+  icekey: '凝钥',
+  lockback: '锁冰收',
+  thaw: '化冰',
+  thawdraw: '融冰',
+  icedraft: '冰吃水',
+  icewild: '冰通配'
 }
 
 // ---------- 1 / 2：模拟器的三张表和 SK 常量 ----------

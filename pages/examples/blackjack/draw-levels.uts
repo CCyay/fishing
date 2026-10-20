@@ -20,6 +20,7 @@ import {
   SK_SUITED,
   SK_LANTERN,
   SK_FREEZE,
+  SK_PRESS,
   SK_LOWTIDE,
   SK_SUITIFY,
   // 收一片那两件，深渊君主用（结冰两件换掉的，见那张卡）
@@ -1233,8 +1234,14 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 换成冻结之后那条主题**更纯**了：掐口砍你补几张、冻结砍你
       // 手里那几张能不能打 —— 两条都直接作用在「你这回合有几个选择」上，
       // 而压邻作用的是堆。覆盖面照旧 8 张
-      { skill: SK_FREEZE, count: 2, suit: false } as FoeSlot
-    ], desc: '礁石底下的。你每回合只补到三张，而它还会按住你一张不让打' } as FoeRole,
+      //
+      // ---- 冻结 → 压舱〔2026-10-20〕----
+      //
+      // 冻结升级成自带【结冰】之后这一关陡了一截（campaign.js 普通档
+      // 46.6% → 37.4%）。换成压舱（看你手牌、挑一张洗回牌库）回到 44.0%；
+      // 死水 40.1%、摘钩 40.4% 都偏难。主题不变 —— 还是砍你手里那几张
+      { skill: SK_PRESS, count: 2, suit: false } as FoeSlot
+    ], desc: '礁石底下的。你每回合只补到三张，而它还会把你一张好牌塞回牌库' } as FoeRole,
   { name: '潮眼引水人', specials: ['drift'], slots: [
       // 两个槽、12 张。观潮管两个点数，磁钩管一个
       { skill: SK_TIDE, count: 2, suit: false } as FoeSlot,
