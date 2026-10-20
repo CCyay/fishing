@@ -63,7 +63,7 @@ function bucketText(b) {
 function frostCountOn(G, card) {
   let k = 0
   for (let i = 0; i < G.held.length; i++) {
-    if (G.held[i].skill === R.SK.FROST && G.held[i].source === card) k++
+    if (G.held[i].skill === R.HELD_FROST && G.held[i].source === card) k++
   }
   return k
 }
@@ -273,7 +273,8 @@ function kitOf(roleKey, keys) {
 // 哪几组**该**见到冰 / 火。见 main 里那段：正面点名，不靠 key 猜
 // 〔'frostfall' 那一组 2026-10-15 改名成 'coldhue' —— 霜降删了，
 //   驻场那一组换寒流当代表〕
-const FROST_CASES = ['coldhue', 'frost', 'fire']
+// 〔2026-10-20：结凌 / 藏凌 / 寒流删了，'coldhue' 组换成 'lockdraw'（封凌单件）〕
+const FROST_CASES = ['lockdraw', 'frost', 'lockice', 'fire']
 const BURN_CASES = ['burn', 'fire']
 
 // ---------- 六组配置 ----------
@@ -290,9 +291,11 @@ const CASES = [
     //   （效果挂在一张随时被钓走的牌上，`held` + `inPile` 那套）。
     //   寒流还多压两条：**无点数**（ICE_VOID）和**落堆底**（ICE_SINK），
     //   那两条只作用在它身上，没有第二个用例覆盖〕
-    key: 'coldhue', label: '寒流单件（驻场 + 无点数 + 落堆底，最容易出错）',
+    // 〔2026-10-20 寒流删了，驻场那条路结冰族里没有代表了。换成封凌单件 ——
+    //   它压的是「技能里途摸牌（手牌临时超上限）」+「钥匙打出 → 全场贴冰」那条规则〕
+    key: 'lockdraw', label: '封凌单件（摸牌 + 钥匙铺冰）',
     build: function () {
-      return { mine: kitOf('lock', ['coldhue']), foe: R.emptyLoadout(), myRole: -1 }
+      return { mine: kitOf('lock', ['lockdraw']), foe: R.emptyLoadout(), myRole: -1 }
     }
   },
   {
@@ -301,8 +304,20 @@ const CASES = [
     key: 'frost', label: '结冰族全上（我方三件）',
     build: function () {
       return {
-        mine: kitOf('lock', ['frost', 'hide', 'coldhue']),
+        mine: kitOf('lock', ['lockdraw', 'lockcolor', 'icebomb']),
         foe: R.emptyLoadout(), myRole: -1
+      }
+    }
+  },
+  {
+    // 封凌 / 隔凌（2026-10-20）：铺冰之外还**摸牌**（手牌数临时超上限）、
+    // 隔凌还从堆上读不到的颜色贴手冰。对手也带，冰两边一起铺
+    key: 'lockice', label: '封凌 / 隔凌（铺冰 + 摸牌钥匙）',
+    build: function () {
+      return {
+        mine: kitOf('lock', ['lockdraw', 'lockcolor']),
+        // 庄家也带冰雷：双方的钥匙互相引爆对方的雷那条路在这儿跑
+        foe: kitOf('lock', ['lockdraw', 'lockcolor', 'icebomb']), myRole: -1
       }
     }
   },
@@ -338,7 +353,7 @@ const CASES = [
         //   **撞击密度因此掉了一档** —— 霜降是唯一「落堆就贴冰」的，
         //   它一走，冰的产出只剩「自带」和「贴手牌」两条路。
         //   要是哪天这组压不出问题了，先怀疑是密度不够、不是 bug 没了〕
-        mine: kitOf('lock', ['frost', 'hide', 'coldhue']),
+        mine: kitOf('lock', ['lockdraw', 'lockcolor']),
         foe: kitOf('lock', ['chain', 'kindle']), myRole: -1
       }
     }
@@ -353,10 +368,10 @@ const CASES = [
     key: 'surge', label: '引潮 / 推牌（洗回牌库，绕开了 takeAt）',
     build: function () {
       return {
-        mine: kitOf('lock', ['surge', 'frost', 'hide']),
+        mine: kitOf('lock', ['surge', 'lockdraw', 'lockcolor']),
         // 〔对手那边原先是 ['surge', 'frostfall'] —— 霜降删了，换寒流。
         //   这一组要的是「对手也在产冰」，寒流同样满足〕
-        foe: kitOf('lock', ['surge', 'coldhue']), myRole: -1
+        foe: kitOf('lock', ['surge', 'lockdraw']), myRole: -1
       }
     }
   },
@@ -437,8 +452,8 @@ function main() {
 
   // 开跑之前先确认判据对得上。**下标错了的检查器会一路绿灯** ——
   // 那比没有检查器更糟，因为它会让人以为验过了
-  if (R.SK.FROST === undefined) {
-    console.log('rules.js 的 SK 里没有 FROST —— 冰那两条断言会静默失效。')
+  if (R.HELD_FROST === undefined) {
+    console.log('rules.js 没导出 HELD_FROST —— 冰那两条断言会静默失效。')
     console.log('  现在有的是：' + Object.keys(R.SK).join(' '))
     process.exit(2)
   }
@@ -481,7 +496,7 @@ function main() {
     if (FROST_CASES.indexOf(cs.key) >= 0) {
       if (st.frostSeen === 0) {
         console.log('    ⚠ 一张堆上的冰都没见过 —— 冰那两条断言等于没跑。'
-          + '对一下 SK.FROST 的下标和这几件技能的 key')
+          + '对一下 HELD_FROST 和这几件技能的 key')
         failed++
       } else {
         console.log('    冰：堆上 ' + st.frostSeen + ' 手、手里的钥匙 '
