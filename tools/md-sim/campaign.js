@@ -69,7 +69,8 @@ const FOE_ROLES = [
   { name: '守河老汉', specials: [], slots: [] },
   { name: '滩头老翁', specials: ['hand'], slots: [] },
   { name: '回漩摆渡人', specials: ['silt'], slots: [['hook', 1, false]] },
-  { name: '礁石海女', specials: ['pinch'], slots: [['freeze', 2, false]] },
+  // 冻结 → 压舱（2026-10-20，冻结升级成自带结冰之后这一关太陡）
+  { name: '礁石海女', specials: ['pinch'], slots: [['press', 2, false]] },
   { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 2, false], ['hook', 1, false]] },
   { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, true]] },
   // 〔2026-10-16 照水 ×2 → **死水 ×1**（照水删了）。理由见 draw-levels 那一关的注释。
@@ -148,7 +149,7 @@ function foeMode(diff, level, ease) {
 //   于是玩家的配装会随机少一件，而通关率跟着虚低。
 //   删技能的时候**一定要过一遍这个池子**〕
 const PLAYER_POOL = [
-  'flow', 'chain', 'swapcard', 'kindle', 'hide', 'coldhue', 'wild',
+  'flow', 'chain', 'swapcard', 'kindle', 'wild',
   'draft', 'peak', 'wade', 'unhook', 'suitify', 'cast', 'raise', 'suited',
   // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。
   //   **留着的后果是静默的**：
@@ -157,7 +158,9 @@ const PLAYER_POOL = [
   //   所以墓碑注释里**别带引号写已删的 key**。
   //   留着它的后果：`playerKit` 查不到就往槽里塞 −1（空槽），
   //   玩家配装随机少一件，通关率跟着虚低 —— 洪水栽过的正是这一处〕
-  'dead', 'hue', 'press'
+  'dead', 'hue', 'press',
+  // 2026-10-20 上架的两件，同一天藏凌 / 寒流删了
+  'lockdraw', 'lockcolor'
 ]
 // ---------- 玩家是哪张卡、常驻技开不开〔2026-10-20 加的两个环境开关〕 ----------
 //

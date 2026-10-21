@@ -307,13 +307,8 @@ const SKILLS = [
   { key: 'wade', name: '涉水' },
   { key: 'cross', name: '对流' },
   { key: 'probe', name: '探潮' },
-  { key: 'frost', name: '结凌' },
-  { key: 'hide', name: '藏凌' },
-  // 【寒流】原名寒色 —— 「同颜色」那条限制去掉之后名字就不成立了
-  //（玩家会按名字去猜一条不存在的规则）。接 流 那一族（伏流 / 涉水 /
-  // 对流 / 逆流），而「寒流」正好是个**持续**的东西，对得上它的形状。
-  // **key 保留 `coldhue`** —— 存档存的是 key，换了老档就失效
-  { key: 'coldhue', name: '寒流' },
+  // 〔结凌 / 藏凌 / 寒流 2026-10-20 删了（源码那边同一天），换成封凌 / 隔凌。
+  //   SK 里那三项钉成 SK_GONE；【结冰】标签不再借 SK.FROST，改用 HELD_FROST〕
   // 〔霜降 2026-10-15 删了（源码那边同一天）。死因：它是整族唯一的
   //   「纯障碍」—— 对称效果 + 驻场，两样都是这个玩法的死路。X +1.72，
   //   而延命那两句（无点数 + 落堆底）加在它身上是 **−2.86**：
@@ -511,7 +506,7 @@ const SKILLS = [
   // 而压出来的 0 点牌**只有我吃得到**：普通匹配钓不到 0 点（他吃不着），
   // 而【21 匹配】0 点不占预算也不断链（我免费吃）。
   // 所以它是「对称地造障碍 + 只有我有钥匙」—— 寒流活下来那条判据的形状
-  // 〔2026-10-20 改名：退潮 → **退潮**（用户定）。老那件【退潮】（`ebb`）
+  // 〔2026-10-20 改名：沉潮 → **退潮**（用户定）。老那件【退潮】（`ebb`）
   //   的墓碑同一天清掉了，名字归这一件；key 没动，还是 `sinktag`〕
   { key: 'sinktag', name: '退潮' },
   // ---------- 【涨水】（原型，2026-10-20 · 用户定）----------
@@ -678,7 +673,28 @@ const SKILLS = [
   //   几次之后全场出界、普通匹配全废 —— 那时唯一的得分手段是这一件
   //   自己和 J 通吃。局面会不会僵死，看「和」那一列（涨水 N=13 单带
   //   已经让和掉 0.84）
-  { key: 'hitide', name: '唤潮' }
+  { key: 'hitide', name: '唤潮' },
+  // ---------- 2026-10-20 · 结冰族那一轮 ----------
+  // 上架了三件（封凌 / 隔凌 / 冰雷，两边都有）；其余是对照原型，模拟器专属。
+  // 量出来的数都在台账「结冰族重做」那一节
+  { key: 'icelock', name: '锁冰' },
+  { key: 'icedraw', name: '冰钓' },
+  { key: 'icecolor', name: '冰色' },
+  { key: 'icekey', name: '凝钥' },
+  { key: 'lockdraw', name: '封凌' },
+  { key: 'lockback', name: '锁冰收' },
+  { key: 'lockcolor', name: '隔凌' },
+  // 化冰：去掉堆上所有冰，手里同样张数的牌贴冰
+  { key: 'thaw', name: '化冰' },
+  // 融冰：去掉堆上所有冰，摸同样张数的牌（不带冰）
+  { key: 'thawdraw', name: '融冰' },
+  // 冰吃水：自带结冰 + 【21 匹配】
+  { key: 'icedraft', name: '冰吃水' },
+  // 冰通配：自带通配；堆上带冰的牌去冰、改带通配；顺子匹配。
+  // key 原是 icewild，跟【凌流】撞了，改成 frostwild
+  { key: 'frostwild', name: '冰通配' },
+  // 冰雷（进了游戏）：手里 1 张牌贴冰；**这张**之后被贴上冰时，你收走整堆
+  { key: 'icebomb', name: '冰雷' }
 ]
 
 // ---- 下标一个都不写死了〔2026-10-14〕----
@@ -749,6 +765,11 @@ function skAt(key) {
 // 模拟器现在也是这个行为了（`skAt` 不再抛，见它那段）——
 // **两边的删法从此一致**，只差一条启动警告提醒你回来清。
 const SK_GONE = -1
+
+// 【结冰】标签挂在 held 里用的 id。**不是技能下标** —— 原先借 SK.FROST，
+// 结凌一删就成了 SK_GONE（−1），跟寒流那处「held 里有没有 −1」的在场判断
+// 撞上（场上有冰会被读成寒流在场）。跟源码的 HELD_FROST 同值
+const HELD_FROST = -2
 
 const SK = {
   HOOK: skAt('hook'), TIDE: skAt('tide'),
@@ -877,8 +898,12 @@ const SK = {
   // **全表的 X 都是手算的，一件没量过** —— 这四件就是为了量它们才搬的。
   // 特别要盯 `base` 那六个基线数：堆上常年有冰会让收牌普遍变难，
   // 而「每人每局约 24 分」是全表 X 的共同口径，它一漂别的全要重算
-  FROST: skAt('frost'), HIDE: skAt('hide'),
-  COLDHUE: skAt('coldhue'),
+  // 结凌 / 藏凌 / 寒流 2026-10-20 删了，钉成 SK_GONE（见 SK_GONE 那段）
+  FROST: SK_GONE, HIDE: SK_GONE,
+  ICELOCK: skAt('icelock'), ICEDRAW: skAt('icedraw'), ICECOLOR: skAt('icecolor'), ICEKEY: skAt('icekey'),
+  THAW: skAt('thaw'), ICEDRAFT: skAt('icedraft'), FROSTWILD: skAt('frostwild'), ICEBOMB: skAt('icebomb'), THAWDRAW: skAt('thawdraw'),
+  LOCKDRAW: skAt('lockdraw'), LOCKBACK: skAt('lockback'), LOCKCOLOR: skAt('lockcolor'),
+  COLDHUE: SK_GONE,
   // 霜降 2026-10-15 删了（『结冰族四件』那一节的结论：结凌和霜降两件都删）。
   // 钉成 SK_GONE 而不是继续查表 —— **这是同一个坑的第二次**
   //（第一次是洪水）。见 SK_GONE 那段，以及下面 skAt 为什么不再抛
@@ -1092,6 +1117,14 @@ const ICE_VOID = true
 
 // ---------- 【寒流】那个槽的形状矩阵：**用户给的三个驻场效果**〔2026-10-20〕 ----------
 //
+// ⚠⚠ **2026-10-21 起这个旋钮量不动了，六档全是 0** —— 合并远程那一轮
+// 结冰族重做之后，载体【寒流】删了（`SK.COLDHUE` 钉成 `SK_GONE`），
+// 所以下面每一处 `has(..., SK.COLDHUE)` / `coldHueOn` 一概不中。
+// **旋钮和实现留着的理由只有两条**：下面那张形状表、以及
+//「抄了位置没抄判定」那个坑（见 afterPlay 里的墓碑）。
+// 六个数本身也跟着废了（新规则「钥匙落堆 → 全场贴冰」把 `board` 那一档
+// 的一半变成了关键词自带的），见台账作废公告 2026-10-21 那一行。
+//
 // 为什么挂在寒流这个槽上、而不是新开一件原型：这三件的 `desc` 里
 //「驻场」「自带结冰」两句**跟寒流一字不差**，而那两句在这份代码里是
 // 三条分散的路（`ICE_VOID` 无点数 / `ICE_SINK` 落堆底 / `selfFrost` 自带冰
@@ -1134,6 +1167,18 @@ const ICE_VOID = true
 // 按那条老判据，挑牌类的数是**下限** —— AI 挑得笨，而「哪张手牌值得
 // 配钥匙」要预判下几手打什么。所以 `pick` 量出来低于真实上限
 const COLD_MODE = process.env.COLD_MODE || 'hue'
+
+// 【冰钓】（原型）摸几张。默认 2：偶数不翻牌库奇偶
+// 【凝钥】（原型）选几张手牌贴冰
+const ICEKEY_N = process.env.ICEKEY_N ? parseInt(process.env.ICEKEY_N, 10) : 2
+// 【封凌】摸几张。定稿 1（2 张在宽槽里失控：♥ 槽 +9.85）
+const LOCKDRAW_N = process.env.LOCKDRAW_N ? parseInt(process.env.LOCKDRAW_N, 10) : 1
+// 【化冰】（原型）自带结冰吗。默认不带（原句没写）
+const THAW_SELF = !!process.env.THAW_SELF
+const ICEDRAW_N = process.env.ICEDRAW_N ? parseInt(process.env.ICEDRAW_N, 10) : 2
+// 冰通配（原型，key frostwild）：自己是通配、差 1。FROSTWILD_NOCONV=1 关掉「冰变通配」那半句
+const FROSTWILD_OPT = { self: 'wild', step: 1, pileMin: 1, hand: 0 }
+const FROSTWILD_NOCONV = process.env.FROSTWILD_NOCONV === '1'
 
 // 【伏流】的顺子最短几张（含它自己）。2 张就是磁钩那条「差 1 也算匹配」
 const STRAIGHT_MIN = 3
@@ -2218,6 +2263,8 @@ const BAIT_COUNT = 3      // 囤饵：开局塞几张
 const CYCLE_REFILL = 6    // 涨落：补牌时补到几张（比 HAND_SIZE 多 2）
 // 【死水】废对手几张手牌（照 draw-skills 的 DEAD_COUNT）
 const DEAD_COUNT = 2
+// 【冻结】对方最多同时几张被冻住（照源码 FREEZE_CAP）。FREEZE_CAP=99 = 不设上限（对照用）
+const FREEZE_CAP = process.env.FREEZE_CAP ? parseInt(process.env.FREEZE_CAP, 10) : 3
 
 // 哪几件特殊技能在模拟器里**跑不出效果**，以及为什么。
 // 报表里标出来 —— 不标的话那几行会是 0 分差，看着像实现错了。
@@ -3087,6 +3134,8 @@ function newGame(opts) {
     // 【通配】贴过标签的那几张牌（存**牌对象引用**，照 dead 那个模式）。
     // 读的时候比 G.pile[i]，所以牌一离开堆标签自动失效 —— 见 isWildAt
     wildTag: [],
+    // 冰雷：堆上埋着的雷 {card, side}
+    bombs: [],
     // 【保护】贴过标签的那几张牌（对象引用，照 wildTag 那个模式）。
     //〔2026-10-19 用户定：**保护是独立标签**，不等于「底下垫着一张盾」〕
     wardTag: [],
@@ -3676,7 +3725,7 @@ function frostAt(G, i) {
 
 function frostOn(G, card) {
   for (let k = 0; k < G.held.length; k++) {
-    if (G.held[k].skill === SK.FROST && G.held[k].source === card) return true
+    if (G.held[k].skill === HELD_FROST && G.held[k].source === card) return true
   }
   return false
 }
@@ -3686,7 +3735,7 @@ function clearFrostAt(G, i) {
   const card = G.pile[i]
   const before = G.held.length
   G.held = G.held.filter(function (h) {
-    return !(h.skill === SK.FROST && h.source === card)
+    return !(h.skill === HELD_FROST && h.source === card)
   })
   return G.held.length !== before
 }
@@ -3701,7 +3750,7 @@ function addFrostAt(G, i, side) {
     return false
   }
   if (frostAt(G, i)) return false
-  G.held.push({ source: G.pile[i], skill: SK.FROST, target: null, side: side })
+  G.held.push({ source: G.pile[i], skill: HELD_FROST, target: null, side: side })
   return true
 }
 
@@ -3726,7 +3775,63 @@ function selfFrost(lo) {
     // 它自己那张被自己的冰挡住收不走。那是实现 bug，不是设计问题。
     // 词条原文第二句：「**手里**带它的牌打出去时，这一手收牌不受【结冰】影响。」
     || has(lo, SK.ICEWILD)
+    || has(lo, SK.ICELOCK) || has(lo, SK.ICEDRAW) || has(lo, SK.ICECOLOR) || has(lo, SK.ICEKEY)
+    || has(lo, SK.LOCKDRAW) || has(lo, SK.LOCKBACK) || has(lo, SK.LOCKCOLOR)
+    || (THAW_SELF && (has(lo, SK.THAW) || has(lo, SK.THAWDRAW)))
+    || has(lo, SK.ICEDRAFT)
+    // 【冻结】2026-10-20 升级成结冰族：自带【结冰】
+    || has(lo, SK.FREEZE)
 }
+
+// 锁冰挑哪张当钥匙：没带冰、非 J，按点数对得上堆上最深那张的（收得最多）；
+// 一张都对不上就挑第一张没带冰的非 J
+function iceKeyPick(G, side) {
+  const hand = G.hands[side]
+  let best = -1
+  let bestDepth = -1
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i].rank === JACK || frostOnHand(G, hand[i])) continue
+    if (best < 0) best = i
+    for (let k = 0; k < G.pile.length; k++) {
+      if (G.pile[k].rank !== hand[i].rank) continue
+      const depth = G.pile.length - k
+      if (depth > bestDepth) {
+        best = i
+        bestDepth = depth
+      }
+      break
+    }
+  }
+  return best
+}
+
+// 锁冰收拿哪张：不拿它自己、不拿它这一手要收走的那段（那几张收了就是分）。
+// 优先拿「堆上还有同点数的另一张、而且那张越深越好」的（下一手打它收得多），
+// 都没有就拿最靠堆顶的
+function reclaimPick(G, side, played, skills) {
+  const me = pileIndexOf(G, played)
+  const start = catchStart(G, played, side, skills, false)
+  let best = -1
+  let bestScore = -1
+  for (let k = 0; k < G.pile.length; k++) {
+    if (k === me) continue
+    if (start >= 0 && k >= start) continue
+    let score = 0
+    for (let j = 0; j < G.pile.length; j++) {
+      if (j === k || j === me) continue
+      if (G.pile[j].rank === G.pile[k].rank) {
+        score = G.pile.length - j
+        break
+      }
+    }
+    if (score > bestScore || (score === bestScore && k > best)) {
+      best = k
+      bestScore = score
+    }
+  }
+  return best
+}
+
 
 function frostOnHand(G, card) {
   for (let k = 0; k < G.frostHand.length; k++) {
@@ -5220,6 +5325,8 @@ function catchStart(G, card, side, skills, sink) {
 // 上架的只有【吃水】；【低吃】【浊吃】是那两条提案的原型
 function hasDraftLine(skills) {
   return has(skills, SK.DRAFT) || has(skills, SK.LOWDRAFT)
+    // 冰吃水（原型）：自带结冰 + 21 匹配
+    || has(skills, SK.ICEDRAFT)
     || has(skills, SK.HUEDRAFT)
     || has(skills, SK.ALTDRAFT) || has(skills, SK.PUSHDRAFT)
 }
@@ -5727,22 +5834,57 @@ function playFor(G, side, index, ai) {
     endPlay(G, side)
     return
   }
-  // ---------- 【结凌】：给**全场**贴结冰 ----------
-  //
-  // **贴在落堆之前**，所以这一下的「全场」不含它自己 —— 它自己那张冰是
-  //「自带」来的（进了手冰表，落堆时由 frostOnLand 贴上），
-  // 两条路分开走、不会贴两次（addFrostAt 不可叠加）。
-  //
-  // 为什么是全场而不是堆顶几张：它收的是「匹配那张 → 堆顶」，
-  // 所以堆顶那几张正是它自己要收走的 —— 只给堆顶的话它钓中时
-  // 把刚铺的冰全带走了，铺设效果归零。全场之后堆底那部分它收不到
-  if (has(skills, SK.FROST)) {
-    for (let i = 0; i < G.pile.length; i++) addFrostAt(G, i, side)
+  // 【化冰】（原型）：把堆上的冰换成手里的钥匙。排在全场贴冰**前面** ——
+  // 它自己不带冰，所以这一手它的收牌也因此不被冰挡（障碍刚被它拆了）
+  if (has(skills, SK.THAW)) {
+    let n = 0
+    for (let i = 0; i < G.pile.length; i++) {
+      if (clearFrostAt(G, i)) n++
+    }
+    for (let k = 0; k < n; k++) {
+      const at = iceKeyPick(G, side)
+      if (at < 0) break
+      addFrostHand(G, G.hands[side][at])
+    }
+  }
+  // 【融冰】（原型）：同一个位置，换来的是摸牌
+  if (has(skills, SK.THAWDRAW)) {
+    let n = 0
+    for (let i = 0; i < G.pile.length; i++) {
+      if (clearFrostAt(G, i)) n++
+    }
+    for (let k = 0; k < n; k++) {
+      if (drawFor(G, side) === null) break
+    }
   }
   if (sink) {
     unshiftPile(G, card, side, GUARD_NONE, worth)
   } else {
     pushPile(G, card, side, GUARD_NONE, worth)
+  }
+  // ---------- 【结冰】规则：打出带冰的牌 → 全场贴结冰〔2026-10-20〕----------
+  //
+  // 原先是【结凌】一件技能的效果，现在并进了【结冰】这个关键词本身：
+  // **手里带冰的牌打出去（钥匙）→ 这一手不受冰影响，而且全场贴上冰。**
+  // 判据就是 iceBlind（这张打出时手里带不带冰），所以「自带」的、
+  // 别的牌贴的、哪件技能给的都走这一条。
+  //
+  // **时机：落到堆上之后**。规则原文是「打到场上才触发」，所以「全场」
+  // **含它自己** —— 冰雷「被贴上冰时」收整堆要连这张钥匙一起收走。
+  // 对别的技能没差别：钥匙落堆时 frostOnLand 已经给它贴过冰，addFrostAt 不叠加。
+  //
+  // 为什么是全场而不是堆顶几张（结凌那时的推理，照旧成立）：它收的是
+  //「匹配那张 → 堆顶」，所以堆顶那几张正是它自己要收走的 ——
+  // 只给堆顶的话它钓中时把刚铺的冰全带走了。全场之后堆底那部分它收不到。
+  //
+  // ⚠ 排在下面那几件「落堆之后、判定之前」的原型**前面**：【凌流】也是钥匙，
+  // 它那一手的全场贴冰是规则本身，跟它自己的效果无关
+  if (G.iceBlind) {
+    const newly = []
+    for (let i = 0; i < G.pile.length; i++) {
+      if (addFrostAt(G, i, side)) newly.push(G.pile[i])
+    }
+    bombFor(G, newly)
   }
   // 【低吃】【浊吃】【拢水】【凌流】那几件原型：**落堆之后、判定之前**。
   //
@@ -6683,6 +6825,9 @@ function afterPlay(G, side, skills, played, ai) {
   }
   // ---- 【寒流】那个槽的 pick / board 两档：用户给的驻场效果（见 COLD_MODE 那段）----
   //
+  // ⚠ **2026-10-21 起这一段一次都不会进** —— 载体【寒流】删了，
+  // `coldHueOn` 恒假（`SK.COLDHUE` = `SK_GONE`）。留着的是下面那块墓碑
+  //
   // **位置照藏凌那条判据**：它贴的是「打出这张之后手里剩下的」，
   // 得等那张牌离手 —— pick 档贴的正是手牌，同一个理由。
   //
@@ -6801,6 +6946,78 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.RISEHIDE)) {
     const mine = G.hands[side]
     for (let i = 0; i < mine.length; i++) addRiseHand(G, mine[i])
+  }
+  // ---- 结冰族三件候选（原型，2026-10-20）----
+  // 锁冰：自带【结冰】；选 1 张手牌贴【结冰】；堆上所有牌贴【结冰】
+  //  （铺冰在 playFor 里跟结凌同一处）。挑钥匙见 iceKeyPick
+  // 冰钓：自带【结冰】；摸 ICEDRAW_N 张，都带【结冰】
+  // 冰色：自带【结冰】；摸 1 张；手里跟它同颜色的牌都贴【结冰】
+  if (has(skills, SK.ICELOCK)) {
+    const at = iceKeyPick(G, side)
+    if (at >= 0) addFrostHand(G, G.hands[side][at])
+  }
+  // 凝钥：自带【结冰】；选 ICEKEY_N 张手牌贴【结冰】（不铺堆）
+  if (has(skills, SK.ICEKEY)) {
+    for (let n = 0; n < ICEKEY_N; n++) {
+      const at = iceKeyPick(G, side)
+      if (at < 0) break
+      addFrostHand(G, G.hands[side][at])
+    }
+  }
+  // 锁冰三件（原型，2026-10-20）：铺冰都在 playFor 里跟结凌同一处
+  // 锁冰摸：再摸 2 张、都带【结冰】
+  if (has(skills, SK.LOCKDRAW)) {
+    for (let n = 0; n < LOCKDRAW_N; n++) {
+      const got = drawFor(G, side)
+      if (got === null) break
+      addFrostHand(G, got)
+    }
+  }
+  // 锁冰收：从堆上拿 2 张回手（不含它自己，不计分）
+  if (has(skills, SK.LOCKBACK)) {
+    for (let n = 0; n < 2; n++) {
+      const at = reclaimPick(G, side, played, skills)
+      if (at < 0) break
+      const card = G.pile[at]
+      G.held = G.held.filter(function (h) { return h.source !== card })
+      removePileAt(G, at)
+      G.hands[side].push(card)
+      G.seen[side].push(true)
+      if (process.env.LOCKBACK_ICE) addFrostHand(G, card)
+    }
+  }
+  // 锁冰异色：摸 1 张；手里跟它**不同颜色**的牌都贴【结冰】
+  if (has(skills, SK.LOCKCOLOR)) {
+    drawFor(G, side)
+    const mine = G.hands[side]
+    for (let i = 0; i < mine.length; i++) {
+      if (isRedSuit(mine[i].suit) !== isRedSuit(played.suit)) addFrostHand(G, mine[i])
+    }
+  }
+  if (has(skills, SK.ICEDRAW)) {
+    for (let n = 0; n < ICEDRAW_N; n++) {
+      const got = drawFor(G, side)
+      if (got === null) break
+      addFrostHand(G, got)
+    }
+  }
+  if (has(skills, SK.ICECOLOR)) {
+    drawFor(G, side)
+    const mine = G.hands[side]
+    for (let i = 0; i < mine.length; i++) {
+      if (isRedSuit(mine[i].suit) === isRedSuit(played.suit)) addFrostHand(G, mine[i])
+    }
+  }
+  // 冰雷（原型）：手里 1 张贴冰，打出这张登记成雷
+  if (has(skills, SK.ICEBOMB)) {
+    // 贴几张：ICEBOMB_KEYS（默认 1）
+    const keys = process.env.ICEBOMB_KEYS ? parseInt(process.env.ICEBOMB_KEYS, 10) : 1
+    for (let n = 0; n < keys; n++) {
+      const at = iceKeyPick(G, side)
+      if (at < 0) break
+      addFrostHand(G, G.hands[side][at])
+    }
+    if (inPile(G, played) && !process.env.ICEBOMB_OFF) G.bombs.push({ card: played, side: side })
   }
   // 〔掏手、掏库（往堆上倒垃圾）都删了〕
   // 窄口（削对方手牌上限）、满篓（抬自己的），都挂在刚打那张上
@@ -7082,7 +7299,11 @@ function afterPlay(G, side, skills, played, ai) {
   }
   if (has(skills, SK.FREEZE) && inPile(G, played)) {
     const other = side === ME ? FOE : ME
-    if (G.hands[other].length > 0) {
+    let frozen = 0
+    for (let i = 0; i < G.hands[other].length; i++) {
+      if (isFrozen(G, G.hands[other][i])) frozen++
+    }
+    if (G.hands[other].length > 0 && frozen < FREEZE_CAP) {
       const at = ai.freezePick(G, side)
       if (at >= 0) {
         G.held.push({
@@ -8424,6 +8645,71 @@ function noteOldWild(G, side, oldAts, best) {
   G.stat.selfWildTag.oldUsed[side] += n
 }
 
+// 【冰通配】（原型）：堆上带冰的牌去冰、改带通配，再按顺子收
+function iceToWild(G) {
+  const moved = []
+  if (FROSTWILD_NOCONV) return moved
+  for (let i = 0; i < G.pile.length; i++) {
+    if (clearFrostAt(G, i)) {
+      G.wildTag.push(G.pile[i])
+      moved.push(G.pile[i])
+    }
+  }
+  return moved
+}
+
+function frostWildFor(G, side, card) {
+  iceToWild(G)
+  const at0 = pileIndexOf(G, card)
+  if (at0 < 0) return
+  chainHarvest(G, side, at0, FROSTWILD_OPT, FLOW_SPAN)
+}
+
+// AI 预估：把带冰的那几张**临时**算成通配（不改冰），估完撤掉
+function frostWildCount(G, side, card) {
+  const add = []
+  if (!FROSTWILD_NOCONV) {
+    for (let i = 0; i < G.pile.length; i++) {
+      if (frostAt(G, i) && G.wildTag.indexOf(G.pile[i]) < 0) add.push(G.pile[i])
+    }
+  }
+  const keep = G.wildTag
+  G.wildTag = keep.concat(add)
+  const best = bestChain(G, side, -1, cardVals(card), FROSTWILD_OPT)
+  G.wildTag = keep
+  if (best === null) return 0
+  let lo = G.pile.length
+  for (let v = best.from; v <= best.to; v++) {
+    if (best.deepest[v] >= 0 && best.deepest[v] < lo) lo = best.deepest[v]
+  }
+  return G.pile.length - lo + 1
+}
+
+// 【冰雷】（原型）：这一下新贴上冰的牌里有雷 → 雷的主人收走整堆（不受冰影响）
+function bombFor(G, newly) {
+  for (let k = 0; k < G.bombs.length; k++) {
+    const b = G.bombs[k]
+    if (newly.indexOf(b.card) < 0) continue
+    const was = G.iceBlind
+    G.iceBlind = true
+    harvestPile(G, b.side, G.pile.map(function () { return true }))
+    G.iceBlind = was
+    G.stat.bombs = (G.stat.bombs || 0) + 1
+    break
+  }
+  G.bombs = G.bombs.filter(function (b) { return inPile(G, b.card) })
+}
+
+// 我这张钥匙打出去能不能引爆我自己的雷（AI 估算用）
+function bombReady(G, card, side) {
+  if (!frostOnHand(G, card)) return false
+  for (let k = 0; k < G.bombs.length; k++) {
+    const b = G.bombs[k]
+    if (b.side === side && inPile(G, b.card) && !frostOn(G, b.card)) return true
+  }
+  return false
+}
+
 function wadeFor(G, side, card) {
   const wd = G.stat.wade
   wd.fires[side]++
@@ -9469,6 +9755,8 @@ function harvestCount(G, card, skills, side) {
   // 底下那几支（伏流、涉水、染水）都是 return，排后面就被它们挡住了
   const sweep = burnSweepCount(G, card, skills, side)
   if (sweep > 0) return sweep
+  // 冰雷：这张钥匙能引爆我的雷 → 整堆
+  if (bombReady(G, card, side)) return G.pile.length
   const hue = has(skills, SK.HUE)
   const cast = has(skills, SK.CAST)
   // 【伏流】也要在这儿估 —— 它是第四条匹配线，catchStart 对它一概返回 −1，
@@ -9490,6 +9778,7 @@ function harvestCount(G, card, skills, side) {
   if (has(skills, SK.TIDEFLOW)) return straightCount(G, side, card)
   // 涉水同理 —— 第四条匹配线，catchStart 看不见它
   if (has(skills, SK.WADE)) return wadeCount(G, side, card)
+  if (has(skills, SK.FROSTWILD)) return frostWildCount(G, side, card)
   // 顺流：第五条判定线（按排序），catchStart 对它一概返回 −1。
   // 漏这一支的后果跟伏流一样 —— 这件技能在 AI 手里**整件作废**
   if (has(skills, SK.ORDER)) return orderCount(G, side, card)
@@ -9764,7 +10053,9 @@ function playGame(opts, ai) {
     }
     const index = ai.pickCard(G, side)
     if (index < 0) {
-      // 全被冻住了，打不出牌
+      // 全被冻住了，打不出牌。记一笔（冻结上限那条要量「锁满跳过」有多常见）
+      G.stat.lockSkips = G.stat.lockSkips || [0, 0]
+      G.stat.lockSkips[side]++
       passTurn(G, side)
       continue
     }
@@ -9801,6 +10092,7 @@ function playGame(opts, ai) {
 }
 
 module.exports = {
+  HELD_FROST,
   SUITS, RANKS, RANK_VALUES, SKILL_RANKS, JACK, ZERO_RANK, BLANK_RANK, HAND_SIZE,
   GUARD_NONE, GUARD_ME, GUARD_FOE, ME, FOE, SK, SKILLS,
   // 特殊技能与角色（KIND_ANY / KIND_RANK 删了 —— 源码的 DrawSkill 没有 kind 了）

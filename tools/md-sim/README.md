@@ -12,6 +12,7 @@ node sim.js cards                    零点牌 / 无点数牌掺进牌组、抹�
 node sim.js vs dredge calm           我带一件、对手带一件（反制型技能用）
 node sim.js vs raise raise           同一件传两次 = 量它在先手/后手各值多少
 node sim.js roles                    八个角色的常驻技能各值多少分
+node sim.js switch hook lowtide      【换竿】值多少（两岸船家两个槽插这两件，带 / 不带换竿）
 node campaign.js                     闯关十二关按难度跑一遍：每关胜率、通关率（难度校准用）
 node fingerprint.js                  对一遍源码有没有动过（见下面「漂移」）
 ```
@@ -415,6 +416,9 @@ node sim.js one hook --role basket --slot 1
 node sim.js all                      # 所有点数技能一张表
 node sim.js roles                    # 八个角色的常驻特殊技能
 node sim.js role night               # 夜钓客打满槽
+node sim.js switch cast hide         # 【换竿】：roles 那张表槽是空的，量不出它
+node sim.js pair cast hide --role tworod   # 双竿客：两件插同一门 ♠
+node sim.js pair hook lowtide --role tworod --special   # 带上【分竿】，对照不带的那一行
 ```
 
 做法是**同一批种子跑两遍**：一遍基线，一遍一方带技能。

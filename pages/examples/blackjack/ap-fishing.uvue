@@ -327,6 +327,16 @@
       </view>
     </view>
 
+    <!-- 冰雷：挑一张自己的手牌贴冰。借手牌那一排（照换水） -->
+    <view v-if="bombPending" class="tide-box">
+      <text class="tide-text">冰雷：点一张手牌贴上结冰（打出它时全场结冰，雷就炸）</text>
+      <view class="tide-actions">
+        <view id="ap-bomb-skip" class="tide-btn tide-btn-plain" @click="onBomb(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 冻结：挑庄家一张手牌锁住。借它那排点 —— 盖着的也点得中，
          你挑的是位置不是牌面 -->
     <view v-if="freezePending" class="tide-box">
@@ -720,6 +730,10 @@
     SK_FROST,
     SK_HIDE,
     SK_COLDHUE,
+    HELD_FROST,
+    SK_LOCKDRAW,
+    SK_LOCKCOLOR,
+    SK_ICEBOMB,
     SK_CHAIN,
     SK_KINDLE,
     // 「推牌」机制那一件（2026-10-16）。`SURGE_PUSH` 是机制的常量
@@ -743,6 +757,7 @@
     SK_SWAPFLOW,
     STRAIGHT_MIN,
     DEAD_COUNT,
+    FREEZE_CAP,
     // 【退潮】：挑 `SINK_TAG_N` 张对方手牌贴【沉降】，
     // 而【沉降】那张打出时整堆 −`SINK_TAG_STEP`（2026-10-19）
     SK_SINKTAG,
@@ -1298,6 +1313,8 @@
   const swapDone = ref<number>(0)
   // 冻结等你挑庄家的一张手牌（挑的是位置 —— 那几张多半盖着）
   const freezePending = ref<boolean>(false)
+  // 冰雷等你挑一张自己的手牌贴冰
+  const bombPending = ref<boolean>(false)
   // 【薪潮】在等你盲选一张（照 freezePending ——**不翻开对方手牌**，
   // 所以不能用 takeSkill，那个会被 foeOpen 认成「全翻开」）。
   // fuelLeft 记还要挑几张：FUEL_TAG 现在钉死 1，但照死水那条先例留着计数，
@@ -1413,6 +1430,12 @@
   const catchSet = ref<number[]>([] as number[])
   // 散着收演完之后接着结算的那几件技能，以及从哪一段接着走（见 finishSweep → afterPlayTail）
   let sweepSkills : number[] = []
+  // 扫完之后**谁接着结算这一手**。平时就是收牌那一方（startSweep 里同步），
+  // 只有【冰雷】会把两者分开：庄家的钥匙引爆了你的雷 → 分归你、手还是庄家的
+  let sweepActor : boolean = false
+  // 【冰雷】这一手被引爆了：0 = 你的雷、1 = 庄家的雷、-1 = 没有。
+  // playFor 全场贴冰那一下记，afterPlay 开头兑现（演收牌特效）
+  let bombFire : number = -1
   let sweepNext : number = 0
   // 打出那张牌带的技能、落没落堆底 —— 技能都结算完之后匹配要用（见 resolveMatch）
   let matchSkills : number[] = []
@@ -1813,6 +1836,9 @@
   function selfFrost(skills : number[]) : boolean {
     return hasTrigger(skills, SK_FROST) || hasTrigger(skills, SK_HIDE)
       || hasTrigger(skills, SK_COLDHUE)
+      || hasTrigger(skills, SK_LOCKDRAW) || hasTrigger(skills, SK_LOCKCOLOR)
+      // 【冻结】2026-10-20 升级：自带【结冰】
+      || hasTrigger(skills, SK_FREEZE)
   }
 
   // 收牌特效放完之后还要结算的技能（打出那张触发的）
@@ -1866,6 +1892,7 @@
   const canPlay = computed<boolean>(() : boolean => {
     return myTurn.value && !over.value && !catching.value && !tidePending.value
       && !swapPending.value && !freezePending.value && !pickPending.value
+      && !bombPending.value
       && takeSkill.value < 0 && giveBack.value < 0 && !twinPending.value
       && pilePick.value < 0
       // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
@@ -1926,6 +1953,9 @@
     }
     if (freezePending.value) {
       return '你的回合 · 冻结'
+    }
+    if (bombPending.value) {
+      return '你的回合 · 冰雷'
     }
     if (pickPending.value) {
       return '你的回合 · 择饵'
@@ -2249,7 +2279,7 @@
     let text = ''
     for (let i = 0; i < held.value.length; i++) {
       if (held.value[i].source == card) {
-        text = text + (text == '' ? '' : '·') + DRAW_SKILLS[held.value[i].skill].name
+        text = text + (text == '' ? '' : '·') + heldName(held.value[i].skill)
       }
     }
     return text
@@ -3219,7 +3249,7 @@
   // 按**牌**问（净水换牌、叠放那几条都按牌认，照 cleanAt0 那条先例）
   function frostOn(card : PlainCard) : boolean {
     for (let i = 0; i < held.value.length; i++) {
-      if (held.value[i].skill == SK_FROST && held.value[i].source == card) {
+      if (held.value[i].skill == HELD_FROST && held.value[i].source == card) {
         return true
       }
     }
@@ -3235,7 +3265,7 @@
     const keep : HeldEffect[] = []
     let gone = false
     for (let i = 0; i < held.value.length; i++) {
-      if (held.value[i].skill == SK_FROST && held.value[i].source == card) {
+      if (held.value[i].skill == HELD_FROST && held.value[i].source == card) {
         gone = true
         continue
       }
@@ -3279,7 +3309,7 @@
       return false
     }
     addHeld({
-      source: pile.value[index], skill: SK_FROST,
+      source: pile.value[index], skill: HELD_FROST,
       target: null, byFoe: byFoe
     } as HeldEffect)
     return true
@@ -3927,7 +3957,7 @@
     let frostShown = false
     for (let i = 0; i < held.value.length; i++) {
       const one = held.value[i]
-      if (one.skill == SK_FROST) {
+      if (one.skill == HELD_FROST) {
         if (frostShown) {
           continue
         }
@@ -3937,7 +3967,7 @@
         at: i,
         byFoe: one.byFoe,
         anchor: fieldAnchor(one),
-        name: DRAW_SKILLS[one.skill].name
+        name: heldName(one.skill)
       } as FieldChip)
     }
     return out
@@ -3962,6 +3992,9 @@
   //   的地方都该走 `pileSuitAt` 而不是 `card.suit`。
   //   现在全表只剩 `pileRed` 还在用那条，而改花色的机制本身也没了〕
   function fieldAnchor(one : HeldEffect) : string {
+    if (one.skill == SK_ICEBOMB) {
+      return '被冰就收整堆'
+    }
     if (one.skill == SK_LANTERN) {
       return '手牌明置'
     }
@@ -3970,7 +4003,7 @@
     }
     // 结冰：锚点报**现在冻着几张**（这一条是汇总的，见 fieldChips）。
     // 写「收不走」而不是「结冰」—— 这一栏要的是后果，不是机制名
-    if (one.skill == SK_FROST) {
+    if (one.skill == HELD_FROST) {
       return frostCount() + '张收不走'
     }
     // 别的（窄口、满篓……）没有「一句话后果」可写，就留空 ——
@@ -4001,9 +4034,18 @@
     const where = spot >= 0
       ? '挂在 ' + cardName(one.source) + '（堆里第 ' + (spot + 1) + ' 张）'
       : '那张牌已经不在堆上了'
-    chipHead.value = (one.byFoe ? '庄家 · ' : '') + DRAW_SKILLS[one.skill].name
+    chipHead.value = (one.byFoe ? '庄家 · ' : '') + heldName(one.skill)
       + ' 〔场上〕 · ' + where
-    chipBody.value = DRAW_SKILLS[one.skill].desc + '钓走那张牌，效果就解除。'
+    chipBody.value = one.skill == HELD_FROST
+      ? '堆上带【结冰】的牌被收走时不走也不计分，只去掉标签（连 J 通吃也挡）。'
+      : DRAW_SKILLS[one.skill].desc + '钓走那张牌，效果就解除。'
+  }
+
+  // held 那一条叫什么。【结冰】标签不是技能（HELD_FROST 不是下标），
+  // 所以不能拿去索引 DRAW_SKILLS —— 原先借结凌的下标时名字显示成「结凌」，
+  // 结凌删了之后那样会越界
+  function heldName(skill : number) : string {
+    return skill == HELD_FROST ? '结冰' : DRAW_SKILLS[skill].name
   }
 
   // byFoe 那一方打出的某个效果还挂着吗。
@@ -4015,6 +4057,17 @@
       }
     }
     return false
+  }
+
+  // 这一手牌里有几张被冻住（冻结的上限 FREEZE_CAP 读它）
+  function frozenCount(cards : PlainCard[]) : number {
+    let n = 0
+    for (let i = 0; i < cards.length; i++) {
+      if (isFrozen(cards[i])) {
+        n = n + 1
+      }
+    }
+    return n
   }
 
   // 这张手牌被冻住了吗（打不出去）
@@ -5299,21 +5352,31 @@
       }
       return
     }
-    // ---------- 【结凌】：给**全场**贴结冰 ----------
+    if (sink) {
+      unshiftPile(card, byFoe, GUARD_NONE, worth)
+    } else {
+      pushPile(card, byFoe, GUARD_NONE, worth)
+    }
+    // ---------- 【结冰】规则：打出带冰的牌 → 全场贴结冰〔2026-10-20〕----------
     //
-    // **贴在落堆之前**，所以这一下的「全场」**不含它自己** ——
-    // 它自己那张冰是「自带」来的（playFor 开头进了手冰表，落堆时由
-    // frostOnLand 贴上），两条路分开走，不会贴两次（addFrostAt 不可叠加）。
+    // 原先是【结凌】一件技能的效果，现在并进了【结冰】关键词本身（见 TERMS）：
+    // 手里带冰的牌打出去，这一手收牌不受冰影响，**而且全场贴上冰**。
+    // 判据就是 iceBlindNow（这张打出时手里带不带冰），
+    // 所以自带的、别的牌贴上的、哪件技能给的都走这一条。
     //
-    // 为什么是全场而不是堆顶几张：它收的是「匹配那张 → 堆顶」，
-    // 所以**堆顶那几张正是它自己要收走的** —— 范围只给堆顶的话，
-    // 它钓中时把刚铺的冰全带走了，铺设效果归零（初稿就是这么废的）。
-    // 全场之后堆底那部分它收不到，于是留了下来（期望铺成 3 张左右）。
+    // **时机：落到堆上之后**〔2026-10-20〕—— 规则原文是「打到场上才触发」，
+    // 所以「全场」**含它自己**（「被贴上冰时」那类触发收整堆时要连这张一起收）。
+    // 对别的技能没差别：钥匙落堆时 frostOnLand 已经给它贴过冰，addFrostAt 不叠加。
+    //
+    // 为什么是全场而不是堆顶几张（结凌那时的推理，照旧成立）：它收的是
+    // 「匹配那张 → 堆顶」，所以**堆顶那几张正是它自己要收走的** ——
+    // 范围只给堆顶的话，它钓中时把刚铺的冰全带走了，铺设效果归零。
     //
     // 相消和不可叠加都在 addFrostAt 里，这儿不重复判
-    if (hasTrigger(skills, SK_FROST) && pile.value.length > 0) {
+    if (iceBlindNow && pile.value.length > 0) {
       let iced = 0
       let put = 0
+      const newly : PlainCard[] = []
       for (let i = 0; i < pile.value.length; i++) {
         if (pileBurnAt(i) > 0) {
           // 带火的那几格：冰火相消，火灭、冰也没贴上
@@ -5321,17 +5384,20 @@
         }
         if (addFrostAt(i, byFoe)) {
           iced = iced + 1
+          newly.push(pile.value[i])
         }
       }
-      firstNote = firstNote + (byFoe ? ' 庄家结凌：' : ' 结凌：')
-        + '冻住 ' + iced + ' 张'
+      // 【冰雷】：这一下**新贴上冰**的牌里有雷 → 记下谁的雷，afterPlay 开头兑现
+      for (let i = 0; i < held.value.length; i++) {
+        if (held.value[i].skill == SK_ICEBOMB && newly.indexOf(held.value[i].source) >= 0) {
+          bombFire = held.value[i].byFoe ? 1 : 0
+          break
+        }
+      }
+      firstNote = firstNote + (byFoe ? ' 庄家打出带结冰的牌：' : ' 打出带结冰的牌：')
+        + '全场冻住 ' + iced + ' 张'
         + (put > 0 ? '，' + put + ' 张的火跟冰一起化了' : '')
-        + '。它自带结冰，所以这一手收牌不受影响。'
-    }
-    if (sink) {
-      unshiftPile(card, byFoe, GUARD_NONE, worth)
-    } else {
-      pushPile(card, byFoe, GUARD_NONE, worth)
+        + '。这一手收牌不受结冰影响。'
     }
     // ---- 进场之后：「优先」效果最先发动 ----
     // 【燎原】原先在这儿自带 1 层火，点在它落下的那一格
@@ -5757,6 +5823,11 @@
     if (hasTrigger(skills, SK_AGAIN) && !againUsed.value) {
       againPending = true
     }
+    // 【冰雷】炸了：雷的主人收走整堆（含刚打出那张）。排在一色前面 ——
+    // 它在全场贴冰那一刻就触发了，是这一手最早发生的事
+    if (bombFor(byFoe, skills)) {
+      return
+    }
     // 【一色】它的花色严格最多就整堆收走。排在所有技能最前面，演完从 afterPlayHead 接着走
     if (suitifyFor(byFoe, skills)) {
       return
@@ -5765,6 +5836,29 @@
     //   理由是「收整堆的排后面，前面那些技能改过的堆就白改了」——
     //   一色（上面那一支）现在是这个位置唯一的住户，新做整堆类照它放〕
     afterPlayHead(byFoe, skills)
+  }
+
+  // 【冰雷】兑现：整堆归雷的主人。豁免还在（iceBlindNow 到 finishCatch 才清），
+  // 所以冰挡不住这一下；保护照旧挡（走 takeAt）。
+  // **出牌方**接着结算这一手（sweepActor）—— 庄家的钥匙炸了你的雷时，
+  // 分归你，手还是庄家的
+  function bombFor(byFoe : boolean, skills : number[]) : boolean {
+    if (bombFire < 0) {
+      return false
+    }
+    const owner = bombFire == 1
+    bombFire = -1
+    const all : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      all.push(i)
+    }
+    message.value = message.value + (owner ? ' 庄家的冰雷炸了：' : ' 冰雷炸了：')
+      + '整堆 ' + all.length + ' 张归' + (owner ? '庄家' : '你') + '。'
+    if (!startSweep(owner, all, skills, TAIL_HEAD)) {
+      return false
+    }
+    sweepActor = byFoe
+    return true
   }
 
   // ---------- 〔删了〕measureFor（量水） ----------
@@ -6031,6 +6125,34 @@
           ? '手里 ' + iced + ' 张带上了结冰 —— 打出去那几手不受结冰影响。'
           : '手里没牌可贴。')
     }
+    // 【封凌】：摸 1 张，那张带冰（全场贴冰是【结冰】规则本身，在 playFor 里）
+    if (hasTrigger(skills, SK_LOCKDRAW)) {
+      const got = drawFor(byFoe)
+      if (got != null) {
+        addFrostHand(got!)
+      }
+      message.value = message.value + (byFoe ? ' 庄家封凌：' : ' 封凌：')
+        + (got != null ? '摸了 1 张，它带着结冰。' : '牌库空了，没摸到。')
+    }
+    // 【隔凌】：摸 1 张，再给手里跟它**不同颜色**的牌贴冰。
+    // 先摸后贴，所以摸上来的那张也算在内
+    if (hasTrigger(skills, SK_LOCKCOLOR) && lastPlayed != null) {
+      const got = drawFor(byFoe)
+      const mine = byFoe ? foeHand.value : hand.value
+      let iced = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (isRedSuit(mine[i].suit) != isRedSuit(lastPlayed!.suit)
+          && !frostOnHand(mine[i])) {
+          addFrostHand(mine[i])
+          iced = iced + 1
+        }
+      }
+      message.value = message.value + (byFoe ? ' 庄家隔凌：' : ' 隔凌：')
+        + (got != null ? '摸了 1 张；' : '牌库空了，没摸到；')
+        + (iced > 0
+          ? '手里 ' + iced + ' 张异色的带上了结冰。'
+          : '手里没有异色的牌。')
+    }
     // 【燎原】原先在这儿挂住在场效果。技能删了 ——
     // 蔓延现在是【燃烧】关键词自带的，不需要任何技能在场（见 spreadFire）
     // 〔【掏手】【掏库】那两支 2026-10-16 去掉 —— 技能 10-14 删的，
@@ -6286,10 +6408,36 @@
         }
       }
     }
+    // 【冰雷】：挂成一条 held（雷牌离场 = 拆雷，expireHeld 自动清），
+    // 再给自己 1 张手牌贴冰。你用的时候要挑，所以会停下来等
+    if (hasTrigger(skills, SK_ICEBOMB) && lastPlayed != null) {
+      if (inPile(lastPlayed!)) {
+        addHeld({
+          source: lastPlayed!, skill: SK_ICEBOMB, target: null, byFoe: byFoe
+        } as HeldEffect)
+      }
+      const mine = byFoe ? foeHand.value : hand.value
+      if (mine.length > 0) {
+        if (!byFoe) {
+          bombPending.value = true
+          return
+        }
+        const at = foeIceKeyPick()
+        if (at >= 0) {
+          addFrostHand(foeHand.value[at])
+          message.value = message.value + ' 庄家冰雷：埋下一颗雷，手里 1 张带上了结冰。'
+        }
+      }
+    }
     // 冻结：锁对方一张手牌。你用的时候要挑位置，所以会停下来等
     if (hasTrigger(skills, SK_FREEZE) && lastPlayed != null && inPile(lastPlayed!)) {
       const theirs = byFoe ? hand.value : foeHand.value
-      if (theirs.length > 0) {
+      if (frozenCount(theirs) >= FREEZE_CAP) {
+        // 上限满了就不冻（不停下来等人挑）
+        message.value = message.value + (byFoe
+          ? ' 庄家冻结：你已经有 ' + FREEZE_CAP + ' 张被冻住，这次没冻。'
+          : ' 冻结：庄家已经有 ' + FREEZE_CAP + ' 张被冻住，这次没冻。')
+      } else if (theirs.length > 0) {
         if (!byFoe) {
           freezePending.value = true
           return
@@ -6877,6 +7025,21 @@
     resolveMatch(false)
   }
 
+  // 冰雷：你挑中了自己第 index 张（-1 表示不贴）
+  function onBomb(index : number) {
+    if (!bombPending.value) {
+      return
+    }
+    bombPending.value = false
+    if (index >= 0 && index < hand.value.length && !frostOnHand(hand.value[index])) {
+      addFrostHand(hand.value[index])
+      message.value = '冰雷：' + cardName(hand.value[index]) + ' 带上了结冰 —— 打出它时全场结冰，雷就炸。'
+    } else {
+      message.value = '冰雷：你没贴。雷还埋着。'
+    }
+    resolveMatch(false)
+  }
+
   // 你挑中了庄家第 index 张（-1 表示不冻）
   function onFreeze(index : number) {
     if (!freezePending.value) {
@@ -7102,6 +7265,34 @@
   //
   // 「看得见」= 它窥视过的、或者它的照水正亮着。所以这件技能在它手里
   // 也是「有情报就精准、没情报就下注」—— 跟你用它时一个样
+  // 庄家的冰雷给哪张贴冰（照 md-sim 的 iceKeyPick）：没带冰、不是 J，
+  // 能对上堆上**最深**那张的优先（打出去收得最多）；都对不上就第一张没带冰的
+  function foeIceKeyPick() : number {
+    const mine = foeHand.value
+    let best = -1
+    let bestDepth = -1
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].rank == JACK || frostOnHand(mine[i])) {
+        continue
+      }
+      if (best < 0) {
+        best = i
+      }
+      for (let k = 0; k < pile.value.length; k++) {
+        if (pile.value[k].rank != mine[i].rank) {
+          continue
+        }
+        const depth = pile.value.length - k
+        if (depth > bestDepth) {
+          best = i
+          bestDepth = depth
+        }
+        break
+      }
+    }
+    return best
+  }
+
   function foeFreezePick() : number {
     const canSee = heldOn(SK_LANTERN, true)
     let best = -1
@@ -7203,6 +7394,7 @@
     }
     sweepSkills = skills
     sweepNext = next
+    sweepActor = byFoe
     catching.value = true
     catchSet.value = taken
     catchByFoe.value = byFoe
@@ -7290,7 +7482,7 @@
     const skills = sweepSkills
     sweepSkills = []
     if (sweepNext == TAIL_HEAD) {
-      afterPlayHead(byFoe, skills)
+      afterPlayHead(sweepActor, skills)
     } else if (sweepNext == TAIL_BURN) {
       // 【燃尽】扫完 → **直接走匹配**，不回 afterPlayTail。
       // 回去的话尾段后半那几件（死水、摘钩、对换、压舱…）会重跑 ——
@@ -7298,9 +7490,9 @@
       //
       // 而匹配这时候基本是空走：燃尽扫走了整堆，刚打那张也在里面，
       // 所以 resolveMatch 里 pileIndexOf 找不着它、直接 endPlay
-      resolveMatch(byFoe)
+      resolveMatch(sweepActor)
     } else {
-      afterPlayTail(byFoe, skills, sweepNext)
+      afterPlayTail(sweepActor, skills, sweepNext)
     }
   }
 
@@ -9689,6 +9881,11 @@
       onSwap(index)
       return
     }
+    // 冰雷同理：点手牌是「给这张贴冰」
+    if (bombPending.value) {
+      onBomb(index)
+      return
+    }
     // 放弃出牌加层的第二步同理：点手牌是「挑这张垫下去」
     if (padTarget.value >= 0) {
       onPadCard(index)
@@ -10273,6 +10470,8 @@
     swapPending.value = false
     swapDone.value = 0
     freezePending.value = false
+    bombPending.value = false
+    bombFire = -1
     // 【薪潮】的盲选待选位，开局清（照 freezePending）
     fuelPending.value = false
     fuelLeft.value = 0
