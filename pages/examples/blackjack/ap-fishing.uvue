@@ -312,20 +312,11 @@
       </view>
     </view>
 
-    <!-- 【保护】加一层：两步共用这一块，提示语按步换（见 padText）。
-         第一步借**牌堆**那一排点，第二步借**手牌**那一排点。
-
-         按钮写「取消」而不是「不挑」—— **取消是免费的**。
-         凝水那块写「不挑」是因为它那张牌已经丢弃了，不挑就是白丢一张；
-         这儿还没有牌离手，代价要到真垫下去那一刻才付 -->
-    <view v-if="padPending || padTarget >= 0" class="tide-box">
-      <text class="tide-text">{{ padText }}</text>
-      <view class="tide-actions">
-        <view id="ap-pad-cancel" class="tide-btn tide-btn-plain" @click="cancelPad()">
-          <text class="tide-btn-text tide-btn-text-plain">取消</text>
-        </view>
-      </view>
-    </view>
+    <!-- 〔【保护】加一层那两块 2026-10-21 删（用户定）。
+         留一条还用得上的判据：这类「分两步点」的提示块，
+         按钮写「取消」还是「不挑」看**代价付没付** ——
+         凝水那块写「不挑」是因为那张牌已经丢弃了、不挑就是白丢一张；
+         保护续层写的是「取消」，因为那时还没有牌离手〕 -->
 
     <!-- 冰雷：挑一张自己的手牌贴冰。借手牌那一排（照换水） -->
     <view v-if="bombPending" class="tide-box">
@@ -469,17 +460,12 @@
       <text class="sink-note">{{ sinkOn ? '这一张会打到堆底，收「堆底 → 匹配那张」' : '照常落堆顶' }}</text>
     </view>
 
-    <!-- 【保护】加一层的入口：**堆上有带保护的牌才出现**（见 anyWard）。
-         那一条同时是第一道校验 —— 按钮不出现就是「这个动作现在不成立」，
-         玩家不用点进去才发现没得选。
-
-         摆在手牌上方、挨着逆流那个开关 —— 它跟逆流一样是
-         「你点手牌之前要先决定的事」，所以得在那之前看得见、按得着。
-         样式直接借 sink-row 那一套（同一个位置、同一种东西） -->
-    <view v-if="canPlay && anyWard" class="sink-row" @click="startPad()">
-      <text class="sink-btn">垫一层</text>
-      <text class="sink-note">放弃出牌，给一张带保护的牌再垫 1 张手牌</text>
-    </view>
+    <!-- 〔【保护】加一层那个入口 2026-10-21 删（用户定）。
+         留两条还用得上的判据：
+         一、**入口的 v-if 就是第一道校验** —— 按钮不出现就是「这个动作
+             现在不成立」，玩家不用点进去才发现没得选；
+         二、「你点手牌之前要先决定的事」摆在手牌上方、挨着逆流那个开关，
+             样式借 sink-row（同一个位置、同一种东西）〕 -->
 
     <!-- 你的手牌：点一张打出。牌底下的小字是这张会触发的技能。
          「你的手牌 N 张 · 点一张打出」那个标题去掉了 ——
@@ -757,7 +743,7 @@
     SK_SWAPFLOW,
     STRAIGHT_MIN,
     DEAD_COUNT,
-    FREEZE_CAP,
+    // 〔`FREEZE_CAP` 2026-10-21 撤了 —— 冻结不设上限，理由见 draw-skills.uts 那块墓碑〕
     // 【退潮】：挑 `SINK_TAG_N` 张对方手牌贴【沉降】，
     // 而【沉降】那张打出时整堆 −`SINK_TAG_STEP`（2026-10-19）
     SK_SINKTAG,
@@ -1321,21 +1307,22 @@
   // 将来调 N 的时候这儿不用改
   const fuelPending = ref<boolean>(false)
   const fuelLeft = ref<number>(0)
-  // ---------- 【保护】加一层：放弃出牌，垫 1 张手牌〔2026-10-19〕 ----------
+  // ---------- 〔删了〕【保护】加一层：放弃出牌，垫 1 张手牌〔2026-10-19 加，10-21 删〕 ----------
   //
-  // 这**不是技能**，是【保护】这个关键词自带的续航动作，双方都能用。
+  // **2026-10-21 用户定删。** `padPending` / `padTarget` 两个状态、
+  // `startPad` / `cancelPad` / `onPadTarget` / `onPadCard` / `doPad` 五个函数、
+  // 模板那两块和模拟器的 `PAD_ON` / `padTurn` 全套一起撤了。
+  // 删了之后保护**只有一条来路：【凝水】**（还有【拢水】的收纳当第一层）。
   //
-  // 两步，而且顺序是**先堆后手**：先点一张已经带保护的牌，再点要垫的手牌。
-  // 那个顺序不是随便定的 —— 第一步就把「堆上有没有带保护的牌」校验掉了，
-  // 没有就根本进不来这个流程（按钮都不出现，见 anyWard）。
+  // ---- 留三条判据，都跟这个动作无关、以后还会用上 ----
   //
-  // ⚠ **只对已经带保护的牌成立。** 给一张光牌垫第一层是【凝水】的活儿 ——
-  // 这儿不做，否则凝水的全部内容就变成了免费的基础动作（『重复 = 零』）。
-  //
-  // 为什么要两个状态而不是一个：第一步选完、第二步还没点的那个中间态
-  // 要能取消，而且那期间不许出牌（见 canPlay）。
-  const padPending = ref<boolean>(false)
-  const padTarget = ref<number>(-1)
+  // 一、**「分两步点」要先点那一步校验得最狠的。** 这件是先堆后手，
+  //     因为第一步就把「堆上有没有带保护的牌」校验掉了。
+  // 二、**中间态要两个状态而不是一个**：第一步选完、第二步还没点的那一刻
+  //     得能取消，而且那期间不许出牌（见 canPlay 那一段）。
+  // 三、**别让关键词自带的免费动作盖掉一件技能。** 这个动作当初只肯对
+  //     「已经带保护的牌」成立 —— 给光牌垫第一层是【凝水】的活儿，
+  //     做了的话凝水的全部内容就变成免费的基础动作（『重复 = 零』）。
   // ---------- 【凝水】/【净水】：等你点**堆上**一张 ----------
   //
   // 装的是「在等哪件技能挑」的技能下标，-1 = 没在等。
@@ -1837,8 +1824,10 @@
     return hasTrigger(skills, SK_FROST) || hasTrigger(skills, SK_HIDE)
       || hasTrigger(skills, SK_COLDHUE)
       || hasTrigger(skills, SK_LOCKDRAW) || hasTrigger(skills, SK_LOCKCOLOR)
-      // 【冻结】2026-10-20 升级：自带【结冰】
-      || hasTrigger(skills, SK_FREEZE)
+      // 〔【冻结】2026-10-20 加进这一行（自带【结冰】），**2026-10-21 撤了** ——
+      //   换成了「无点数」（见 valuesOf 里那一段）。它不再是结冰族的一员。
+      //   换的理由不是强度，是**驻场效果牌不该带点数**：带点数的话会被
+      //   你自己打出的同点数牌匹配走，而冻结的效果正是「它在场时那张打不出去」〕
   }
 
   // 收牌特效放完之后还要结算的技能（打出那张触发的）
@@ -1904,39 +1893,13 @@
       // 你先手时 startMyTurn 已经跑过了（myTurn=true），所以不拦这一下
       // 就能抢在那张牌落地之前出牌
       && cutPhase.value == 0
-      // 放弃出牌加层那两步没走完，不许出牌（跟别的 pending 同理）。
-      // **第二步照旧点得中手牌** —— onPlay 开头那道岔在 canPlay 之前，
-      // 照 swapPending 那个先例
-      && !padPending.value && padTarget.value < 0
+      // 〔保护续层那两个 pending 2026-10-21 从这一行撤了（动作删了）〕
       && hand.value.length > 0
   })
 
-  // 堆上有没有**已经带保护**的牌 —— 没有就根本不显示那个入口。
-  //
-  // 这一条同时当了第一道校验：按钮不出现 = 这个动作现在不成立，
-  // 玩家不用点进去才发现没得选（照 hasSinkSpecial 那个先例）
-  const anyWard = computed<boolean>(() : boolean => {
-    for (let i = 0; i < pile.value.length; i++) {
-      if (wardAt(i)) {
-        return true
-      }
-    }
-    return false
-  })
-
-  // 放弃出牌加层那两步的提示语。**两步各说一句** ——
-  // 第一步要说清「只点得中带保护的」（别的格子没高亮，见 canPickAt），
-  // 第二步要说清「这一手不打牌了」，因为那就是它的全部代价
-  const padText = computed<string>(() : string => {
-    if (padTarget.value >= 0) {
-      return '垫一层：点 1 张手牌垫到 ' + cardName(pile.value[padTarget.value])
-        + ' 底下 —— 这一手就不打牌了'
-    }
-    if (padPending.value) {
-      return '垫一层：点堆上一张已经带保护的牌（只有那几张点得中）'
-    }
-    return ''
-  })
+  // 〔`anyWard`（堆上有没有已带保护的牌）和 `padText`（两步的提示语）
+  //   2026-10-21 一起删 —— 保护续层那个动作删了，没别的地方用。
+  //   `wardAt` 留着，【凝水】【净水】和燃烧族的豁免都在用〕
 
   const turnText = computed<string>(() : string => {
     if (over.value) {
@@ -3078,8 +3041,10 @@
 
   // ---------- 垫一层盾：**所有来路的唯一入口**〔2026-10-19 抽出来〕----------
   //
-  // 两条来路（【凝水】打出时垫、放弃出牌给已带保护的牌加一层）都走这儿，
-  // 照 `addFrostAt` 那个先例：**贴标签这一类只留一个入口** ——
+  // 来路都走这儿，照 `addFrostAt` 那个先例：**贴标签这一类只留一个入口** ——
+  // 〔抽出来的时候有两条来路（【凝水】打出时垫、放弃出牌加一层），
+  //   而续层那条 2026-10-21 删了，于是现在**只剩凝水一条**。
+  //   这个唯一入口照旧留着 —— 下一条来路进来时就不必再抽一遍〕
   // 不然「带上保护要去掉冰火」会漏在其中一条路上，而且漏得很安静
   //（两条路各写一遍、漏一处就是单向生效，那正是 `iceMeltsFire` 注释里
   //  为冰火相消留下那个共用判断的同一个理由）。
@@ -3116,109 +3081,43 @@
     return layers + 1
   }
 
-  // ---------- 放弃出牌加一层：那几个 handler〔2026-10-19〕 ----------
+  // ---------- 〔删了〕放弃出牌加一层：那五个 handler〔2026-10-19 加，10-21 删〕 ----------
   //
-  // 流程：点入口 → `padPending`（等点堆）→ `padTarget`（等点手牌）
-  //       → `doPad` → `passTurn`。
+  // `startPad` / `cancelPad` / `onPadTarget` / `onPadCard` / `doPad` 一起撤了，
+  // 流程是「点入口 → padPending（等点堆）→ padTarget（等点手牌）
+  // → doPad → passTurn」。**2026-10-21 用户定删。**
   //
-  // **取消是免费的** —— 代价（放弃这一手）要到真垫下去那一刻才付。
-  // 这跟凝水那条路正好相反：凝水是打出一张技能牌触发的，牌**已经丢弃了**，
-  // 所以它那儿「不挑」= 白丢一张。这儿没有牌离手，取消不罚。
+  // ---- 留四条判据，都跟这个动作无关、下一件同形的技能照抄 ----
   //
-  // 走 `passTurn` 而不是 `endPlay`：endPlay 里是「打出一张牌之后」的结算
-  //（推牌兑现、逆涌那几条），而这一手**没打牌**，那些都不该跑。
-  // passTurn 该做的都做：expireGuards、走水、refill、checkOver、交回合。
-  function startPad() {
-    if (!canPlay.value || !anyWard.value) {
-      return
-    }
-    padPending.value = true
-    padTarget.value = -1
-  }
-
-  function cancelPad() {
-    padPending.value = false
-    padTarget.value = -1
-  }
-
-  // 第一步：点了堆上第 index 格。**只有带保护的那几格算** ——
-  // 别的格子界面上也没高亮（见 canPickAt 里那道岔）
-  function onPadTarget(index : number) {
-    if (index < 0) {
-      cancelPad()
-      return
-    }
-    if (index >= pile.value.length || !wardAt(index)) {
-      return
-    }
-    padPending.value = false
-    padTarget.value = index
-  }
-
-  // 第二步：点了第 index 张手牌，垫下去
-  function onPadCard(index : number) {
-    const at = padTarget.value
-    if (at < 0 || index < 0 || index >= hand.value.length) {
-      return
-    }
-    // 冻住的垫不出去 —— 照「冻住的打不出去」那条（守滩那边也这么挡）
-    if (isFrozen(hand.value[index])) {
-      uni.showToast({ title: '这张被冻住了，垫不出去', icon: 'none' })
-      return
-    }
-    // 兜底：两步之间堆不会变（期间不许出牌，见 canPlay），所以这一支
-    // 碰不上。留着是因为错下去的后果是**往错格子上垫一张盾**，而那是静默的
-    if (at >= pile.value.length || !wardAt(at)) {
-      cancelPad()
-      message.value = '那张牌不在了，这一手没垫。'
-      return
-    }
-    cancelPad()
-    doPad(false, at, index)
-    passTurn(false)
-  }
-
-  // 真垫那一下。`byFoe` 留着是因为**这个动作双方都能用**（用户定的），
-  // 形状已经按两侧共用写好了。
+  // 一、**「放弃出牌」型的动作走 `passTurn`，不走 `endPlay`。**
+  //     endPlay 里是「打出一张牌之后」的结算（推牌兑现、逆涌那几条），
+  //     而这一手**没打牌**，那些都不该跑。passTurn 该做的都做：
+  //     expireGuards、走水、refill、checkOver、交回合。
   //
-  // ⚠ **庄家那一侧还没接**，接入点在 `foeTurn`。没接的理由是判据，不是偷懒：
-  // 设计文档压注族那一章定了「**先写 ai.js 的选牌启发式，再写技能** ——
-  // 这是实现前必须先写的一段，不是实现后调参的事」，而理由是
-  // 「对手是程序，所以这类技能的强度不是平均值，是 0 或 1」。
-  // 「什么时候值得放弃一手去加一层盾」得先在 md-sim 里量出来，
-  // 拿一个没量过的启发式接上去，等于把平衡建在一个猜的数上。
+  // 二、**「放弃出牌」必须计入出牌数**，这一条是硬性的，它一次挡住两个问题：
   //
-  // **所以当前状态是暂时单向的（只有玩家能用）** —— 这是已知的、
-  // 待模拟器那一轮补齐的缺口，不是设计意图。
-  function doPad(byFoe : boolean, at : number, index : number) {
-    const name = cardName(pile.value[at])
-    const card = takeFromHand(byFoe, index)
-    const layers = addWardAt(at, card)
-    // ---- **计入出牌数**，这一条是硬性的 ----
-    //
-    // 它一次挡住两个问题：
-    //
-    //   **① checkOver 那条「少打的一方补一手」** —— 那段注释写明了它的前提：
-    //     「少打的那一方正好就是下一个该出牌的 —— 交替出牌自然保证。
-    //       **只有「跳过回合」会错位**，而那种局面下 playableCount 会返回 0」。
-    //     放弃出牌是 `playableCount > 0` 的跳过 —— **第一次破坏那个前提**。
-    //   **② 翻转牌库奇偶** —— 「从手上垫到堆上」属于『牌不经打出就离场』
-    //     那一类（跟【守滩】同形），量级约 0.8 分（填塘 D=+0.80 实测）。
-    //
-    // 计入之后，它在**所有计数上跟普通一手完全一样**：出牌数 +1、
-    // 牌库 −1（passTurn 的 refill 把垫出去那张补回来）、堆 +1 ——
-    // 只是不判匹配、不触发技能。两个问题一起消失。
-    //
-    // 顺带影响一处：【稳钩】的「前 N 张」窗口（见 playFor 里读 played 那段）
-    // 会把这一手算进去。那是对的 —— 它确实用掉了一个回合。
-    if (byFoe) {
-      foePlayed = foePlayed + 1
-    } else {
-      myPlayed = myPlayed + 1
-    }
-    message.value = (byFoe ? '庄家放弃出牌，' : '你放弃出牌，')
-      + '往 ' + name + ' 底下垫了 1 张 —— 它现在能扛 ' + layers + ' 次。'
-  }
+  //     **① checkOver 那条「少打的一方补一手」** —— 那段注释写明了它的前提：
+  //       「少打的那一方正好就是下一个该出牌的 —— 交替出牌自然保证。
+  //         **只有「跳过回合」会错位**，而那种局面下 playableCount 会返回 0」。
+  //       放弃出牌是 `playableCount > 0` 的跳过 —— **它破坏那个前提**。
+  //     **② 翻转牌库奇偶** —— 「从手上垫到堆上」属于『牌不经打出就离场』
+  //       那一类（跟【守滩】同形），量级约 0.8 分（填塘 D=+0.80 实测）。
+  //
+  //     计入之后它在**所有计数上跟普通一手完全一样**：出牌数 +1、
+  //     牌库 −1（passTurn 的 refill 补回来）、堆 +1 —— 只是不判匹配、
+  //     不触发技能。顺带会进【稳钩】的「前 N 张」窗口，那是对的。
+  //
+  // 三、**取消免费还是罚，看代价付没付。** 这件取消免费（还没有牌离手）；
+  //     凝水那条路相反 —— 它是打出一张技能牌触发的，牌**已经丢弃了**，
+  //     所以那儿「不挑」= 白丢一张。
+  //
+  // 四、**庄家侧没接是判据，不是偷懒**（这件到删都是单向的）。设计文档
+  //     压注族那一章定了「**先写 ai.js 的选牌启发式，再写技能**」，理由是
+  //     「对手是程序，所以这类技能的强度不是平均值，是 0 或 1」。
+  //     「什么时候值得放弃一手」得先在 md-sim 里量出来 ——
+  //     拿一个没量过的启发式接上去等于把平衡建在一个猜的数上。
+  //     ⚠ 那笔待办现在是**取消**，不是结清：模拟器那头 `PAD_ON` 默认关，
+  //     一次正式的数都没出过。
 
   // ---------- 【结冰】：挂在 held 里的第二种标签 ----------
   //
@@ -3506,11 +3405,7 @@
   // 不把这三条写进界面的话，玩家会去点一个点不动的格子、
   // 然后以为是 bug —— 而规则上那三格确实是「挡住了」
   function canPickAt(index : number) : boolean {
-    // 放弃出牌加层的第一步：**只有已经带保护的那几格点得中**。
-    // 给光牌垫第一层是【凝水】的活儿，不是这个动作的（见 padPending 那段）
-    if (padPending.value) {
-      return wardAt(index)
-    }
+    // 〔保护续层那道岔 2026-10-21 从这儿撤了（动作删了）〕
     if (pilePick.value < 0) {
       return false
     }
@@ -3536,12 +3431,8 @@
   // 牌**已经丢弃了**（见 playFor 那条分支），所以「不挑」就是白丢一张 ——
   // 跟开包「放弃」一个道理：代价在发动那一刻就付了
   function onPilePick(index : number) {
-    // 放弃出牌加层的第一步：点堆上一张带保护的牌。
-    // 借这一排点（照换水借手牌那一排的先例），所以岔在最前面
-    if (padPending.value) {
-      onPadTarget(index)
-      return
-    }
+    // 〔保护续层那道岔 2026-10-21 从这儿撤了（动作删了）。
+    //   它借这一排点，照换水借手牌那一排的先例 —— 所以岔在最前面〕
     const which = pilePick.value
     if (which < 0) {
       return
@@ -3643,8 +3534,10 @@
       // 理由是「扛两次会让一张牌最多算三次分」。**那个理由随标签变实体牌
       // 一起作废了** —— 拆掉它
       //
-      // 〔2026-10-19：垫牌那三行搬进 `addWardAt` 了 —— 放弃出牌加层是
-      //   第二条来路，而「带上保护要去掉已有的火 / 冰」必须两条路都走到〕
+      // 〔2026-10-19：垫牌那三行搬进 `addWardAt` 了 —— 当时放弃出牌加层是
+      //   第二条来路，而「带上保护要去掉已有的火 / 冰」必须两条路都走到。
+      //   那条来路 2026-10-21 删了，**搬出去的决定照旧对** ——
+      //   唯一入口在那儿等下一条来路，不等它了再抽一遍〕
       const layers = addWardAt(index, card)
       message.value = message.value + ' ' + who + '凝水：垫在 ' + name
         + ' 底下 —— 它现在能扛 ' + layers + ' 次。'
@@ -4059,16 +3952,9 @@
     return false
   }
 
-  // 这一手牌里有几张被冻住（冻结的上限 FREEZE_CAP 读它）
-  function frozenCount(cards : PlainCard[]) : number {
-    let n = 0
-    for (let i = 0; i < cards.length; i++) {
-      if (isFrozen(cards[i])) {
-        n = n + 1
-      }
-    }
-    return n
-  }
+  // 〔`frozenCount(cards)`（数这一手里几张被冻住）2026-10-21 跟 `FREEZE_CAP`
+  //   一起撤了 —— 它**只有那一个调用点**。要是哪天再加「同时锁几张」的闸，
+  //   照 `isFrozen` 数一遍就行，别留个没人调的函数在这儿装作闸还在〕
 
   // 这张手牌被冻住了吗（打不出去）
   function isFrozen(card : PlainCard) : boolean {
@@ -4868,7 +4754,26 @@
       // 几乎相同的数。所以这是个**成套的模块**（值 ≈ +1.2），拆开用亏。
       //
       // 落堆底那一半在 `playFor` 的 `heldSink`（照 `iceSink` 的位置）
-      || hasTrigger(skills, SK_CREEL) || hasTrigger(skills, SK_NARROW)) {
+      || hasTrigger(skills, SK_CREEL) || hasTrigger(skills, SK_NARROW)
+      // ---- 【冻结】也无点数〔2026-10-21〕，但**理由跟上面三件不是一个** ----
+      //
+      // 上面三件（寒流 / 满篓 / 窄口）加无点数是为了**延命** —— 所以它们
+      // 配着「落堆底」成套用，拆开是亏的。**冻结不配落堆底。**
+      //
+      // 冻结这条是**驻场效果牌不该带点数**：
+      // 它的效果是「它在场时对方那张手牌打不出去」，而效果的载体就是
+      // 堆上那张牌。带点数的话，**你自己**打出一张同点数的牌就把它匹配走了
+      //  —— 自己把自己的效果拆了。
+      //
+      // 而这件事还有个测量上的后果（用户 2026-10-21 指出）：
+      // 技能按槽发，点数槽的载体就是同点数那几张，正是你手里最可能
+      // 匹配走它的牌；花色槽那头按花色匹配，无点数挡不住。
+      // 于是**同一件技能在花色槽和点数槽量出来的数不匹配**。
+      // 判据写进了《摸打钓鱼-技能与关卡设计.md》第三节「③ 挂牌型」。
+      //
+      // 同一天撤掉了它的「自带【结冰】」（见 selfFrost 那条墓碑）——
+      // 一换一，不是加强
+      || hasTrigger(skills, SK_FREEZE)) {
       return [] as number[]
     }
     // ---- 【伏流】**不在**上面那一族，而那是量出来的 ----
@@ -6432,12 +6337,10 @@
     // 冻结：锁对方一张手牌。你用的时候要挑位置，所以会停下来等
     if (hasTrigger(skills, SK_FREEZE) && lastPlayed != null && inPile(lastPlayed!)) {
       const theirs = byFoe ? hand.value : foeHand.value
-      if (frozenCount(theirs) >= FREEZE_CAP) {
-        // 上限满了就不冻（不停下来等人挑）
-        message.value = message.value + (byFoe
-          ? ' 庄家冻结：你已经有 ' + FREEZE_CAP + ' 张被冻住，这次没冻。'
-          : ' 冻结：庄家已经有 ' + FREEZE_CAP + ' 张被冻住，这次没冻。')
-      } else if (theirs.length > 0) {
+      // 〔2026-10-21 撤了上限：原先这儿先判 `frozenCount(theirs) >= FREEZE_CAP`，
+      //   满了就只发一句「这次没冻」不停下来等人挑。撤的理由在 draw-skills.uts
+      //   那块墓碑里（宽槽里 X 只有 +3.00，全表 68 件里排 40 名上下，不值一个闸）〕
+      if (theirs.length > 0) {
         if (!byFoe) {
           freezePending.value = true
           return
@@ -9886,11 +9789,7 @@
       onBomb(index)
       return
     }
-    // 放弃出牌加层的第二步同理：点手牌是「挑这张垫下去」
-    if (padTarget.value >= 0) {
-      onPadCard(index)
-      return
-    }
+    // 〔保护续层的第二步 2026-10-21 从这儿撤了（动作删了）〕
     // 对换的第二步同理：点手牌是「挑这张还给庄家」
     if (giveBack.value >= 0) {
       onGiveBack(index)
@@ -10475,10 +10374,9 @@
     // 【薪潮】的盲选待选位，开局清（照 freezePending）
     fuelPending.value = false
     fuelLeft.value = 0
-    // 【保护】加一层那两步，开局清（同理 —— 漏了的话重开一局时
-    // 那块提示条还挂着，而 canPlay 被它按着，整局点不动手牌）
-    padPending.value = false
-    padTarget.value = -1
+    // 〔保护续层那两个状态 2026-10-21 从这儿撤了（动作删了）。
+    //   留一条判据：**每个 pending 都要在这儿清** —— 漏了的话重开一局时
+    //   那块提示条还挂着，而 canPlay 被它按着，整局点不动手牌〕
     pilePick.value = -1
     pickStep.value = 0
     pickPending.value = false

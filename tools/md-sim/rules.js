@@ -694,7 +694,48 @@ const SKILLS = [
   // key 原是 icewild，跟【凌流】撞了，改成 frostwild
   { key: 'frostwild', name: '冰通配' },
   // 冰雷（进了游戏）：手里 1 张牌贴冰；**这张**之后被贴上冰时，你收走整堆
-  { key: 'icebomb', name: '冰雷' }
+  { key: 'icebomb', name: '冰雷' },
+  // ---------- 2026-10-21 ·【递吃】：21 匹配**第一次做成标签** ----------
+  //
+  // 打出时，给手里**点数最小**的那张贴上【21 匹配】；那张牌打出去时
+  // 走这条线（贴的那一手自己**不走**）。
+  //
+  // 立项理由只有一条，而它是这一族五件原型都没碰过的那一格：
+  // 现有的每一件都**落在打出的那张上**，于是预算 = 21 − 槽上印的那个点数，
+  // 跟槽标签死死绑住 —— 吃水 A 槽 3.41 / 7 槽 2.56 / **K 槽 1.17**，
+  // 单调衰减。标签形式把「谁走这条线」和「谁点着这件技能」**拆开**，
+  // 于是 K 槽也能让 A 去吃。这正是台账「全表一把尺子第一次失效」
+  // 那条定价陷阱的来源，而**这一格从来没量过**。
+  //
+  // ⚠ 事前就看得见的两个风险，所以诊断口比 X 重要：
+  //   **兑现链**。它是「我贴 → 我自己之后打出那张」，一段链 ——
+  //     比伏流（`FLOW_FAIL_TAG` 利用率 **12%**）短一截（不用等对手），
+  //     但照样可能贴了不兑现。所以 `tagged` / `cashed` 必须分开记。
+  //   **决策可能被它删掉**。「打小牌收得多」本来是吃水的那个决策，
+  //     而这件自动挑最小的 —— 那就是压吃那个病换个地方犯
+  //    （压吃 99.7~100% 吃光整堆、预算用掉 0~18.6%，21 匹配退化成摆设）。
+  //     看 `budSum/fired`：**K 槽的平均预算要从 8 拉到 18 以上机制才算跑通**，
+  //     而 `gotSum` 要是贴着整堆走，就是压吃那条路
+  { key: 'tagdraft', name: '递吃' },
+  // ---------- 2026-10-21 ·【让流】：用户「设计三」 ----------
+  //
+  //   1 张手牌带上【顺子匹配】，对方 GIFT_N 张手牌带上【通配】【推牌】
+  //
+  // 它跟【递吃】是同一个形状的**另一半**：递吃贴的是【21 匹配】，
+  // 这件贴的是【顺子匹配】。差别全在后半句 —— 它还**送东西给对手**。
+  //
+  // ⚠ 两条事前就看得见的风险，而它们是量它的理由（不是不量的理由）：
+  //
+  // 一、**三段链，中间那段归对手**：我贴 → **对手决定什么时候打那张** →
+  //    落堆 → 我再打我那张顺子牌。递吃那条链两头都归我，兑现率
+  //    88.9~92.6%；伏流那条要过对手的手，`FLOW_FAIL_TAG` 利用率只有 **12%**。
+  //    所以 `cashedMine` / `cashedFoe` 要分开记。
+  //
+  // 二、**通配不是废牌**。CLAUDE.md 那条「塞给对手一张你挑的废牌 =
+  //    剥夺他一次摸牌」在这儿**不适用** —— 贴标签不占他的摸牌名额，
+  //    而通配是全表最硬的单个关键词。所以 `GIFT_N=0` 那一档必须量，
+  //    不然分不出「送出去的那部分」值多少负分。
+  { key: 'chaingift', name: '让流' }
 ]
 
 // ---- 下标一个都不写死了〔2026-10-14〕----
@@ -1021,7 +1062,14 @@ const SK = {
   // 那正是归深那次的教训（「精确零 ≠ 测不出来，先查它有没有生效」）：
   // **加技能要同时改 SKILLS 表和 SK 常量两处。**
   RISEHOLD: skAt('risehold'),
-  TIDEFLOW: skAt('tideflow'), HITIDE: skAt('hitide')
+  TIDEFLOW: skAt('tideflow'), HITIDE: skAt('hitide'),
+  // 2026-10-21 ·【递吃】（21 匹配做成标签）—— 见 SKILLS 表末尾那一段。
+  // ⚠ 这一件**故意不进 `hasDraftLine`**：它自己那一手不走 21 匹配，
+  //   走的是它贴过标签的那张牌。进了 hasDraftLine 就变成「吃水 + 送一张」
+  TAGDRAFT: skAt('tagdraft'),
+  // 2026-10-21 ·【让流】（用户「设计三」）—— 见 SKILLS 表末尾那一段。
+  // ⚠ 跟递吃同理：它自己那一手**不走**顺子匹配，走的是它贴过的那张
+  CHAINGIFT: skAt('chaingift')
 }
 
 // ---------- SK 表建完：把查不到的 key 一次性报出来 ----------
@@ -1760,6 +1808,89 @@ const DRAFT_SURGE = process.env.DRAFT_SURGE
 const DRAFT_ZERO = process.env.DRAFT_ZERO
   ? parseInt(process.env.DRAFT_ZERO, 10) : 0
 
+// ---------- 旋钮【牌堆 −N】：用户「设计二」那一半〔2026-10-21〕 ----------
+//
+//   设计二 = 「牌堆点数 −N，1 张手牌带上【21 匹配】」
+//
+// 跟上面那个 `DRAFT_ZERO`（堆顶 N 张置 0 = 设计一的后半截）**对称** ——
+// 两个都挂在 `hasDraftLine` 上，所以**跟着【递吃】的标签走**：
+// 不是贴标签那一手减，是**带标签那张打出去、判 21 匹配的那一手**减。
+// 那是对用户原话的**宽松读法**（两件事挤进同一手），而它是个上限 ——
+// 字面读法（贴标签那一手就减）中间隔着对手一手，只会更差。
+// **先量上限**：上限都不值，字面版不用写。
+//
+// 减法走 `dropPile` 这个**唯一入口**（低吃用的就是它），不自己写一份
+// ——「复制一份逻辑，两份必然分叉」。
+//
+// ⚠ **但它跟低吃不是同一件事，别拿 3.76 当自检。** 写这段时我差点
+//   写下「`DRAFT_MINUS=1` + 吃水 应当重现低吃的 3.76」—— 查了实现才
+//   发现两处分野，而两处都让它减得**比低吃少**：
+//     低吃  在 `protoOnLand` 里减，那时牌还在堆上 → **含它自己**
+//           （所以打 A 时它自己也归 0，那是低吃收益的一截）
+//     这个  在 `resolveMatch` 里减，`removePileAt` 已经把它摘走了
+//           → **不含自己**，而且只在**判 21 匹配那一手**减（低吃每手都减）
+//   不含自己是**有意的**：含自己会连带改掉「预算 = 21 − 自己点数」，
+//   于是一个旋钮同时动两样，减出来的差读不出是哪一样在动。
+//   这也让它跟 `DRAFT_ZERO`（同样不含自己）严格对称 ——
+//   两个旋钮只差一个「怎么压」，这才减得动。
+//
+// 那自检是什么：**`DRAFT_MINUS=13` 应当 ≈ `DRAFT_ZERO=10`**。
+// K 减 13 到底，所以 13 那一档把整堆压成 0；而堆常年 2.3~3.3 张，
+// `DRAFT_ZERO` 的循环又按 `n < G.pile.length` 截断，所以 10 那一档
+// 也是整堆 0。两条路不同、落点相同 —— 差超出噪声就是有一头接错了。
+//
+//   DRAFT_MINUS=1 node sim.js vs tagdraft tagdraft -n 20000 --role lock --slot 0
+const DRAFT_MINUS = process.env.DRAFT_MINUS
+  ? parseInt(process.env.DRAFT_MINUS, 10) : 0
+
+// ---------- 用户「设计二·新」〔2026-10-21〕 ----------
+//
+//   「1 张手牌带上【21 匹配】，对方 N 张手牌带上【推牌】」
+//
+// 前半句就是【递吃】本体（已量：A 3.17 / K 2.81，口径见台账），
+// 所以这一条只加后半句：**送对手 N 张【推牌】**，不带通配
+//（`GIFT_WILD=0`，两件共用 `doGift`）。
+//
+// 为什么这一条值得量，而「N 张手牌带 21 匹配」那一条不值得：
+// 递吃的停因里 **74.3%(A) / 65.7%(K) 是「堆不够」**（整堆吃完 + 空堆），
+// 只有 25.7% / 34.3% 是真撞上预算。堆薄才是现行的那道闸 ——
+// 而【推牌】每层往堆上翻 2 张，**它直接打在那道闸上**。
+//
+// 事前就看得见的两条，方向相反：
+//   正  词条那句「翻出来的牌跟堆上点数重复的变成 0 点」——
+//       0 点不占预算也不断链，所以推牌**白送免费垫片**，
+//       那正是「设计一·整堆置 0」花 0.44~0.71 买的东西
+//   负  堆厚了对手的 21 匹配 / 顺子也更好收（这一批两侧同角色同槽，
+//       所以这一截会**自动**被口径吃掉一部分 —— 读 D 不读 X 看不出来）
+const DRAFT_GIFT_N = process.env.DRAFT_GIFT_N
+  ? parseInt(process.env.DRAFT_GIFT_N, 10) : 0
+
+// ---------- 【让流】的两个旋钮：用户「设计三」〔2026-10-21〕 ----------
+//
+//   设计三 = 「1 张手牌带上【顺子匹配】，对方 N 张手牌带上【通配】【推牌】」
+//
+// `GIFT_N` 送给对手几张（0 = 只贴自己那半截，**那是拆混淆用的对照档**）。
+// 拆开量是必须的：这一件有两半，而两半的方向相反 ——
+// 自己那半是正的（递吃 3.17 证明了标签形式成立），对手那半在送分。
+// 合起来量只能得到一个和，**分不出送出去多少**。
+const GIFT_N = process.env.GIFT_N ? parseInt(process.env.GIFT_N, 10) : 2
+// 送出去的那几张带不带【通配】（1 = 带，默认；0 = 只带推牌）。
+// 这一条是**用户「设计二·新」那条要的档**：「对方 N 张手牌带上【推牌】」——
+// 没有通配那半句。顺带它也是让流那 +2.70 的对照：
+// 让流实测「送通配」+0.64、「再加推牌」+2.70，而那两步是**叠着量的**，
+// 所以「只送推牌」值多少**还没量过**（交互项可能不为零）
+const GIFT_WILD = process.env.GIFT_WILD !== '0'
+// 送出去的那几张带不带【推牌】（1 = 带，默认；0 = 只带通配）。
+// 两档一减就是「推牌」那一条单独值多少 —— 正负都有可能：
+// 推牌垫厚堆对**我的顺子**有利，而它同时也是给对手的收牌材料
+const GIFT_SURGE = process.env.GIFT_SURGE !== '0'
+// 自己那半截（给自己一张贴【顺子匹配】）开不开。
+// `FLOW_TAG=0` → 这件技能退化成**纯「送对手 N 张」**，
+// 而那正是设计二·新超模之后要拆的那一块：后半句单独值多少。
+// 〔只送推牌这块在两个壳里基本可加 —— 递吃壳 +3.00、让流壳 +2.65 ——
+//   所以它大概率是一个**独立模块**，而独立模块该单独定价〕
+const FLOW_TAG = process.env.FLOW_TAG !== '0'
+
 // ---------- 【21 匹配】里 **0 点牌算什么**〔2026-10-19 加〕 ----------
 //
 // 现行规则（`free`）是「**0 点的牌不占预算、也不断链**」——
@@ -2076,6 +2207,11 @@ const SP = {
   // 没有 ♥ 槽那张 **+12.92**，有 ♥ 槽那张 **+3.66** —— ♥ 牌本来就
   // 已经响了 ♥ 槽那一件，常驻技只能再补两件。上架的是后者。
   //
+  // ⚠ 上面那对数是 `role` 口径，而这一族零点胜率 96.7%，
+  //   **幅度 2026-10-21 作废**（结论没变）。干净口径（duel）下是
+  //   13.54 → **7.66 或 3.25**，看 ♥ 槽里插的是哪件技能 ——
+  //   刹车力度是 **43%~76% 的区间**，不是一个数。见台账那条作废公告。
+  //
   // ---- 「发动任意技能」的两种读法，上架取的是 `all` ----
   //
   //   `all`（全响，**= 上架那一版**）打出 ♥ → 你所有已装的槽一起响。
@@ -2263,8 +2399,17 @@ const BAIT_COUNT = 3      // 囤饵：开局塞几张
 const CYCLE_REFILL = 6    // 涨落：补牌时补到几张（比 HAND_SIZE 多 2）
 // 【死水】废对手几张手牌（照 draw-skills 的 DEAD_COUNT）
 const DEAD_COUNT = 2
-// 【冻结】对方最多同时几张被冻住（照源码 FREEZE_CAP）。FREEZE_CAP=99 = 不设上限（对照用）
-const FREEZE_CAP = process.env.FREEZE_CAP ? parseInt(process.env.FREEZE_CAP, 10) : 3
+// 【冻结】对方最多同时几张被冻住。
+//
+// **默认 99 = 不设上限 = 现在游戏里的样子**〔2026-10-21 用户定，源码那头
+// `FREEZE_CAP` 常量整个撤了，墓碑在 draw-skills.uts〕。
+// 旋钮留着是为了还能重量旧档：`FREEZE_CAP=3` 就是 10-20 ~ 10-21 那个闸。
+//
+// ⚠ 这一格的默认值 **10-21 翻过一次**（3 → 99）。CLAUDE.md 那条
+//「旋钮的默认值 = 游戏里那件技能的样子」栽过两回，这是第三回的预防 ——
+// **早于 2026-10-21 的冻结数全是带闸跑的**，跟现在的数不是一回事
+//（A 槽恰好相同：+0.91，因为 4 张覆盖面挂不满 3 把锁；**♥ 槽差 0.87**）
+const FREEZE_CAP = process.env.FREEZE_CAP ? parseInt(process.env.FREEZE_CAP, 10) : 99
 
 // 哪几件特殊技能在模拟器里**跑不出效果**，以及为什么。
 // 报表里标出来 —— 不标的话那几行会是 0 分差，看着像实现错了。
@@ -2286,12 +2431,18 @@ const SP_NOTE = {
     + '这一族另外三件（窥视、照水、活水）2026-10-16 全删了，**它是仅剩的一件** ——'
     + '4 这一档本来被照水挡着（会完全重复），照水删了才空出来',
   // 这一条印在报表里，是因为**读这张表的人最容易拿错那个数**：
-  // 表里会有三张带 heartwild 的卡，而只有一张是游戏里的
-  heartwild: '⚠ **带它的卡有三张，形状各不相同，数不能互相代入**：'
-    + '上架的【桃汛客】是 ♥/5/10（**没量过**，跑 run-redhook.sh）、'
-    + '载体 `heartman` 是 2/7/Q（+12.92，**超档**）、'
-    + '载体 `heartslot` 是 2/7/♥（+3.66，进档 —— 进档的理由是'
-    + '**自带 ♥ 槽把它自己压掉了 2/3**，不是技能本身温和）'
+  // 表里会有**四张**带 heartwild 的卡，而只有一张是游戏里的
+  heartwild: '⚠ **带它的卡有四张，形状各不相同，数不能互相代入**'
+    + '（下面括号里是无天花板 duel，±.14 —— **这一族的 role 净值读不得，'
+    + '零点胜率 96.7~97.1%**）：'
+    + '上架的【桃汛客】♥/5/10（**+3.25**）、'
+    + '载体 `heartman` 2/7/Q（+13.54，**超档**）、'
+    + '载体 `heartslot` 2/7/♥（+7.66）、'
+    + '载体 `peachlast` 5/10/♥（+7.69，拆混淆用）。'
+    + '⚠ **第 1 张比后两张低一半，而那不是点数标签** —— '
+    + '点数标签实测中性（7.66 vs 7.69，0.15σ）；差的是 **♥ 槽排第几**，'
+    + '因为 kitFor 按槽下标填 KIT_ORDER，♥ 槽坐着谁红钩就补不到谁。'
+    + '**游戏里那是玩家自己选的，所以这张卡的真实强度是个区间。**'
 }
 
 // 角色表，照 DRAW_ROLES。desc 不搬（报表不用）。
@@ -2356,6 +2507,13 @@ const DRAW_ROLES = [
   //   结构一样（1 花色槽 + 2 点数槽，21 张），所以 +3.66 是**好参照**；
   //   变的是「哪件技能插 ♥」和两个点数落在哪儿，所以**要重量一次**：
   //   bash tools/md-sim/run-redhook.sh
+  //
+  // ✅ 量完了（2026-10-20）：duel **+3.25**，而 `heartslot` 是 **+7.66**。
+  //   ⚠ 那 4.4 分**不是点数标签**（实测中性：`peachlast` 5/10/♥ = +7.69，
+  //   差 0.15σ）—— 是 **♥ 槽排第几**。kitFor 按槽下标填 KIT_ORDER，
+  //   这张的 ♥ 槽坐着传火（最强），于是红钩只能补两件弱的。
+  //   **游戏里插什么是玩家选的 → 这张卡真实强度是 +3.25~+7.7 的区间，
+  //   上沿超常驻技档位（+3~5.5），而定档取的是下沿。尚未处理。**
   //
   // ⚠ 它跟【镜湖占卜师】是现行仅有的两张 ♥ 槽卡（♠ / ♦ 至今没人用）。
   // 一轮只选一个角色 → 不会叠加，要防的是「玩起来一样」。
@@ -3148,6 +3306,25 @@ function newGame(opts) {
     riseHand: [],
     riseBlind: false,
     sinkHand: [],
+    // 【递吃】贴过的那几张手牌（对象引用，照 sinkHand）〔2026-10-21〕。
+    // 带它的牌打出去时走【21 匹配】—— 判定在 `hasDraftLine` 里，
+    // 标签在**匹配结算完之后**才摘（catchStart 还要读它，见 playFor 那处）
+    draftHand: [],
+    // 【让流】贴过的那几张手牌（对象引用，照 draftHand）〔2026-10-21〕。
+    // 带它的牌打出去时走【顺子匹配】—— 判定在 afterPlay 的 straightFor
+    // 那一句，**而 AI 预估那一处也要接**（catchStart 对顺子一概返回 −1，
+    // 漏了的后果是「这件技能在 AI 手里整件作废」，见 straightCount 那段）
+    flowHand: [],
+    // 【让流】**送给对手**的那几张（对象引用）。纯诊断用 ——
+    // 通配和推牌本身走的是 `wildTag` / `surgeHand` 两张现成的表，
+    // 这一张只回答一个问题：**送出去的牌他打了几张**。
+    // 〔送出去多少分是另一个问题，那个靠 `GIFT_N=0` 的对照去减〕
+    giftHand: [],
+    // 【递吃】**送给对手**的那几张（`DRAFT_GIFT_N`，用户「设计二·新」）。
+    // 跟上面那张分开是有意的：两件原型共用 `doGift`，而**诊断混了就废了** ——
+    // 「送出去几张 / 他打了几张」分不清是谁送的，就回答不了
+    // 「这件技能到底做了几次」（CLAUDE.md 第四节那一口）
+    dgiftHand: [],
     // 【涨潮】贴过的那几张手牌（对象引用，照 sinkHand）。
     // 打出时摘标签 + 兑现「全场贴【大数】」〔2026-10-20 ·【唤潮】原型〕
     tideHand: [],
@@ -3779,8 +3956,9 @@ function selfFrost(lo) {
     || has(lo, SK.LOCKDRAW) || has(lo, SK.LOCKBACK) || has(lo, SK.LOCKCOLOR)
     || (THAW_SELF && (has(lo, SK.THAW) || has(lo, SK.THAWDRAW)))
     || has(lo, SK.ICEDRAFT)
-    // 【冻结】2026-10-20 升级成结冰族：自带【结冰】
-    || has(lo, SK.FREEZE)
+  // 〔【冻结】2026-10-20 进过这一行（自带【结冰】），**2026-10-21 撤了** ——
+  //   换成了「无点数」（见 cardVals 里 FREEZE_VOID 那一段）。它不再是结冰族的一员。
+  //   所以这件现在**跟冰一点关系都没有**：没有钥匙、没有豁免、落堆也不贴冰〕
 }
 
 // 锁冰挑哪张当钥匙：没带冰、非 J，按点数对得上堆上最深那张的（收得最多）；
@@ -4072,6 +4250,128 @@ const SINK_TAG_WHEN = process.env.SINK_TAG_WHEN || 'before'
 
 function sinkTagOn(G, card) {
   return G.sinkHand.indexOf(card) >= 0
+}
+
+// ---------- 【递吃】的标签〔2026-10-21〕 ----------
+function draftTagOn(G, card) {
+  return G.draftHand.indexOf(card) >= 0
+}
+
+// 给 side 自己手里**点数最小**的那张贴上【21 匹配】，返回贴上了没有。
+//
+// 「最小」用的尺子跟 `draftReach` 的 own 口径一致（多值牌取最小那个）——
+// 两处用同一把尺子，不然「我挑的最小」和「它算预算用的点数」会不一样。
+//
+// 三种牌不贴，三条理由各不相同：
+//   **J**     它只有通吃，`catchStart` 第一句就拐走了，贴了永远兑现不了
+//            （照 doSinkTag / doTideTag 那条）
+//   **无点数** `cardVals` 返回空 —— 词条原文「当不了匹配那一张的牌到它就停」，
+//            它根本当不了这条线的那一张
+//   **已贴过** `draftHand` 是引用清单，重贴在 `draftTagOn` 看来跟没贴一样，
+//            而那会让 `tagged` 虚高、利用率虚低（照 tagOwnHand 那条）
+function doDraftTag(G, side) {
+  const hand = G.hands[side]
+  let best = -1
+  let bestVal = 99
+  for (let i = 0; i < hand.length; i++) {
+    const c = hand[i]
+    if (c.rank === JACK) continue
+    if (draftTagOn(G, c)) continue
+    const vals = cardVals(c)
+    if (vals.length === 0) continue
+    let own = 99
+    for (let k = 0; k < vals.length; k++) if (vals[k] < own) own = vals[k]
+    if (own < bestVal) { bestVal = own; best = i }
+  }
+  if (best < 0) return false
+  G.draftHand.push(hand[best])
+  return true
+}
+
+// ---------- 【让流】的标签〔2026-10-21〕 ----------
+function flowTagOn(G, card) {
+  return G.flowHand.indexOf(card) >= 0
+}
+
+// 给 side 自己手里的一张贴上【顺子匹配】，返回贴上了没有。
+//
+// ⚠ **这是个笨挑法 —— 所以这一件量出来的是下限**（照拢水那条注释：
+//   「价值全在挑牌精度上，而 AI 挑得笨」）。
+//
+// 为什么不挑「能凑最长顺子的那张」：那个判断要对着**堆现在的样子**算
+//（`straightCount` 就是那么干的），而这张牌是**以后**才打出去的 ——
+// 到那时堆早换过一轮（堆的换手 3.3 回合）。所以「现在最优」跟
+// 「打出去时最优」没关系，挑了也是白挑。于是照 `tagOwnHand` 那条
+// 「从前往后取没贴过的」。
+//
+// 跳过的三种跟 `doDraftTag` 同口径：J（catchStart 早退）、
+// 无点数（顺子接不上它）、已贴过（引用清单，重贴 = 没贴）
+function doFlowTag(G, side) {
+  const hand = G.hands[side]
+  for (let i = 0; i < hand.length; i++) {
+    const c = hand[i]
+    if (c.rank === JACK) continue
+    if (flowTagOn(G, c)) continue
+    if (cardVals(c).length === 0) continue
+    G.flowHand.push(c)
+    return true
+  }
+  return false
+}
+
+// 送给对手 n 张：`GIFT_WILD` 开着贴【通配】，`GIFT_SURGE` 开着贴【推牌】。
+//
+// `list` 是**调用方的诊断清单**（让流用 `G.giftHand`，递吃用 `G.dgiftHand`）。
+// 传进来而不是写死，是因为两件原型都要用这个函数，而**计数不能混** ——
+// 混了之后「送出去几张」这个诊断就分不清是谁送的，
+// 而那正是 CLAUDE.md 第四节要的「它到底做了几次」那一口。
+//
+// ⚠ 两个关键词都走**现成入口**，一行自己的实现都不写 ——
+//   通配是 `G.wildTag`（照 tagOwnHand / stowFor），推牌是 `G.surgeHand`
+//   （照 doSurgeTag：同一张出现几次就是几层）。
+//   凌流那次的教训正是「自己手写一份等效实现」：看着对、跑得通、
+//   计数也对，而**豁免那一句在另一条路上**，于是 −2.16 全是 bug。
+//
+// 跟 `tagOwnHand(G, other, n)` 的分野只有一处，而那一处是必需的：
+// 两个标签要落在**同一批牌**上（用户原话「对方 N 张手牌带上
+// 【通配】【推牌】」），而分两次调用会挑到不同的牌
+function doGift(G, side, n, list) {
+  const other = side === ME ? FOE : ME
+  const hand = G.hands[other]
+  let done = 0
+  for (let i = 0; i < hand.length && done < n; i++) {
+    const c = hand[i]
+    // J 照 doSurgeTag 排掉（它那条路也排 J）。
+    // ⚠ 这儿**跟 `tagOwnHand` 有一处分野**：那个不排 J。排掉是有意的 ——
+    //   J 本来就通吃，贴通配等于没贴，而推牌那条路会直接早退。
+    //   方向是**对对手更有利**（那一张改送到一张真用得上的牌上），
+    //   所以这一档量出来是「送得最亏」的那个读法，跟整件原型的
+    //   「先量上限 / 下限，不值就不用写字面版」一致
+    if (c.rank === JACK) continue
+    // 送过的不重送。**去重查的是诊断清单，不是 `wildTag`**〔改于 2026-10-21〕——
+    // `GIFT_WILD=0` 那一档根本不往 `wildTag` 里写，查它等于没查，
+    // 于是同一张手牌会**每回合再推一层【推牌】**，
+    // 而「N 越大越强」会变成一条假曲线（层数在偷偷涨）。
+    //
+    // ⚠ 换去重口径**没有动已经量过的让流那三个数**（3.34 / 6.04 / 7.21）——
+    //   而保住它的是**下面第二行**，不是第一行：
+    //   `GIFT_WILD=1` 时老判据（查 `wildTag`）原样还在，
+    //   所以那一档的行为逐位不变。第一行只在 `GIFT_WILD=0` 时起作用，
+    //   那一档本来就没有旧数
+    if (list.indexOf(c) >= 0) continue
+    if (GIFT_WILD && G.wildTag.indexOf(c) >= 0) continue
+    // 另一件也送过的不重送（`pair tagdraft chaingift` 那种跑法下
+    // 两条路会挑到同一张）
+    if (list !== G.giftHand && G.giftHand.indexOf(c) >= 0) continue
+    if (list !== G.dgiftHand && G.dgiftHand.indexOf(c) >= 0) continue
+    if (GIFT_WILD) G.wildTag.push(c)
+    if (GIFT_SURGE) G.surgeHand.push(c)
+    // 诊断清单在这儿写，**不在调用处事后扫一遍** ——
+    // 事后扫「对手手里带通配的」会把别的来源贴的也算进来
+    list.push(c)
+    done++
+  }
+  return done
 }
 
 // 【沉降】兑现那一下：整堆 −M，**压到 0 的不收走**（没人收）。
@@ -4594,6 +4894,22 @@ function giftFor(G, side, card) {
 const HELD_VOID = process.env.HELD_VOID !== '0'
 const HELD_SINK = process.env.HELD_SINK !== '0'
 
+// ---------- 【冻结】的「无点数」〔2026-10-21 加，默认开 = 定稿〕 ----------
+//
+// ⚠ **它跟上面 HELD_VOID 那一族不是同一个理由，所以没有配套的 FREEZE_SINK。**
+//
+//   上面三件（寒流 / 满篓 / 窄口）的无点数是**延命**，跟「落堆底」成套，
+//     拆开用亏（互动 ≈ +1.2，单上落堆底是负的）。
+//   冻结这条是**驻场效果牌不该带点数**：效果的载体就是堆上那张牌，
+//     带点数的话**你自己**打出一张同点数的就把它匹配走了 —— 自毁。
+//
+// 同一天撤掉了它的「自带【结冰】」（见 selfFrost 那条墓碑），**一换一**。
+//
+// 量回原档（没无点数、也没冰）：
+//
+//   FREEZE_VOID=0 node sim.js vs freeze freeze --role lock --slot 0
+const FREEZE_VOID = process.env.FREEZE_VOID !== '0'
+
 // ---------- 【对称】化那三格的旋钮〔2026-10-19 加，**默认关**〕 ----------
 //
 // 问的是：【驻场】那个词条要是加上「效果不分出牌方」（词表的【对称】），
@@ -5093,6 +5409,11 @@ function valuesOf(G, card, skills) {
     //（你的手牌上限）和窄口（对方少补牌、你受益）**都是私有的**，
     // 不像霜降（落堆的牌都贴冰、双方同被拦，加这两句是 −2.86）
     || (HELD_VOID && heldPair(skills))
+    // ---- 【冻结】的无点数（FREEZE_VOID）〔2026-10-21〕----
+    //
+    // **不要照上面那两件配落堆底** —— 理由不同，见 FREEZE_VOID 那段。
+    // 这条切的是「你自己把自己的驻场效果匹配走」那条自毁路径
+    || (FREEZE_VOID && has(skills, SK.FREEZE))
     // ---- 【伏流】：无点数是代价，**也是护身符** ----
     //
     // 它凑顺子时能当任意点数，可那**只在 straightFor 那一条路径上**成立。
@@ -5277,7 +5598,7 @@ function catchStart(G, card, side, skills, sink) {
   // `draftLineOpen` 是【择吃】【压吃】那两件原型的**运行时条件**
   //（「有 0 点牌才走这条线」）—— 判定在 protoOnLand 里做完、存在
   // G.draftOpen 上。别的件恒为真，所以这一句对现行规则是 no-op
-  if (DRAFT_FIRST && hasDraftLine(skills) && draftLineOpen(G, skills, card)
+  if (DRAFT_FIRST && hasDraftLine(skills, G, card) && draftLineOpen(G, skills, card)
     && (DRAFT_ANCHOR === 'self' || !sink)) {
     const reach = draftReach(G, card, side, mine, null, sink)
     if (reach >= 0) return reach
@@ -5299,7 +5620,7 @@ function catchStart(G, card, side, skills, sink) {
   //   跟那三条取收得更多的那个（下标越小收得越多 → 取 min）。
   //   它只为 A/B 留着，现行规则走不到这儿。
   //   沉底时不判吃水那一条两档都没变（方向镜像，两件撞在同一张牌上）〕
-  if (!DRAFT_FIRST && hasDraftLine(skills) && !sink) {
+  if (!DRAFT_FIRST && hasDraftLine(skills, G, card) && !sink) {
     const reach = draftReach(G, card, side, mine)
     if (reach >= 0 && (best < 0 || reach < best)) best = reach
   }
@@ -5323,12 +5644,25 @@ function catchStart(G, card, side, skills, sink) {
 // 最后一道闸：**堆上够不到 DRAFT_MIN 张就算没成**（见那个常量上面那段）
 // 【21 匹配】这条线现在有几件在走〔2026-10-19 加原型时抽出来〕。
 // 上架的只有【吃水】；【低吃】【浊吃】是那两条提案的原型
-function hasDraftLine(skills) {
+// ---------- ⚠ 这个函数 2026-10-21 多了两个参数，而那不是顺手加的 ----------
+//
+// 这一族原先**全部**由「带不带某件技能」决定，所以一个 `skills` 就够。
+//【递吃】是第一件由**牌上的标签**决定的 —— 于是「谁点着技能」和
+//「谁走这条线」第一次分开了，判定必须同时看这张牌。
+//
+// 两个新参数是**可选**的（不传就只走技能那几条），理由是这个函数有
+// 五处调用，其中两处挂在默认关着的旋钮上（`DRAFT_SURGE` / `DRAFT_ZERO_COST`）。
+// 但五处**全都传了** —— 漏传一处的后果是静默的：那条旋钮下标签牌不算数，
+// 而 A/B 两档会逐位相同，看起来像「这个旋钮对它无效」
+function hasDraftLine(skills, G, card) {
+  // 标签那一条**排在最前面**：带标签的牌一律走这条线，不管带没带技能
+  if (G != null && card != null && draftTagOn(G, card)) return true
   return has(skills, SK.DRAFT) || has(skills, SK.LOWDRAFT)
     // 冰吃水（原型）：自带结冰 + 21 匹配
     || has(skills, SK.ICEDRAFT)
     || has(skills, SK.HUEDRAFT)
     || has(skills, SK.ALTDRAFT) || has(skills, SK.PUSHDRAFT)
+  // ⚠ **SK.TAGDRAFT 不在这儿**，是有意的 —— 见 SK 表里那条注释
 }
 
 // 【择吃】【压吃】这一手到底开不开这条线 —— **两件都是有条件的**：
@@ -5492,9 +5826,21 @@ function inPile(G, card) {
   return G.pile.indexOf(card) >= 0
 }
 
-// 效果牌已经离场的，清掉。每次收完牌调一次
-function expireHeld(G) {
-  G.held = G.held.filter(function (h) { return inPile(G, h.source) })
+// 效果牌已经离场的，清掉。每次收完牌调一次。
+//
+// `by` 是**这一手把牌收走的那一方**（走水 / 过闸那条路没有收牌方，传 null）。
+// 它只用来数【冻结】的自毁率，不参与清理逻辑 —— 见 PROTO_STAT.freeze
+function expireHeld(G, by) {
+  G.held = G.held.filter(function (h) {
+    const live = inPile(G, h.source)
+    if (!live && h.skill === SK.FREEZE) {
+      const st = PROTO_STAT.freeze
+      if (by == null) st.washed++
+      else if (by === h.side) st.selfTook++
+      else st.foeTook++
+    }
+    return live
+  })
 }
 
 function heldOn(G, skill, side) {
@@ -5908,6 +6254,40 @@ function playFor(G, side, index, ai) {
   // 传火的 `noburn` 档紧跟其后 —— 它要读燃尽的结果
   chainAfterBurn(G, side, skills, card, burnStep(G, side))
   resolveMatch(G, side, card, skills, sink)
+  // ---- 【递吃】的标签在这儿摘〔2026-10-21〕----
+  //
+  // ⚠ **位置是硬的：必须在 `resolveMatch` 之后。** 这跟【沉降】【涨潮】
+  // 那两张标签正好相反（它们在 `playFor` 开头摘）——  理由是兑现的时机：
+  // 那两件兑现的是「改堆上的点数」，摘不摘不影响判定；
+  // 而这一件兑现的**就是这一次判定本身**（`hasDraftLine` 要读得到标签）。
+  // 提前摘掉的话这条线一次都不会开，而症状是静默的：X 掉回零点、
+  // `cashed` 照常涨 —— 看着像「这个设计不值钱」。
+  //
+  // 存的是对象引用，所以不摘它会一直挂在表里（照 sinkHand 那条）
+  if (draftTagOn(G, card)) {
+    PROTO_STAT.tagdraft.cashed++
+    G.draftHand = G.draftHand.filter(function (c) { return c !== card })
+  }
+  // ---- 【让流】的两张标签在这儿摘〔2026-10-21〕----
+  //
+  // 顺子那张**排在这儿是安全的**（跟递吃不同的理由）：它兑现在
+  // `afterPlay` 的 `straightFor` 那一句，而 afterPlay 早就跑完了 ——
+  // 所以摘在 resolveMatch 前后都行，排这儿只为跟递吃那段挨着。
+  if (flowTagOn(G, card)) {
+    PROTO_STAT.chaingift.cashed++
+    G.flowHand = G.flowHand.filter(function (c) { return c !== card })
+  }
+  // 送出去那张只是**诊断清单**，摘它不影响任何规则 ——
+  // 通配 / 推牌各自那两张表（`wildTag` / `surgeHand`）归它们自己管
+  if (G.giftHand.indexOf(card) >= 0) {
+    PROTO_STAT.chaingift.giftPlayed++
+    G.giftHand = G.giftHand.filter(function (c) { return c !== card })
+  }
+  // 递吃送出去那张，同上（两张清单分开，不然两件的诊断会混）
+  if (G.dgiftHand.indexOf(card) >= 0) {
+    PROTO_STAT.tagdraft.giftPlayed++
+    G.dgiftHand = G.dgiftHand.filter(function (c) { return c !== card })
+  }
   // 【留潮】的驻场那一句：**匹配之后**给刚打的那张贴【大数】。
   // 排在这儿就是那句话的全部内容（「匹配后」）—— 所以它不影响
   // 这一手的判定、没有自损；而那张牌要**还在堆上**（收走的不用贴）
@@ -6195,7 +6575,7 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   // 那就是「**库 → 堆 → 立刻收走**」= 洪水的形状（X +5.22 / 溢价 +4.27，
   // 「绕过争夺」那条判据下溢价 ≈4 的三件之一），而洪水是全表唯一
   // 因为「太强而且治不了」被删的。**所以这一格要盯 D，不是只看 X。**
-  const draftSurge = DRAFT_SURGE > 0 && hasDraftLine(skills) && !sink
+  const draftSurge = DRAFT_SURGE > 0 && hasDraftLine(skills, G, card) && !sink
   if (draftSurge) {
     for (let n = 0; n < DRAFT_SURGE; n++) surgeLayer(G, side, false)
   }
@@ -6214,10 +6594,25 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   // 写 `pileVals` 要读 `rawVals`、不能读 `pileValsAt`，那是全文最容易
   // 犯的一处（见 rawVals 那段，见底 / 抬水都走这条）。这儿直接写 [0]
   // 不读任何来源，所以不吃那个坑
-  if (DRAFT_ZERO > 0 && hasDraftLine(skills) && !sink) {
+  if (DRAFT_ZERO > 0 && hasDraftLine(skills, G, card) && !sink) {
     for (let n = 0; n < DRAFT_ZERO && n < G.pile.length; n++) {
       G.pileVals[G.pile.length - 1 - n] = [0]
     }
+  }
+  // ---- 设计二：整堆 −N（不含自己）〔2026-10-21〕----
+  //
+  // 跟上一段同一个闸、同一个时机，只换「怎么压」：那段把堆顶 N 张
+  // 一脚踩到 0，这段整堆各减 N 点。减到 0 的**留在堆上**（0 点不占
+  // 预算也不断链，所以它们是免费垫片）—— 这一条跟低吃同口径。
+  //
+  // `dropPile` 返回的是减到一个非零点数都不剩的那几张的下标，
+  // 而**这儿不能拿它去收牌** —— 收不收是 21 匹配那条线的事，
+  // 这个旋钮只负责改点数
+  if (DRAFT_MINUS > 0 && hasDraftLine(skills, G, card) && !sink) {
+    const st = PROTO_STAT.draftminus
+    st.fires++
+    st.pileWas += G.pile.length
+    st.zeroed += dropPile(G, DRAFT_MINUS).length
   }
   // ---- 【21 匹配】的诊断：**只在这儿记**〔2026-10-19〕 ----
   //
@@ -6230,10 +6625,21 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   // 〔`draftLineOpen` 这一句跟 catchStart 里那句**必须一致** ——
   //   不一致的话择吃/压吃「造料那一手」会被记成一次发动失败，
   //   而凑成率那一列就不是「这条线成不成」而是两件事混在一起〕
-  if (hasDraftLine(skills) && draftLineOpen(G, skills, card)
+  if (hasDraftLine(skills, G, card) && draftLineOpen(G, skills, card)
     && (DRAFT_ANCHOR === 'self' || !sink)) {
     const probe = {}
     draftReach(G, card, side, vals, probe, sink)
+    // 【递吃】那一份〔2026-10-21〕—— 跟 `G.stat.draft` 分开记，理由是
+    // 这一件将来会跟【吃水】**同时上身**（同族共存那道检查），
+    // 到那时 `G.stat.draft` 里两件的发动混在一起就拆不开了。
+    // 标签还在（摘它那一步在 resolveMatch 之后，见 playFor）
+    if (draftTagOn(G, card)) {
+      const st = PROTO_STAT.tagdraft
+      st.fired++
+      st.budSum += probe.budget
+      st.sumSum += probe.sum
+      st.gotSum += probe.got
+    }
     // 沉底那一支（锚点改动新开的）单独记一笔 —— 见 PROTO_STAT.draftSink
     if (sink) {
       PROTO_STAT.draftSink.fires++
@@ -6314,7 +6720,7 @@ function finishCatch(G, side, from, count, card, skills) {
   // `keep` 档只对**走 21 匹配这条线的那一手**生效（见 collectKeepZero）——
   // 普通匹配、J 通吃、收色那几条路照旧整段收走，不然这个旋钮就不是
   // 「改 21 匹配」而是「改全局收牌规则」了
-  const keepZero = DRAFT_ZERO_COST === 'keep' && hasDraftLine(skills)
+  const keepZero = DRAFT_ZERO_COST === 'keep' && hasDraftLine(skills, G, card)
     && card.rank !== JACK
   const got = keepZero
     ? collectKeepZero(G, side, from, count, card)
@@ -6380,7 +6786,8 @@ function harvestAt(G, side, wanted) {
   // 这边是任何一条在同一个 play 里接着跑的 harvestAt）
   G.iceBlind = false
   // 〔【余烬】原先在这儿兑现（堆重建完，「剩下的牌」才算得准）。技能删了〕
-  expireHeld(G)
+  // 传 side 是为了数【冻结】的自毁率（收走自己挂的那张）—— 见 PROTO_STAT.freeze
+  expireHeld(G, side)
   expireStacked(G)
   G.score[side] += taken
   return taken
@@ -7054,6 +7461,18 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.FLOW) || has(skills, SK.ICEWILD)) {
     straightFor(G, side, played)
   }
+  // 【让流】：**只有带标签的那张**走这条线〔2026-10-21〕。
+  //
+  // 查的是标签不是技能 —— 标签只可能由这件技能贴出来，而写成
+  // 「技能 && 标签」会让人以为还有别的来源。`tagN: 0` 是因为
+  // 用户原话只写「带上【顺子匹配】」，没有伏流那半句「再贴一张通配」
+  if (flowTagOn(G, played)) {
+    const st = PROTO_STAT.chaingift
+    st.fired++
+    const was = G.stat.caught[side]
+    straightFor(G, side, played, { tagN: 0 })
+    st.gotSum += G.stat.caught[side] - was
+  }
   // 涉水：同组，步长放宽到 2
   if (has(skills, SK.WADE)) {
     wadeFor(G, side, played)
@@ -7298,6 +7717,8 @@ function afterPlay(G, side, skills, played, ai) {
     }
   }
   if (has(skills, SK.FREEZE) && inPile(G, played)) {
+    // 分母：载体牌真落了堆（钓中被自己当场收走的那几手不算）—— 见 PROTO_STAT.freeze
+    PROTO_STAT.freeze.onfield++
     const other = side === ME ? FOE : ME
     let frozen = 0
     for (let i = 0; i < G.hands[other].length; i++) {
@@ -7309,6 +7730,7 @@ function afterPlay(G, side, skills, played, ai) {
         G.held.push({
           source: played, skill: SK.FREEZE, target: G.hands[other][at], side: side
         })
+        PROTO_STAT.freeze.fires++
       }
     }
   }
@@ -7564,18 +7986,10 @@ const PROTO_STAT = {
   // 【替换】：换了几次 / 多凑出几张（gained = 换完比不换多的那几张）
   flowswap: { fires: 0, gained: 0 },
   stow: { fires: 0, stowed: 0, pileWas: 0, noIsolated: 0 },
-  // 【保护】的续层动作：**放弃出牌，给一张已带保护的牌再垫 1 张手牌**。
-  //
-  // 源码（`ap-fishing.uvue` 的 `doPad`）早就实现了全套 UI，而**庄家那一侧
-  // 故意没接**，注释写明了理由：「什么时候值得放弃一手去加一层盾得先在
-  // md-sim 里量出来，拿一个没量过的启发式接上去等于把平衡建在猜的数上」。
-  // 这一格就是那笔待办。
-  //
-  //   fires     续了几次
-  //   bare      其中有几次是「目标裸奔」（层数 0）触发的
-  //   waste     垫下去的是废牌（canCatch 为假）的次数
-  //   targets   发动时堆上有几个「通配 + 保护」的目标（≥2 时按用户的说法更划算）
-  pad: { fires: 0, bare: 0, waste: 0, targets: 0 },
+  // 〔【保护】的续层动作 2026-10-21 删，用户定。这一格连实现一起撤了 ——
+  //   `PAD_ON` / `padTurn` / 源码那边的 `doPad` 全套都没了。
+  //   **没有数跟着废**：`PAD_ON` 从头到尾默认关，一次正式的数都没出过，
+  //   所以那笔「先量出来再接庄家」的待办是**取消**，不是结清〕
   // 弹药被谁消耗掉了 —— 验「拢水在喂分给对手」那个嫌疑
   //   mine/foe：那一层盾是**谁收牌**时打掉的
   ward: { mine: 0, foe: 0 },
@@ -7649,6 +8063,21 @@ const PROTO_STAT = {
   // 一张还没冰），明显低于 1 就说明手牌早被自己贴满了 = 这一档在空转
   //   onfield  「驻场」那一句为真的手数（挂的那张还在堆上）—— **分母**
   cold: { onfield: 0, fires: 0, keys: 0, tiles: 0, foeKeys: 0 },
+  // 【冻结】的诊断口〔2026-10-21 加，跟「无点数」那条改动一起〕。
+  //
+  // 问的就是用户那条判据：**驻场效果牌带点数会被自己匹配走吗。**
+  //
+  //   fires     真冻住对方一张几次（挑不出 / 撞 FREEZE_CAP 都不计）
+  //   onfield   载体牌落了堆、效果真挂上了几次 —— **分母**
+  //   selfTook  载体牌被**挂它那一方自己**收走几次 ← 自毁，这是要看的数
+  //   foeTook   被对手收走几次（那是正常损耗，不是自毁）
+  //   washed    不经收牌离场（走水 / 过闸重建牌堆）
+  //
+  // **要看的是 selfTook / onfield。** `FREEZE_VOID=1`（定稿）下它该
+  // **大幅低于** `FREEZE_VOID=0`：无点数切掉的正是「自己打一张同点数的
+  // 把它钓走」这条路。两档之间这个比值不动的话，说明无点数没接上
+  //（或者自毁本来就走花色那条路，而无点数挡不住花色 —— 那也是个结论）
+  freeze: { fires: 0, onfield: 0, selfTook: 0, foeTook: 0, washed: 0 },
   drag: { fires: 0, picked: 0, hit: 0, floored: 0 },
   // 【21 匹配】锚点改成「打出那张」之后新开的那一支：**沉底时反着数**。
   //
@@ -7656,7 +8085,50 @@ const PROTO_STAT = {
   // 全部逐位相同，我差点读成「改动无害」—— 实际是那一支**一次都没触发**
   //（命令传错 + pair 把两件装进了不同的槽）。
   // 照 CLAUDE.md 第四节：**一个「看起来合理」的数不能当成机制对了。**
-  draftSink: { fires: 0, got: 0 }
+  draftSink: { fires: 0, got: 0 },
+  // 【递吃】的诊断口〔2026-10-21〕——  **这一件 X 单独读不得**，
+  // 因为它有两条独立的失败路径，而两条在 X 上长得一模一样：
+  //
+  //   tagged  贴了几张（技能发动次数 —— 手里全贴过了就贴不动，那也是上限）
+  //   cashed  带标签的牌真打出去了几张 ← **兑现率 = cashed / tagged**。
+  //           明显低于 1 = 兑现链断了（伏流那条路，利用率 12%）
+  //   fired   兑现的那几手里，21 匹配这条线真判了几次
+  //          （= cashed 减去「沉底且 DRAFT_ANCHOR≠self」那种被闸掉的）
+  //   budSum  那几次的**预算之和** → `budSum/fired` 是平均预算。
+  //           ⚠ **这是立项的那个数**：K 槽的吃水预算是 21−13=8，
+  //           而这件挑手里最小的牌 —— 拉不到 18 以上机制就没跑通
+  //   sumSum  真用掉多少 → `sumSum/budSum` 是**预算用掉几成**。
+  //           贴着 1 说明预算是瓶颈；贴着 0 说明堆太薄（压吃那个病）
+  //   gotSum  收了几张 → `gotSum/fired`。贴着整堆走 = 退化成「无条件收整堆」
+  //
+  // 〔`tagged − cashed` 就是局终还挂在手里的那几张，不单独记〕
+  //
+  // `gifted` / `giftPlayed` 是**设计二·新**那半句（`DRAFT_GIFT_N`）：
+  // 送出去几张、他打了几张。默认 0 不发动，所以本体那几格里它们恒为 0 ——
+  // **而那本身就是一个自检**：开了之后还是 0 就是没接上
+  tagdraft: {
+    tagged: 0, cashed: 0, fired: 0, budSum: 0, sumSum: 0, gotSum: 0,
+    gifted: 0, giftPlayed: 0
+  },
+  // 设计二〔2026-10-21〕：递吃 + 「牌堆点数 −N」。不是新技能，是**递吃上的一个旋钮**
+  //（`DRAFT_MINUS`），所以计数也只记减法那一截：
+  //   fires   减了几次（= 带递吃标签的牌打出去几次，该跟 tagdraft.cashed 对得上）
+  //   pileWas 减之前堆上几张 → `pileWas/fires` 是堆厚
+  //   zeroed  被减到 0 的几张 → **这是它到底买到了什么**：
+  //           0 点不占预算，所以它买的是「预算省下来」+「免费垫片」两截
+  draftminus: { fires: 0, pileWas: 0, zeroed: 0 },
+  // 设计三〔2026-10-21〕：【让流】。两半方向相反，所以**两半分开记**：
+  //   自己那半  tagged / cashed —— 贴了几张、真打出去几张（兑现率）
+  //            fired / gotSum  —— 顺子真跑了几次、收了几张
+  //   对手那半  gifted / giftPlayed —— 送出去几张、他打了几张
+  //
+  // ⚠ 这几个计数**回答不了「送出去多少分」** —— 那个只能靠
+  //   `GIFT_N=0` 的对照去减。写在这儿是因为 CLAUDE.md 第四节那条：
+  //   「一个看起来合理的数不能当成机制对了」，而这一件最可能的
+  //   静默失败是 `gifted` 恒为 0（手里全贴过通配 / 全是 J）
+  chaingift: {
+    tagged: 0, cashed: 0, fired: 0, gotSum: 0, gifted: 0, giftPlayed: 0
+  }
 }
 
 // 落堆之后、判定之前那一下（见 playFor 里的调用处）
@@ -7721,6 +8193,39 @@ function protoOnLand(G, side, skills, card) {
     G.draftOpen = pileHasZero(G, at0)
     G.draftOpenFor = card
     if (G.draftOpen) st.opened++
+  }
+  // ---- 【递吃】：给手里点数最小的那张贴【21 匹配】〔2026-10-21〕 ----
+  //
+  // 位置跟这一族其余四件一样（落堆之后、判定之前），但它跟那四件
+  // **做的事不同**：那四件改堆，这一件改的是自己剩下的手牌，
+  // 所以排在哪儿对这一手的判定没有影响。排这儿只为了跟同族待在一起。
+  //
+  // ⚠ 贴的是**打出之后**剩下的手里那几张 —— 刚打的这张已经离开 `hands`，
+  //   所以不会贴到自己身上（贴了也没用，它这一手已经判完了）
+  if (has(skills, SK.TAGDRAFT)) {
+    const st = PROTO_STAT.tagdraft
+    if (doDraftTag(G, side)) st.tagged++
+    // 设计二·新的后半句：送对手 N 张【推牌】。默认 0 = 关，
+    // 所以**递吃本体那两个数（3.17 / 2.81）不受这一段影响**
+    if (DRAFT_GIFT_N > 0) st.gifted += doGift(G, side, DRAFT_GIFT_N, G.dgiftHand)
+  }
+  // ---- 【让流】：给自己一张贴【顺子匹配】，再送对手 GIFT_N 张〔2026-10-21〕 ----
+  //
+  // 排在递吃旁边是因为它是同一个形状的另一半（贴标签而不是改堆），
+  // 而「打出之后剩下的手牌」那条口径两件完全一样。
+  //
+  // ⚠ 送出去那半截**是这一手就送**，不是等顺子凑成才送 ——
+  //   用户原话里两件事是并列的（「1 张手牌带上【顺子匹配】，
+  //   对方 N 张手牌带上【通配】【推牌】」），没有先后条件。
+  //   这也是**宽松读法**（送得越早对手用得越充分 = 对我越亏），
+  //   所以这一档是**下限**：下限都划算，严格读法只会更好
+  if (has(skills, SK.CHAINGIFT)) {
+    const st = PROTO_STAT.chaingift
+    // `FLOW_TAG=0` 关掉自己那半截 → 剩下**纯「送对手 N 张」**。
+    // 这一档是设计二·新超模之后的调参依据：后半句单独值多少。
+    // 〔自检：`FLOW_TAG=0 GIFT_N=0` 该是精确 0.00 —— 技能什么都不做〕
+    if (FLOW_TAG && doFlowTag(G, side)) st.tagged++
+    if (GIFT_N > 0) st.gifted += doGift(G, side, GIFT_N, G.giftHand)
   }
   // ---- 【浊吃】：堆上跟它**不同颜色**的牌置 0 ----
   //
@@ -7813,26 +8318,23 @@ function protoOnLand(G, side, skills, card) {
   if (has(skills, SK.STOW) && at0 >= 0) stowFor(G, side, at0)
 }
 
-// ---------- 【保护】续层：**放弃出牌，垫 1 张手牌**〔2026-10-19〕 ----------
+// ---------- 〔删了〕【保护】续层：放弃出牌，垫 1 张手牌〔2026-10-19 加，10-21 删〕 ----------
 //
-// 源码的 `doPad` 早就实现了（含 UI），而庄家侧故意没接 —— 它那段注释写着
-// 「什么时候值得放弃一手去加一层盾**得先在 md-sim 里量出来**」。这就是它。
+// **2026-10-21 用户定删**，源码的 `doPad` 全套和这边的 `PAD_ON` / `padTurn`
+// 一起撤了。`PAD_ON` 从头到尾默认关，所以**没有任何实测数跟着废**；
+// 那笔「先量出来再接庄家侧」的待办是**取消**，不是结清。
 //
-// ---- 用户定的策略，三条 ----
+// 删了之后保护**只有一条来路：【凝水】**（还有【拢水】的收纳当第一层）。
 //
-//   「在 通配 + 保护 下面**没有叠放牌**的时候」  → 裸奔优先（层数 0）
-//   「**或者**手上有废牌」                        → 有废牌就续（OR，不是 AND）
-//   「不用太厚，**2、3 层**就可以」               → `PAD_CAP`，默认 2
-//   「堆上有**多个** 通配+保护 的牌时更划算」      → 诊断口记 `targets`
+// ---- 留一条判据，它跟这个动作无关、以后还会用上 ----
 //
-// ---- 「计入出牌数」这一条是硬的，照源码 doPad ----
-//
-// 它一次挡住两个问题：**补手错位**（checkOver 那条「少打的补一手」
-// 假设了「跳过回合时 playableCount 为 0」，而放弃出牌是第一个反例）
-// 和**牌库奇偶翻转**（「从手上垫到堆上」属于『牌不经打出就离场』，
-// 量级约 0.8 分 —— 填塘 D=+0.80 那个实测）。
-// 计入之后它在所有计数上跟普通一手一样：出牌数 +1、牌库 −1、堆 +1，
-// 只是不判匹配、不触发技能。
+// 「**放弃出牌**」这类动作必须**计入出牌数**，而那一条挡住两个问题：
+// **补手错位**（checkOver 那条「少打的补一手」假设了「跳过回合时
+// playableCount 为 0」，而放弃出牌是第一个反例）和**牌库奇偶翻转**
+//（「从手上垫到堆上」属于『牌不经打出就离场』，量级约 0.8 分 ——
+// 填塘 D=+0.80 那个实测）。计入之后它在所有计数上跟普通一手一样：
+// 出牌数 +1、牌库 −1、堆 +1，只是不判匹配、不触发技能。
+// **下一件「放弃出牌换点什么」的技能照抄这一条。**
 // ---------- 【涨水】的两个旋钮〔2026-10-20〕 ----------
 //
 // `SWELL_N` —— 加多少。**这一件的全部设计空间都在这个数上**，因为
@@ -7956,63 +8458,9 @@ const SWAP_N = process.env.SWAP_N ? parseInt(process.env.SWAP_N, 10) : 99
 // 两者的差就是「挑得准」值多少（照凝水那条：价值全在挑牌精度上）
 const SWAP_WASTE = process.env.SWAP_WASTE !== '0'
 
-const PAD_CAP = process.env.PAD_CAP ? parseInt(process.env.PAD_CAP, 10) : 2
-// 'waste'（默认）= 只肯拿**废牌**去垫；'bare' = 目标裸奔时拿什么都垫
-const PAD_WHEN = process.env.PAD_WHEN || 'waste'
-// 整件事的总开关。**默认关** —— 不然它会改掉凝水那几格的基准
-const PAD_ON = process.env.PAD_ON === '1'
-
-// 这一手要不要放弃出牌去续层。返回 true = 已经续了（调用方直接交回合）
-function padTurn(G, side) {
-  if (!PAD_ON) return false
-  if (G.hands[side].length === 0) return false
-  // ---- 找目标：**带【保护】标签、而且带【通配】**的那几张 ----
-  //
-  // 「带通配」是用户这条设计的全部意义 —— 续一张光牌的命没有用。
-  // 多个目标时**挑层数最少的**（裸奔的最急）
-  let best = -1
-  let bestLayers = 99
-  let targets = 0
-  for (let i = 0; i < G.pile.length; i++) {
-    if (!wardAt(G, i) || !isWildAt(G, i)) continue
-    targets++
-    const n = wardLayers(G, i)
-    if (n >= PAD_CAP) continue
-    if (n < bestLayers) { bestLayers = n; best = i }
-  }
-  if (best < 0) return false
-  // ---- 挑垫哪一张：**废牌**（打出去钓不到东西的那种）----
-  //
-  // 「废」= `canCatch` 为假。那张牌打出去不但没收成，还给对手送一个钩点 ——
-  // 所以拿它去垫是**双重划算**，而这正是用户说的「手上有废牌」那一条
-  let pick = -1
-  for (let k = 0; k < G.hands[side].length; k++) {
-    const card = G.hands[side][k]
-    if (isFrozen(G, side, card)) continue
-    if (!canCatch(G, card, side)) { pick = k; break }
-  }
-  const bare = bestLayers === 0
-  if (pick < 0) {
-    // 没废牌：只有「目标裸奔 + PAD_WHEN=bare」那一档肯拿好牌去垫
-    if (!(bare && PAD_WHEN === 'bare')) return false
-    for (let k = 0; k < G.hands[side].length; k++) {
-      if (!isFrozen(G, side, G.hands[side][k])) { pick = k; break }
-    }
-    if (pick < 0) return false
-  }
-  const st = PROTO_STAT.pad
-  st.fires++
-  st.targets += targets
-  if (bare) st.bare++
-  if (pick >= 0 && !canCatch(G, G.hands[side][pick], side)) st.waste++
-  const card = G.hands[side][pick]
-  G.hands[side] = G.hands[side].filter(function (c, k) { return k !== pick })
-  // 宿主已经带标签了（目标是按 wardAt 挑的），所以只加弹药
-  G.stacked.push({ host: G.pile[best], card: card, kind: STACK_WARD })
-  // **计入出牌数**（见上面那段）—— 它在计数上跟普通一手完全一样
-  G.stat.plays[side]++
-  return true
-}
+// 〔`PAD_CAP` / `PAD_WHEN` / `PAD_ON` 三个旋钮和 `padTurn` 整个函数
+//   2026-10-21 删 —— 见上面那块墓碑。`wardLayers` / `STACK_WARD` 留着，
+//   【凝水】【拢水】在用〕
 
 // 【拢水】的收纳：把堆上另 1 张牌挪到自己底下，当第一层保护。
 //
@@ -9762,6 +10210,13 @@ function harvestCount(G, card, skills, side) {
   // 【伏流】也要在这儿估 —— 它是第四条匹配线，catchStart 对它一概返回 −1，
   // 漏了的后果是这件技能在 AI 手里**整件作废**（见 straightCount）
   if (has(skills, SK.FLOW)) return straightCount(G, side, card)
+  // 【让流】：**这一行是必需的，不是优化**〔2026-10-21〕。
+  // 它跟上一行的分野只有一处 —— 查标签，不查技能：
+  // 带【让流】但手里这张没贴标签的，走的是普通匹配，不能按顺子估。
+  // 漏了这一行的后果不是「估得差一点」，是**整件作废**
+  //（catchStart 对第四条匹配线一概返回 −1，于是 AI 从不主动打那张，
+  //  而这件技能唯一的兑现口就是「把贴了标签的那张打出去」）
+  if (flowTagOn(G, card)) return straightCount(G, side, card)
   // 【易流】走的是 straightFor 同一条路（`swapFlowFor` 只换三个参数），
   // 所以它的预估也共用 `straightCount`。
   //
@@ -10045,21 +10500,35 @@ function playGame(opts, ai) {
       passTurn(G, side)
       continue
     }
-    // 【保护】续层：放弃出牌、垫 1 张手牌（`PAD_ON=1` 才开，见 padTurn）。
-    // 判在 pickCard **之前** —— 它是「这一手不打牌」，不是「打哪张」
-    if (padTurn(G, side)) {
-      passTurn(G, side)
-      continue
-    }
+    // 〔【保护】续层那道岔 2026-10-21 删（它判在 pickCard **之前** ——
+    //   因为那是「这一手不打牌」，不是「打哪张」）。
+    //   下一件「放弃出牌」型的技能挂回这个位置〕
     const index = ai.pickCard(G, side)
     if (index < 0) {
       // 全被冻住了，打不出牌。记一笔（冻结上限那条要量「锁满跳过」有多常见）
       G.stat.lockSkips = G.stat.lockSkips || [0, 0]
       G.stat.lockSkips[side]++
+      // ---- 连跳的长度〔2026-10-21 加〕----
+      //
+      // 为什么光有 `lockSkips` 不够：那个数是**次数**，而「锁满」的体验
+      // 问题在**连续**上 —— 一局里零散跳 5 次跟一口气连跳 5 次是两回事
+      //（后者是「之后都是对手的回合」，前者玩家几乎察觉不到）。
+      // 所以这儿多记一个 run / max 对。
+      //
+      // 「连」的定义：**这一方**连着几个自己的回合都没打出牌。
+      // 中间夹着对方的回合不打断它（对方那一手正常走），
+      // 打断它的只有这一方自己成功打出一张 —— 所以 reset 在 playFor 之后。
+      G.stat.lockRun = G.stat.lockRun || [0, 0]
+      G.stat.lockMax = G.stat.lockMax || [0, 0]
+      G.stat.lockRun[side]++
+      if (G.stat.lockRun[side] > G.stat.lockMax[side]) {
+        G.stat.lockMax[side] = G.stat.lockRun[side]
+      }
       passTurn(G, side)
       continue
     }
     playFor(G, side, index, ai)
+    if (G.stat.lockRun) G.stat.lockRun[side] = 0
   }
   // 削后手优势的那两条「终局剩堆」规则。走 harvestPile 而不是直接加分 ——
   // 叠放、gone、六条数组的账都在那儿算，自检的「分数 == gone」才对得上
