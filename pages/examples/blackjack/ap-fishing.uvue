@@ -81,8 +81,8 @@
           <view v-if="!foeOpen(index)" class="card-back-art card-back-art-small">
             <view class="card-back-gem card-back-gem-small"></view>
           </view>
-          <text v-if="foeOpen(index)" class="card-rank card-rank-small" :class="{ 'card-red': isRed(card) }">{{ rankFace(card.rank) }}</text>
-          <text v-if="foeOpen(index)" class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+          <text v-if="foeOpen(index)" class="card-rank card-rank-small" :class="{ 'card-red': isRed(card) }">{{ faceOnCard(card.rank) }}</text>
+          <text v-if="foeOpen(index)" class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
           <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
           <!-- 【死水】废掉的标出来。不标的话那张牌看着跟别的一样，
                而它打出来什么也不发生 —— 那就是规则坏了的感觉 -->
@@ -124,28 +124,34 @@
                  「这张不按它印着的那个花色算」是一回事） -->
             <!-- 【浊水】藏住的那几格：点数印问号、花色留空，
                  连「红还是黑」都不描（描了就等于报出花色） -->
+            <!-- 上半部：花色放大当底，点数叠在它正中间（白字 + 深色描边）。
+                 下半部放标签（card-tags）和效果名 -->
+            <view class="card-head card-head-pile">
             <text
-              class="card-rank"
-              :class="{
-                'card-red': pileRed(index) && !murked(index),
-                'card-shifted': pileShifted(index) && !murked(index)
-              }"
-              >{{ murked(index) ? '?' : pileFace(index) }}</text
-            >
-            <text
-              class="card-suit"
+              class="card-suit card-suit-pile"
               :class="{
                 'card-red': pileRed(index) && !murked(index),
                 'card-shifted': pileRecolored(index) && !murked(index)
               }"
               >{{ murked(index) ? '' : pileSuitAt(index) }}</text
             >
+            <text
+              class="card-rank card-rank-pile card-rank-over"
+              :class="{
+                'card-red': pileRed(index) && !murked(index),
+                'card-shifted': pileShifted(index) && !murked(index)
+              }"
+              >{{ murked(index) ? '?' : pileFace(index) }}</text
+            >
+            </view>
             <!-- 这张牌上挂着的场上效果，名字直接印在牌上。
                  从前只在下面那条 field-bar 里报「♠3 照水」，得拿着牌面
                  去堆里找哪张是 ♠3 —— 而堆能有四十来张、还会换行。
                  印在牌上就不用对照了：**要破它就得钓走这一张**，
                  所以「是哪一张」是这件事的全部要点 -->
             <text v-if="pileEffectName(index) != '' && !murked(index)" class="card-effect">{{ pileEffectName(index) }}</text>
+            <!-- 下半部的标签行：烧 / 冰 / 通配 / 盾 / 叠，按这个顺序排开，放不下就换行 -->
+            <view class="card-tags">
             <!-- 【燃烧】：这张已经着了，下一次野火就把它收走。
                  **非标不可** —— 不标的话「哪几张烧得掉」只能靠记，
                  而那正是野火的全部决策（要不要再打一次野火） -->
@@ -155,6 +161,11 @@
                  而那正是结冰的全部内容（照燃烧那个「烧」字的先例）。
                  冰和火互斥（相消），所以两个角标不会同时出现 -->
             <text v-if="frostAt(index) && !murked(index)" class="card-frost-tag">冰</text>
+            <!-- 【通配】：凑顺子时这张算任意点数。它是**标签**，跟冰 / 烧一样印字 ——
+                 光靠紫边认不出来（紫边和护、保护的边色同属一排，一眼分不清），
+                 而「哪几张是通配」正是顺子匹配那几件的全部决策。
+                 能跟烧 / 冰同时在，在标签行里排在它们后面 -->
+            <text v-if="isWildAt(index) && !murked(index)" class="card-wild-tag">通配</text>
             <!-- ---------- 【叠放】：底下压着几张 ---------- -->
             <!--
               **分两个角标，因为它们是两条不同的信息**：
@@ -177,6 +188,7 @@
             <text v-if="underCount(index) > 0 && !murked(index)" class="card-stack-tag"
               >+{{ underCount(index) }}</text
             >
+            </view>
           </view>
         </view>
       </scroll-view>
@@ -484,12 +496,16 @@
               'card-frozen': isFrozen(card)
             }"
             @click="onPlay(index)">
-            <text class="card-rank" :class="{ 'card-red': isRed(card) }">{{ rankFace(card.rank) }}</text>
-            <text class="card-suit" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            <view class="card-head card-head-hand">
+              <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+              <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card) }">{{ faceOnCard(card.rank) }}</text>
+            </view>
             <!-- 点数卡贴上来的那几个点数。描成金的 ——
                  「这张还算 7 点」是打牌时必须看见的，牌面上写不出来 -->
             <text v-if="pipTag(card) != ''" class="card-pip">{{ pipTag(card) }}</text>
             <text v-if="skillTag(card) != ''" class="card-skill">{{ skillTag(card) }}</text>
+            <!-- 下半部的标签行：冰 / 火 / 推牌 / 沉降 / 冻（或被看），放不下就换行 -->
+            <view class="card-tags">
             <!-- ---------- 手里的【结冰】= **钥匙** ---------- -->
             <!--
               结冰在两个位置意思正好相反（见 TERMS 那条）：
@@ -503,7 +519,7 @@
               跟堆上那个角标**用同一个字、同一个色**，因为它是同一个标签
             -->
             <text v-if="frostOnHand(card)" class="card-frost-tag">冰</text>
-        <!-- 【引火】预约的火。跟「冰」挤在同一个角 —— 两个同时挂上
+        <!-- 【引火】预约的火。紧挨着「冰」—— 两个同时挂上
              （引火 + 藏凌）的时候它们落堆就相消，所以玩家看到两个标签
              本身就是「这张落下去两个都没」的提示 -->
         <text v-if="burnOnHand(card)" class="hand-burn-tag">火</text>
@@ -517,12 +533,12 @@
                  报的是**涌几张**不是层数 —— 玩家要的是后果，而乘法
                  （层数 × 2）写在 surgeTag 里，他不用自己乘 -->
             <text v-if="surgeTag(card) != ''" class="hand-surge-tag">{{ surgeTag(card) }}</text>
-            <!-- 【沉降】角标：报**压几点**（照上面那条，报后果不报标签名）。
-                 摆在推牌角标**下面一行**（top 差 11px）—— 同一手牌
-                 可能两个标签都带着（两件技能各贴过），叠在一处会糊成一团 -->
+            <!-- 【沉降】：报**压几点**（照上面那条，报后果不报标签名）。
+                 跟推牌并排 —— 同一手牌可能两个标签都带着（两件技能各贴过） -->
             <text v-if="sinkTagText(card) != ''" class="hand-sink-tag">{{ sinkTagText(card) }}</text>
             <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
             <text v-else-if="foeKnows(index)" class="card-seen">被看</text>
+            </view>
           </view>
         </view>
       </scroll-view>
@@ -4204,8 +4220,9 @@
   // 牌面那个死数字不足以说明判定会怎么走
   function pileFace(index : number) : string {
     const vals = pileValsAt(index)
+    // 无点数：**牌面上什么都不印**，只剩那个花色〔2026-10-21，原先印「—」，像个减号〕
     if (vals.length == 0) {
-      return '—'
+      return ''
     }
     let text = ''
     for (let i = 0; i < vals.length; i++) {
@@ -4218,6 +4235,13 @@
   //
   // 贴过点数卡的牌**一直**算「对不上」，那是对的：
   // 它牌面写着 3，可判定上它也是个 7，那件事得一直看得见
+  // 牌面上印的点数（手牌、庄家那排）。无点数**什么都不印**，只剩花色 ——
+  // 照 pileFace 那条。rankFace 写「无」是给文字消息用的（「♥无」），
+  // 牌面上那个字跟点数叠在花色上一样大，反而像个点数
+  function faceOnCard(rank : string) : string {
+    return rank == BLANK_RANK ? '' : rankFace(rank)
+  }
+
   function pileShifted(index : number) : boolean {
     if (index >= pile.value.length) {
       return false
@@ -5116,7 +5140,12 @@
   // 顺序是「先结算这张牌的技能，再拿它去匹配」（见 afterPlay → resolveMatch）：
   // 牌先落到堆上（沉底的落堆底），技能在它落着的时候结算 ——
   // 量水、收色、撒网、见底可能连它一起收走，那它就不再匹配了
-  function playFor(byFoe : boolean, index : number) {
+  // 返回 **true = 这一手的后续已经交出去了**，调用处不能再调 afterPlay：
+  // 叠放那三件（凝水 / 净水 / 抬水）要么停下来等你点堆上一张（之后由 onPilePick 接着走），
+  // 要么自己已经调过 afterPlay（空堆、庄家挑完）。
+  // 〔2026-10-21 修：原先两个调用处无条件接 afterPlay —— 你打凝水还没挑，
+  //   这一手就结算完、交了回合，庄家当场出牌；庄家打叠放牌则整手结算两次〕
+  function playFor(byFoe : boolean, index : number) : boolean {
     // 牌打出去了，「要不要加打」那个问题就有答案了 —— 收旗。
     // 放在这儿而不是玩家点牌那个 handler 里：出牌的路不止一条
     //（你点、庄家打、技能逼着打），这儿是共同的那一条
@@ -5309,7 +5338,7 @@
         message.value = message.value + (byFoe ? ' 庄家' : ' ')
           + DRAW_SKILLS[which].name + '：场上没牌可叠，这张白放了。'
         afterPlay(byFoe)
-        return
+        return true
       }
       if (byFoe) {
         const at = foePilePick(which, step)
@@ -5329,7 +5358,7 @@
         pickStep.value = step
         pickCard.value = card
       }
-      return
+      return true
     }
     if (sink) {
       unshiftPile(card, byFoe, GUARD_NONE, worth)
@@ -5418,6 +5447,7 @@
             : '，牌库空了，没垫上保护。')
       }
     }
+    return false
   }
 
   // 技能都结算完了，拿这张牌去匹配，然后交回合。
@@ -7489,6 +7519,11 @@
     pileGuard.value = keepGuard
     pileVals.value = keepVals
     pileSuit.value = keepSuit
+    // 〔2026-10-21 修：keepBurn 一直在攒、却**从来没写回去**。
+    //   后果：燃尽扫空整堆之后 pileBurn 还是 [1, 1, …]，下一张落到下标 0
+    //   就读到旧的 1 —— 空堆上随便打一张都「着火」，再由蔓延传开。
+    //   别的扫堆（一色、收色、撒网、野火、冰雷…）也一样错位，只是没那么显眼〕
+    pileBurn.value = keepBurn
     goneRanks.value = gone
     // 收走的那几张里可能有谁的效果牌
     expireHeld()
@@ -10068,10 +10103,13 @@
     }
     const card = hand.value[index]
     newIndex.value = -1
-    playFor(false, index)
+    const handed = playFor(false, index)
     message.value = '你打出 ' + cardName(card) + '。'
-    // 先结算技能，最后匹配（见 resolveMatch）
-    afterPlay(false)
+    // 先结算技能，最后匹配（见 resolveMatch）。
+    // playFor 已经接管了后续（叠放那三件在等你点堆）就别接 —— 见它那段
+    if (!handed) {
+      afterPlay(false)
+    }
   }
 
   function startFoeTurn() {
@@ -10110,9 +10148,11 @@
       note = '庄家的牌全被冻住了，补了 ' + (foeHand.value.length - before) + ' 张。'
     }
     const card = foeHand.value[index]
-    playFor(true, index)
+    const handed = playFor(true, index)
     message.value = note + '庄家打出 ' + cardName(card) + '。'
-    afterPlay(true)
+    if (!handed) {
+      afterPlay(true)
+    }
   }
 
   // ---------- 剩牌面板 ----------
@@ -11297,7 +11337,8 @@
 
   .board {
     flex: 1;
-    min-height: 68px;
+    /* 一排牌（76）+ 下边距（6） */
+    min-height: 84px;
     margin-top: 4px;
   }
 
@@ -11312,22 +11353,75 @@
     font-size: 11px;
   }
 
-  /* 牌面照 relay.uvue 那套：46x64 白底 */
+  /* 牌面：46x64，暖白底 + 浅米边 + 一层轻阴影〔2026-10-21 美化〕。
+     原先照 relay.uvue 是纯白底、纯白边（边等于没有），贴在绿桌布上发平。
+     **只改底子，不改那几条有含义的边色** —— 谁下的饵（绿 / 橙）、护饵（蓝）、
+     保护（绿）、燃烧（橙红）、通配（紫）、被收走（金）全部照旧，
+     它们排在这条后面，同权重后来居上 */
   .card {
     width: 46px;
     height: 64px;
-    background-color: #ffffff;
-    border-radius: 5px;
+    background-color: #fffdf7;
+    border-radius: 7px;
     margin-right: 6px;
     align-items: center;
     justify-content: center;
     border-width: 2px;
     border-style: solid;
-    border-color: #ffffff;
+    border-color: #e9e1cf;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.28);
   }
 
+  /* 牌堆的牌放大到 54x76 —— 牌堆是这一页最该看清的东西。
+     点数 / 花色跟着放大，见 .card-rank-pile / .card-suit-pile。
+     效果名那条（.card-effect，12px 高）压在下沿，76 高放得下点数 + 花色 + 它 */
   .card-in-pile {
+    width: 54px;
+    height: 76px;
     margin-bottom: 6px;
+    justify-content: flex-start;
+    padding-top: 4px;
+  }
+
+  /* 手牌：跟牌堆同一套版式（上半部点数 + 花色，下半部点数卡 / 技能 / 标签） */
+  .card-hand {
+    justify-content: flex-start;
+    padding-top: 3px;
+  }
+
+  /* 上半部：**花色放大当底，点数叠在它正中间**〔2026-10-21〕。
+     花色和点数各占满这一格、行高 = 格高，所以两个字的中心对齐 —— 点数压在花色上。
+     点数是白字 + 深色描边（.card-rank-over）：压在花色上的那部分读作白字，
+     压不到的部分是白字黑边，在暖白底上也看得清。
+
+     ⚠ 想要的是「只有重叠处变白」，而那要遮罩 / 混合模式（mask、mix-blend-mode、
+     background-clip: text），**uni-app x 的 App 端都不支持**；描边是能做到的最接近的样子。
+
+     **只有牌堆和手牌用这一套** —— 庄家那排小牌（34x48）和切牌那张照旧上下叠，
+     它们只印点数花色、没有标签 */
+  .card-head {
+    position: relative;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 牌堆（54x76）：头 40 + 标签行 12 + 下沿效果名 12，三段不重叠 */
+  .card-head-pile {
+    height: 40px;
+  }
+
+  /* 手牌（46x64）：头 32，下面还要放点数卡 / 技能名 / 标签行 */
+  .card-head-hand {
+    height: 32px;
+  }
+
+  /* 下半部的标签行：放不下就换行。效果名那条（.card-effect）仍然压在下沿 */
+  .card-tags {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 2px;
   }
 
   /* 牌上那行效果名（照水、封色、冻结…）。
@@ -11408,104 +11502,88 @@
     background-color: #e9edf1;
   }
 
+  /* ---- 牌上的标签：一律排在**下半部的标签行**里（.card-tags）〔2026-10-21〕----
+
+     原先是绝对定位的角标（烧 / 冰在右上、通配右侧第二行、盾 / 叠在左边一竖排、
+     手牌的火 / 推牌 / 沉降在右边一列往下排）。牌面改成「上半部花色 + 点数并排」
+     之后上半部整条都被占了，角标没地方摆，于是统一挪到下半部，按顺序排开、
+     放不下就换行 —— 也就不用再为「哪两个会同时出现」算位置。
+
+     颜色照旧，每个颜色都跟它那条边色 / 那一族对得上，见各条 */
+
+  /* 【燃烧】（堆上）：橙红，跟 .card-burning 同一套 */
   .card-burn-tag {
-    position: absolute;
-    top: 1px;
-    right: 3px;
     color: #e0561f;
     font-size: 9px;
     font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
   }
 
-  /* 【结冰】的角标。**跟「烧」占同一个位置**（右上）——
-     **堆上**的冰和火互斥（相消），所以那两个永远不会同时出现。
-
-     注意这条只对堆成立：**手牌上两个可以同时挂着**（引火贴火、
-     藏凌贴冰，而相消是落堆那一下才判的），所以手牌的火角标
-     另摆一行 —— 见 `.hand-burn-tag` */
+  /* 【结冰】：堆上和手里同一个字、同一个色（同一个标签）。堆上冰火相消，手里两个可以同时在 —— 那本身就是「落下去两个都没」的提示 */
   .card-frost-tag {
-    position: absolute;
-    top: 1px;
-    right: 3px;
     color: #2f8fd0;
     font-size: 9px;
     font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
   }
 
-  /* 【引火】预约在**手牌**上的火。
-     跟「冰」错开一行（冰在 top:1，这个在 top:11）—— 手牌上两个可以
-     同时挂着，重叠就看不出来有几个。而「同时挂着」本身是有用的信息：
-     它表示这张落下去的时候冰火相消，两个都没 */
+  /* 【通配】：紫色，跟 .card-wild 那条紫边同色 */
+  .card-wild-tag {
+    color: #7c4ddb;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+
+  /* 【引火】预约在**手牌**上的火 */
   .hand-burn-tag {
-    position: absolute;
-    top: 11px;
-    right: 3px;
     color: #e0561f;
     font-size: 9px;
     font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
   }
 
-  /* 【推牌】贴在**手牌**上的层数，而角标上报的是**它会涌几张**
-     （层数 × 2）—— 玩家要的是那个后果，不是层数本身。
-
-     摆在右边第三行（冰 top:1、火 top:11、这个 top:21）：三个在手牌上
-     都可能同时挂着，重叠就数不出来有几个。而**它跟冰火不一样的地方
-     正好要靠位置表达** —— 冰火落堆会相消，推牌跟那两个毫无关系。
-
-     颜色取青（#1f8a7a）：跟冰的蓝、火的橙都分得开，而它不是那一族 */
+  /* 【推牌】：报**涌几张**（层数 × 2），玩家要的是后果不是层数。青色 —— 跟冰的蓝、火的橙分得开，它不是那一族 */
   .hand-surge-tag {
-    position: absolute;
-    top: 21px;
-    right: 3px;
     color: #1f8a7a;
     font-size: 9px;
     font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
   }
 
-  /* 【沉降】角标：跟推牌那个同一列、**往下一行** ——
-     同一张手牌可能两个标签都带着（两件技能各贴过一次），
-     叠在一处会糊成一团。
-     颜色换成深蓝：推牌是青绿（往堆上加牌），这一件是压点数，
-     两件的后果方向相反，颜色别撞 */
+  /* 【沉降】：报压几点。深蓝 —— 推牌往堆上加牌、这件压点数，方向相反，颜色别撞 */
   .hand-sink-tag {
-    position: absolute;
-    top: 32px;
-    right: 3px;
     color: #2b5f9e;
     font-size: 9px;
     font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
   }
 
-  /* ---- 叠放那两个角标摆在**左边一竖排** ----
-
-     牌只有 46×64，而四个角标里已经占了两个：
-       `.card-burn-tag`（烧）在右上；
-       `.card-effect`（在场效果名）**占满整条下沿**（left:0 right:0）。
-     所以下沿不能用 —— 摆那儿会被效果名那条深色底盖掉。
-     左边一竖排是剩下唯一不撞的位置，而且「垫在下面」那个意思
-     靠两个角标上下排也读得出来 */
-
-  /* 盾：绿色，跟 .card-warded 那条绿边同色。左上（烧在右上） */
+  /* 盾：绿色，跟 .card-warded 那条绿边同色。报它还能扛几次 */
   .card-ward-tag {
-    position: absolute;
-    top: 1px;
-    left: 3px;
     color: #2f9e68;
     font-size: 9px;
     font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
   }
 
-  /* 底下压着几张（收走这一叠多值几分）：金色 —— 跟 .card-caught
-     那个金底同色，因为它说的就是「收走它能拿多少」。
-     摆在盾底下一行（top 12px），两个一起出现时上下排 */
+  /* 底下压着几张（收走这一叠多值几分）：金色 —— 跟 .card-caught 那个金底同色 */
   .card-stack-tag {
-    position: absolute;
-    top: 12px;
-    left: 3px;
     color: #c8912a;
     font-size: 9px;
     font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
   }
+
+
 
   /* 被收走的那一段：金底金边、往上抬。必须排在上面几条描边后面，
      同权重后来居上，边框色才盖得住 */
@@ -11557,9 +11635,21 @@
   }
 
   .card-rank {
-    color: #1a1a1a;
+    color: #222222;
     font-size: 18px;
     font-weight: bold;
+  }
+
+  /* 牌堆那排（54x76）的点数。必须排在 .card-rank 后面。
+     行高 = 头的高度，跟花色那个字中心对齐 */
+  .card-rank-pile {
+    font-size: 22px;
+    line-height: 40px;
+  }
+
+  /* 手牌的点数：字号不变，行高 = 头的高度 */
+  .card-rank-hand {
+    line-height: 32px;
   }
 
   /* 庄家那排小牌：点数跟着小一号。必须排在 .card-rank 后面 */
@@ -11568,7 +11658,24 @@
   }
 
   .card-suit {
-    color: #1a1a1a;
+    color: #222222;
+    font-size: 16px;
+  }
+
+  /* 花色当底：牌堆 36px、手牌 28px（原先比点数小一大截，而顺色、收色、
+     一色、隔凌这几件全靠一眼认出花色和颜色）。行高 = 头的高度 */
+  .card-suit-pile {
+    font-size: 36px;
+    line-height: 40px;
+  }
+
+  .card-suit-hand {
+    font-size: 28px;
+    line-height: 32px;
+  }
+
+  /* 庄家那排小牌（34x48）保持原来的 12px —— 16px 会把「冻」「废」角标挤出去 */
+  .card-suit-small {
     font-size: 12px;
   }
 
@@ -11576,11 +11683,28 @@
     color: #d33b3b;
   }
 
+  /* 叠在花色上的点数：白字 + 深色描边，绝对定位盖在花色正中间。
+     **排在 .card-red 后面、.card-shifted 前面**（同权重后来居上）：
+       盖过红色 —— 红黑现在由底下那个花色表达，点数一律白字；
+       被 .card-shifted 盖过 —— 「点数跟牌面对不上」那条信息靠点数换色，不能丢 */
+  .card-rank-over {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #ffffff;
+    text-shadow: 0 0 2px #1a1a1a;
+  }
+
   /* 堆上这张现在算的点数跟牌面对不上了（顺色没点数、见底压过）。
      **必须排在 .card-red 后面** —— 两个类同权重，后来居上，
      不然红牌改过之后还是红的，一眼看不出它的点数已经不是牌面那个了 */
   .card-shifted {
-    color: #7b1fa2;
+    /* 橙黄〔2026-10-21，原先是紫 #7b1fa2〕：点数改成白字叠在大花色上之后，
+       紫色压在红 / 黑花色上认不出来。橙黄配深色描边在两种花色上都醒目，
+       也避开了已经有含义的色：燃烧橙红、结冰 / 护饵蓝、保护绿、通配紫 */
+    color: #e09400;
   }
 
   /* 被冻住的牌：压暗 + 冷色边。它还在手里，只是打不出去 */
