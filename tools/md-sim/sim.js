@@ -1067,6 +1067,25 @@ function printColdDiag() {
   }
 }
 
+// 两件技能的协同。
+//
+// ⚠ **它的口径跟 `all` / `vs` / `one` 不一样，而这一点栽过一次**〔2026-10-21〕。
+//
+// 这儿走的是 `measure`（两格：基线 / 我带），所以三个数全是**后手单侧
+// `back`**；而那三条命令走 `measureBoth`（三格，多一个「对手带」），
+// 报的是 **X = (back + front) / 2**。换算是 `back = X − D`。
+//
+// 实证（拢水那一轮，20000 局 · 江口闸官）：伏流这儿报 3.66、全表 X 3.85 /
+// D +0.12 → 3.85 − 0.12 = 3.73，差 0.07；易流 / 涉水 / 拢水三件差 0.01~0.02。
+// **四件全对得上，所以两批数是一致的** —— 可我一度把那个差当成了「跨批噪声」，
+// 还写进了两份文档。噪声能靠多跑几局收敛，口径差跑一百遍还是差一个 D。
+//
+// 所以下面**必须把口径打出来**（照 `cmdOne` / `cmdVs` 那两条已经打的）——
+// 不打的话输出跟全表长得一样，而两者不能相减。
+//
+// 还有一条换算不出来的：**协同没法转成 X 口径**。它是三个 `back` 的差，
+// 要转得知道「两件都带」那一格的 D，而这儿不量对手侧，给不出。
+// 要 X 口径的协同只能改成三格 × 三种配装（九格），当前没这个命令。
 function cmdPair(args) {
   const role = roleIndexOrDie(args.role)
   const slots = R.DRAW_ROLES[role].slots
@@ -1086,7 +1105,14 @@ function cmdPair(args) {
   const onlyB = measure(args, R.kitWithOne(role, 1, atB), role)
   console.log('【' + R.SKILLS[atA].name + '】(槽 1：' + slots[0] + ') + 【'
     + R.SKILLS[atB].name + '】(槽 2：' + slots[1] + ')'
-    + ' · ' + R.DRAW_ROLES[role].name + ' · ' + args.n + ' 局\n')
+    + ' · ' + R.DRAW_ROLES[role].name + ' · ' + args.n + ' 局'
+    + ' · ' + specialNote(args, role) + '\n')
+  // 口径必须打出来 —— 见函数抬头那段。**单侧，不是 X**
+  console.log('  ⚠ 口径：两格（基线 / 我带），所以下面三个数都是'
+    + '**后手单侧 back**，\n'
+    + '     **不是 X** —— `all` / `vs` / `one` 报的 X 是两侧平均。'
+    + '换算 `back = X − D`，\n'
+    + '     所以**这三个数不能直接跟全表相减**。\n')
   console.log('  只带 ' + R.SKILLS[atA].name + '：'
     + (onlyA.gain >= 0 ? '+' : '') + f2(onlyA.gain))
   console.log('  只带 ' + R.SKILLS[atB].name + '：'
@@ -1097,6 +1123,8 @@ function cmdPair(args) {
   console.log('\n  协同（两件都带 − 各自单带之和）：'
     + (synergy >= 0 ? '+' : '') + f2(synergy) + ' 分')
   console.log('  这个数是**现在**的协同（没有组合技，纯粹是两件技能互相影响）。')
+  console.log('  它也是单侧口径，而且**换算不成 X** —— 要转得知道'
+    + '「两件都带」那一格的 D，这儿不量对手侧。')
   console.log('  第九节的组合技做完之后再跑一遍，差额就是组合技自己的贡献。')
   console.log('\n  注意槽不一样大的角色会让这个数偏 —— 默认的江口闸官四个槽等大。')
   printColdDiag()

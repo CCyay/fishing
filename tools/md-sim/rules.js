@@ -1047,10 +1047,15 @@ const SK = {
   // 已删 key 的字面量 —— 「哪儿还在查已删的 key」要能 grep 得干净）
   PEEK: SK_GONE, LANTERN: SK_GONE,
   // 洪水 2026-10-15 删了（源码同一天删的），**2026-10-21 作为原型接回来**
-  //（见 SKILLS 表那条）。源码侧仍然没有它，所以它登记在 SIM_ONLY 里。
-  // 接回来之后 `floodFor` / `FLOOD_CAP` / `FLOOD_MIN` / `FLOOD_STOP`
-  // 以及 `ai.js` 的 `FLOOD_RUSH` **全部重新生效** —— 那几段原先写着
-  // 「留着也不会跑」，现在跑了
+  //（见 SKILLS 表那条）。接回来之后 `floodFor` / `FLOOD_CAP` / `FLOOD_MIN` /
+  // `FLOOD_STOP` 以及 `ai.js` 的 `FLOOD_RUSH` **全部重新生效** ——
+  // 那几段原先写着「留着也不会跑」，现在跑了。
+  //
+  // 〔这儿原先还有一句「**源码侧仍然没有它，所以它登记在 SIM_ONLY 里**」——
+  //   **同一天下午就过期了**：量完 N 矩阵它当天上架了源码
+  //   （`draw-skills.uts` 有表项、价 110），`refs.js` 的 `SIM_ONLY`
+  //   里那一项也同时撤了（只留了一段墓碑）。
+  //   `FLOOD_MIN` 默认 0 = 闸关着，而源码侧本来就没有这道闸 —— 两边同值〕
   FLOOD: skAt('flood'),
   PICK: skAt('pick'), SUITIFY: skAt('suitify'),
   // ---- 【沉底】也删了〔2026-10-14〕----
