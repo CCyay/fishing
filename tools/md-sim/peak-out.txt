@@ -1,0 +1,90 @@
+################ 0. 齐顶重量（漂移修完之后） ################
+    400 局 / 19200 手，六条硬断言全过
+
+—— 全过。规则层没被碰坏，可以去看 `base` 的六个数了。
+---- 齐顶 · 修完（台账旧数 3.57 作废） ----
+【齐顶】在**先手**和**后手**手里各值多少 · 江口闸官 · 都插第 1 个槽（A）· 不带常驻技 · 20000 局
+
+    后手（我）手里：  +3.54   标准误 0.11
+    先手（对手）手里：+3.60   标准误 0.11
+
+  **先手 − 后手**：+0.07 分
+  同一基线、同一角色、同一槽，所以这两个数可以直接比。
+  正数 = 这件技能**对先手更有用**（先手本来劣势，技能对它的边际价值更高）。
+  `all` / `one` / `pair` 只量后手那一侧，所以那几张表报的是「后手的价值」。
+
+  镜像协同（双方都带时我那件多值多少）：+0.08 分
+
+---- 齐顶 · 花色槽（幅度跟槽型有关，两种都要量） ----
+【齐顶】peak · 夜钓客 · 第 1 个槽（A，4 张牌） · 20000 局 · 不带常驻技
+
+  后手 +3.54   先手 +3.60   X +3.57   D +0.03   标准误 0.11
+  建议价：100
+
+  胜率：61.9%（基线 49.1%，+12.8%）
+  带技能那方（后手格）：每局钓到 8.7 次（基线 7.8），每次收 2.74 张（基线 2.82）
+
+
+################ 1. 这条思路的核心一格：抬水 × 齐顶 ################
+【抬水】(槽 1：A) + 【齐顶】(槽 2：2) · 江口闸官 · 20000 局
+
+  只带 抬水：+1.85
+  只带 齐顶：+3.43
+  两件都带：+5.20   标准误 0.11
+
+  协同（两件都带 − 各自单带之和）：-0.08 分
+  这个数是**现在**的协同（没有组合技，纯粹是两件技能互相影响）。
+  第九节的组合技做完之后再跑一遍，差额就是组合技自己的贡献。
+
+  注意槽不一样大的角色会让这个数偏 —— 默认的江口闸官四个槽等大。
+
+################ 2. 对照：另两件能改点数的 ################
+---- 归深 × 齐顶（它追加 11 点 —— 堆上没有 11，所以它是「造一个新 top」） ----
+【归深】(槽 1：A) + 【齐顶】(槽 2：2) · 江口闸官 · 20000 局
+
+  只带 归深：+0.00
+  只带 齐顶：+3.43
+  两件都带：+3.42   标准误 0.11
+
+  协同（两件都带 − 各自单带之和）：-0.00 分
+  这个数是**现在**的协同（没有组合技，纯粹是两件技能互相影响）。
+  第九节的组合技做完之后再跑一遍，差额就是组合技自己的贡献。
+
+  注意槽不一样大的角色会让这个数偏 —— 默认的江口闸官四个槽等大。
+---- 软点 × 齐顶（追加 1 点，方向相反：它**降低**不了 top，应该近 0） ----
+D:\source\fishing\tools\md-sim\sim.js:1133
+        console.log('
+                    ^
+
+SyntaxError: Invalid or unexpected token
+    at wrapSafe (node:internal/modules/cjs/loader:1691:18)
+    at Module._compile (node:internal/modules/cjs/loader:1734:20)
+    at Object..js (node:internal/modules/cjs/loader:1892:10)
+    at Module.load (node:internal/modules/cjs/loader:1480:32)
+    at Module._load (node:internal/modules/cjs/loader:1299:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v25.2.1
+
+################ 3. 齐顶的落点到底在哪（决定这条路的天花板） ################
+D:\source\fishing\tools\md-sim\sim.js:1133
+        console.log('
+                    ^
+
+SyntaxError: Invalid or unexpected token
+    at wrapSafe (node:internal/modules/cjs/loader:1691:18)
+    at Module._compile (node:internal/modules/cjs/loader:1734:20)
+    at Object..js (node:internal/modules/cjs/loader:1892:10)
+    at Module.load (node:internal/modules/cjs/loader:1480:32)
+    at Module._load (node:internal/modules/cjs/loader:1299:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v25.2.1
+
+################ 跑完 ################

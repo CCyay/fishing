@@ -35,6 +35,10 @@
 //   node campaign.js --kshift 1             ← 玩家配装提前 1 关成形（= 多给金币）
 //   node campaign.js --ease 1               ← 庄家「记牌」推迟 1 关、随机关多 1 关
 //   node campaign.js -n 3000 --seed 7
+//   PLAYER_SP=1 node campaign.js            ← 把玩家的**常驻技**打开（默认一件都没模）
+//   PLAYER_ROLE=linkman PLAYER_SP=1 node campaign.js   ← 换一张玩家卡
+//     〔后两条 2026-10-20 加，**默认关着** —— 不加环境变量时输出跟 10-19 逐位相同。
+//       细节和三个坑见下面 PLAYER_ROLE 那一段〕
 //
 // ---- 它量的是什么、不量什么 ----
 //
@@ -155,23 +159,57 @@ const PLAYER_POOL = [
   //   玩家配装随机少一件，通关率跟着虚低 —— 洪水栽过的正是这一处〕
   'dead', 'hue', 'press'
 ]
-const PLAYER_ROLE = 'lock'
+// ---------- 玩家是哪张卡、常驻技开不开〔2026-10-20 加的两个环境开关〕 ----------
+//
+// **两个都默认关着，默认跑出来跟 10-19 那三档逐位相同。** 加它们是为了
+// 量【点数互通】的 campaign 口径，而动默认值 = 改掉现行三档通关率的口径。
+//
+//   node tools/md-sim/campaign.js                         ← 基线，一个字节都没动
+//   PLAYER_SP=1 node tools/md-sim/campaign.js             ← 只开常驻技（lock 的【窄口】）
+//   PLAYER_ROLE=linkman PLAYER_SP=1 node …/campaign.js    ← 换成【通号人】
+//
+// ⚠ **`PLAYER_SP` 之前，campaign 一件常驻技都没模。** `playGame` 那边
+// 原先没传 `myRole`/`foeRole`，于是两侧都是 −1、`hasSpecial` 恒 false ——
+// 连玩家自己那张江口闸官的【窄口】都不在里头。所以 `PLAYER_SP=1` 这一档
+// **不是「加了互通」，是「常驻技这一整类从无到有」**，要先跑它当对照。
+//
+// ⚠ 它只开**玩家这一侧**。庄家那边走的是 `FOE_ROLES`（draw-levels 的表，
+// 不是 `DRAW_ROLES` 的下标），特殊技照旧只模了【添手】【掐口】两条。
+// 于是 `PLAYER_SP=1` 是**单边加强**，绝对数会虚高 —— 能读的还是两档之差。
+//
+// ⚠ 第三个坑：**槽数不同的卡，配装件数跟着不同。** 下面 `kitSize` 原先
+// 写死封顶 4（= 江口闸官的槽数），现在跟着这张卡的槽数走。通号人 3 个槽
+// → 第 7~9 关只装 3 件，比基线少一件。所以 `lock` vs `linkman` 那个差里
+// **混着「少插一件」那一份**，不是常驻技的净值（净值在 `--duel` 那边量）。
+const PLAYER_ROLE = process.env.PLAYER_ROLE || 'lock'
+const PLAYER_SP = process.env.PLAYER_SP === '1'
+const PLAYER_ROLE_AT = R.roleIndexOf(PLAYER_ROLE)
+if (PLAYER_ROLE_AT < 0) {
+  console.error('PLAYER_ROLE 查不到这张卡：' + PLAYER_ROLE)
+  process.exit(1)
+}
+const PLAYER_SLOTS = R.DRAW_ROLES[PLAYER_ROLE_AT].slots.length
 
 // 第 level 关（0 起）开打时装着几件。经济目标照 draw-levels 那段注释：
 // 「打到第 9 关攒下的技能数正好对上技能库上限」，而江口闸官只有 4 个槽，
 // 所以装着的件数在第 7~9 关封顶 4。简单的钱多（×2）、困难的钱少（×0.75）
+// 〔封顶那个 4 2026-10-20 换成 `PLAYER_SLOTS` —— 默认（lock，4 槽）不变〕
 function kitSize(diff, level, kshift) {
   const at = level + kshift
-  if (diff === 'easy') return Math.max(0, Math.min(4, Math.ceil(at * 0.75)))
-  if (diff === 'hard') return Math.max(0, Math.min(4, Math.floor(at * 0.4)))
-  return Math.max(0, Math.min(4, Math.floor(at * 0.5)))
+  const cap = PLAYER_SLOTS
+  if (diff === 'easy') return Math.max(0, Math.min(cap, Math.ceil(at * 0.75)))
+  if (diff === 'hard') return Math.max(0, Math.min(cap, Math.floor(at * 0.4)))
+  return Math.max(0, Math.min(cap, Math.floor(at * 0.5)))
 }
 
 function playerKit(rng, size) {
-  const role = R.roleIndexOf(PLAYER_ROLE)
+  const role = PLAYER_ROLE_AT
   const pool = PLAYER_POOL.slice(0)
   const picks = []
-  for (let i = 0; i < 4; i++) {
+  // 循环上界跟着槽数走（原先写死 4）。`kitFromRole` 本来就会把多出来的
+  // 挑选**静默丢掉**，可多摇一次 `randInt` 会把 rng 流错开 —— lock 下
+  // 两者等价（4 == 4），换卡时不等价
+  for (let i = 0; i < PLAYER_SLOTS; i++) {
     if (i >= size || pool.length === 0) { picks.push(-1); continue }
     const at = R.randInt(rng, pool.length)
     picks.push(R.SK[pool[at].toUpperCase()] !== undefined
@@ -227,6 +265,9 @@ function levelOdds(diff, level, opt) {
       mineSmart: true,
       foeSmart: mode.smart,
       foeRandom: mode.random,
+      // `myRole` 不传 = −1 = `hasSpecial` 恒 false = **一件常驻技都不模**，
+      // 那是 2026-10-20 之前的样子，也是默认档（PLAYER_SP 关着）
+      myRole: PLAYER_SP ? PLAYER_ROLE_AT : -1,
       handAdj: adj
     }, AI)
     const diffScore = G.score[R.ME] - G.score[R.FOE]
@@ -296,6 +337,14 @@ function main() {
   // pileNotLast 翻到 old 之后它把现行规则印成了「新（剩堆归没打最后一手的）」
   console.log('闯关校准 · 规则 ' + R.ruleTag()
     + ' · 每关 ' + opt.n + ' 局 · kshift ' + opt.kshift + ' · ease ' + opt.ease)
+  // 玩家那张卡印出来 —— 环境开关是静默的，不印的话两档输出长得一模一样，
+  // 而「哪一档跑的」正是台账要的标签（CLAUDE.md：缺标签的数等于没有数）
+  console.log('玩家 · ' + R.DRAW_ROLES[PLAYER_ROLE_AT].name
+    + '（' + PLAYER_ROLE + '，' + PLAYER_SLOTS + ' 槽 / '
+    + R.roleCover(PLAYER_ROLE_AT) + ' 张）· 常驻技 '
+    + (PLAYER_SP ? '**开**（' + R.DRAW_ROLES[PLAYER_ROLE_AT].special + '）'
+      : '关（PLAYER_SP=1 打开）')
+    + (PLAYER_SP || PLAYER_ROLE !== 'lock' ? ' ← 非默认档，别跟基线那三档混着引' : ''))
   const missing = []
   for (let lv = 0; lv < FOE_ROLES.length; lv++) {
     const sp = FOE_ROLES[lv].specials.filter(function (s) { return MODELED_SP.indexOf(s) < 0 })
@@ -322,6 +371,21 @@ function main() {
         + '  ' + (o.margin >= 0 ? '+' : '') + o.margin.toFixed(2).padStart(5)
         + '   ' + pct(run.reach[lv]))
     }
+  }
+  // ---- 诊断口：这件常驻技**到底发动了几次**〔CLAUDE.md 第四节那条〕 ----
+  //
+  // 只看通关率查不出「它一次都没响」—— 单边加强本来就会让通关率涨，
+  // 而涨的那一份可能全来自别处（配装件数、rng 流错位）。
+  // 实际倍率 ×1.00 = 一次都没互通，那一档跑的是原版。
+  const lst = R.PROTO_STAT.ranklink
+  if (lst.plays > 0) {
+    console.log('\n---- 点数互通诊断（累计全部难度 / 全部关）----')
+    console.log('  理论倍率 = 这张卡的点数槽数；实际 ×'
+      + (lst.base > 0 ? ((lst.base + lst.extra) / lst.base).toFixed(2) : '—')
+      + '（触发件次 ' + lst.base + ' → ' + (lst.base + lst.extra) + '）')
+    console.log('  我方出牌 ' + lst.plays + ' 张，其中 ' + lst.hit + ' 张真的多触发了技能')
+  } else if (PLAYER_SP && R.DRAW_ROLES[PLAYER_ROLE_AT].special === 'ranklink') {
+    console.log('\n⚠ 带着【通号人】却一次都没发动 —— 这一档的数不能用，先查 linkOn。')
   }
 }
 

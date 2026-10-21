@@ -5,9 +5,10 @@
     "ap-fishing.uvue:playFor": "5647bf79e910",
     "ap-fishing.uvue:resolveMatch": "893f93242df3",
     "ap-fishing.uvue:removePileAt": "76fc35042c64",
+    "ap-fishing.uvue:skillsOf": "927e3d3ec420",
     "ap-fishing.uvue:afterPlay": "dd1ccf316e51",
     "ap-fishing.uvue:afterPlayHead": "e2a0f4afafb6",
-    "ap-fishing.uvue:afterPlayTail": "266ccb373ad3",
+    "ap-fishing.uvue:afterPlayTail": "d1d557784952",
     "ap-fishing.uvue:valuesOf": "bd155063ea92",
     "ap-fishing.uvue:landVals": "4a8f82bebdee",
     "ap-fishing.uvue:cardVals": "7e0fd0f22216",
@@ -41,7 +42,7 @@
     "ap-fishing.uvue:addWild": "c2d9029e02df",
     "ap-fishing.uvue:bestChainAt": "85223baaaa23",
     "ap-fishing.uvue:markChain": "f3bb89ae284c",
-    "ap-fishing.uvue:straightFor": "4318b6479eb5",
+    "ap-fishing.uvue:straightFor": "8692ef669203",
     "ap-fishing.uvue:wadeFor": "ab7bd4322220",
     "ap-fishing.uvue:brimFor": "ad0737be3757",
     "ap-fishing.uvue:straightCount": "7fb6276a8ba1",
@@ -53,7 +54,7 @@
     "ap-fishing.uvue:hueFor": "a9d9e3267d56",
     "ap-fishing.uvue:castFor": "549d9e867958",
     "ap-fishing.uvue:harvestIndices": "47721b4d625c",
-    "ap-fishing.uvue:harvestCount": "e165aa20fa59",
+    "ap-fishing.uvue:harvestCount": "71e7e8cfca45",
     "ap-fishing.uvue:peekFor": "95334d98a3e9",
     "ap-fishing.uvue:doPickDeck": "b530f5c504a0",
     "ap-fishing.uvue:sinkTops": "3922eb03b703",
@@ -83,7 +84,7 @@
     "ap-fishing.uvue:foePickCard": "8d3510ba855d",
     "ap-fishing.uvue:baitRisk": "53f3c83a253f",
     "ap-fishing.uvue:outsideCount": "d7f6469a7ea9",
-    "ap-fishing.uvue:foeSwapPick": "345fe4dad563",
+    "ap-fishing.uvue:foeSwapPick": "feab6fbef11f",
     "ap-fishing.uvue:foePickDeck": "49d5dfffa993",
     "ap-fishing.uvue:foeFreezePick": "4c004e930252",
     "ap-fishing.uvue:randomFree": "e58612e7f9a8",
@@ -123,5 +124,5 @@
     "draw-skills.uts:FUEL_TAG": "1",
     "ap-fishing.uvue:TAIL_PLAYS": "2"
   },
-  "skills": "hook,tide,swap,suited,freeze,pick,suitify,deep,peak,hue,cast,press,unhook,swapcard,narrow,creel,twin,draft,soft,dead,calm,clean,wild,raise,flow,wade,frost,hide,coldhue,chain,kindle,surge,sinktag,fuel,gift,brim,creel,narrow,clear,deephook,beach,jsurge,reverse,bait,twocolor,tens,basket,lock,upstream,mirror,deepline,pond,night,reckon,filler,surgeman"
+  "skills": "hook,tide,swap,suited,freeze,pick,suitify,deep,peak,hue,cast,press,unhook,swapcard,narrow,creel,twin,draft,soft,dead,calm,clean,wild,raise,flow,wade,frost,hide,coldhue,chain,kindle,surge,sinktag,fuel,gift,swapflow,creel,narrow,clear,deephook,beach,jsurge,reverse,bait,twocolor,tens,ranklink,heartwild,basket,lock,upstream,mirror,deepline,pond,night,reckon,filler,surgeman,rigger,peachtide"
 }

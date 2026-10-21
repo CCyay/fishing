@@ -267,13 +267,16 @@
       </view>
     </view>
 
-    <!-- 换水：挑一张手牌塞回牌库洗掉。
-         挑的动作借手牌那一排 —— 点一张就是挑它，不用另搭一块 UI -->
+    <!-- 换水：挑**任意张**手牌塞回牌库洗掉。
+         挑的动作借手牌那一排 —— 点一张就是挑它，不用另搭一块 UI。
+         **可以连着点**：点一张洗一张，挑够了按右边那颗钮收尾。
+         实测「换几张」这个决定是有牙的 —— 多换一张废牌 +0.5，
+         而误洗掉一张当场能收的约亏 2.3 分 -->
     <view v-if="swapPending" class="tide-box">
-      <text class="tide-text">换水：点一张手牌，塞回牌库洗掉（回合末会补新的）</text>
+      <text class="tide-text">{{ swapDone > 0 ? ('换水：已塞回 ' + swapDone + ' 张，还能接着点手牌') : '换水：点手牌塞回牌库洗掉，想换几张换几张（回合末会补新的）' }}</text>
       <view class="tide-actions">
         <view id="ap-swap-skip" class="tide-btn tide-btn-plain" @click="onSwap(-1)">
-          <text class="tide-btn-text tide-btn-text-plain">不换</text>
+          <text class="tide-btn-text tide-btn-text-plain">{{ swapDone > 0 ? '换完了' : '不换' }}</text>
         </view>
       </view>
     </view>
@@ -730,12 +733,17 @@
     // 【分饵】：看牌库顶 `GIFT_LOOK` 张，给自己和对手各 1 张（2026-10-16）
     SK_GIFT,
     GIFT_LOOK,
-    // 【漫流】：【推牌】`BRIM_LAYERS` 层；【顺子匹配】（2026-10-16）
+    // 〔【漫流】2026-10-20 删了（换成【易流】）。这两个 import **留着** ——
+    //   `brimFor` 还在读它们，而那个函数按删法第二步留着
+    //  （`SK_BRIM` 现在恒 −1，所以永不触发）。
+    //   **先删函数、再撤 import** 那条顺序是硬的 —— 反过来直接编译不过〕
     SK_BRIM,
     BRIM_LAYERS,
+    // 【易流】：它带上【通配】；换 1 张；【顺子匹配】（2026-10-20，顺子族第四件）
+    SK_SWAPFLOW,
     STRAIGHT_MIN,
     DEAD_COUNT,
-    // 【沉潮】：挑 `SINK_TAG_N` 张对方手牌贴【沉降】，
+    // 【退潮】：挑 `SINK_TAG_N` 张对方手牌贴【沉降】，
     // 而【沉降】那张打出时整堆 −`SINK_TAG_STEP`（2026-10-19）
     SK_SINKTAG,
     SINK_TAG_N,
@@ -753,6 +761,11 @@
     DRAFT_MIN,
     emptyLoadout,
     triggersOf,
+    // 【串钩】那一步追加（见 skillsOf）。它跟 triggersOf 分开是因为
+    // 它要先知道「这一侧带没带那件常驻技」
+    addRankLink,
+    // 【红钩】（桃汛客）同一层，只是认花色不认点数
+    addHeartWild,
     hasTrigger,
     equippedSkills,
     coverageText,
@@ -781,6 +794,10 @@
     SP_CYCLE,
     // 【归十】：你打出的 Q K 都算 10（见 valuesOf）
     SP_TENS,
+    // 【串钩】（串钩手）：命中任一个点数槽 → 所有点数槽一起响（见 skillsOf）
+    SP_RANKLINK,
+    // 【红钩】（桃汛客）：打出红桃 → 所有槽一起响（见 skillsOf）
+    SP_HEARTWILD,
     CYCLE_REFILL,
     BAIT_COUNT,
     baitRankOf
@@ -1275,8 +1292,10 @@
     }
     return n == tideMarks.value.length ? '两张都沉' : '沉 ' + n + ' 张'
   })
-  // 换水等你挑一张手牌塞回去
+  // 换水等你挑手牌塞回去（**任意张** —— 点一张洗一张，按钮收尾）
   const swapPending = ref<boolean>(false)
+  // 这一次换水已经塞回去几张了（只用来写提示和结算文案）
+  const swapDone = ref<number>(0)
   // 冻结等你挑庄家的一张手牌（挑的是位置 —— 那几张多半盖着）
   const freezePending = ref<boolean>(false)
   // 【薪潮】在等你盲选一张（照 freezePending ——**不翻开对方手牌**，
@@ -1369,7 +1388,7 @@
   // 所以那三件走到 onTakeFrom 就结束了；死水要挑 DEAD_COUNT 张，
   // 挑够之前 takeSkill 不清
   const deadLeft = ref<number>(0)
-  // 【沉潮】这一手还要挑几张（照 deadLeft —— 它也挑多张）。
+  // 【退潮】这一手还要挑几张（照 deadLeft —— 它也挑多张）。
   // 两件各一个 ref 而不是共用：它们的池子判据不同，而且**同一手可能
   // 两件都触发**（一张牌落在两个槽上 = 双触发），共用会互相清掉
   const sinkLeft = ref<number>(0)
@@ -1403,7 +1422,7 @@
   //   收色 演完 → TAIL_CAST（撒网……）
   //   撒网 演完 → TAIL_FLOW（伏流……）
   //   伏流 演完 → TAIL_WADE（涉水……）
-  //   涉水 演完 → TAIL_BRIM（漫流……）
+  //   涉水 演完 → TAIL_SWAPFLOW（漫流……）
   //   漫流 演完 → TAIL_WILD（野火……）
   //   野火 演完 → TAIL_REST（动对方手牌那几件往后）
   // 一色演完从 TAIL_HEAD 接着走（afterPlayHead：窥视、照水……见底）
@@ -1428,12 +1447,15 @@
   const TAIL_CAST : number = 1
   const TAIL_FLOW : number = 2
   const TAIL_WADE : number = 3
-  // 【漫流】2026-10-16 插在这儿，后面三个跟着 +1。
+  // 这一段原是【漫流】的（2026-10-16 插进来，后面三个跟着 +1）。
+  // **漫流 2026-10-20 删了，而这一段连号没动** —— 换成【易流】接管它。
+  // 那正是墓碑里记的那条：这几个 TAIL_* 是**连续的**，删中间一个
+  // 会让后面全错位，所以空出来的段位要么留着占位、要么换人接管。
   //
   // **插进来就得全套重排** —— 这几个值是「段的先后」，而每一段的进入
   // 条件是 `from <= 它`。所以漏改一个的后果是上面注释里那两种静默错法。
   // 全文只用常量名、没有字面量（grep 确认过），所以改值是安全的
-  const TAIL_BRIM : number = 4
+  const TAIL_SWAPFLOW : number = 4
   const TAIL_WILD : number = 5
   const TAIL_REST : number = 6
   // ---- 【燃尽】那一步的哨兵（2026-10-14）----
@@ -1955,7 +1977,7 @@
     if (takeSkill.value == SK_SINKTAG) {
       // 报**还剩几张** + **压几点** —— 两个数玩家都要（照死水报剩几张、
       // 照引潮把后果算给他看）
-      return '沉潮：点两排任意手牌给它贴沉降（还剩 ' + sinkLeft.value
+      return '退潮：点两排任意手牌给它贴沉降（还剩 ' + sinkLeft.value
         + ' 张）· 打出时堆上所有牌 −' + SINK_TAG_STEP
         + ' 点 · J 和已经贴过的点不动'
     }
@@ -2394,7 +2416,22 @@
     if (isDead(card)) {
       return [] as number[]
     }
-    return triggersOf(loadoutOf(byFoe), card.suit, card.rank)
+    const lo = loadoutOf(byFoe)
+    const list = triggersOf(lo, card.suit, card.rank)
+    // 【串钩】（串钩手）：命中任一个**被占**的点数槽 → 所有点数槽一起响。
+    // 闸和追加顺序都在 addRankLink 里，这儿只问「这一侧带没带」——
+    // 而那正是它不能写进 triggersOf 的原因（那个函数不知道是谁在出牌）
+    if (hasSpecial(byFoe, SP_RANKLINK)) {
+      return addRankLink(lo, card.rank, list)
+    }
+    // 【红钩】（桃汛客）：打出红桃 → 所有槽（点数 + 花色）一起响。
+    // 跟串钩**互斥不用写** —— 一个角色只带一件常驻技，两个 if 永远
+    // 只进得去一个。写成两段并列（不是 else if）是为了删掉任一件时
+    // 另一段不用动
+    if (hasSpecial(byFoe, SP_HEARTWILD)) {
+      return addHeartWild(lo, card.suit, card.rank, list)
+    }
+    return list
   }
 
   // 手牌底下那行小字：这张会触发的技能名
@@ -6116,15 +6153,18 @@
         return
       }
     }
-    // 漫流：先推 1 层牌，再判顺子。**自己一段**（TAIL_BRIM）——
+    // 易流：先换 1 张，再判顺子。**自己一段**（TAIL_SWAPFLOW）——
     // 每件散收技能都得有，理由见 TAIL_* 那段。
     //
     // 排在伏流、涉水**后面**：三件都收牌，而一张牌同时带两件时
     //（花色槽一件、点数槽一件）先跑的那件可能把堆收空。
-    // 漫流排最后是因为它**自己会把堆垫厚** —— 即使前面那件收走了一片，
-    // 它推上来的 2 张照样能凑
-    if (from <= TAIL_BRIM && hasTrigger(skills, SK_BRIM)) {
-      if (brimFor(byFoe, skills)) {
+    //
+    // 〔这一段原先是【漫流】的（`hasTrigger(skills, SK_BRIM)` → `brimFor`）。
+    //   漫流 2026-10-20 删了，而**段号一个没动** —— 易流接管它。
+    //   `brimFor` / `SK_BRIM` 留着（`SK_BRIM` 现在恒 −1，所以永不触发），
+    //   理由见 draw-skills 那块墓碑：先删函数、再撤常量，顺序反了编译不过〕
+    if (from <= TAIL_SWAPFLOW && hasTrigger(skills, SK_SWAPFLOW)) {
+      if (swapFlowFor(byFoe, skills)) {
         return
       }
     }
@@ -6148,6 +6188,12 @@
     //   > 择饵 100 > 同号 100 > 观潮 60
     //
     //（择饵和换水那两档是原有顺序，没动 —— 它们之间的闸见各自那段注释）
+    //
+    // ⚠ **上面这张价目表是旧快照，已经跟 draw-skills 的 unlock 对不上了**
+    //   （现行：压舱 55、冻结 35、择饵 80、观潮 50，而**换水 2026-10-20
+    //   从 40 提到 65**）。它现在只当「谁排谁前面」的备忘录读，
+    //   别拿它当价钱的依据 —— 真价在 `draw-skills.uts` 那张表里。
+    //   换水仍排在择饵前面，那是原有顺序，不是按价推出来的
     //
     // 这几件跟冻结的要紧区别：**它们让你看得见**。一发动就把对方全部手牌
     // 翻开给你挑（见 foeOpen 里认 takeSkill 那一条），所以它们是精准打击，
@@ -6211,7 +6257,7 @@
         doSurge(true, foeSurgePick())
       }
     }
-    // ---- 【沉潮】：挑 SINK_TAG_N 张贴【沉降】 ----
+    // ---- 【退潮】：挑 SINK_TAG_N 张贴【沉降】 ----
     //
     // 流程照**死水**（挑多张那条，自己管 sinkLeft 状态），
     // 而不是照引潮（那件只挑 1 张、挑完就交匹配）。
@@ -6252,7 +6298,7 @@
         doFreeze(true, foeFreezePick())
       }
     }
-    // 换水：挑一张自己的手牌塞回牌库洗掉。
+    // 换水：挑**任意张**自己的手牌塞回牌库洗掉。
     //
     // 排在观潮**前面**：两件都可能停下来等你选，而一个回合里只停一次说得清。
     // 手里没牌了就跳过 —— 没得挑
@@ -6260,15 +6306,30 @@
       const mine = byFoe ? foeHand.value : hand.value
       if (mine.length > 0) {
         if (!byFoe) {
+          swapDone.value = 0
           swapPending.value = true
           return
         }
-        // 庄家自己挑：扔掉最没用的那张（见 foeSwapPick）
-        const at = foeSwapPick()
-        if (at >= 0) {
+        // 庄家自己挑：一直扔最没用的那张，**扔到只剩有用的为止**。
+        //
+        // 第一张无条件扔（那是这件技能的本分），从第二张起撞上
+        // 「有用的」就收手 —— 实测那道闸值 +0.27：强制换满一局只多洗
+        // 0.116 张，却亏 0.27 分，换算下来**误洗一张当场能收的约亏 2.3 分**
+        let got = 0
+        while (foeHand.value.length > 0) {
+          const at = foeSwapPick()
+          if (at < 0) {
+            break
+          }
+          if (got > 0 && foeSwapUseful(foeHand.value[at])) {
+            break
+          }
           const card = takeFromHand(true, at)
           shuffleBack(card)
-          message.value = message.value + ' 庄家换水，塞回一张重洗。'
+          got = got + 1
+        }
+        if (got > 0) {
+          message.value = message.value + ' 庄家换水，塞回 ' + got + ' 张重洗。'
         }
       }
     }
@@ -6841,7 +6902,7 @@
       // 于是你白丢一张名额。界面上它们也没有 card-pickable
       //
       // 【引潮】同一个道理（它挑不了 J）—— 两件都走 canPickFoe
-      // 【沉潮】也要走这道闸，而它**比那两件更需要** ——
+      // 【退潮】也要走这道闸，而它**比那两件更需要** ——
       // 它排两条（J + 已经贴过的），所以点错的机会最多，
       // 而白丢一张名额的后果一模一样（sinkLeft 已经减了）
       if ((takeSkill.value == SK_DEAD || takeSkill.value == SK_SURGE
@@ -6893,7 +6954,7 @@
       }
       return foeHand.value[index].rank != JACK
     }
-    // 【沉潮】比引潮多一条：**已经带【沉降】的挑不了**（不可叠加）。
+    // 【退潮】比引潮多一条：**已经带【沉降】的挑不了**（不可叠加）。
     // 漏了这一条的后果是静默的 —— 玩家点第二次同一张，doSink 那道闸
     // 会把它吃掉，而 sinkLeft 已经减了一格（照 6716 那处死水的教训）
     if (takeSkill.value == SK_SINKTAG) {
@@ -6946,7 +7007,7 @@
       resolveMatch(false)
       return
     }
-    // ---- 【沉潮】挑 SINK_TAG_N 张，所以它跟死水一样自己管状态 ----
+    // ---- 【退潮】挑 SINK_TAG_N 张，所以它跟死水一样自己管状态 ----
     //
     // 跟死水那一段逐句同构（放过 / 贴一张 / 还要挑就 return / 挑够了交匹配），
     // 只有池子和 do 函数换了名字。**别合并成一个函数** ——
@@ -7806,7 +7867,7 @@
     message.value = message.value + who + '凑成 '
       + valueFace(span[0]) + '–' + valueFace(span[1]) + ' 的顺子，收走 '
       + taken.length + ' 张。'
-    // 演完从**野火那一段**接着走（漫流自己是 TAIL_BRIM，下一段是 TAIL_WILD）
+    // 演完从**野火那一段**接着走（漫流自己是 TAIL_SWAPFLOW，下一段是 TAIL_WILD）
     return startSweep(byFoe, taken, skills, TAIL_WILD)
   }
 
@@ -7853,8 +7914,99 @@
     return bestAt
   }
 
+  // ---------- 【易流】的替换：把 1 张手牌跟堆上 1 张互换 ----------
+  //
+  // **穷举**手牌 × 堆上（约 3 × 2.3 ≈ 7 种组合），取顺子收成最大的那对。
+  // 不写「挑最没用的换最有用的」启发式 —— 那种实现量出来是
+  //「挑得多好」而不是这个机制本身（照野火那条判据）。
+  //
+  // 三条硬性：
+  //   **不能换打出那张自己**（`at0`）—— 词条写着「你刚打的这张必须是
+  //     【顺子】里的一员」，换掉就不成立了；
+  //   **不能换带【保护】的那一格** —— 那一格底下压着牌，换走宿主
+  //     会让叠放的账算不清；
+  //   **换了不如不换就不换** —— desc 写的是「**可以**替换」，
+  //     而连竿那次的教训是「desc 写『可』而实现是强制」会把空技能变成负的
+  function swapForStraight(byFoe : boolean, at0 : number, who : string) {
+    const mine = byFoe ? foeHand.value : hand.value
+    if (mine.length == 0 || pile.value.length < 2) {
+      return
+    }
+    // 不换时这一手能凑多长 —— 换完要比它好才值得换
+    const nowSpan = bestChainAt(withHighAce(deepestByVal(at0, byFoe)),
+      wildAtsOf(at0, byFoe).length, true, 1)
+    const nowLen = nowSpan[0] < 0 ? 0 : (nowSpan[1] - nowSpan[0] + 1)
+    let bestLen = nowLen
+    let bestHand = -1
+    let bestAt = -1
+    for (let h = 0; h < mine.length; h++) {
+      const hc = mine[h]
+      // 冻住的打不出去，也不该换得出去
+      if (isFrozen(hc)) {
+        continue
+      }
+      for (let i = 0; i < pile.value.length; i++) {
+        if (i == at0 || wardAt(i)) {
+          continue
+        }
+        // 试算：换上去 → 问一次能凑多长 → 原样换回来。
+        // **用快照回滚**而不是真换再换回，那样不会动 wildCards 之类的引用表
+        const keepCard = pile.value[i]
+        const keepVals = pileVals.value[i]
+        const keepSuit = pileSuit.value[i]
+        pile.value[i] = hc
+        pileVals.value[i] = landVals(hc, byFoe, [] as number[], false)
+        pileSuit.value[i] = hc.suit
+        const span = bestChainAt(withHighAce(deepestByVal(at0, byFoe)),
+          wildAtsOf(at0, byFoe).length, true, 1)
+        const len = span[0] < 0 ? 0 : (span[1] - span[0] + 1)
+        pile.value[i] = keepCard
+        pileVals.value[i] = keepVals
+        pileSuit.value[i] = keepSuit
+        if (len > bestLen) {
+          bestLen = len
+          bestHand = h
+          bestAt = i
+        }
+      }
+    }
+    if (bestHand < 0 || bestAt < 0) {
+      return
+    }
+    // 真换：手牌那张进堆、堆上那张进手
+    const hc = mine[bestHand]
+    const pc = pile.value[bestAt]
+    pile.value[bestAt] = hc
+    pileVals.value[bestAt] = landVals(hc, byFoe, [] as number[], false)
+    pileSuit.value[bestAt] = hc.suit
+    pileByFoe.value[bestAt] = byFoe
+    mine[bestHand] = pc
+    message.value = message.value + who + '把 ' + cardName(hc)
+      + ' 跟堆上第 ' + (bestAt + 1) + ' 张（' + cardName(pc) + '）换了。'
+  }
+
+  // 【伏流】走这条，而【易流】**复用同一条**（见下面那个转发）。
+  //
+  // ⚠ 加这两个参数而不是复制一份，是因为我在模拟器那边先复制了一次，
+  // 而**两份当场分叉**：同一个替换逻辑，在原路径上把凑成率从 53.4%
+  // 推到 62.5%，在复制的那份里却推到 48.2%（比不换还低），X 差 1.09 分。
+  // 那正是 CLAUDE.md 那节的原话 —— **接现成入口，别自己手写等效实现**。
+  //
+  //   tagPick  要不要**暂停让玩家挑一张通配**（伏流的「另选 1 张」）。
+  //            易流只有它自己那一张通配，所以传 false、不暂停
+  //   doSwap   要不要**换 1 张**（易流）
   function straightFor(byFoe : boolean, skills : number[]) : boolean {
-    const who = byFoe ? ' 庄家伏流：' : ' 伏流：'
+    return straightCore(byFoe, skills, '伏流', true, false)
+  }
+
+  // 【易流】：它带上【通配】；换 1 张；【顺子匹配】〔2026-10-20〕
+  function swapFlowFor(byFoe : boolean, skills : number[]) : boolean {
+    return straightCore(byFoe, skills, '易流', false, true)
+  }
+
+  function straightCore(byFoe : boolean, skills : number[], name : string,
+    tagPick : boolean, doSwap : boolean) : boolean {
+    const who = (byFoe ? ' 庄家' : ' ') + name + '：'
     const at0 = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
     if (at0 < 0) {
       return false
@@ -7878,19 +8030,36 @@
     // 挑完之后 onPilePick 会**重新调一次 straightFor**（贴完要当场判顺子），
     // 而这个分支只看 `!byFoe` 的话会**再暂停一次 → 死循环**。
     // `pilePick` 那时已经清了，所以不能靠它判
-    if (!byFoe && !flowPicked && pile.value.length > 0) {
+    // `tagPick` —— **只有伏流走这一支**（它的 desc 是「它和另选 1 张」）。
+    // 易流只有它自己那一张通配，所以不暂停、不挑
+    if (tagPick && !byFoe && !flowPicked && pile.value.length > 0) {
       pilePick.value = SK_FLOW
       pickStep.value = 0
       pickCard.value = lastPlayed
       pickSkills = skills
       return true
     }
-    if (byFoe) {
+    // 庄家侧的「另选 1 张」—— 同样只有伏流有（`tagPick`）
+    if (tagPick && byFoe) {
       const at = pickWildAt(true, at0)
       if (at >= 0) {
         addWild(pile.value[at])
         message.value = message.value + who + '给第 ' + (at + 1) + ' 张贴上【通配】。'
       }
+    }
+    // ---- 【易流】的替换：**贴完通配、判顺子之前** ----
+    //
+    // 位置是硬的，两头都卡着：
+    //   试算要在「它已经是通配」的局面下做（不然算出来的收成偏低），
+    //     所以排在 addWild **之后**；
+    //   换完那张要参与**这一次**判定，所以排在 deepestByVal **之前**。
+    //
+    // **换哪两张由程序算，不让玩家手选** —— 照抬水 / 伏流那条先例
+    //（「它算得准，所以它不猜」：堆是明的、手牌是自己的，玩家能做的
+    //  判断和程序一样，手选只是多一步点击，不是决策）。
+    // 所以这件技能的决策落在**什么时候打它**上
+    if (doSwap) {
+      swapForStraight(byFoe, at0, who)
     }
     // ---- skipAt = at0：**它自己当通配** ----
     //
@@ -7937,7 +8106,9 @@
     message.value = message.value + who + '凑成 '
       + valueFace(span[0]) + '–' + valueFace(span[1]) + ' 的顺子，收走 '
       + taken.length + ' 张。'
-    return startSweep(byFoe, taken, skills, TAIL_WADE)
+    // 伏流演完接涉水那一段；**易流自己是 TAIL_SWAPFLOW**，所以它接下一段
+    //（野火）—— 不然它会把自己那一段重演一遍
+    return startSweep(byFoe, taken, skills, doSwap ? TAIL_WILD : TAIL_WADE)
   }
 
 
@@ -8284,7 +8455,7 @@
       + '（打出后涌 ' + (now * SURGE_PUSH) + ' 张）。'
   }
 
-  // ---------- 【沉潮】挑得动的那几张（byFoe = 发动方，挑对面） ----------
+  // ---------- 【退潮】挑得动的那几张（byFoe = 发动方，挑对面） ----------
   //
   // 排两条，所以它**介于 surgePool 和 deadPool 之间**：
   //
@@ -8306,12 +8477,12 @@
 
   // 贴【沉降】。**两个布尔，管的是两件不同的事** ——
   //
-  //   byFoe  **谁发动**（播报里的「庄家沉潮」还是「沉潮」）
-  //   self   贴**发动方自己**那一排吗（沉潮从双方手牌挑，所以必须分开）
+  //   byFoe  **谁发动**（播报里的「庄家退潮」还是「退潮」）
+  //   self   贴**发动方自己**那一排吗（退潮从双方手牌挑，所以必须分开）
   //
   // ⚠ 别把这两个合成一个。别的几件（死水 / 引潮）只动对方，所以它们
   // 一个 `byFoe` 就够了；这一件**双向**，合起来会让「我贴自己的牌」
-  // 播报成「庄家沉潮」（我第一版正是这么写的）
+  // 播报成「庄家退潮」（我第一版正是这么写的）
   function doSink(byFoe : boolean, index : number, self : boolean) {
     const mineSide = byFoe ? self : !self
     const theirs = mineSide ? hand.value : foeHand.value
@@ -8326,12 +8497,12 @@
     }
     addSinkHand(card)
     // 「你的 / 庄家的」要写明 —— 这一件双向，不写玩家分不出贴给了谁
-    message.value = message.value + (byFoe ? ' 庄家沉潮：' : ' 沉潮：')
+    message.value = message.value + (byFoe ? ' 庄家退潮：' : ' 退潮：')
       + (mineSide ? '你的 ' : '庄家的 ') + cardName(card)
       + ' 带上沉降（打出时堆上所有牌 −' + SINK_TAG_STEP + ' 点）。'
   }
 
-  // 【沉潮】挑**自己**这排的某一张（onPlay 分路过来）。
+  // 【退潮】挑**自己**这排的某一张（onPlay 分路过来）。
   //
   // 跟 onTakeFrom 那条（挑对方）共用同一个 `sinkLeft` 计数 ——
   // 名额是「从双方手牌里挑 3 张」，不分侧。
@@ -8574,21 +8745,33 @@
   //   同花的池子有 12 张，随你挑就太强了，所以只能翻到第一张。
   //   做「从牌库检索」类技能时先数池子。
 
-  // 换水：你挑中了第 index 张（-1 表示不换）。
+  // 换水：你挑中了第 index 张（-1 表示「换完了 / 不换」）。
   //
-  // 挑的动作借手牌那一排（见 onPlay 开头那道岔），所以这儿只管收尾
+  // 挑的动作借手牌那一排（见 onPlay 开头那道岔）。
+  //
+  // **它是任意张的**，所以点一张只洗一张、`swapPending` 不关，
+  // 要靠那颗钮（index < 0）或者手牌点空了才收尾 ——
+  // 这跟冻结 / 择饵那种「挑完就走」的 pending 不一样，别照抄它们
   function onSwap(index : number) {
     if (!swapPending.value) {
       return
     }
-    swapPending.value = false
     if (index >= 0 && index < hand.value.length) {
       const card = takeFromHand(false, index)
       shuffleBack(card)
-      message.value = '你把 ' + cardName(card) + ' 塞回牌库重洗了，回合末会补新的。'
-    } else {
-      message.value = '你没换牌。'
+      swapDone.value = swapDone.value + 1
+      message.value = '你把 ' + cardName(card) + ' 塞回牌库重洗了。'
+      // 还有牌就接着挑；点空了没得挑，自己收尾
+      if (hand.value.length > 0) {
+        return
+      }
     }
+    swapPending.value = false
+    const n = swapDone.value
+    swapDone.value = 0
+    message.value = n > 0
+      ? ('换水：你塞回 ' + n + ' 张重洗，回合末会补新的。')
+      : '你没换牌。'
     resolveMatch(false)
   }
 
@@ -8608,6 +8791,14 @@
     deck.value = next
   }
 
+  // 这张牌「有用」吗 —— 换水那把尺子的第一档（见 foeSwapPick）。
+  //
+  // 单拎出来是因为**换水是任意张的**，循环里要拿同一把尺子判「该收手了没」。
+  // 两处共用一个函数，不复制（复制一份逻辑，两份必然分叉）
+  function foeSwapUseful(card : PlainCard) : boolean {
+    return card.rank == JACK || canCatch(card, true)
+  }
+
   // 庄家换水挑哪张：**先扔钓不着任何东西的，同类里扔点数最小的**。
   //
   // 「钓得着」跟它选牌出牌时用的是同一把尺子（canCatch），所以它不会
@@ -8621,8 +8812,7 @@
       // 钓得着的记 100 分（留着），钓不着的记 0 —— 分低的先扔。
       // 贴过点数卡的多记 20：它多一条出路，是副牌里的好东西，
       // 洗回牌库就不知道什么时候再摸到了
-      const useful = card.rank == JACK || canCatch(card, true)
-      const score = (useful ? 100 : 0) + card.extra.length * 20 + card.value
+      const score = (foeSwapUseful(card) ? 100 : 0) + card.extra.length * 20 + card.value
       if (best < 0 || score < bestScore) {
         best = i
         bestScore = score
@@ -9509,10 +9699,10 @@
       onGiveBack(index)
       return
     }
-    // ---- 【沉潮】正等你挑的时候，点手牌是「给**自己这张**贴沉降」 ----
+    // ---- 【退潮】正等你挑的时候，点手牌是「给**自己这张**贴沉降」 ----
     //
     // 它是这四条分路里**唯一双向的**：换水 / 垫牌 / 对换那三条都是
-    // 「第二步只能点手牌」，而沉潮是「**两排都能点**」——
+    // 「第二步只能点手牌」，而退潮是「**两排都能点**」——
     // 对方那排走 onFoeCard，自己这排走这儿。
     //
     // 挑自己的理由只有一条：**我带着【21 匹配】**。那样我打出那张时
@@ -9743,6 +9933,17 @@
     // 所以漏在这儿的后果不是「庄家打得笨一点」，是**这件技能在庄家手里
     // 整件作废** —— 而那会让模拟器量出来的两侧严重失衡
     if (hasTrigger(skills, SK_FLOW)) {
+      return straightCount(card, byFoe)
+    }
+    // 【易流】走的是 straightCore 同一条路，所以预估也共用 straightCount。
+    //
+    // ⚠ **模拟器那边漏这一行栽过一次，而症状完全是另一回事**：
+    // 量出来易流 1.42 而同参数的伏流 2.53，差 1.11 —— 我先后怀疑了
+    // opt、chainHarvest 的第六参、执行顺序、局面长度，最后才查到预估这儿。
+    // 症状跟上面那句注释一致：**这件技能在 AI 手里几近作废**
+    //（它不知道打这张能收几张，于是从不主动打，只在当饵时顺手发动）。
+    // **往这一族加件时，这一行和 afterPlayTail 那一行要一起加**
+    if (hasTrigger(skills, SK_SWAPFLOW)) {
       return straightCount(card, byFoe)
     }
     // 涉水同理 —— 它也是第四条匹配线上的，catchStart 看不见它
@@ -10070,6 +10271,7 @@
     tideCards.value = [] as PlainCard[]
     tideMarks.value = [] as boolean[]
     swapPending.value = false
+    swapDone.value = 0
     freezePending.value = false
     // 【薪潮】的盲选待选位，开局清（照 freezePending）
     fuelPending.value = false

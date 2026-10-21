@@ -50,7 +50,12 @@ const WATCH = [
     //     `startSweep` 还带着「演完从哪儿接着走」那个续走参数。
     //     整堆类技能（一色）全靠它，续走点传错的后果是**后面的技能静默丢掉**；
     //   **endPlay** —— 一手牌的唯一收尾（交回合、补牌、判终局都在它后面）
+    // 〔2026-10-20 补 `skillsOf`：**「这张牌响哪几件技能」的唯一出口**。
+    //   它原先只是 `triggersOf` 的一层薄包装（死水那道闸），所以没盯 ——
+    //   而【串钩】上架之后它里头多了一条真规则（命中任一点数槽 → 全响）。
+    //   模拟器那边对应的是 `skillsOf` + `addRankLink`，两边分叉了没人会发现〕
     names: ['catchStart', 'canCatch', 'playFor', 'resolveMatch', 'removePileAt',
+      'skillsOf',
       'afterPlay', 'afterPlayHead', 'afterPlayTail', 'valuesOf',
       'landVals', 'cardVals', 'anyEquals', 'guardedAgainst', 'finishCatch',
       'pushPile', 'unshiftPile', 'suitifyFor', 'suitLeads', 'pileValsAt',

@@ -176,6 +176,35 @@ function run(n, seed, mine, foe, opts) {
     },
     // 顺流（按排序收牌）—— 跟上面两件同一组列，所以下面共用同一个循环和同一张表
     order: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    // 【易流】—— 跟顺子那几件同组列，外加 swapped（真换了几次）
+    tideflow: {
+      fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
+      swapped: [0, 0], failFires: [0, 0], tagged: [0, 0], wildUsed: [0, 0]
+    },
+    swellflow: {
+      fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
+      swapped: [0, 0], failFires: [0, 0], tagged: [0, 0], wildUsed: [0, 0]
+    },
+    swapflow: {
+      fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
+      swapped: [0, 0]
+    },
+    // 【推牌】的诊断口（见 rules.js 的 stat.surge）〔2026-10-20 接上〕。
+    //
+    // 它一直在 rules.js 里记着，而这边**从来没汇总过** —— 于是
+    // 「一局总共推了几张」这个数读不到，而『机制：推牌』那一章说得很清楚：
+    // **局长是这一族的全局预算，要按「一局总共推几张」排**。
+    // 接上它是为了量【常涌】（每手推 1 张）—— 那一件的张数是其余两件的几倍，
+    // 而**光看 X 看不出它花了多少**（照「量一个新机制，X 之外必须有一个
+    // 「它做了几次」的计数」那条）
+    surge: { fires: [0, 0], flipped: [0, 0], hits: [0, 0], back: [0, 0] },
+    // 【撒网】的诊断口（见 rules.js 的 stat.cast）〔2026-10-20 加〕——
+    // 前四列跟顺子那几件同名，所以走下面那个共用循环；oddPick 单独累加
+    cast: {
+      fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
+      oddPick: [0, 0], alone: [0, 0], nextSame: [0, 0],
+      pileAdj: [0, 0], pileSame: [0, 0], onPile: [0, 0], nextSameOn: [0, 0]
+    },
     // 【野火】的诊断口（见 rules.js 的 stat.wild）—— 查那个非单调
     wild: {
       fires: [0, 0], took: [0, 0], blank: [0, 0], burnSum: [0, 0],
@@ -229,8 +258,25 @@ function run(n, seed, mine, foe, opts) {
         sum.wade[keys[k]][s] += G.stat.wade[keys[k]][s]
         sum.order[keys[k]][s] += G.stat.order[keys[k]][s]
         sum.brim[keys[k]][s] += G.stat.brim[keys[k]][s]
+        sum.swapflow[keys[k]][s] += G.stat.swapflow[keys[k]][s]
+        sum.swellflow[keys[k]][s] += G.stat.swellflow[keys[k]][s]
+        sum.tideflow[keys[k]][s] += G.stat.tideflow[keys[k]][s]
+        sum.cast[keys[k]][s] += G.stat.cast[keys[k]][s]
       }
+      sum.cast.oddPick[s] += G.stat.cast.oddPick[s]
+      sum.cast.alone[s] += G.stat.cast.alone[s]
+      sum.cast.nextSame[s] += G.stat.cast.nextSame[s]
+      sum.cast.pileAdj[s] += G.stat.cast.pileAdj[s]
+      sum.cast.pileSame[s] += G.stat.cast.pileSame[s]
+      sum.cast.onPile[s] += G.stat.cast.onPile[s]
+      sum.cast.nextSameOn[s] += G.stat.cast.nextSameOn[s]
+      const sg = G.stat.surge
+      sum.surge.fires[s] += sg.fires[s]
+      sum.surge.flipped[s] += sg.flipped[s]
+      sum.surge.hits[s] += sg.hits[s]
+      sum.surge.back[s] += sg.back[s]
       sum.brim.pushed[s] += G.stat.brim.pushed[s]
+      sum.swapflow.swapped[s] += G.stat.swapflow.swapped[s]
       // 【21 匹配】—— 列不一样，单独一个循环
       const dk = ['fires', 'hits', 'budSum', 'sumSum', 'gotSum', 'pileSum',
         'stopOver', 'stopVoid', 'stopGuard', 'stopEnd', 'stopEmpty', 'stopZero',
@@ -869,12 +915,155 @@ function cmdRole(args) {
     + ' 分   标准误 ' + f2(se))
   console.log('  胜率 ' + pct(avg(test.wins[R.ME], test.games))
     + '（基线 ' + pct(avg(base.wins[R.ME], base.games)) + '）')
+  // ---- 推牌那一族的诊断行〔2026-10-20 加〕----
+  //
+  // **只在真推了牌的时候印** —— 别的角色跑这个命令时这两行是噪声。
+  //
+  // 两样都要，而且**第二样是关键**：局长（双方出牌数）是这一族的全局预算
+  //（『机制：推牌』那一章：推 4 张双带已经 −21%），而「一局推几张」
+  // 是那笔预算的**账单本身**。光看 X 看不出账单 ——
+  // 填塘 X=0.00 和这一件万一也是 0，成因可能完全不同
+  const pushed = (test.surge.flipped[R.ME] + test.surge.flipped[R.FOE]) / test.games
+  if (pushed > 0.005) {
+    const basePlays = (base.plays[R.ME] + base.plays[R.FOE]) / base.games
+    const myPlays = (test.plays[R.ME] + test.plays[R.FOE]) / test.games
+    console.log('\n  ---- 推牌诊断（这一族的全局预算是局长）----')
+    console.log('    一局共推 ' + f2(pushed) + ' 张'
+      + '（我这侧 ' + f2(test.surge.flipped[R.ME] / test.games)
+      + ' · 对手那侧 ' + f2(test.surge.flipped[R.FOE] / test.games) + '）')
+    console.log('    撞点数置 0 ' + f2((test.surge.hits[R.ME]
+      + test.surge.hits[R.FOE]) / test.games) + ' 张')
+    console.log('    双方出牌 ' + f2(myPlays) + '（不带角色 ' + f2(basePlays)
+      + '）→ 局长 ' + f2((myPlays / basePlays - 1) * 100) + '%')
+  }
+  // ---- 【点数互通】原型的诊断行〔2026-10-20〕----
+  //
+  // 照上面「推牌诊断」那个先例：**只在旋钮开着的时候印**。
+  // 要看的是最后那个实际倍率 —— 等于 1.00 就是**一次都没互通**，
+  // 那一档跑的是原版，X 的差全是噪声（同色闸那次就是这么漏掉的）。
+  //
+  // ⚠ 理论倍率只对**没有花色槽**的卡成立（江口闸官 / 填河工 / 鱼塘老板 /
+  // 夜钓客 / 赌船荷官 / 背篓渔夫 / 逆流船夫）。带花色槽的两张（镜湖 ♥ /
+  // 深海 ♣）分母里混着花色槽那一份触发，而花色槽吃不到互通 ——
+  // 所以它们的实际倍率会**低于** nRank，那不是 bug
+  //
+  // 闸从 `R.RANK_LINK`（旋钮）换成 `st.plays > 0`〔2026-10-20〕——
+  // 载体卡【通号人】走 `hasSpecial`、**旋钮关着也发动**，查旋钮会漏掉它。
+  // 照上面推牌那段 `pushed > 0.005` 的先例：**问计数器，别问旋钮**
+  const lst = R.PROTO_STAT.ranklink
+  if (lst.plays > 0) {
+    let nRank = 0
+    for (let i = 0; i < r.slots.length; i++) {
+      const labels = R.slotLabels(r.slots[i])
+      for (let j = 0; j < labels.length; j++) {
+        if (!R.isSuitSlot(labels[j])) { nRank++; break }
+      }
+    }
+    const mult = lst.base > 0 ? (lst.base + lst.extra) / lst.base : 0
+    console.log('\n  ---- 点数互通诊断（来源：'
+      + (r.special === 'ranklink' ? '载体卡' : 'RANK_LINK=' + R.RANK_LINK) + '）----')
+    console.log('    这张卡有 ' + nRank + ' 个点数槽 → 理论倍率 ×' + nRank)
+    console.log('    我方出牌 ' + f2(lst.plays / args.n) + ' 张/局，'
+      + '其中 ' + f2(lst.hit / args.n) + ' 张真的多触发了技能')
+    console.log('    技能触发件次：不带这件 ' + f2(lst.base / args.n)
+      + ' → 带上 ' + f2((lst.base + lst.extra) / args.n)
+      + ' → **实际倍率 ×' + f2(mult) + '**')
+  }
+  // ---- 【红钩】的诊断行〔2026-10-20，当天上架，原名【红心万用】〕----
+  //
+  // 照上面两条先例：**问计数器，别问旋钮**。
+  // 两个要看的比例都在这儿，而它们查的是不同的东西：
+  //   `♥ 占比` 查**闸**（理论 12/52 ≈ 23%，不含 ♥J）；
+  //   `实际倍率` 查**效果**（=1.00 就是一次都没万用）。
+  // 只看倍率的话「闸漏了但碰巧倍率正常」查不出来 —— 同色闸那次的教训
+  const hst = R.PROTO_STAT.heartwild
+  if (hst.plays > 0) {
+    const mult = hst.base > 0 ? (hst.base + hst.extra) / hst.base : 0
+    console.log('\n  ---- 红钩诊断（' + (R.HEART_OFF ? '**HEART_OFF=1 全关**' : 'HEART_PICK=' + R.HEART_PICK)
+      + ' · HEART_ADD=' + (R.HEART_ADD === '' ? '(无)' : R.HEART_ADD)
+      + ' · HEART_SIDE=' + R.HEART_SIDE + '）----')
+    console.log('    我方出牌 ' + f2(hst.plays / args.n) + ' 张/局，其中 ♥ '
+      + f2(hst.hearts / args.n) + ' 张（占 '
+      + f2(hst.plays > 0 ? hst.hearts * 100 / hst.plays : 0)
+      + '% —— **理论 23%**，不含 ♥J）')
+    console.log('    其中 ' + f2(hst.hit / args.n) + ' 张真的多触发了技能')
+    console.log('    技能触发件次：不带这件 ' + f2(hst.base / args.n)
+      + ' → 带上 ' + f2((hst.base + hst.extra) / args.n)
+      + ' → **实际倍率 ×' + f2(mult) + '**')
+    if (R.HEART_PICK === 'one') {
+      console.log('    ⚠ `one` 档是**固定序**（下标最小的那件）——'
+        + 'AI 没有「选哪件」的决策口，所以这个数是**下限**。')
+    }
+  }
+  // ---- 【归方】原型的诊断行〔2026-10-20〕----
+  //
+  // **第一个数是 `turned`，不是 X。** 这一件不加件次（改的是花色轴），
+  // 所以 X 很小不等于机制没跑 —— 得先确认它真的把牌变过去了
+  const dst = R.PROTO_STAT.todia
+  if (dst.plays > 0) {
+    console.log('\n  ---- 归方诊断（DIA_ON=on · DIA_SIDE=' + R.DIA_SIDE + '）----')
+    console.log('    我方出牌 ' + f2(dst.plays / args.n) + ' 张/局，其中 '
+      + f2(dst.turned / args.n) + ' 张变成了 ♦（占 '
+      + f2(dst.plays > 0 ? dst.turned * 100 / dst.plays : 0) + '%）')
+    console.log('    变 ♦ 之后**多触发**的件次 ' + f2(dst.extra / args.n)
+      + ' 件/局（' + f2(dst.hit / args.n) + ' 手）'
+      + ' —— 没有 ♦ 槽的卡这一列该是 **0.00**')
+    if (dst.turned === 0) {
+      console.log('    ⚠ **一张都没变** —— 闸没过（查 diaSuitOf 的 rankOwner 那条），'
+        + '这一档跑的是原版。')
+    }
+  }
   console.log('\n  槽里插的是 KIT_ORDER 的前 ' + r.slots.length
     + ' 件（按 X 降序，跟 campaign 的池子同源）——'
     + '所以这个数**可以跟别的角色横着比**。')
 }
 
 // ---------- pair：两件装一起（组合技要用的底数） ----------
+
+// ---------- 用户那三个驻场效果的诊断口（`COLD_MODE`）〔2026-10-20 加〕 ----------
+//
+// 照 ranklink / icekey 那条先例：**问计数器，别问旋钮**。
+// `cmdVs` 和 `cmdPair` 两处都调它 —— 写成一个函数、不抄两份，
+// 理由就是 rules.js 里反复写的那句「复制一份逻辑，两份必然分叉」。
+//
+// ⚠ **不印「每局」**：`PROTO_STAT` 是全局累加，而这两个命令各跑好几格
+//（`vs` 跑 A/B/C/D 四格、`pair` 跑 both/onlyA/onlyB 三格），
+// 格与格之间冰量差得远。所以只印绝对数和**比值**，那两个跨档可比
+function printColdDiag() {
+  if (R.COLD_MODE === 'hue') return
+  const st = R.PROTO_STAT.cold
+  console.log('\n  ---- 诊断：寒流那个槽 · COLD_MODE=' + R.COLD_MODE + ' ----')
+  console.log('    驻场那句为真  ' + st.onfield + ' 手（挂的那张还在堆上）')
+  console.log('    在场效果发动  ' + st.fires + ' 次'
+    + '（占在场手数 ' + pct(avg(st.fires, st.onfield)) + '）')
+  if (R.COLD_MODE !== 'match') {
+    console.log('  **那个百分比就是那条链的维持率** —— pick/board 两档靠'
+      + '「打出带冰的牌 → 再贴一张冰」自我续命，维持率低就是链断了。')
+  }
+  if (st.fires === 0) {
+    console.log('  ⚠ **一次都没发动** —— 那不是幅度问题，是条件恒假。'
+      + '去查 G.playedIced（打出的牌手里带冰吗）和 coldHueOn（挂的那张还在堆上吗）。')
+    return
+  }
+  if (R.COLD_MODE !== 'match') {
+    console.log('    贴出手牌钥匙  ' + st.keys
+      + '（' + f2(avg(st.keys, st.fires)) + ' 把/次）')
+  }
+  console.log('    堆上真贴障碍  ' + st.tiles
+    + '（' + f2(avg(st.tiles, st.fires)) + ' 张/次）')
+  if (st.foeKeys > 0) {
+    console.log('    **送给对手的钥匙** ' + st.foeKeys
+      + '（' + f2(avg(st.foeKeys, st.fires)) + ' 把/次）')
+  }
+  if (R.COLD_MODE === 'pick') {
+    console.log('  「钥匙/次」该接近 1（手里至少 3 张，总有一张还没冰）——'
+      + '明显低于 1 就说明手牌早被自己贴满了，这一档在空转。')
+  }
+  if (R.COLD_MODE === 'match') {
+    console.log('  「障碍/次」< 1 是正常的：撞上【燃烧】相消、以及那张'
+      + '已经带冰（不可叠加）两种都不计；钓中被收走的那几手也不发动。')
+  }
+}
 
 function cmdPair(args) {
   const role = roleIndexOrDie(args.role)
@@ -908,6 +1097,7 @@ function cmdPair(args) {
   console.log('  这个数是**现在**的协同（没有组合技，纯粹是两件技能互相影响）。')
   console.log('  第九节的组合技做完之后再跑一遍，差额就是组合技自己的贡献。')
   console.log('\n  注意槽不一样大的角色会让这个数偏 —— 默认的江口闸官四个槽等大。')
+  printColdDiag()
 }
 
 // ---------- cards：零点牌 / 无点数牌掺进牌组，局面怎么变 ----------
@@ -1094,6 +1284,70 @@ function cmdVs(args) {
     //
     // 两侧取的格子跟上面两个分差一致：后手取 D（我带 / 对手空）、
     // 先手取 A（我空 / 对手带）
+    // ---- 【撒网】的诊断口〔2026-10-20 加〕 ----
+    //
+    // 它**不走下面那张共用表**，两个原因：撒网的「段长」和「收成」是
+    // 同一个数（那一列白占），而且 sdRows 全是顺子那几件 ——
+    // 量撒网时那张表是空的，挂在它的 `if` 里面就永远不打印。
+    //
+    // 这一族真正要回答的是「**它收走了堆的几成**」：判死散收版的那句话
+    //（「奇偶面本来就太大了」）说的正是这个比例，而那句话底下一直没有数
+    const castRow = function (label, cd, s) {
+      if (cd.fires[s] === 0) return null
+      const h = cd.hits[s]
+      return '    ' + label.padEnd(10)
+        + f2(avg(cd.fires[s], args.n)).padStart(7) + ' 次/局'
+        + pct(avg(h, cd.fires[s])).padStart(9)
+        + f2(avg(cd.lenSum[s], h)).padStart(9)
+        + f2(avg(cd.gotSum[s], h)).padStart(9)
+        + pct(avg(cd.gotSum[s], cd.lenSum[s])).padStart(9)
+        + pct(avg(cd.oddPick[s], h)).padStart(8)
+        // 最后两列**不依赖 CAST_MODE**（见 rules.js 那段注释）：
+        // 下面没牌的比例 / 下面那张跟它自己同奇偶的比例
+        + pct(avg(cd.alone[s], cd.fires[s])).padStart(9)
+        + pct(avg(cd.nextSame[s], cd.fires[s] - cd.alone[s])).padStart(10)
+        // 整个堆的相邻奇偶对 —— 跟上一列对照（那一列只看撒网那一手）
+        + pct(avg(cd.pileSame[s], cd.pileAdj[s])).padStart(11)
+        + pct(avg(cd.onPile[s], cd.fires[s])).padStart(9)
+        + pct(avg(cd.nextSameOn[s], cd.onPile[s])).padStart(11)
+    }
+    const castRows = [
+      castRow('撒网·后手', D.cast, R.ME), castRow('撒网·先手', A.cast, R.FOE)
+    ].filter(function (r) { return r !== null })
+    if (castRows.length > 0) {
+      console.log('\n  ---- 诊断：撒网（奇偶）· CAST_MODE='
+        + (process.env.CAST_MODE || 'seg') + ' ----')
+      console.log('            打出次数   成事率   平均堆厚   每次收成   收走堆的'
+        + '   选奇率   下面空   下面同奇偶   全堆同奇偶   它落堆了   落堆·下面同')
+      for (let i = 0; i < castRows.length; i++) console.log(castRows[i])
+      console.log('\n  「成事率」= 真收到了的比例（只有它自己时什么也不收，所以 < 100%）；')
+      console.log('  「收走堆的」= 收成 ÷ 堆厚 —— **散收档这一列该 ≈ 50%**')
+      console.log('  （0 点算偶数，所以偶数那边本来略多）。差太远就去查 sameParity / pileValsAt。')
+      console.log('  「选奇率」只在 `*pick` 档有意义（非自选档它就是手里那张的奇偶分布）。')
+    }
+    // ---- 【结冰】那道豁免的诊断口〔2026-10-20 加〕 ----
+    //
+    // 照 ranklink 那条先例：**问计数器，别问旋钮**（闸是 `kst.blocked > 0`）。
+    //
+    // ⚠ **不印「每局」** —— `PROTO_STAT` 是全局累加，而 cmdVs 跑的是
+    // 四格（A/B/C/D），四格的冰量天差地别（C 格双方全空、压根没冰）。
+    // 所以这儿只印**绝对数和比例**，那两个不依赖局数、跨档可比。
+    //
+    // 两档该看到的：`ICE_KEY=0` 下 hands 和 saved **都必须是 0**
+    //（不是 0 就是闸漏了），而 `saved + blocked` 两档之间该大致守恒
+    const kst = R.PROTO_STAT.icekey
+    if (kst.blocked > 0 || kst.hands > 0) {
+      const bump = kst.saved + kst.blocked
+      console.log('\n  ---- 诊断：【结冰】的豁免 · ICE_KEY='
+        + (R.ICE_KEY ? 'on（现行规则）' : '0（**豁免关掉**）') + ' ----')
+      console.log('    豁免开着的手数  ' + kst.hands)
+      console.log('    收牌撞上带冰的牌 ' + bump + ' 次 —— '
+        + '豁免救下 ' + kst.saved + '（' + pct(avg(kst.saved, bump)) + '）'
+        + ' / 冰挡住 ' + kst.blocked + '（' + pct(avg(kst.blocked, bump)) + '）')
+      console.log('  ICE_KEY=0 下 hands 和「豁免救下」**都该是 0**；'
+        + '而「撞上」的合计两档该接近 —— 差太远说明冰的**总量**也变了，那要分开读。')
+    }
+    printColdDiag()
     const sdRow = function (label, sd, s) {
       const fires = sd.fires[s]
       if (fires === 0) return null
@@ -1110,7 +1364,10 @@ function cmdVs(args) {
       // 顺流不是顺子（它看位置次序，不看值连不连），但要回答的问题
       // 和要看的四列**一模一样**，所以共用这张表
       sdRow('顺流·后手', D.order, R.ME), sdRow('顺流·先手', A.order, R.FOE),
-      sdRow('漫流·后手', D.brim, R.ME), sdRow('漫流·先手', A.brim, R.FOE)
+      sdRow('漫流·后手', D.brim, R.ME), sdRow('漫流·先手', A.brim, R.FOE),
+      sdRow('易流·后手', D.swapflow, R.ME), sdRow('易流·先手', A.swapflow, R.FOE),
+      sdRow('涌流·后手', D.swellflow, R.ME), sdRow('涌流·先手', A.swellflow, R.FOE),
+      sdRow('潮流·后手', D.tideflow, R.ME), sdRow('潮流·先手', A.tideflow, R.FOE)
     ].filter(function (r) { return r !== null })
     if (sdRows.length > 0) {
       console.log('\n  ---- 诊断：成段的那几件怎么凑成的（顺子 / 排序）----')
@@ -1120,6 +1377,13 @@ function cmdVs(args) {
       console.log('  「每次收成」低 → 瓶颈在**收法**；')
       console.log('  两样都不低而分差仍低 → 收的那几张**本来也钓得到**')
       console.log('  （洪水那场查出来的那个机制，见 rules.js 的 stat.flood）。')
+      // 易流多一个数：**真换了几次**（换了不如不换就不换，所以它低于打出次数）
+      if (D.swapflow.fires[R.ME] > 0) {
+        console.log('\n  易流**真换了**：后手 '
+          + pct(avg(D.swapflow.swapped[R.ME], D.swapflow.fires[R.ME])) + ' 的手、先手 '
+          + pct(avg(A.swapflow.swapped[R.FOE], A.swapflow.fires[R.FOE])) + ' 的手'
+          + '（换了不如不换就不换）')
+      }
       // 漫流多一个数：真推上来几张（牌库不足 2 张时不推，所以它低于 2×层数）
       if (D.brim.fires[R.ME] > 0) {
         console.log('\n  漫流**真推上来**：后手 '
