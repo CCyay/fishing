@@ -139,7 +139,7 @@ function run(n, seed, mine, foe, opts) {
     // 【洪水】的诊断口（见 rules.js 的 stat.flood）
     flood: {
       fires: [0, 0], pileSum: [0, 0], flipSum: [0, 0],
-      gotSum: [0, 0], thin: [0, 0],
+      gotSum: [0, 0], thin: [0, 0], hits: [0, 0],
       gotFresh: [0, 0], gotOwn: [0, 0], gotTheirs: [0, 0]
     },
     // 顺子那两件的诊断口（见 rules.js 的 stat.straight / stat.wade）
@@ -250,6 +250,7 @@ function run(n, seed, mine, foe, opts) {
       sum.flood.flipSum[s] += fd.flipSum[s]
       sum.flood.gotSum[s] += fd.gotSum[s]
       sum.flood.thin[s] += fd.thin[s]
+      sum.flood.hits[s] += fd.hits[s]
       sum.flood.gotFresh[s] += fd.gotFresh[s]
       sum.flood.gotOwn[s] += fd.gotOwn[s]
       sum.flood.gotTheirs[s] += fd.gotTheirs[s]
@@ -1521,7 +1522,7 @@ function cmdVs(args) {
     const fdFoe = A.flood
     if (fdMe.fires[R.ME] > 0 || fdFoe.fires[R.FOE] > 0) {
       console.log('\n  ---- 诊断：它每次发动时的局面（' + args.n + ' 局合计）----')
-      console.log('            发动次数   发动时堆厚   翻几张   收几张   其中空堆')
+      console.log('            发动次数   发动时堆厚   翻几张   收几次   收几张   其中空堆')
       const row = function (label, fd, s) {
         const fires = fd.fires[s]
         if (fires === 0) return label.padEnd(10) + '（没发动过）'
@@ -1529,6 +1530,7 @@ function cmdVs(args) {
           + f2(avg(fires, args.n)).padStart(8) + ' 次/局'
           + f2(avg(fd.pileSum[s], fires)).padStart(10)
           + f2(avg(fd.flipSum[s], fires)).padStart(9)
+          + f2(avg(fd.hits[s], fires)).padStart(9)
           + f2(avg(fd.gotSum[s], fires)).padStart(9)
           + (pct(avg(fd.thin[s], fires))).padStart(10)
       }
@@ -1536,6 +1538,28 @@ function cmdVs(args) {
       console.log('    ' + row('先手（对手）', fdFoe, R.FOE))
       console.log('\n  「发动时堆厚」**含它自己**，所以 1.00 = 空堆开局那一手。')
       console.log('  要看的是哪一列在两侧差得最多 —— 那才是溢价的来源。')
+      // ---- 「收几次」这一列是**机制诊断口**，不是强度 ----
+      //
+      // 定稿形状是「一张张翻，撞上**当场**收」，所以一次发动能收**好几次**
+      //（收完堆短一截，后面翻的牌落在更薄的堆上，还能再撞）。
+      //
+      // ⚠ **原先这儿写的判据是错的**〔2026-10-21 当场改〕：
+      //   「这一列 ≤ 1.00 就说明当场收那条分支没生效」。**1.00 不是分界线** ——
+      //   这一列按**发动次数**平均，而一次发动经常一次都撞不上。
+      //   `full` 档 hits ∈ {0,1}，它的 hits/fires 是「**至少撞一次的概率**」，
+      //   天然 ≤ 1.00；`each` 的是「**期望撞几次**」。两个都能小于 1。
+      //   实测 each 档 N=2..6 是 0.33/0.52/0.74/0.94/1.15 —— 照旧判据
+      //   前四格全都「不合格」，而它们明明都比同 N 的 full 多收。
+      //
+      // **正确的比法：同 N 下拿 `each` 这一列去对 `full` 这一列。**
+      // `each` 高出的那一截才是「当场收」多做的功。退化的话两者相等。
+      //〔CLAUDE.md 第四节：同色闸那次 bug 下 X 4.89、修好 4.88，只看 X 发现不了。
+      //  这一次反过来 —— **诊断口在，判读它的那条判据错了**，
+      //  而错法是「拿一个绝对阈值当分界线」。诊断口要配**对照组**，不是阈值〕
+      console.log('\n  「收几次」要跟**同 N 的 FLOOD_STOP=full** 比，')
+      console.log('  **别拿 1.00 当分界线** —— 这一列按发动次数平均，而 full 的')
+      console.log('  hits ∈ {0,1}（= 至少撞一次的概率），本来就 ≤ 1.00。')
+      console.log('  each 高出 full 的那一截，才是「撞上当场收」多做的功。')
       // ---- 收走的牌**本来属于谁**（第四轮定位）----
       //
       // 前三轮都发现洪水在两侧**行为对称**（收一样多、缩一样短），

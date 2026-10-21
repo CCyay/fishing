@@ -204,13 +204,21 @@ const SURGE_AVOID = process.env.SURGE_AVOID ? parseFloat(process.env.SURGE_AVOID
 
 // ---------- 【洪水】的「偷时间」打法（FLOOD_RUSH，2026-10-15） ----------
 //
-// ⚠ **洪水当天就删了**（它量出来的 X 正是删它的依据），所以这个旋钮现在
-// **开了也不会响** —— `SK.FLOOD` 是 −1，`rushFlood` 里那个 `has` 永不匹配。
+// ⚠ **这段注释的前提 2026-10-21 翻过来了：洪水回来了，这个旋钮现在真会响。**
 //
-// 整段留着，因为它是一个**可复用的量法**：将来任何「能改变一局长短」的
+// 〔原文写的是「洪水当天就删了，所以这个旋钮开了也不会响 —— `SK.FLOOD`
+//   是 −1，`rushFlood` 里那个 `has` 永不匹配」。10-21 洪水换形状上架，
+//   `SK.FLOOD` 有真下标了，所以**开 `FLOOD_RUSH` 会实际改变 AI 的打法**。
+//   它仍然**默认关**，默认口径没变，旧数不受影响〕
+//
+// 整段留着，因为它还是一个**可复用的量法**：任何「能改变一局长短」的
 // 效果都该拿它量一遍（把 `SK.FLOOD` 换成那件技能即可）。而它得出的那条
 // 判据比洪水本身值钱 —— 见下面「这个数读作上限」那段，以及设计文档
 // 『被删掉的技能』里洪水那一条。
+//
+// ⚠ **定稿形状（`FLOOD_STOP=each`）下的抽库溢价没量过。** 量过的只有
+//   老形状（+0.57 = 基础 X 的 12%）和一个作废的中间形状。命令：
+//   `FLOOD_RUSH=16 node tools/md-sim/sim.js one flood -n 20000 --role lock --slot 0`
 //
 // **默认关（0）。开启后：领先 + 牌库薄的时候优先打洪水，哪怕它钓不到最多。**
 //
@@ -293,6 +301,13 @@ function pickCard(G, side) {
   const lo = G.loadouts[side]
   let best = -1
   let bestCaught = 0
+  // ---- 【映照】：选中那一手**花掉的牌**值多少〔2026-10-21〕 ----
+  //
+  // 它是这个主循环里**唯一一个按「花掉哪张」而不是「收几张」**的判据，
+  // 而且它**只在收成打平时**说话（见下面那个 `spend < bestSpend`）——
+  // 所以没有映照的跑里它一个字节都不改。加它的理由是实测逼出来的，
+  // 见下面那一大段和 `R.reflectPick` 的导出注释
+  let bestSpend = 99
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (R.isFrozen(G, card)) continue
@@ -313,12 +328,79 @@ function pickCard(G, side) {
       // 收几张：「匹配那张到堆顶」再加自己
       caught = G.pile.length - at + 1
     }
+    // ---------- 【映照】：这一手能收几张，**要按变完之后算**〔2026-10-21〕 ----------
+    //
+    // 不接这一段的后果是实测过的、而且是**精确的 0**：
+    // A / K / ♣ 三个槽、各 20000 局，X 全是 **+0.00**，诊断口
+    // `changed = 0.000`、`gainSum = 0.000`、`kept = fires`。
+    //
+    // 病因不在映照那边，在这儿：**上面那个 `caught` 的公式跟
+    // `reflectScore` 逐字相同**，于是 AI 打出的那张永远是手里的 argmax，
+    // 而「变成手里另一张」只能更差或者持平 —— 一次都不会触发。
+    //
+    // ---- 它真正做的那件事，以及为什么要用平手去表达 ----
+    //
+    // 打一张**点得着槽的垃圾牌**，让它变成手里最好那张的牌面：
+    // **收成一模一样，而好牌还留在手里，花掉的是垃圾牌。**
+    // 所以它的收益**不在「收几张」这一维上**，恒等于 0 是对的 ——
+    // 真正变的是分母。于是这儿分两步接：
+    //
+    //   一、把能达到的收成提上来（下面这个 if）——
+    //      让「打垃圾牌」在收成上**追平**最优牌，而不是被它压着；
+    //   二、收成打平时，**花掉的那张谁便宜选谁**（下面那个 `spend`）。
+    //
+    // ⚠ 第二步是**这一手之内可证的占优**，不是我新编的价值函数 ——
+    //   `spend` 用的就是 AI 自己这把尺子（这张牌正常打出能收几张）：
+    //   两种打法收成相同，而借脸那种花掉的是 `own`、普通那种花掉的是
+    //   `caught`（= 收成本身），所以 `spend < bestSpend` 这一句同时办了
+    //   两件事 —— **借脸优先于不借**，以及**几张都能借时花最便宜的**。
+    //   不需要「手牌质量」这个 AI 根本没有的维度。
+    //
+    // ⚠ `sink` 传 `false`，照这个循环上面那条既有约定（挑牌阶段一律按
+    //   正常落堆算）。跟 `playFor` 那边传真 `sink` 有分野，而现在两者
+    //   取值相同（映照自己不落堆底）—— 将来谁给映照配了落堆底，
+    //   **这一行会先于别处出问题**
+    //
+    // ⚠ **排在 `harvest` 那两行之前是有意的**：收色 / 撒网走的是另一条收成
+    //   路径，它要跟变完之后的数取 max，不是被它覆盖掉。
+    //   〔而 `harvestCount` 读的是**变之前**那张牌 —— 映照 × 收色 / 撒网
+    //     这一格现在没人量过，真要配的时候这儿是第一个要改的地方〕
+    // 花掉的那张牌值多少 —— 不借脸时它就等于收成本身（打什么收什么）
+    let spend = caught
+    // ⚠ **这儿的手牌比 `playFor` 那边多一张：`card` 它自己。**
+    //   `playFor` 是在 `takeFromHand`（rules.js:3797）之后才跑的，而这儿
+    //   还没出手。所以 `reflectPick` 在这儿会多看见一个候选 —— **而它无害**：
+    //   `y === card` 的得分恰好等于 `own`，可选档的 `bestScore` 初值就是
+    //   `own`，严格 `>` 过不去；强制档下它可能被选中，但那一手
+    //   `spend === caught`，照旧不占便宜。两边因此**估得出同一个收成**。
+    //   〔将来谁改了 `reflectPick` 的比较符（`>` → `>=`），
+    //     第一个出问题的是这一行，不是 rules 那边〕
+    // ⚠ 调 `R.reflectOn` 而不是 `R.has(skills, R.SK.REFLECT)`：
+    //   `REFLECT_WITH` 那个旋钮会把映照挂到别的技能上，而判定只有一份
+    if (R.reflectOn(skills)) {
+      const pick = R.reflectPick(G, side, card, skills, false)
+      // ⚠ **不取 max，照抄 `pick.at`**：可选档（定稿）下 `pick.at >= 0`
+      //   意味着严格更好，取不取 max 一样；而强制档（`REFLECT_OPT=0`，
+      //   已被否掉的那一读）下它**可能更低** —— 取 max 等于让 AI
+      //   按一个它根本拿不到的收成去挑牌，那就不是在量那一读了
+      if (pick.at >= 0) {
+        // `pick.own` 跟上面的 `caught` 是同一个数（同 `skills`、同 `sink=false`），
+        // 写 `pick.own` 是为了说清楚「花的是原来那张」
+        spend = pick.own
+        caught = pick.score
+      }
+    }
     // 收色、撒网不走点数判定，所以上面那一下对它们一概是 -1 ——
     // 不单独估一次，AI 就会把一张能扫掉半个堆的牌当普通饵打出去
     const harvest = R.harvestCount(G, card, skills, side)
-    if (harvest > caught) caught = harvest
-    if (caught > bestCaught) {
+    if (harvest > caught) {
+      caught = harvest
+      spend = harvest
+    }
+    if (caught > bestCaught
+      || (caught === bestCaught && caught > 0 && spend < bestSpend)) {
       bestCaught = caught
+      bestSpend = spend
       best = i
     }
   }
