@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node tools/md-sim/check.js)",
+      "Bash(node tools/md-sim/refs.js:*)",
+      "Bash(node tools/md-sim/sim.js:*)",
+      "Bash(node tools/md-sim/campaign.js:*)",
+      "Bash(node tools/md-sim/proto-diag.js:*)",
+      "Bash(node tools/md-sim/fingerprint.js)"
+    ],
+    "deny": [
+      "Bash(node tools/md-sim/fingerprint.js --save)"
+    ]
+  }
+}
