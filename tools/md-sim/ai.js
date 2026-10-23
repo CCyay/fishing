@@ -277,6 +277,216 @@ function sinkCombo(G, side) {
   return -1
 }
 
+// ---------- 「养堆」两个旋钮（HOLD_MIN / JACK_HOLD，2026-10-22） ----------
+//
+// 用户的观察：「**游戏决策性弱，能匹配就打不管收多少，没有养堆概念**」。
+// 下面这个主循环**原文就是那句话**：`bestCaught` 初值 0、判据
+// `caught > bestCaught` —— 任何能收的都收，收得最多的优先，
+// **没有任何一支问「堆才这么点，要不要先忍一手」**。
+//
+// 而这两个旋钮是用来把那句话**拆成两件事**的，因为它们的解法相反：
+//
+//   甲、**AI 笨**：规则里养堆有收益，只是这套一步贪心算不到
+//       → 那所有旧的 X 都被系统性地压着，是量法问题；
+//   乙、**游戏真没这个决策**：忍一手在规则层就不划算
+//       → 那是设计问题，要加机制才有救。
+//
+// 分不开这两件事就没法回答用户 —— 所以先量。两个都**默认关**，
+// 默认口径一个字节不变，旧数全部不受影响。
+//
+//   HOLD_MIN=k   这一手收成 < k 就不收，改去挑一张最安全的饵。
+//                ⚠ 普通匹配的**最小收成是 2**（匹配那张 + 自己），
+//                  所以 k=3 才是第一个有意义的档。
+//                ⚠ 它有真风险：忍过去之后堆变了，那张可能再也匹配不上。
+//
+//   JACK_HOLD=k  堆不足 k 张就不打 J。**这是最干净的一格** ——
+//                J 通吃整堆（`catchStart` 对 J 恒返回 0），收益随堆
+//                线性增长，而且不挑点数，所以忍它**没有「窗口消失」
+//                那份风险**：堆只会越长越肥。换句话说
+//                它是这个游戏里唯一一张天然的养堆牌，
+//                而现行 AI 一摸到就立刻打掉（J 的 caught = 堆+1，
+//                永远是手里的 argmax）。
+//
+// ---- 怎么量它：**只给一侧开**，然后跑 `base` ----
+//
+// 这两个旋钮改的是**打法**不是技能，所以 `one` / `all` 那套
+//「双方同角色各插同一个槽」的口径量不出来 —— 两边都变聪明的话差值是 0。
+// 要的是不对称。
+//
+// 而 `cmdBase` 正好现成：双方空槽、**`freeFirst: true`**（切牌定庄，
+// 两侧先手概率相同），于是「你(后手)」和「庄家(先手)」两列
+// 是一组干净的 A/B —— 没有先后手偏差要扣。
+//
+//   node tools/md-sim/sim.js base -n 20000                 ← 对照（两列应当齐平）
+//   JACK_HOLD=4 node tools/md-sim/sim.js base -n 20000     ← 只有「你」忍 J
+//   HOLD_MIN=3  node tools/md-sim/sim.js base -n 20000     ← 只有「你」挑收成
+//
+// 读「每人每局积分」那一行的前两列：带旋钮那侧**高出去的那一截**
+// 就是养堆的价值。显著为正 = 甲（AI 笨，所有旧 X 都被压着）；
+// 0 或负 = 乙（规则层真的不划算，是设计问题）。
+//
+// `HOLD_BOTH=1` 让两侧都开 —— 那个档量的是**另一件事**（这套打法
+// 对「一局有多长、堆有多肥」的影响），别拿它当 A/B 读。
+const HOLD_MIN = process.env.HOLD_MIN ? parseInt(process.env.HOLD_MIN, 10) : 0
+const JACK_HOLD = process.env.JACK_HOLD ? parseInt(process.env.JACK_HOLD, 10) : 0
+const HOLD_BOTH = process.env.HOLD_BOTH === '1'
+// 哪一侧按这套打法走。默认只有 ME（= `base` 里「你(后手)」那一列）
+function holdSide(side) { return HOLD_BOTH || side === R.ME }
+
+// ---------- `HOLD_FOE`：两侧**不同**阈值〔2026-10-22〕 ----------
+//
+// 为什么要它：用户提的是「**加个规则禁止收 2 张**」—— 那是规则，不是打法，
+// 所以双方都受约束（`HOLD_BOTH=1 HOLD_MIN=3`）。而那一档是**对称**的，
+// 分差必然≈0，什么也证不出来。真正要问的是**在那个新世界里还有没有决策**：
+//
+//   双方都禁收 2（新基线）
+//   我额外等到 4 —— 分差还是不是大负数？
+//
+// 这要「对手 3 / 我 4」，而 `HOLD_MIN` 是全局的，`HOLD_BOTH` 只是开关。
+//
+//   HOLD_FOE=k   对手那一侧单独的阈值。**不设 = 旧行为**（照 HOLD_BOTH 走），
+//                所以默认口径一个字节不变，旧数照旧可比。
+//
+//   HOLD_MIN=3 HOLD_BOTH=1                  ← 新基线：双方都禁收 2
+//   HOLD_MIN=4 HOLD_FOE=3                   ← 新基线之上，只有「我」等到 4
+//
+// ⚠ 读第二档的分差时，对照组是**第一档**，不是 `base`。
+//   拿它去减 `base` 等于把「规则变了」和「我改打法了」两件事加在一起。
+const HOLD_FOE = process.env.HOLD_FOE ? parseInt(process.env.HOLD_FOE, 10) : -1
+function holdMinOf(side) {
+  if (side === R.ME) return HOLD_MIN
+  if (HOLD_FOE >= 0) return HOLD_FOE
+  return HOLD_BOTH ? HOLD_MIN : 0
+}
+
+// ---------- 【忍 1 手】`HOLD_ONCE`〔2026-10-22〕 ----------
+//
+// **这一套替换 `HOLD_MIN`，不是加在它旁边。** 两者是不同的打法类：
+//
+//   `HOLD_MIN=k`  不到 k 张**永远不收** —— 那是「忍到死」。
+//   `HOLD_ONCE`   这一手不收、**下一手无论多少都收** —— 这才是「忍 1 手」。
+//
+// 换掉它的理由是用户给的三条事实：
+//   3「对局中最多也就忍 1 手，忍 2 手几乎不可能」
+//   4「应该奖励忍 1 手的行为，这才有决策性」
+//   2「当一方占据积分优势时会换成贪心打法」
+// 前两条说我的策略集建错了（等5/等6 在真实对局里不存在），
+// 第三条说**决策该随比分变**，而那是 `ai.js` 里原本一行都没有的东西。
+//
+// 忍的判据**不是阈值，是「忍了能不能升一档」**：
+//   轮流出牌 → 忍一手期间堆长 +2 → `scoreOf(n+2) > scoreOf(n)` 才值得忍。
+// 所以它跟 `SCORE_BANDS` 是配套的：计分不分档，这个旋钮什么也不做。
+//
+//   HOLD_ONCE=1     开（只有「你」这一侧，照 HOLD_BOTH 扩到两侧）
+//   HOLD_LEAD=k     领先 ≥ k 分就不忍了（事实 2）。默认 0 = 不看比分。
+//   HOLD_RUN=k      最多连忍几手，默认 1。设 2 是**为了验事实 3**，
+//                   不是为了用 —— 用户说忍 2 手几乎不可能，那就量给他看。
+//
+// 诊断口（CLAUDE.md 第四节：新机制要配「它做了几次」）：
+//   holdOnce      忍了几次
+//   holdOnceHit   忍完之后**下一次收牌真的升了档**几次
+//   holdOnceMiss  忍完之后下一次收牌**没升档**（含一张也没收到）几次
+//   holdOnceGave  忍的时候**放掉**的那几次值多少档值（含后来没收成的）
+//   holdOnceGot   忍完之后**真收回来**的档值
+//
+// ⚠ **`Got − Gave` 不是净赚，别那么读。**〔2026-10-22 第一跑之后加的〕
+//   第一跑它打出 +2.28 分/局，而同一跑的分差是 **−3.06** —— 两个数反向。
+//   反向的原因不是噪声：在贪心世界里那**两次收牌你是都拿得到的**，
+//   忍把两次并成了一次，而这个差只扣了前一次的档值，没扣掉「少收一次」。
+//   所以它量的是「**档位提升了多少**」，不是净值。
+//   真正的净值只有一个地方给得出：**`base` 那一行的分差**。
+//
+// 验收这个改动要**两条一起**（第一跑证明了光靠下面那条会放行）：
+//   甲 hit/miss 两边都不空 —— 忍这件事有赢有输，不是定局
+//   乙 **分差 ≥ 0** —— 忍不是严格劣势策略，不然没人会忍，也就没有决策
+// 第一跑四组档值全部满足甲、全部违反乙（分差 −1.24 ~ −3.33）。
+const HOLD_ONCE = process.env.HOLD_ONCE === '1'
+const HOLD_LEAD = process.env.HOLD_LEAD ? parseInt(process.env.HOLD_LEAD, 10) : 0
+const HOLD_RUN = process.env.HOLD_RUN ? parseInt(process.env.HOLD_RUN, 10) : 1
+// 忍一手期间堆长涨多少：你一张 + 对方一张。改成 1 可以量「只有自己那张」
+const HOLD_GROW = process.env.HOLD_GROW ? parseInt(process.env.HOLD_GROW, 10) : 2
+
+// ---------- 「不去追 6/7」：两种写法，一种会把问题问死〔2026-10-22〕 ----------
+//
+// 用户的两句话（原话，分两次说的）：
+//   ① 「天平永远不会倒向『永远该忍』，无论 6/7 档给的多高，
+//      **在 4/5 档双方都会收了，因为双方都不会把 6/7 档给对方**」
+//   ② 「**追 6/7 是可以的，但是风险非常大已经不值得了。这个可以只写在 AI 决策里**」
+//
+// ②把①的性质说清楚了：**规则不禁止追 6/7，是 AI 算出来不划算才不追。**
+// 所以这是决策层的事，不碰规则层 —— 下面两个旋钮都只改 `worthHolding`，
+// `rules.js` 一个字不动。
+//
+// 而「不划算」有两种写法，差别不是风格，是**会不会把问题问死**：
+//
+//   甲 `HOLD_BAND_MAX=1`  硬上限：目标落在 6/7 往后就不忍
+//   乙 `HOLD_P=25`        期望值：按 25% 的成功率折一下再比
+//
+// ⚠ 甲**会把①变成同义反复**。①问的是「6/7 给多高都不动天平吗」，
+//   而硬上限不管 c 多大都不追 —— 那 c 当然不动天平，这是写死的，不是测出来的。
+//   它能答的只有一件事（而这件事也值得知道）：
+//   **把追 6/7 这条路掐掉之后，6/7 档的档值还会不会从别处漏进天平**
+//   （堆自己长肥、J 通吃带来的那部分不归任何人决策）。
+//
+//   乙才是①的真检验，因为它**不写死**：c 抬得够高时折完还是赚，AI 就会去追。
+//   于是「无论给多高」有了一个可以证伪的形式 ——
+//   **存不存在一个 c，让 6/7 重新变得值得追**。存在的话，①成立的是
+//   「在现行量级上」，不是「无论」；而那个 c 就是设计上的天花板。
+//
+//   乙的 25% 不是我编的：第一跑实测的升档率是 24~28%（四组档值）。
+//   默认 100 = 不折，逐字回到旧行为。
+const HOLD_BAND_MAX = process.env.HOLD_BAND_MAX
+  ? parseInt(process.env.HOLD_BAND_MAX, 10) : -1
+const HOLD_P = process.env.HOLD_P ? parseInt(process.env.HOLD_P, 10) : 100
+
+// 这一手值不值得忍。返回 true = 放掉这次 `bestCaught` 张的收成。
+function worthHolding(G, side, bestCaught) {
+  if (!HOLD_ONCE || !holdSide(side)) return false
+  if (bestCaught <= 0) return false
+  // 事实 2：领先就落袋为安，换贪心打法
+  if (HOLD_LEAD > 0) {
+    const other = side === R.ME ? R.FOE : R.ME
+    if (G.score[side] - G.score[other] >= HOLD_LEAD) return false
+  }
+  // 事实 3：最多连忍 HOLD_RUN 手
+  if (!G.holdRun) G.holdRun = [0, 0]
+  if (G.holdRun[side] >= HOLD_RUN) return false
+  // ---- 核心判据：忍一手升得了档吗 ----
+  //
+  // `HOLD_P=100`（默认）走**原样的比较**，不是走 `*100/100` ——
+  // 那一步会引进浮点误差，于是「默认等于旧行为」变成「几乎等于」。
+  // 这个旋钮的头一条要求是关着的时候一个字都不改。
+  const now = R.scoreOf(bestCaught)
+  const later = R.scoreOf(bestCaught + HOLD_GROW)
+  if (HOLD_P === 100) {
+    if (later <= now) return false
+  } else {
+    // 乙：按成功率折一下。「风险非常大已经不值得」就是这一行。
+    const raw = later > now
+    const ok = later * HOLD_P > now * 100
+    if (raw !== ok) {
+      if (!G.stat.holdEvFlip) G.stat.holdEvFlip = [0, 0]
+      G.stat.holdEvFlip[side]++
+    }
+    if (!ok) return false
+  }
+  // ---- 档位上限：**排在最后，为的是让计数口有意义** ----
+  //
+  // 这一支放在前面的话逻辑上等价（都是 AND），但**计数会被污染** ——
+  // 那些本来就会被 HOLD_RUN / HOLD_LEAD 拦下的手也会被记成「上限拦的」。
+  // 放在最后，`holdCapped` 就精确等于「**这个旋钮改变了多少次决策**」。
+  //
+  // 这是 CLAUDE.md 第四节那条：旋钮要配一个「它做了几次」的计数。
+  // 没有它的话，`HOLD_BAND_MAX=1` 跑出来跟不设一样，分不清是
+  // 「用户说得对」还是「这支代码根本没触发过」。
+  if (HOLD_BAND_MAX >= 0 && R.bandOf(bestCaught + HOLD_GROW) > HOLD_BAND_MAX) {
+    if (!G.stat.holdCapped) G.stat.holdCapped = [0, 0]
+    G.stat.holdCapped[side]++
+    return false
+  }
+  return true
+}
+
 function pickCard(G, side) {
   // 关卡表的 random：连钓都不挑（照源码 foePickCard 开头那一支）
   if (G.random[side]) return randomFree(G, side)
@@ -308,9 +518,32 @@ function pickCard(G, side) {
   // 所以没有映照的跑里它一个字节都不改。加它的理由是实测逼出来的，
   // 见下面那一大段和 `R.reflectPick` 的导出注释
   let bestSpend = 99
+  // 【养堆·JACK_HOLD】这一手忍住 J 了吗 + 忍掉的那一下本来能收几张。
+  // **两个旋钮共用 `holdSkip` 那一对计数**，因为 run-hold.sh 是
+  // 一档一跑、两个旋钮从不同时开。真要同时开的话这个数就混了 ——
+  // 那种跑法得先把计数拆成两对
+  let jackHeld = false
+  let jackWould = 0
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (R.isFrozen(G, card)) continue
+    // 【养堆·JACK_HOLD】堆不够肥就先不打 J（默认关，见函数上面那段）。
+    // 放在这儿 = 把它从**这个**循环里摘掉，于是它落到下面那个「挑饵」
+    // 循环 —— 而那个循环 `continue` 掉 J（不拿 J 当饵），所以手里只剩
+    // J 时 `pick` 是 −1，最后由 `randomFree` 兜底打出去。
+    // 那正是「忍不住了」该有的样子，不是漏判
+    if (JACK_HOLD > 0 && holdSide(side)
+      && card.rank === R.JACK && G.pile.length < JACK_HOLD) {
+      // ⚠ **一手只记一笔**，哪怕手里攥着两张 J —— 诊断口问的是
+      //   「忍了几手」不是「忍了几张」。放在循环里直接 ++ 的话
+      //   双 J 的那几手会记两笔，而那会让「忍的次数」莫名其妙地
+      //   超过「出牌次数」（那种数看一眼就知道错了，可要是只超一点点
+      //   就发现不了）
+      jackHeld = true
+      // 记「本来能收几张」：J 通吃 = 堆 + 它自己
+      jackWould = G.pile.length + 1
+      continue
+    }
     const skills = R.skillsOf(G, side, card)
     // ---- 挑牌时**一律按「正常落堆」算**，不看落堆底那一头 ----
     //
@@ -397,12 +630,77 @@ function pickCard(G, side) {
       caught = harvest
       spend = harvest
     }
-    if (caught > bestCaught
-      || (caught === bestCaught && caught > 0 && spend < bestSpend)) {
+    // ⚠ **比的是分数，不是张数**〔2026-10-22〕。`SCORE_BANDS` 关着时
+    //   `scoreOf` 逐字返回 n，所以这一行等价于原来的 `caught > bestCaught`；
+    //   开着时 f(2)=f(3) 会打平，而**平手取张数多的那张** ——
+    //   那样「阶梯计分」这个改动的效果能干净归因到「忍不忍」上，
+    //   不会掺进「AI 在同档里改挑了别的牌」。
+    //   （顺带：多收一张本身也有价值 —— 牌离场、对手配不着了。）
+    const sc = R.scoreOf(caught)
+    const bestSc = R.scoreOf(bestCaught)
+    if (sc > bestSc
+      || (sc === bestSc && caught > bestCaught)
+      || (sc === bestSc && caught === bestCaught && caught > 0 && spend < bestSpend)) {
       bestCaught = caught
       bestSpend = spend
       best = i
     }
+  }
+  // 【养堆·HOLD_MIN】收得太少就不收，改去下饵（默认关，见函数上面那段）。
+  // 判在 `best >= 0` **之前**：摘掉之后照旧走下面那个挑饵循环，
+  // 所以「忍一手」用的是现成的 `baitRisk`，不是新编一套价值函数
+  // ⚠ 条件里要有 `bestCaught > 0` —— 没有的话「这一手本来就钓不着」
+  //   也会被记一笔「忍」，而那不是忍，是没得忍。
+  //   混进来的后果：holdSkip 被灌成「所有没钓到的手」，
+  //   HOLD_MIN=5 和 HOLD_MIN=3 的计数会长得差不多，诊断口当场失效
+  // `hmin` 是**这一侧**的阈值（见上面 HOLD_FOE 那段）。不设 HOLD_FOE 时
+  // 它逐字等于原来的 `HOLD_MIN > 0 && holdSide(side)`
+  const hmin = holdMinOf(side)
+  if (hmin > 0 && bestCaught > 0 && bestCaught < hmin) {
+    G.stat.holdSkip[side]++
+    G.stat.holdSkipSum[side] += bestCaught
+    best = -1
+  }
+  // ---------- 【忍 1 手】的决策点（见 worthHolding 那段） ----------
+  //
+  // 放在 `HOLD_MIN` 之后、`jackHeld` 之前。两套**不该同时开** ——
+  // 它们是互斥的打法类（忍到死 / 忍一手），同时开的话 holdSkip 那对
+  // 计数会混（现成的教训：JACK_HOLD 和 HOLD_MIN 共用计数那一段）。
+  if (!G.holdRun) G.holdRun = [0, 0]
+  if (!G.holdWould) G.holdWould = [0, 0]
+  const initHoldStat = function (st) {
+    if (st.holdOnce) return
+    st.holdOnce = [0, 0]; st.holdOnceHit = [0, 0]; st.holdOnceMiss = [0, 0]
+    st.holdOnceGave = [0, 0]; st.holdOnceGot = [0, 0]
+  }
+  if (best >= 0 && worthHolding(G, side, bestCaught)) {
+    initHoldStat(G.stat)
+    G.stat.holdOnce[side]++
+    // **放掉的档值在这儿记，不在结账那儿** —— 结账只在「后来真收到了」
+    // 才发生，记在那边的话「忍完再没收到牌」那 10% 放掉的东西白白消失，
+    // 账面上就看不出忍是亏的了
+    G.stat.holdOnceGave[side] += R.scoreOf(bestCaught)
+    G.holdRun[side]++
+    // 记下**放掉的是多少张** —— 下一次真收牌时拿它结账（hit / miss）
+    G.holdWould[side] = bestCaught
+    best = -1
+  } else if (best >= 0 && G.holdRun && G.holdRun[side] > 0) {
+    // 忍完之后真的收了 —— 这一笔结账。
+    // ⚠ **结在「决定要收」这儿，不是在 harvestAt 里**：那边一次 play
+    //   可能触发两次收牌（深钩），结两次账就把 hit 灌成两倍。
+    initHoldStat(G.stat)
+    const was = R.scoreOf(G.holdWould[side])
+    const now = R.scoreOf(bestCaught)
+    if (now > was) G.stat.holdOnceHit[side]++; else G.stat.holdOnceMiss[side]++
+    G.stat.holdOnceGot[side] += now
+    G.holdRun[side] = 0
+    G.holdWould[side] = 0
+  }
+  // JACK_HOLD 那一侧的计数。**只在「忍了 J 而且这一手最终没收牌」时记** ——
+  // 忍住 J 之后照样用别的牌钓到了的，那不叫忍（什么也没放弃）
+  if (jackHeld && best < 0) {
+    G.stat.holdSkip[side]++
+    G.stat.holdSkipSum[side] += jackWould
   }
   if (best >= 0) return best
   if (!G.smart[side]) return randomFree(G, side)
@@ -414,7 +712,29 @@ function pickCard(G, side) {
     }
   }
   let pick = -1
+  // ---------- 【养堆】忍了之后挑饵，**要优先挑钓不着的那张**〔2026-10-22 补的漏〕 ----------
+  //
+  // 漏掉它的后果是实测抓出来的，而且不小：`HOLD_MIN=3` 的「收 2 张」
+  // 那一格本该是 **0**，第一跑量出来是 **1.72 次/局**（对照 2.97）——
+  // 忍了 3.72 手，其中 **46% 照样收了牌**。
+  //
+  // 病根：上面那个 `best = -1` 只摘掉了「**偏好**钓最多的那张」，
+  // 而下面这个挑饵循环按 `baitRisk` 排 —— **它压根不看这张牌会不会钓到**，
+  // 于是挑出来的饵匹配上堆顶，当场收 2 张。
+  //
+  // 所以在这之前，「忍」的真实语义是「**不挑钓得多的**」，
+  // 而不是用户说的「**养堆直到 3 张/4 张/5 张 才收**」。两者差一截。
+  //
+  // ⚠ **用分层不用过滤**：手里全是能钓到的牌时必须打一张出去 ——
+  //   那一手是真忍不住，不是漏判。`holdForced` 专门记这个，
+  //   它就是这个旋钮的「它做了几次」诊断口（CLAUDE.md 第四节）。
+  // ⚠ **也不用「加一个大罚分」**：挑饵那边有 −1.5（wants）和 −1.0
+  //   （伏流无点数）两处折扣，`baitRisk` 能压到负数，所以任何固定幅度
+  //   都不保证压得住。改成先比「钓不钓得着」、再比分数 ——
+  //   跟幅度无关，而且 `HOLD_MIN` 关着时逐字退化成原来那一行
+  const HOLD_PEN = hmin > 0
   let pickScore = 99.0
+  let pickPen = false
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (card.rank === R.JACK || R.isFrozen(G, card)) continue
@@ -507,11 +827,24 @@ function pickCard(G, side) {
     if (SURGE_AVOID > 0 && R.surgeOnHand(G, card)) {
       score = score + SURGE_AVOID
     }
-    if (score < pickScore) {
+    // 【养堆】这张饵**自己也钓得着**吗。`sink` 传 false，照这个文件
+    // 既有的约定（挑牌阶段一律按正常落堆算，见上面那个主循环）
+    const pen = HOLD_PEN && R.catchStart(G, card, side, skills, false) >= 0
+    // 原来那一行是 `if (score < pickScore)`，pickScore 初值 99 ——
+    // 也就是「分数 ≥ 99 的谁都别选」。那道兜底照旧，只是挪到了前面，
+    // 这样下面那个三段比较只管排序、不兼管兜底
+    if (score >= 99.0) continue
+    // 先比「钓不钓得着」（钓不着的优先），再比分数。平手留给靠前的那张 ——
+    // 跟原来的严格 `<` 一致。`HOLD_PEN` 为假时 `pen` 恒 false，
+    // 第二项永不成立、第三项退化成 `score < pickScore`，**逐字等于原来那行**
+    if (pick < 0 || (pickPen && !pen) || (pen === pickPen && score < pickScore)) {
       pickScore = score
       pick = i
+      pickPen = pen
     }
   }
+  // 挑出来的饵自己也钓得着 = 手里全是能钓到的牌，这一手真忍不住
+  if (pickPen) G.stat.holdForced[side]++
   return pick >= 0 ? pick : randomFree(G, side)
 }
 

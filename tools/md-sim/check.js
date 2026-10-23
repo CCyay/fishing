@@ -34,7 +34,13 @@ const AI = require('./ai.js')
 //   （死水改成直接把牌变成 0 点牌）。**那种「标记集合不算桶」的提醒
 //   仍然有效**，现在的实例是 G.wild（通配）和 G.frostHand / G.burnHand：
 //   牌本身照旧待在 deck / hands / pile 里，别重复计数〕
-const BUCKETS = ['deck', 'handME', 'handFOE', 'pile', 'stacked', 'gone']
+//
+// 〔2026-10-22 第七个桶：`waste`（白放离场）。**它不能并进 `gone`** ——
+//   `gone` 被下面断言三锁着（score 合计 == gone.length），而白放的牌
+//   没人收走、不计分。它是这天 wardice 组那个 −1 的落点，见 rules.js
+//   `stacking` 那一段。在此之前这份清单确实「漏了一个地方」，
+//   而上面那句「漏桶就说该补桶」只在**局首**生效，局中漏的照旧报不守恒〕
+const BUCKETS = ['deck', 'handME', 'handFOE', 'pile', 'stacked', 'gone', 'waste']
 
 function buckets(G) {
   return {
@@ -43,7 +49,8 @@ function buckets(G) {
     handFOE: G.hands[R.FOE].length,
     pile: G.pile.length,
     stacked: G.stacked.length,
-    gone: G.gone.length
+    gone: G.gone.length,
+    waste: G.waste.length
   }
 }
 
@@ -66,6 +73,20 @@ function frostCountOn(G, card) {
     if (G.held[i].skill === R.HELD_FROST && G.held[i].source === card) k++
   }
   return k
+}
+
+// 堆上第 i 张带不带【保护】。**自己判一遍**，理由同上 ——
+// `wardAt` 没导出，而且共用实现就一起错。
+//
+// ⚠ 只在**标签档**（默认 = 游戏里的样子）判。`WARD_TAG=0` 那条老路
+// 认的是「底下垫着一条 `STACK_WARD`」，而 `STACK_WARD` 这个常量
+// **没有导出**（`kind` 的数值不能在自检里硬编，那是另一种共用实现）——
+// 所以那一档下面这条断言**跳过**，main 里会印一行说它跳过了。
+// 不印的话「全过」就是过的空气，而那正是这条断言补上来要治的病
+const WARD_TAG = process.env.WARD_TAG !== '0'
+
+function wardOnCard(G, card) {
+  return WARD_TAG && G.wardTag.indexOf(card) >= 0
 }
 
 // ---------- 不变量 ----------
@@ -137,19 +158,49 @@ function check(G, st, where) {
     }
   }
 
-  // 三、分数 == gone 的张数
-  const score = G.score[R.ME] + G.score[R.FOE]
-  if (score !== G.gone.length) {
-    return '分数跟记牌口径不一致：score 合计 ' + score + ' ≠ gone ' + G.gone.length + '\n'
-      + '    你 ' + G.score[R.ME] + ' 庄 ' + G.score[R.FOE] + '\n'
-      + '    差 ' + (score - G.gone.length)
+  // 三、**收走的张数** == gone 的张数
+  //
+  // ⚠ 查的是 `G.taken` 不是 `G.score`〔2026-10-22 改〕。`SCORE_BANDS`
+  //   开着时 score 是档值、不再等于张数，而这一条自检量的是**张数守恒**
+  //   （「有牌离场却没进 gone」），跟计分规则无关。
+  const took = G.taken[R.ME] + G.taken[R.FOE]
+  if (took !== G.gone.length) {
+    return '收牌张数跟记牌口径不一致：taken 合计 ' + took + ' ≠ gone ' + G.gone.length + '\n'
+      + '    你 ' + G.taken[R.ME] + ' 庄 ' + G.taken[R.FOE] + '\n'
+      + '    差 ' + (took - G.gone.length)
       + ' —— 有牌离场却没进 gone（或者反过来）。'
       + 'takeAt 的 `if (shield)` 那一支最可能'
   }
+  // 三之二、**旋钮关着时 score 必须逐位等于 taken**。
+  // 这一条是上面那个改动的「它坏得了吗」—— 把 `scoreOf` 写错
+  //（比如忘了 `n <= 1` 那一支）当场在这儿炸，而不是悄悄改掉全表的数。
+  if (!process.env.SCORE_BANDS) {
+    for (const s of [R.ME, R.FOE]) {
+      if (G.score[s] !== G.taken[s]) {
+        return '铁律破了：SCORE_BANDS 没开，但 score ≠ taken\n'
+          + '    side=' + s + ' score=' + G.score[s] + ' taken=' + G.taken[s] + '\n'
+          + '    —— `scoreOf` 在旋钮关着时必须逐字返回 n'
+      }
+    }
+  }
 
-  // 四、冰不叠加 / 冰火不共存
+  // 四、冰不叠加 / 冰火不共存 / **冰盾不共存**
   for (let i = 0; i < G.pile.length; i++) {
     const k = frostCountOn(G, G.pile[i])
+    // 带【保护】的牌贴不上冰 —— 两个方向都该拦住：`addFrostAt` 第一道闸
+    // 不给带盾的贴冰，而 `addWardAt` 贴盾那一下会把已有的冰清掉。
+    //
+    // ⚠ 这条 2026-10-22 才补上，而**那天正是它该拦的 bug 被查出来的日子**：
+    // 模拟器的 `addFrostAt` 漏了那道闸（源码 10-19 就加了），漏了三天 ——
+    // 而本文件此前**一条保护相关的不变量都没有**，所以规则层查不出来；
+    // 受影响的格子又恰好一格都没跑过（保护件不在 KIT_ORDER 前 4、
+    // 不在 PLAYER_POOL、不在任何庄家配装），所以 X 也不反常。
+    // **两头都静默，只有 fingerprint.js 抖出来。** 这条就是补那个洞
+    if (k > 0 && wardOnCard(G, G.pile[i])) {
+      return '冰盾共存：堆上第 ' + i + ' 张（' + G.pile[i].rank + G.pile[i].suit
+        + '）同时带【保护】和【结冰】 —— '
+        + '两道闸（addFrostAt 开头那个 wardAt / addWardAt 里的清冰）有一个没拦住'
+    }
     if (k > 1) {
       return '【结冰】叠加了：堆上第 ' + i + ' 张（' + G.pile[i].rank + G.pile[i].suit
         + '）挂着 ' + k + ' 条 —— addFrostAt 的不可叠加那道闸漏了'
@@ -186,7 +237,14 @@ function note(G, st, where) {
   }
   if (G.frostHand.length > 0) st.keySeen++
 
-  // 火那一边同理，而且**这一边更要紧**：「六条硬断言全过」在一个
+  // 保护那一边同理 —— 而「冰盾不共存」那条断言**更容易过空气**：
+  // 它要堆上同时存在盾和冰才算验过，而全表没有一个配装会让两者碰面。
+  // 所以必须正面数「见过盾」的手数，不然那条断言永远在报喜
+  for (let i = 0; i < G.pile.length; i++) {
+    if (wardOnCard(G, G.pile[i])) { st.wardSeen++; break }
+  }
+
+  // 火那一边同理，而且**这一边更要紧**：「七条硬断言全过」在一个
   // 一张火都没点着的局里也会全过 —— 那时候过的是空气。
   // 新搬进来那三件是不是真的在贴火，只有正面数才知道
   for (let i = 0; i < G.pile.length; i++) {
@@ -274,10 +332,16 @@ function kitOf(roleKey, keys) {
 // 〔'frostfall' 那一组 2026-10-15 改名成 'coldhue' —— 霜降删了，
 //   驻场那一组换寒流当代表〕
 // 〔2026-10-20：结凌 / 藏凌 / 寒流删了，'coldhue' 组换成 'lockdraw'（封凌单件）〕
-const FROST_CASES = ['lockdraw', 'frost', 'lockice', 'fire']
+const FROST_CASES = ['lockdraw', 'frost', 'lockice', 'fire', 'wardice']
 const BURN_CASES = ['burn', 'fire']
+// 〔2026-10-22 加〕哪几组该见到**堆上的保护**。只有一组 ——
+// 而「只有一组」本身就是那条断言此前永远在报喜的原因
+const WARD_CASES = ['wardice']
 
-// ---------- 六组配置 ----------
+// ---------- 九组配置 ----------
+//
+// 〔这儿原先写着「六组」，而那时表里已经是八组了 —— 数字写在注释里
+//   就会过期。2026-10-22 加 wardice 时一起改成九组〕
 //
 // 顺序是故意的：base 过不了就不用看后面三组 —— 那说明坏的不是新东西
 const CASES = [
@@ -317,6 +381,24 @@ const CASES = [
       return {
         mine: kitOf('lock', ['lockdraw', 'lockcolor']),
         // 庄家也带冰雷：双方的钥匙互相引爆对方的雷那条路在这儿跑
+        foe: kitOf('lock', ['lockdraw', 'lockcolor', 'icebomb']), myRole: -1
+      }
+    }
+  },
+  {
+    // 【凝水】+ 封凌〔2026-10-22 加〕：**全表唯一让保护和冰碰面的配装。**
+    //
+    // 加它的理由不是覆盖率，是「冰盾不共存」那条断言**没有别的组能验**：
+    // `KIT_ORDER` 前 4（传火 / 引火 / 对换 / 伏流）里没有保护件，
+    // `campaign.js` 的 `PLAYER_POOL` 里也没有（`calm` / `stow` 一次都不出现），
+    // 十二张庄家配装唯一沾冰的那件（第 9 关的冻结）10-21 已经不带冰了。
+    // **所以这条断言要么在这儿跑，要么一辈子在报喜。**
+    //
+    // 庄家也带冰：我方的盾要被**两边**的冰试过才算验过
+    key: 'wardice', label: '凝水 + 封凌（保护和冰碰面 —— 只有这一组碰得上）',
+    build: function () {
+      return {
+        mine: kitOf('lock', ['calm', 'lockdraw']),
         foe: kitOf('lock', ['lockdraw', 'lockcolor', 'icebomb']), myRole: -1
       }
     }
@@ -400,7 +482,7 @@ function runCase(cs, n, seed) {
   const rng = R.makeRng(seed)
   const st = {
     iceBlindBetween: 0, heldStale: 0, frostLeak: 0,
-    frostSeen: 0, keySeen: 0,
+    frostSeen: 0, keySeen: 0, wardSeen: 0,
     burnSeen: 0, burnKeySeen: 0,
     burnLeak: 0,
     steps: 0, games: 0
@@ -483,10 +565,10 @@ function main() {
     }
 
     console.log('✓ ' + cs.key + '  ' + cs.label)
-    console.log('    ' + st.games + ' 局 / ' + st.steps + ' 手，六条硬断言全过')
+    console.log('    ' + st.games + ' 局 / ' + st.steps + ' 手，七条硬断言全过')
     // ---- 该见到的标签见到了吗 ----
     //
-    // 「六条硬断言全过」在一个**标签根本没生效**的局里也会全过 ——
+    // 「七条硬断言全过」在一个**标签根本没生效**的局里也会全过 ——
     // 那时候过的是空气。所以每组正面点名它该见到什么。
     //
     // 名单**显式写，不靠 key 猜**：原先写的是「除了 base 和 filler
@@ -501,6 +583,18 @@ function main() {
       } else {
         console.log('    冰：堆上 ' + st.frostSeen + ' 手、手里的钥匙 '
           + st.keySeen + ' 手')
+      }
+    }
+    if (WARD_CASES.indexOf(cs.key) >= 0) {
+      if (!WARD_TAG) {
+        console.log('    — 冰盾那条断言**跳过了**（WARD_TAG=0 那条老路认的是'
+          + ' STACK_WARD，而那个常量没导出）')
+      } else if (st.wardSeen === 0) {
+        console.log('    ⚠ 一张堆上的保护都没见过 —— 冰盾那条断言等于没跑。'
+          + '对一下 SK.CALM 的 key 和 addWardAt 那条路')
+        failed++
+      } else {
+        console.log('    保护：堆上 ' + st.wardSeen + ' 手（冰盾那条断言真跑过了）')
       }
     }
     if (BURN_CASES.indexOf(cs.key) >= 0) {
@@ -520,6 +614,37 @@ function main() {
     if (st.burnLeak > 0) obs.push('burnHand 有离手的牌 ' + st.burnLeak + ' 手')
     if (obs.length > 0) console.log('    观察：' + obs.join('、'))
     console.log('')
+  }
+
+  // ---- 收尾：叠放的孤儿 ----
+  //
+  // `expireStacked` 的职责是「宿主离场了，整叠跟着清」，而叠放表里
+  // 装的是**真牌** —— 清掉一条就是丢一张牌。正常情况下轮不到它清：
+  // 收牌走 `takeStack`（进 gone）、走水走 `returnAt`（回 deck），
+  // 两条都先把叠牌搬走了。真清到了就说明有**第三条「宿主离场」的路**
+  // 没接账。
+  //
+  // ⚠ **它跟断言五管的不是同一件事，两条都要有。**
+  // 断言五抓的是「`G.stacked` 里残着一条宿主已离场的」，而那是
+  // `expireStacked` **还没跑**的状态；跑完之后残条就没了，断言五看不见。
+  // 这个计数口抓的是「跑了，而且真清掉了东西」——
+  // 同一个毛病的另一头，谁也替不了谁。
+  //
+  // 〔2026-10-22：这一天 `wardice` 组报牌数 −1，我判在了 `expireStacked`
+  //   头上，还加了「没主的叠牌洗回牌库」当兜底。真凶是【凝水】堆空时
+  //   那张牌白放（现在进 `G.waste`，第七个桶）。兜底已撤 ——
+  //   **留着的话下一次真漏了，守恒会替它圆场**，而那比没有检查更糟〕
+  //
+  // `PROTO_STAT` 是跨组累加的，所以在所有组跑完之后读一次
+  const orph = R.PROTO_STAT.stow.orphan
+  if (orph > 0) {
+    console.log('⚠ 叠放孤儿 ' + orph + ' 张 —— 宿主从第三条路离场了，'
+      + '叠在它底下的牌没人接账（上面的守恒断言应该已经断了）。')
+    console.log('    查法：grep 出所有让牌离开 G.pile 的地方'
+      + '（removePileAt / G.pile.splice / returnAt / harvestAt），')
+    console.log('    看哪一条没先调 takeStack。见 rules.js 的 expireStacked。')
+    console.log('')
+    failed++
   }
 
   if (failed > 0) {

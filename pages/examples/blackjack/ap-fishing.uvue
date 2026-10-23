@@ -216,6 +216,69 @@
       </scroll-view>
     </view>
 
+    <!-- ---------- 出牌：最近 3 手 ---------- -->
+    <!--
+      播报从前只在最底下那条状态行里占 11px 一行，而且**整条被下一手覆盖** ——
+      庄家一打牌，你那一手钓走了几张、哪件技能响了，当场查不到了。
+      而那正是你这一手要算的东西（照牌上那几个角标的同一条判据：
+      「不标的话全靠记，而那正是这件事的全部决策」）。
+
+      **按时间正序，最新那条在最后一行**〔2026-10-21 用户定〕 ——
+      从上往下读就是事情发生的顺序。越往上越旧、越暗，
+      所以「哪条是最新的」不用读内容就看出来。
+
+      摆在牌堆和场上效果**下方**：那两块说的是「现在的局面」，
+      这一块说的是「怎么变成这样的」。
+
+      左边一列是「谁、哪张」，正文把开头那句『你打出 ♠7。』摘掉（见 logBody）——
+      不摘就是同一句话印两遍。**没有牌名的那几条**（跳过回合、
+      冰雷贴冰…）左边那列整个不出现，正文自己会说清是谁。
+
+      一手都还没打就整块不占位（照 field-bar 那条：别留一行永远在那儿的废话）。
+
+      **高度写死 + 里面竖着滚**（照 field-bar 那条惯例）：播报长短差很多
+      （「没收成。」一句 vs 带三件技能的一长串），而牌堆那块是 flex: 1 ——
+      这儿一高一低，整个牌桌就跟着上下跳。所以长短由滚条兜，
+      而**写死的那个高度有两档**（牌堆换行就缩，见 pileWrapped）。
+
+      正序 + 写死高度带出一件必做的事：**滚条要自动跟到底**
+      （`:scroll-top="logScroll"`，见 logToBottom）—— 不跟的话
+      长播报一来，最新那条就落在视口下面，而那正是要看的那一条
+    -->
+    <view v-if="playLog.length > 0" class="play-log" :class="{ 'play-log-slim': pileWrapped }">
+      <scroll-view
+        class="play-scroll sv-out"
+        :class="{ 'play-scroll-slim': pileWrapped }"
+        direction="vertical"
+        :scroll-top="logScroll">
+        <!-- 渐暗做在**行上**（opacity），不是给每个 text 换 color ——
+             换 color 会跟 card-red 撞在同一个权重上，谁赢看写的顺序。
+             那正是「两处各写一份」的小号版本 -->
+        <!-- ⚠ 渐暗是按**离末尾多远**算的，不是按下标 —— 最新那条在最后。
+             写成 `li == 1` / `li > 1` 的话：只有 1 条时那一条反而最亮（巧合对了），
+             有 2 条时**最新的那条被当成旧的**暗掉，正好反了。
+             这三格逐个验过：n=1 → 全亮；n=2 → li0 暗、li1 亮；
+             n=3 → li0 最暗、li1 暗、li2 亮 -->
+        <view
+          v-for="(one, li) in playLog"
+          :key="'pg-' + li"
+          :id="'ap-play-' + li"
+          class="play-row"
+          :class="{
+            'play-row-old': li == playLog.length - 2,
+            'play-row-older': li < playLog.length - 2
+          }">
+          <text v-if="one.card != ''" class="play-side" :class="{ 'play-side-foe': one.foe }"
+            >{{ one.foe ? '庄' : '你' }}</text
+          >
+          <!-- 红花色用 play-card-red 而**不是** card-red —— 理由在样式那边，
+               连带记了「择饵那四块正踩着这个坑」 -->
+          <text v-if="one.card != ''" class="play-card" :class="{ 'play-card-red': one.red }">{{ one.card }}</text>
+          <text class="play-text">{{ logBody(one) }}</text>
+        </view>
+      </scroll-view>
+    </view>
+
     <!-- 择饵：摊开牌库顶五张，挑一张留在最上面。
          跟观潮同一个朝向（挑的是你回合末要补的），但它是精确挑选 ——
          所以这块得把牌面摆出来点，不能像观潮那样只给「沉/不沉」两颗钮 -->
@@ -291,6 +354,20 @@
           <text class="tide-btn-text tide-btn-text-plain">{{ swapDone > 0 ? '换完了' : '不换' }}</text>
         </view>
       </view>
+    </view>
+
+    <!-- 滤饵：3 张已经摸到手上了，现在挑 2 张退回牌库。
+         挑的动作同样借手牌那一排（照换水）。
+
+         **这一块没有收尾钮**，跟换水那一块的分别就在这儿：
+         滤饵是强制退满的 —— 牌先白给了你，退牌是它的代价。
+         退够 SIFT_BACK 张自己关。
+
+         实测这个「挑」值 0.905 分（X 的 57%），是这件技能一多半的价值；
+         而误伤已经降到 0.13%（理论完美是 0）—— 所以这块 UI 要让人看清
+         手里哪些牌当场钓得着 -->
+    <view v-if="siftPending" class="tide-box">
+      <text class="tide-text">{{ '滤饵：已摸 ' + siftDrew + ' 张，点手牌退回牌库重洗 —— 还要退 ' + siftLeft + ' 张' }}</text>
     </view>
 
     <!-- 连竿：加打是**可选的**。要打就直接点手牌（canPlay 故意没把它
@@ -408,12 +485,17 @@
       </view>
     </view>
 
-    <!-- ---------- 状态行：回合 + 播报合成一条 ---------- -->
+    <!-- ---------- 状态行：现在该干什么 ---------- -->
     <!--
-      原先这儿是两块：上面一个 message-box（刚发生了什么），
-      下面一个 turn-bar（现在该谁）。两块说的是同一件事的两头，
-      而且一直占着两行。合成一条之后：**粗体那半是「现在该干什么」，
-      后面接刚发生的事**。
+      演化有三步，别照任何一步的旧注释推断现在的样子：
+
+        一、两块 —— 上面 message-box（刚发生了什么）+ 下面 turn-bar（现在该谁）。
+            说的是同一件事的两头，却一直占着两行。
+        二、合成一条 —— 粗体那半是「现在该干什么」，后面接刚发生的事。
+            毛病是播报只剩 11px 一行小字，而且**下一手一来整条就没了**。
+        三、〔2026-10-22〕播报搬到**牌堆下方**那一块（play-log，留最近 3 手），
+            这一行**只剩「现在该干什么」** —— 两处印同一句话的话，
+            挨着三行就是同一句话读两遍。
 
       id 留着 ap-turn（e2e 在断言它包含「你的回合」）
     -->
@@ -427,7 +509,6 @@
 
     <view class="turn-bar">
       <text id="ap-turn" class="turn-label">{{ turnText }}</text>
-      <text v-if="message != ''" class="turn-msg">{{ message }}</text>
     </view>
 
     <!-- 你这侧：技能一行（跟庄家那侧同一个格式）。
@@ -759,6 +840,11 @@
     // 【分饵】：看牌库顶 `GIFT_LOOK` 张，给自己和对手各 1 张（2026-10-16）
     SK_GIFT,
     GIFT_LOOK,
+    // 【滤饵】：摸 `SIFT_DRAW` 张，再挑 `SIFT_BACK` 张手牌退回牌库（2026-10-22）。
+    // 两个常量**必须差 1**（局长中性的来历，见它那段）
+    SK_SIFT,
+    SIFT_DRAW,
+    SIFT_BACK,
     // 〔【漫流】2026-10-20 删了（换成【易流】）。这两个 import **留着** ——
     //   `brimFor` 还在读它们，而那个函数按删法第二步留着
     //  （`SK_BRIM` 现在恒 −1，所以永不触发）。
@@ -1096,6 +1182,168 @@
   const myTurn = ref<boolean>(false)
   const over = ref<boolean>(false)
   const message = ref<string>('')
+  // ---------- 出牌信息：牌堆下方那一块 ----------
+  //
+  // 播报（message）从前只在最底下的状态行里占 11px 一行，而且**整条被
+  // 下一手覆盖** —— 庄家一打牌，你那一手钓走了几张、哪件技能响了，
+  // 当场查不到了。而那正是你这一手要算的东西。
+  //
+  // 所以牌堆下方给它一块，留**最近 3 手**。
+  //
+  // **按时间正序 —— 最新那条在最后一行**〔2026-10-21 用户定〕。
+  // 连带两件事，缺一个这块就不好用：
+  //   一、渐暗是按「离末尾多远」算的，不是按下标（见模板那段）；
+  //   二、**滚动条要自动跟到底** —— 高度写死 + 新的在最后 =
+  //       长播报一来，最新那条就掉到视口下面去了（见 logToBottom）。
+  //
+  // 高度**写死但有两档**：平时 108px，牌堆一换行缩到 44px
+  // 〔2026-10-22 用户定〕—— 判据和算法在 pileWrapped 那段。
+  //
+  // ⚠ **这儿不另记一份播报文本。** 正文始终跟着 message 走（见下面那个
+  // watch）。全文件有 80 多处 `message.value = message.value + …`，
+  // 复制一份就是「两份必然分叉」，而分叉掉的会是「这一手到底报了什么」。
+  // 这一块只记 message 记不下的三样：**谁打的、打的哪张、那张是不是红的**。
+  type PlayNote = {
+    foe : boolean
+    // 打出的那张牌名。跳过回合、以及出牌之外的播报（冰雷贴冰、观潮沉底…）
+    // 没有牌，**留空**；留空那几条左边那一列整个不出现（模板按 card != '' 判），
+    // 正文自己会说清是谁 —— 编一个「你」出来才是错的
+    card : string
+    // 牌名要不要描红。照全页的规矩：♦♥ 一律红字
+    red : boolean
+    // 这一条播报的开头（『你打出 ♠7。』）。正文渲染时要摘掉它 ——
+    // 「谁、哪张」已经在左边那一列里了。
+    // **存原文而不是渲染时重新拼** —— 拼法在 onPlay / foeTurn 两个调用点上，
+    // 重拼一遍就是第二份实现，而它们一分叉就表现为「正文里多半句」
+    lead : string
+    text : string
+  }
+  const playLog = ref<PlayNote[]>([] as PlayNote[])
+  // 留几手。3 手 = 你这一手 + 庄家那一手 + 再往前一手，正好够看清
+  // 「这一轮来回发生了什么」。
+  // ⚠ 加这个数要连着看高度：缩了那一档只有 44px（约两行），
+  // 再多留几手就全靠翻 —— 条数和能一眼看到的行数是两件事
+  const PLAY_LOG_MAX : number = 3
+  // 滚动位置。单调加，见 logToBottom
+  const logScroll = ref<number>(0)
+  // 等「你打出 X。」那一句到场。见 logPlay 那段
+  let logWait = false
+  let logFoe = false
+  let logCard = ''
+  let logRed = false
+  let logLead = ''
+
+  // 新开一条的**预约**（不是当场开）。
+  //
+  // ⚠ **必须在 playFor 之前调，而且必须是预约式的** —— playFor 里有几件
+  // 技能会往 message 上追加，而那会儿 message 还是**上一手**的播报
+  // （所以调用处随后会整条覆盖掉它，见 playFor 那段「优先那一族返回话、
+  // 不写 message」）。当场开一条的话，那几句追加会落进新条目里，
+  // 变成「这一手的播报里挂着上一手的全文」。
+  //
+  // 所以这儿只记下头，等 lead 那一句真的出现才开条目 —— 在那之前
+  // 对 message 的写入全部丢掉（跟现行行为一致：它们本来就被覆盖掉了）
+  function logPlay(byFoe : boolean, card : PlainCard, lead : string) {
+    logWait = true
+    logFoe = byFoe
+    logCard = cardName(card)
+    logRed = isRed(card)
+    logLead = lead
+  }
+
+  // 开一条新的，**接在最后**，超出 PLAY_LOG_MAX 的从**前面**截掉。
+  // 整条换数组而不是原地 push —— 照本文件改对象数组的习惯（stacked / held）
+  function logOpen(foe : boolean, card : string, red : boolean, lead : string, text : string) {
+    const one = { foe: foe, card: card, red: red, lead: lead, text: text } as PlayNote
+    let next : PlayNote[] = playLog.value.concat([one] as PlayNote[])
+    if (next.length > PLAY_LOG_MAX) {
+      // 掉的是**最旧的那几条**（正序，旧的在前面）
+      next = next.slice(next.length - PLAY_LOG_MAX, next.length)
+    }
+    playLog.value = next
+    logToBottom()
+  }
+
+  // 滚到底。**正序带出来的新问题**：最新那条在最后一行，而这一块高度写死 ——
+  // 一手播报长一点（带三件技能的那种），最新那条就掉到视口下面去了。
+  //
+  // 两件事都要，少一件就不动：
+  //
+  //   一、**值必须每次都变**。scroll-top 是「设过的值不重设」的
+  //       （见 pages/reactivity/render-effect-guard 那一页：宿主副作用
+  //       只在值变了才重放），所以不能写死一个 9999 —— 第二次就没反应了。
+  //       所以这儿单调加，而**超过内容高度会被夹到底部**，正是要的效果。
+  //   二、**等这一帧渲染完**（nextTick）。不等的话 scroll-top 落在
+  //       **加这一条之前**的内容高度上，于是永远差最后那一行。
+  //
+  // ⚠ 别换成 scroll-into-view：记录满 3 条之后最新那条**永远是
+  // `ap-play-2`**，id 不变 = 不重放，照样不滚
+  function logToBottom() {
+    nextTick(() => {
+      logScroll.value = logScroll.value + 400
+    })
+  }
+
+  // 正文：把开头那句『你打出 ♠7。』摘掉。
+  // 摘不着就整条照原样给 —— 降级要安全（宁可多半句，不能漏掉播报）。
+  //
+  // 不是只摘前缀而是**摘中间那一段**：庄家那头可能带个前言
+  // （『庄家的牌全被冻住了，补了 2 张。』+『庄家打出 ♥K。』，见 foeTurn）
+  function logBody(one : PlayNote) : string {
+    if (one.lead == '') {
+      return one.text.trim()
+    }
+    const at = one.text.indexOf(one.lead)
+    if (at < 0) {
+      return one.text.trim()
+    }
+    // 两个 substring 都给足两个参数 —— 单参那个重载在 uts 上不保险
+    // （同一族的坑：`.toString()` 编到 Kotlin 没有带进制的重载，见 cards.uts 的 faceOf）
+    const head = one.text.substring(0, at)
+    const tail = one.text.substring(at + one.lead.length, one.text.length)
+    return (head + tail).trim()
+  }
+
+  // ---------- 这一块多高：看牌堆换没换行 ----------
+  //
+  // 平时给足（`.play-log`，三行长播报都放得下），而**牌堆一换行就缩**
+  // （`.play-log-slim`）〔2026-10-22 用户定〕。
+  //
+  // 为什么要缩：`.pile-area` 是 `flex: 1`，剩下的竖向空间全归牌堆。
+  // 堆排到第二行的时候，那一行要 82px（牌 76 + 缝 6），而这一块平时占 108 ——
+  // 不让它，第二行就只能靠牌堆自己那个滚条，于是**刚打出去的那张看不见了**。
+  // 缩掉之后让出 64px，正好把第二行顶上来大半。
+  //
+  // 而**两档都是写死的高度**，不是 flex —— 那条惯例在 `.field-bar` 上：
+  // 高度随内容长短变，底下整块牌桌就跟着上下跳。换档只在「换行 / 不换行」
+  // 那一下发生（一局里顶多几次），不是每句播报都动一下
+
+  // 一行摆得下几张牌堆的牌。
+  // **是 ref 不是普通 let** —— 它被 pileWrapped 读，而那是渲染里的量；
+  // 写成 let 的话 measurePile 要是晚于首帧跑，这一格就一直是 6 不更新
+  const pilePerRow = ref<number>(6)
+
+  // **量一次就够** —— 这一页不转屏（照 relay.uvue 的 measureSlots）。
+  //
+  // 算法：`.page` 左右各 12 的内边距，牌堆那张牌 54 宽 + 6 右缝 = 一格 60，
+  // 而 flex-wrap 算的是「含外边距的外尺寸」，所以直接整除就是容量
+  // （366 宽放 6 张 = 360 ✓、7 张 = 420 ✗）。
+  //
+  // ⚠ 这是**推的不是量的**（没走 createSelectorQuery）。差一张的后果只是
+  // 「早缩 / 晚缩一张牌」，而为了这个去挂一次异步测量不值当 ——
+  // 同一条判据写在 relay.uvue 那条「差几像素看不出来」的注释里
+  function measurePile() {
+    const info = uni.getSystemInfoSync()
+    const usable = info.windowWidth - 24
+    let n = Math.floor(usable / 60)
+    if (n < 1) {
+      n = 1
+    }
+    pilePerRow.value = n
+  }
+  const pileWrapped = computed<boolean>(() : boolean => {
+    return pile.value.length > pilePerRow.value
+  })
   // ---------- 技能说明：自己一块，不再占播报 ----------
   //
   // 从前点技能是**把说明写进 message**（播报那一行），再点一次恢复战况。
@@ -1107,12 +1355,60 @@
   // 一打牌（message 变）就自动收起，那条还留着
   const chipHead = ref<string>('')
   const chipBody = ref<string>('')
-  // 战况一更新，技能说明就收起
+  // 战况一更新：技能说明收起，同时把这一句归进出牌记录（见 playLog）
   watch(message, (text : string) => {
     chipAt.value = -1
     chipHead.value = ''
     chipBody.value = ''
+    logTake(text)
   })
+
+  // 把 message 的这一次变动归到出牌记录里。**三条分支，顺序要紧**：
+  //
+  //   一、在等 lead（logWait）—— 这是 playFor 正在往**上一手**的播报上
+  //       追加，一律丢掉，直到 lead 那一句到场才开新条目。
+  //       两道闸都要：先看「是不是还在往上一条上接」（上一手的牌名
+  //       跟这一手一样时，光看 lead 会误判），再看 lead 到没到。
+  //   二、**追加**（新的以当前这条为前缀）—— 更新当前这条。
+  //       全文件 80 多处追加都是 `message.value = message.value + …`，
+  //       所以「是不是前缀」就是「是不是同一手的后续」，不用另加标记。
+  //   三、**覆盖**（不是前缀）—— 另开一条，没有牌名。
+  //       跳过回合、冰雷贴冰、观潮沉底这些就落在这儿：它们确实是
+  //       独立的一件事，而且这样**上一手的播报被保住了**（现行行为是冲掉）
+  //
+  // ⚠ **「当前这条」是最后一条**（正序，见 playLog 那段的声明）。
+  // 下标写成 0 的话：比的是最旧那条、追加也写进最旧那条，
+  // 于是每一句追加都另开一条，3 格一手就挤满了
+  function logTake(text : string) {
+    if (text == '') {
+      return
+    }
+    const last = playLog.value.length - 1
+    const prev = last >= 0 ? playLog.value[last].text : ''
+    if (logWait) {
+      if (prev != '' && text.indexOf(prev) == 0) {
+        return
+      }
+      if (text.indexOf(logLead) < 0) {
+        return
+      }
+      logWait = false
+      logOpen(logFoe, logCard, logRed, logLead, text)
+      return
+    }
+    if (prev != '' && text.indexOf(prev) == 0) {
+      const next = playLog.value.slice(0, playLog.value.length)
+      const tail = next[last]
+      next[last] = {
+        foe: tail.foe, card: tail.card, red: tail.red, lead: tail.lead, text: text
+      } as PlayNote
+      playLog.value = next
+      // 追加也要跟到底 —— 正是「播报变长」这一下把最新那条顶出视口的
+      logToBottom()
+      return
+    }
+    logOpen(false, '', false, '', text)
+  }
   // 你这回合刚摸到的那张在手牌里的下标，-1 表示没摸（牌库空了）。描绿边，打出之后清掉
   const newIndex = ref<number>(-1)
   // 技能栏上点亮的那一格：0 起是你的，100 起是庄家的，-1 表示没点
@@ -1323,6 +1619,20 @@
   const swapPending = ref<boolean>(false)
   // 这一次换水已经塞回去几张了（只用来写提示和结算文案）
   const swapDone = ref<number>(0)
+  // 滤饵等你挑手牌退回牌库。
+  //
+  // ⚠ **不能复用 swapPending** —— 两件技能的 pending 形状不一样：
+  // 换水是「任意张、可以不换」（点一张洗一张，按钮收尾），
+  // 滤饵是**强制退满 SIFT_BACK 张**（它已经先白给了你 3 张）。
+  // 所以这儿要计数、退够了自己关，而且**没有「不退」那颗钮**。
+  // `siftLeft` 记还差几张 —— 照 fuelLeft 那条先例（将来调 N 不用改这儿）
+  const siftPending = ref<boolean>(false)
+  const siftLeft = ref<number>(0)
+  // 这一次实际摸上来几张（牌库见底就少摸几张，只用来写提示）
+  const siftDrew = ref<number>(0)
+  // 这一次已经退回去几张了（照 swapDone —— 结算文案要报**真退了几张**，
+  // 不能报 SIFT_BACK：手里点空了会少退）
+  const siftDone = ref<number>(0)
   // 冻结等你挑庄家的一张手牌（挑的是位置 —— 那几张多半盖着）
   const freezePending = ref<boolean>(false)
   // 冰雷等你挑一张自己的手牌贴冰
@@ -1919,6 +2229,9 @@
     return myTurn.value && !over.value && !catching.value && !tidePending.value
       && !swapPending.value && !freezePending.value && !pickPending.value
       && !bombPending.value
+      // 【滤饵】强制退满，没退够不许出牌（比换水那条更硬 ——
+      // 换水可以按钮收尾，这件没有「不退」那条路）
+      && !siftPending.value
       && takeSkill.value < 0 && giveBack.value < 0 && !twinPending.value
       && pilePick.value < 0
       // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
@@ -1950,6 +2263,10 @@
     }
     if (swapPending.value) {
       return '你的回合 · 换水'
+    }
+    // 滤饵报**还差几张**（照分饵那条：不报的话点完一张看着像卡住了）
+    if (siftPending.value) {
+      return '你的回合 · 滤饵（还要退 ' + siftLeft.value + ' 张）'
     }
     if (freezePending.value) {
       return '你的回合 · 冻结'
@@ -4337,6 +4654,28 @@
     return card
   }
 
+  // ---------- 〔判废〕【判定】：翻牌库顶 1 张、用完放回库底 ----------
+  //
+  // 2026-10-22 当天加的新关键词，**当天判废**，所以源码侧没有实现 ——
+  // 这段墓碑留着是因为它的死因是一条通用判据。
+  //
+  // 它是【传火】那一刀的第一版：传火原来读「跟**它自己**同颜色」，
+  // 而花色槽把颜色钉死了（♥ 槽里打出的永远是红的）→ 那个「打红还是
+  // 打黑」的决策在那种槽里根本不存在。判定牌来自牌库、跟槽无关，
+  // 所以它确实把条件搬出了槽。
+  //
+  // 用户判废的原话：「**增加了不确定性，失去了决策**」。
+  //
+  // > **判据：把条件从「自身属性」挪开的时候，要挪到「局面」上，
+  // > 不是挪到随机上。** 局面（堆的形状）跟槽无关**而且玩家读得到**
+  // > → 决策还在；随机跟槽无关但谁也读不到 → 决策没了。
+  // > 那是**拿一个病换另一个病**：原来「花色槽里没决策」，
+  // > 换完「**两种槽都没决策**」。
+  //
+  // 定稿换成了「堆上张数少的那个颜色」（见下面传火那一段）。
+  // 模拟器那边 `CHAIN_HUE='judge'` 这一档**留着**（非默认），
+  // 下一轮要对照量的时候不用跨版相减
+  //
   // 新进场的牌带几层火。
   //
   // 【沸水】删了（在场时落堆的牌都带 1 层火），所以现在**恒为 0** ——
@@ -6028,9 +6367,13 @@
     //   |------------|-----------|------------|-------|
     //   | 只自带火   | **4.86** 超档 | 2.00     | 1.81  |
     //   | + 同花色   | 5.55      | —          | 2.84  |
-    //   | **+ 同颜色** | 6.07    | 3.98       | **3.93** ← 定稿 |
+    //   | **+ 同颜色** | 6.07    | 3.98       | ~~3.93~~ ← 旧定稿 |
     //
-    // 分项：自带火 1.81 / 连锁 **+3.05**（超档的来源）/ 同颜色点火 **+2.12**。
+    // 分项：自带火 1.81 / 连锁 **+3.05**（超档的来源）/ ~~同颜色点火 +2.12~~。
+    //
+    // ⚠ **这张表的「+ 同颜色」那一行 2026-10-22 全废** —— 技能换了形状
+    //（见下面那一节），**不是口径变了，所以不能跟新数相减**。
+    // 上两行（只自带火 / + 同花色）还能用：模拟器把那两档留着了。
     //
     // ---- 为什么是「换掉连锁」而不是「削连锁」----
     //
@@ -6041,7 +6384,10 @@
     //   引火 → 贴**手牌**同颜色 → 那些牌打出去才落堆生效（延迟）
     //   传火 → 贴**堆上**同颜色 → **立刻**可能触发燃尽
     //
-    // 两件的 desc 现在只差「你手里 / 堆上」四个字，玩家学一次会两件。
+    // ~~两件的 desc 现在只差「你手里 / 堆上」四个字，玩家学一次会两件。~~
+    // ⚠ **这句两次都不成立了**：引火 2026-10-22 改成「**不同**颜色」，
+    // 而传火同日改成「堆上**张数少**的那个颜色」，并且去掉了自带燃烧。
+    // 两件现在只剩「手牌 / 堆上」那一轴对称
     //
     // ---- 一个反直觉的点，别照直觉改回去 ----
     //
@@ -6057,41 +6403,100 @@
     //   实测把连锁砍掉 94%（+3.05 → +0.19），基本等于关闭 ——
     //   因为燃尽率本来就 71~91%，补偿只在那 9~29% 里触发。
     //   **负反馈的触发条件要先看它的基础发生率。** 判废〕
+    // ---- 2026-10-22 定稿：点堆上**张数少**的那个颜色，**不自带燃烧**（用户定）----
+    //
+    // `堆上张数少的那个颜色的牌都贴上【燃烧】，两色一样多或只有一色就贴它自己的颜色`
+    //
+    // 换条件的理由是**花色槽**：原来读的是打出那张牌自己的颜色，而花色槽
+    // 把颜色钉死了（♥ 槽里打出的永远是红的）→「打红还是打黑」这个决策
+    // 在那种槽里根本不存在（撞死因「条件撞局面常量」）。新条件读的是
+    // **堆的形状**，而堆的形状跟槽无关 —— 两种槽拿到同一件东西。
+    //
+    // ---- 为什么是「少」不是「多」，为什么自带燃烧也去掉 ----
+    //
+    // 两个方向只在「堆上混色且不等」那一支里有分别：点**多**的那边比原来强，
+    // 点**少**的那边比原来弱。这一族的病根是**自强化**（火源多 → 燃尽频
+    // → 清堆 → 新牌落下又带火），而传火历史上正是因为超档（4.86）
+    // 才被换过一次形状 —— **所以这一刀要往下削**。去掉自带燃烧是同一个方向。
+    //
+    // ⚠ 所以真风险是**掉到下沿 2.7 以下**，不是超档。旧的 X=+3.93 作废
+    //（技能变了，不是口径变了 → 不能相减），价 110 跟着**悬空**。
+    //
+    // ---- 去掉自带燃烧 ≠ 单色那一支不燃尽了 ----
+    //
+    // 【蔓延】是基础规则（`burnStep` 开头就跑），所以「除它自己全带火」
+    // 之后邻格会在**同一步**把火爬过来 → 照样燃尽。两处例外：
+    // 堆上**只有它一张**（没有邻格）、以及点的是它自己颜色之外那半边。
+    // 削掉的是「保底一张火源」，不是燃尽整件事。
+    //
+    // 〔也试过「同颜色**或同点数**」那一版，**规则上就是 0**：堆上出现
+    //   同点数的牌 → 打出去当场钓中离场，所以既积不起来、贴火也白贴
+    //   （那一张这一手就被收走，火跟着离场）。
+    //   **点数轴上的「相同」被匹配规则占着，不能当筛选轴。** 判废〕
+    //
+    // 〔也试过【判定】（翻牌库顶 1 张定颜色），用户判废：「增加了不确定性，
+    //   失去了决策」。墓碑和判据在上面 `drawFor` 后面那一段〕
     if (hasTrigger(skills, SK_CHAIN) && lastPlayed != null) {
       const at0 = pileIndexOf(lastPlayed!)
-      const lit = inPile(lastPlayed!) && lightAt(at0)
-      // 同颜色那一段。花色取 `pileSuitAt`（染过色的算染后的）——
-      // 「堆上跟它同颜色」说的是**场上现在的颜色**，不是牌面印的
+      // ⚠ 这一段**故意不在 `at0 >= 0` 里面** —— 条件读的是堆的形状而不是
+      // 打出那张，所以它哪怕没落在堆上（被别的效果拿走），堆上剩的牌照点
+      let red = 0
+      let black = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (pileRed(i)) {
+          red = red + 1
+        } else {
+          black = black + 1
+        }
+      }
+      // 它自己的颜色：落堆了走 `pileRed`（可能被染过色），
+      // 没落堆就只剩牌面可读
+      const mine = at0 >= 0 ? pileRed(at0) : isRedSuit(lastPlayed!.suit)
+      let wantRed = mine
+      let solo = false
+      if (red > 0 && black > 0 && red != black) {
+        wantRed = red < black
+      } else {
+        // 两色一样多、或者堆上只有一色 → 贴**它自己的颜色**。
+        // 只有一色时它自己必属于那一色（它就在堆上），所以这一支
+        // 等于除它自己以外整堆带火
+        solo = red == 0 || black == 0
+      }
       let spread = 0
-      if (at0 >= 0) {
-        const red0 = pileRed(at0)
-        for (let i = 0; i < pile.value.length; i++) {
-          // `lightAt` 自己带三道闸（已着火 / 带保护 / 冰相消），
-          // 所以这儿只管「选哪几格」，点不点得着由它判
-          if (i != at0 && pileRed(i) == red0 && lightAt(i)) {
-            spread = spread + 1
-          }
+      for (let i = 0; i < pile.value.length; i++) {
+        // `lightAt` 自己带三道闸（已着火 / 带保护 / 冰相消），
+        // 所以这儿只管「选哪几格」，点不点得着由它判。
+        // **跳过它自己那一格** —— 定稿不点自己
+        if (i != at0 && pileRed(i) == wantRed && lightAt(i)) {
+          spread = spread + 1
         }
       }
       message.value = message.value + (byFoe ? ' 庄家传火：' : ' 传火：')
-        + (lit ? '它自带燃烧' : '它没点着')
-        + (spread > 0 ? '，又点着堆上同颜色的 ' + spread + ' 张。'
-          : '，堆上没有同颜色的牌可点。')
+        + '堆上' + (red > 0 && black > 0 && red != black
+          ? '' + (wantRed ? '红' : '黑') + '牌少（' + red + ' 红 / ' + black + ' 黑）'
+          : (solo ? '只有一色' : '两色一样多（各 ' + red + ' 张）')
+            + '，照它自己的颜色（' + (mine ? '红' : '黑') + '）')
+        + (spread > 0 ? '，' + spread + ' 张带上了燃烧。' : '，没有牌可点。')
     }
-    // ---- 【引火】：自带火 + 给手里**同颜色**的牌预约火 ----
+    // ---- 【引火】：自带火 + 给手里**不同颜色**的牌预约火 ----
     //
     // 限幅按颜色是量出来的，不是美感：「最多 N 张」那一档的幅度悬崖
     // 就在可调范围里（2→3 从 +4.85 跳到 +7.11），而且 desc 答不上
     // 「哪 N 张」—— 火在手里什么也不做、落堆才生效，让玩家挑是个假决策。
     //
-    // 形状照【藏凌】（下面那一段），所以两件撞在一张牌上时
-    // 手里那几张会同时带冰带火 —— 落堆时相消，自洽，不用特判
+    // ⚠ **是「不同颜色」，别顺手改回同色**〔2026-10-22 用户定〕。
+    // 原来写的是同色，而那在**花色槽**里坑自己：插 ♥ 槽的话槽里 12 张 ♥
+    // 全是引火件，于是打出的永远是红的（「打红还是打黑」这个决策不存在了），
+    // 而同色里的 ♥ **本来打出去就自己着** —— 真正多着的只剩 ♦ 那几张。
+    // 换成异色之后贴的永远是槽外的牌。结冰族量过同一条：
+    // 冰色（同色）♥ 槽 +4.18 → 隔凌（异色）+8.33。
+    // 实现照【隔凌】那一段（下面）的异色写法，两件同一个形状
     if (hasTrigger(skills, SK_KINDLE) && lastPlayed != null) {
       const lit = inPile(lastPlayed!) && lightAt(pileIndexOf(lastPlayed!))
       const mine = byFoe ? foeHand.value : hand.value
       let fired = 0
       for (let i = 0; i < mine.length; i++) {
-        if (isRedSuit(mine[i].suit) == isRedSuit(lastPlayed!.suit)
+        if (isRedSuit(mine[i].suit) != isRedSuit(lastPlayed!.suit)
           && !burnOnHand(mine[i])) {
           addBurnHand(mine[i])
           fired = fired + 1
@@ -6100,8 +6505,8 @@
       message.value = message.value + (byFoe ? ' 庄家引火：' : ' 引火：')
         + (lit ? '它自带燃烧；' : '它没点着；')
         + (fired > 0
-          ? '手里 ' + fired + ' 张同色的带上了燃烧 —— 那几张落堆就是火。'
-          : '手里没有同色的牌。')
+          ? '手里 ' + fired + ' 张异色的带上了燃烧 —— 那几张落堆就是火。'
+          : '手里没有异色的牌。')
     }
     // ---------- 【薪潮】：自带【燃烧】+ 选对方 1 张手牌贴【推牌】 ----------
     //
@@ -6173,8 +6578,14 @@
       message.value = message.value + (byFoe ? ' 庄家封凌：' : ' 封凌：')
         + (got != null ? '摸了 1 张，它带着结冰。' : '牌库空了，没摸到。')
     }
-    // 【隔凌】：摸 1 张，再给手里跟它**不同颜色**的牌贴冰。
+    // 【隔凌】：摸 1 张，再给手里跟**打出那张**不同颜色的牌贴冰。
     // 先摸后贴，所以摸上来的那张也算在内
+    //
+    // ⚠ 比的是 `lastPlayed`（打出那张），**不是摸上来那张**。
+    // desc 写的是「跟**它**不同颜色」，而「它」在词表里就是定死指效果牌
+    //（`draw-skills.uts` 文件头第 33 行：「它」不写「这张」「此牌」）。
+    // 2026-10-22 我把它改成过「跟打出的这张」，当天撤回来了 ——
+    // 理由和【拢水】那个反例记在 `draw-skills.uts` 隔凌那条表项注释里
     if (hasTrigger(skills, SK_LOCKCOLOR) && lastPlayed != null) {
       const got = drawFor(byFoe)
       const mine = byFoe ? foeHand.value : hand.value
@@ -6534,6 +6945,61 @@
         }
         if (got > 0) {
           message.value = message.value + ' 庄家换水，塞回 ' + got + ' 张重洗。'
+        }
+      }
+    }
+    // 滤饵：先摸 SIFT_DRAW 张，**然后**从手里（含刚摸的）挑 SIFT_BACK 张退回牌库。
+    //
+    // 排在换水后面：两件都只动自己手牌、都不碰堆，所以位置只要在这一串之内就行。
+    // 两件撞在同一张牌上时走换水（它先 return），滤饵那次作废 ——
+    // 跟择饵/观潮那对一个规矩：**一个回合只停一次**。
+    //
+    // ⚠ **摸牌要全部摸完再挑，不能「摸一张挑一张」** ——
+    // 「先看后退」是这件技能的全部机制，而一张一张地来是另一件技能
+    //（在 SIFT_DRAW=1 时两者碰巧相同，所以写错了在小 N 下量不出来）。
+    //
+    // 这儿没有「手里有没有牌」那道闸（换水有）—— 摸牌不看手牌，
+    // 摸完手里必然有牌可退，除非牌库和手牌同时空
+    if (hasTrigger(skills, SK_SIFT)) {
+      let drew = 0
+      for (let n = 0; n < SIFT_DRAW; n++) {
+        // 牌库见底就少摸几张（drawFor 返回 null）
+        if (drawFor(byFoe) == null) {
+          break
+        }
+        drew = drew + 1
+      }
+      if (!byFoe) {
+        siftDrew.value = drew
+        // 退满为止 —— 手里不够那么多就按手里的张数来。
+        // ⚠ 这一行必须读**摸完之后**的 hand（`drawFor` 是整个数组重新赋值，
+        // 所以提前取一份引用会拿到摸牌前那一份）
+        siftLeft.value = SIFT_BACK < hand.value.length ? SIFT_BACK : hand.value.length
+        if (siftLeft.value > 0) {
+          message.value = message.value + ' 滤饵：摸了 ' + drew + ' 张。'
+          siftPending.value = true
+          return
+        }
+      } else {
+        // 庄家自己挑。**跟换水那段的分别在这儿：没有「见好就收」那道闸** ——
+        // 滤饵是强制退满的（牌先白给了，退牌就是它的代价）。
+        // 实测这个代价很小：退掉的里误伤「当场钓得着」的只有 0.13%，
+        // 因为池子 5.8 张里只有 0.9 张钓得着，退 2 张永远躲得开
+        let back = 0
+        for (let n = 0; n < SIFT_BACK; n++) {
+          if (foeHand.value.length == 0) {
+            break
+          }
+          const at = foeSwapPick()
+          if (at < 0) {
+            break
+          }
+          const card = takeFromHand(true, at)
+          shuffleBack(card)
+          back = back + 1
+        }
+        if (drew > 0 || back > 0) {
+          message.value = message.value + ' 庄家滤饵，摸 ' + drew + ' 张、退 ' + back + ' 张重洗。'
         }
       }
     }
@@ -9151,6 +9617,45 @@
     resolveMatch(false)
   }
 
+  // 滤饵：你挑中了第 index 张要退回牌库。
+  //
+  // 挑的动作同样借手牌那一排（见 onPlay 开头那道岔）。
+  //
+  // ⚠ **跟 onSwap 的分别就一条：它是强制退满的，所以没有「-1 跳过」那条路**。
+  // 牌先白给了你 SIFT_DRAW 张，退 SIFT_BACK 张是这件技能的代价
+  //（词条里那个句号就是先后关系：先摸、再退）。
+  // 退够了（或者手里点空了）自己关 pending，照冻结那种「挑完就走」的形状。
+  //
+  // 退牌这一行**跟换水逐字相同** —— `takeFromHand` + `shuffleBack`，
+  // 不另写一份（复制一份逻辑，两份必然分叉）
+  function onSift(index : number) {
+    if (!siftPending.value) {
+      return
+    }
+    if (index < 0 || index >= hand.value.length) {
+      return
+    }
+    const card = takeFromHand(false, index)
+    shuffleBack(card)
+    siftLeft.value = siftLeft.value - 1
+    siftDone.value = siftDone.value + 1
+    message.value = '你把 ' + cardName(card) + ' 退回牌库重洗了。'
+    // 还差张数、而且手里还有牌，就接着挑
+    if (siftLeft.value > 0 && hand.value.length > 0) {
+      return
+    }
+    siftPending.value = false
+    siftLeft.value = 0
+    const drew = siftDrew.value
+    // ⚠ 报**真退了几张**，不是报 SIFT_BACK —— 手里点空了会少退
+    //（牌库和手牌同时见底那一格）。写常量就会在那一格撒谎
+    const back = siftDone.value
+    siftDrew.value = 0
+    siftDone.value = 0
+    message.value = '滤饵：你摸了 ' + drew + ' 张、退回 ' + back + ' 张重洗。'
+    resolveMatch(false)
+  }
+
   // 把一张牌塞回牌库并**真洗进去**。
   //
   // 不是插在底下 —— 插底的话你数得出它什么时候回来，那就不叫「换掉」了。
@@ -10065,6 +10570,12 @@
       onSwap(index)
       return
     }
+    // 滤饵同理：点手牌是「挑这张退回牌库」（刚摸上来的那几张也在这一排里，
+    // 一样能退 —— 「从摸的和原有的里一起挑」是这件技能的全部机制）
+    if (siftPending.value) {
+      onSift(index)
+      return
+    }
     // 冰雷同理：点手牌是「给这张贴冰」
     if (bombPending.value) {
       onBomb(index)
@@ -10103,8 +10614,12 @@
     }
     const card = hand.value[index]
     newIndex.value = -1
+    // 出牌记录先预约（**必须在 playFor 前面**，理由见 logPlay 那段）。
+    // 两处的 lead 要跟下面那句赋值**一字不差** —— logBody 靠它摘开头
+    const lead = '你打出 ' + cardName(card) + '。'
+    logPlay(false, card, lead)
     const handed = playFor(false, index)
-    message.value = '你打出 ' + cardName(card) + '。'
+    message.value = lead
     // 先结算技能，最后匹配（见 resolveMatch）。
     // playFor 已经接管了后续（叠放那三件在等你点堆）就别接 —— 见它那段
     if (!handed) {
@@ -10148,8 +10663,13 @@
       note = '庄家的牌全被冻住了，补了 ' + (foeHand.value.length - before) + ' 张。'
     }
     const card = foeHand.value[index]
+    // 照 onPlay 那头：先预约、再 playFor。
+    // **庄家这头 message 前面可能挂个前言**（note，手牌全冻住补了几张），
+    // 所以 lead 不在句首 —— logBody 是摘中间那一段，不是摘前缀
+    const lead = '庄家打出 ' + cardName(card) + '。'
+    logPlay(true, card, lead)
     const handed = playFor(true, index)
-    message.value = note + '庄家打出 ' + cardName(card) + '。'
+    message.value = note + lead
     if (!handed) {
       afterPlay(true)
     }
@@ -10583,6 +11103,14 @@
         // 而且比别的饵更安全：牌出场了，对手连收都收不着
         || hasTrigger(skills, SK_CALM) || hasTrigger(skills, SK_CLEAN)
         || hasTrigger(skills, SK_RAISE)
+        // ⚠ **【滤饵】有意**不在这个列表里〔2026-10-22〕。
+        //
+        // 它结构上该在（跟换水一样「钓不钓到都照样发动」），而且模拟器那边
+        // 也不在 —— 它定稿那个 X=1.59 就是在「不在列表里」的 AI 下量的。
+        // 加进来会改 AI 行为，那个数当场作废，而**两边要一起加才算改对**
+        //（这份是手写副本，`ai.js` 那边的 `wants` 是同一张表）。
+        // 所以这是一笔**登记在案的待办**，不是漏了：加它 + 两边同步 + 重量 1.59。
+        // 判据照 CLAUDE.md 第三节 —— 庄家侧看「需不需要 AI 主动决策」，不看 X
         // 〔2026-10-16 从这个列表清掉了**九个死分支**：同花 / 连竿 /
         //   压邻 / 封色 / 分水 / 掏手 / 掏库 / 退潮 / 抄底 ——
         //   九件技能全在 10-14 ~ 10-15 删了。
@@ -10654,6 +11182,12 @@
     tideMarks.value = [] as boolean[]
     swapPending.value = false
     swapDone.value = 0
+    // 滤饵那三个一起清（照上面那条判据：**每个 pending 都要在这儿清**，
+    // 漏了的话重开一局时 canPlay 被它按着 → 整局点不动手牌）
+    siftPending.value = false
+    siftLeft.value = 0
+    siftDrew.value = 0
+    siftDone.value = 0
     freezePending.value = false
     bombPending.value = false
     bombFire = -1
@@ -10681,6 +11215,12 @@
     pendingSkills = []
     held.value = [] as HeldEffect[]
     stacked.value = [] as Stacked[]
+    // 出牌记录开局清，连带那个「在等 lead」的标记 ——
+    // 漏了标记的话重开一局时第一手会被当成「还在等」而丢掉
+    playLog.value = [] as PlayNote[]
+    logWait = false
+    logLead = ''
+    logScroll.value = 0
     lastPlayed = null
     firstNote = ''
     // 结冰那一族：豁免（playFor 每手也重设）和手冰表，开局都清
@@ -11078,6 +11618,9 @@
   }
 
   onLoad((options : OnLoadOptions) => {
+    // 一行摆得下几张牌堆的牌，量一次（出牌记录那一块的高度看它，见 pileWrapped）。
+    // **放在 newGame 之前** —— newGame 一跑就有牌落堆，那会儿它得已经是真数
+    measurePile()
     const mode = options['mode']
     finalMode = mode != null && ('' + mode) == 'final'
     // role=角色下标 & slots=技能,技能,…（关卡页那套「选角色卡 + 嵌技能」传过来的）。
@@ -11802,8 +12345,9 @@
   }
 
   /* 这儿原先有 .message-box / .message-text（播报那一块，绿底白字、
-     常驻占一行）。播报现在接在状态行里（见 .turn-msg）—— 它和
-     「现在该谁」说的是同一件事的两头，分两块就要扫两眼 */
+     常驻占一行）。那之后播报接到了状态行里（.turn-msg），
+     **而 2026-10-22 又搬去了牌堆下方的 .play-log**（留最近 3 手）——
+     `.turn-msg` 跟着删了。所以这段话别再往状态行上找播报 */
 
   .tide-box {
     margin-top: 8px;
@@ -11913,8 +12457,10 @@
     color: #e8b23a;
   }
 
-  /* 状态行：粗体那半是「现在该干什么」，后面接刚发生的事。
-     原先是两块（message-box 在上、turn-bar 在下），合成一条 */
+  /* 状态行：**只写「现在该干什么」**。
+     播报 2026-10-22 搬去牌堆下方那一块（.play-log），所以
+     `.turn-msg` 跟着删了 —— 它当时是 `flex: 1` 接在同一行后面的那半句。
+     演化的三步写在模板那边 */
   .turn-bar {
     flex-direction: row;
     /* App 端不支持 baseline（只认 center / flex-start / flex-end / stretch） */
@@ -11931,11 +12477,6 @@
     margin-right: 6px;
   }
 
-  .turn-msg {
-    color: #cfeade;
-    font-size: 11px;
-    flex: 1;
-  }
 
   /* 技能行：双方共用这一套 —— 左边一个「你 / 庄」，后面横着一排标签。
      从前你那侧是 skill-row + skill-chip（金色圆角、名字和覆盖面分两段），
@@ -12044,6 +12585,121 @@
   .field-scroll {
     flex: 1;
     height: 28px;
+  }
+
+  /* ---------- 出牌记录（牌堆下方那一块） ---------- */
+
+  /* **高度写死**（照 field-bar 那条）：播报长短差很多，而牌堆那块是
+     flex: 1 —— 这儿一高一低整个牌桌就上下跳。
+     长的那几手由里面那个 scroll-view 兜住。
+
+     108px ≈ 六行 11px 小字（行高约 16）+ 上下各 4 的内边距 ——
+     三条记录、每条两行，是常见的那个长度〔2026-10-22 从 62 加大〕 */
+  .play-log {
+    height: 108px;
+    margin-top: 6px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 6px;
+    padding-right: 6px;
+    background-color: #0b3222;
+    border-radius: 6px;
+    border-left-width: 2px;
+    border-left-style: solid;
+    border-left-color: #2f6b4f;
+  }
+
+  /* 牌堆换行了（出牌太多）就缩到这一档，让出 64px 给牌堆 —— 理由写在
+     脚本那边 pileWrapped 上面。牌堆不换行了自己变回去。
+     44 ≈ 两行小字：**最新那条照旧看得见**（滚条自动跟到底），
+     往前那几手要翻一下
+
+     ⚠ 排在 `.play-log` **后面**，靠的是「同权重后来居上」——
+     uvue 的 App 端不支持后代选择器，所以这一族全是单类加覆盖，
+     顺序就是优先级（同一条惯例在 .card-rank-over 那儿写着）。
+     **别把这两条的先后调过来** */
+  .play-log-slim {
+    height: 44px;
+  }
+
+  /* flex 和 height 都写 —— 照 .field-scroll 那条：
+     uvue 的 scroll-view 只给 flex 不一定撑得起来。
+     100 = 外面那块 108 − 上下各 4 的内边距 */
+  .play-scroll {
+    flex: 1;
+    height: 100px;
+  }
+
+  /* 缩了那一档的里层。**两层都要换** —— 只缩外面那块，里面这个
+     写死的 100px 会从底下顶出去（scroll-view 自己不跟着外层缩）。
+     36 = 44 − 上下各 4 */
+  .play-scroll-slim {
+    height: 36px;
+  }
+
+  /* 一行 = 一手。左边「你 / 庄」+ 牌名，右边正文。
+     正文占满剩下的宽度并自己换行，所以行高是可变的 ——
+     这也是外面那块要写死高度 + 滚动的原因 */
+  .play-row {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 2px;
+  }
+
+  /* 旧的那两手渐暗：「哪条是最新的」不用读内容就看得出来。
+     正序排，所以**暗的在上面** —— 哪一行挂哪个类是按「离末尾多远」
+     算的，不是按下标（模板那边有逐格验过的三行） */
+  .play-row-old {
+    opacity: 0.62;
+  }
+
+  .play-row-older {
+    opacity: 0.4;
+  }
+
+  /* 「你 / 庄」—— 配色照技能行那条约定：你的金、庄家的橙 */
+  .play-side {
+    color: #e8b23a;
+    font-size: 11px;
+    font-weight: bold;
+    width: 16px;
+  }
+
+  .play-side-foe {
+    color: #ff9e80;
+  }
+
+  /* 牌名。宽度写死一格 —— 不写的话正文的起点会跟着牌名长短左右挪
+     （♠10·7 比 ♠3 宽），三行对不齐就不好扫 */
+  .play-card {
+    font-size: 11px;
+    font-weight: bold;
+    color: #f3f7f2;
+    width: 46px;
+    margin-right: 4px;
+  }
+
+  /* ⚠ **红花色这儿不能用 `.card-red`。**
+     两个都是单类、同权重，而「后来居上」看的是**样式表里的先后**
+     （这一条写在 .card-rank-over 那段注释里：「排在 .card-red 后面…
+     同权重后来居上」）。`.card-red` 在 11871，这一块在它后面 ——
+     挂 .card-red 的话会被上面那条 `color: #f3f7f2` 盖掉，一点红也看不见。
+
+     ⚠ 同一个坑**择饵 / 分饵 / 观潮 / 同号那四块正踩着**：
+     它们挂的是 `pick-deck-text` + `card-red`，而 `.pick-deck-text`
+     （12036）也排在 `.card-red` 后面 —— 那四块的 `isRed(one)` 等于没接。
+     〔2026-10-22 查出，没动它：改法是把那四处的红改成各自的类，
+     或者把 `.card-red` 整条挪到样式表末尾。后者一次解决，但它会连带
+     改掉牌面那几处「点数一律白字」的压盖关系（见 .card-rank-over），
+     所以得连那段一起量，不是顺手能做的〕 */
+  .play-card-red {
+    color: #d33b3b;
+  }
+
+  .play-text {
+    color: #cfeade;
+    font-size: 11px;
+    flex: 1;
   }
 
   /* 这儿原先有一串只给旧布局用的类，一起删了：

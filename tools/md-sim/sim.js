@@ -122,7 +122,17 @@ function run(n, seed, mine, foe, opts) {
   const o = opts || {}
   const sum = {
     games: 0, plays: [0, 0], catches: [0, 0], caught: [0, 0],
-    jackCatches: [0, 0], skillCatch: [0, 0],
+    jackCatches: [0, 0], jackTook: [0, 0], skillCatch: [0, 0],
+    holdSkip: [0, 0], holdSkipSum: [0, 0], holdForced: [0, 0],
+    // 【忍 1 手】的诊断口（ai.js 的 worthHolding 那段）
+    holdOnce: [0, 0], holdOnceHit: [0, 0], holdOnceMiss: [0, 0],
+    holdOnceGave: [0, 0], holdOnceGot: [0, 0],
+    // 两个旋钮各自的计数口：它们**改掉**了多少次决策
+    holdCapped: [0, 0], holdEvFlip: [0, 0],
+    // 收成分布〔2026-10-22〕。桶数**从 rules 取**，不在这儿另写一个数
+    catchHist: [R.newHist(), R.newHist()],
+    catchHistJ: [R.newHist(), R.newHist()],
+    pileHist: [R.newHist(), R.newHist()],
     score: [0, 0], wins: [0, 0], draws: 0, leftover: 0, turns: 0,
     // 收摊时双方手里剩的牌（2026-10-15 加）。**守恒检查要它** ——
     // 终局改成「牌库空 + 各打 1 手」之后手里恒剩几张，
@@ -242,6 +252,26 @@ function run(n, seed, mine, foe, opts) {
       sum.catches[s] += G.stat.catches[s]
       sum.caught[s] += G.stat.caught[s]
       sum.jackCatches[s] += G.stat.jackCatches[s]
+      sum.jackTook[s] += G.stat.jackTook[s]
+      sum.holdSkip[s] += G.stat.holdSkip[s]
+      sum.holdSkipSum[s] += G.stat.holdSkipSum[s]
+      sum.holdForced[s] += G.stat.holdForced[s]
+      if (G.stat.holdOnce) {
+        sum.holdOnce[s] += G.stat.holdOnce[s]
+        sum.holdOnceHit[s] += G.stat.holdOnceHit[s]
+        sum.holdOnceMiss[s] += G.stat.holdOnceMiss[s]
+        sum.holdOnceGave[s] += G.stat.holdOnceGave[s]
+        sum.holdOnceGot[s] += G.stat.holdOnceGot[s]
+      }
+      // ⚠ 单独判一次 —— 它不在 `initHoldStat` 里（那支只在真忍了才建），
+      //   而上限拦下的那些手恰恰**没有**真忍
+      if (G.stat.holdCapped) sum.holdCapped[s] += G.stat.holdCapped[s]
+      if (G.stat.holdEvFlip) sum.holdEvFlip[s] += G.stat.holdEvFlip[s]
+      for (let b = 0; b <= R.CATCH_BINS; b++) {
+        sum.catchHist[s][b] += G.stat.catchHist[s][b]
+        sum.catchHistJ[s][b] += G.stat.catchHistJ[s][b]
+        sum.pileHist[s][b] += G.stat.pileHist[s][b]
+      }
       sum.skillCatch[s] += G.stat.skillCatch[s]
       sum.score[s] += G.score[s]
       const fd = G.stat.flood
@@ -362,6 +392,134 @@ function f2(x) { return x.toFixed(2) }
 
 // ---------- base：对照设计文档的基础数据 ----------
 
+// ---------- 收 N 张的难度曲线〔2026-10-22〕 ----------
+//
+// 用户的问题：「**收 2 牌 / 3 牌 / 4 牌… 的难度不是线性的，
+// 奖励积分应该不同才是？**」
+//
+// 前半句是**可证伪的事实陈述**，而这个项目此前只量过它的平均值
+//（`base` 那张表的「每次平均收 2.85 张」）—— 平均值答不了它。
+// 这张表给的是分布。
+//
+// 四列各答一件事，**别只看第一列**：
+//
+//   次数占比    这一档有多常见（**含**「堆根本不够厚」那些局面）
+//   台阶        P(N) / P(N−1)，相邻两档的倍率。
+//               ⚠ **线性奖励对应的是这一列恒等于 1** —— 它离 1 多远，
+//                 「难度非线性」就有多陡。这一列是用户那句话的正面回答
+//   堆够厚时    P(收 N | 出牌时堆 ≥ N−1)，把天花板除掉之后的**纯匹配难度**。
+//               它跟「次数占比」在哪一档开始分叉，哪一档就是天花板在起作用
+//   占总分      这一档贡献了全部积分的百分之几（= N × 次数 / 总分）。
+//               改 f(N) 之前必须看它：**改一个几乎不发生的档等于没改**
+//
+// 口径：两人合计。一边一列没有意义 —— 这是规则的性质，不是谁的打法。
+function printCatchCurve(sum, g) {
+  const B = R.CATCH_BINS
+  const hit = []     // 收 N 张发生了几次
+  const jhit = []    // 其中靠 J 通吃的
+  const nhit = []    // 非 J（= 普通匹配 / 技能）—— **f(N) 要照着这一条**
+  const play = []    // 出牌时堆厚 = N 的次数
+  for (let b = 0; b <= B; b++) {
+    hit.push(sum.catchHist[0][b] + sum.catchHist[1][b])
+    jhit.push(sum.catchHistJ[0][b] + sum.catchHistJ[1][b])
+    nhit.push(hit[b] - jhit[b])
+    play.push(sum.pileHist[0][b] + sum.pileHist[1][b])
+  }
+  let totalHit = 0
+  let totalCard = 0
+  let totalPlay = 0
+  for (let b = 0; b <= B; b++) {
+    totalHit += hit[b]
+    totalCard += hit[b] * b
+    totalPlay += play[b]
+  }
+  console.log('')
+  console.log('  ---- 收 N 张的难度曲线（两人合计，' + g + ' 局）----')
+  console.log('  〔「台阶」= P(N)/P(N−1)。**线性奖励对应的是这一列恒等于 1**〕')
+  console.log('')
+  console.log('    N 张      次数   占总分 |  其中J   非J次数   非J台阶   非J堆够厚时')
+  console.log('  ' + '-'.repeat(72))
+  let prev = 0
+  for (let b = 0; b <= B; b++) {
+    if (hit[b] === 0 && b < 2) continue
+    // 收 N 张要求出牌时堆上**至少**有 N−1 张（匹配那张到堆顶，再加自己）。
+    // 所以分母是「堆厚 ≥ N−1」的出牌次数 —— 溢出桶照它自己的下沿算，
+    // 那让最后一格的「堆够厚时」偏大（真实的 N 更大、门槛更高），
+    // **是个下限，不是精确值**
+    const need = b - 1
+    let deep = 0
+    for (let k = need < 0 ? 0 : need; k <= B; k++) deep += play[k]
+    const label = (b === B ? '≥' + b : '' + b)
+    // **台阶算的是非 J**〔第二跑改的〕—— J 不挑点数、恒收整堆，
+    // 对它谈「收 4 张比收 3 张难」没有意义，混进来只会把曲线抹平
+    const step = (prev > 0 ? f2(nhit[b] / prev) : '—')
+    console.log('   ' + label.padStart(4) + '  ' + ('' + hit[b]).padStart(9)
+      + '  ' + pct(avg(hit[b] * b, totalCard)).padStart(7)
+      + '  |' + ('' + jhit[b]).padStart(8)
+      + '  ' + ('' + nhit[b]).padStart(8)
+      + '  ' + ('' + step).padStart(8)
+      + '  ' + pct(avg(nhit[b], deep)).padStart(11))
+    prev = nhit[b]
+  }
+  console.log('')
+  console.log('  ---- 出牌时堆有多厚（上面那条曲线的另一半）----')
+  console.log('  〔收 N 张的**天花板**就在这儿：堆厚 < N−1 的那些手根本不可能收 N 张〕')
+  let line = '   '
+  for (let b = 0; b <= B; b++) {
+    line += (b === B ? '≥' + b : '' + b) + ' ' + pct(avg(play[b], totalPlay)) + '　'
+  }
+  console.log(line)
+  // ---- `DUMP_HIST=1`：把直方图按侧吐成机器可读的一行一条 ----
+  //
+  // 上面那张表是**两人合计**的，而要判「养堆在 f(N) 下翻不翻正」必须
+  // 按侧分开（旋钮只给 ME 开，差值全在两侧之间）。所以这儿另出一份。
+  //
+  // 为什么离线重算是**精确**的，不是近似：
+  //   对任何**单调递增**的 f，`argmax f(N) = argmax N` ——
+  //   贪心挑牌（`ai.js` 比的是 caught）一张都不会变；
+  //   `HOLD_MIN` 的门槛也是对 N 的门槛，同样不变。
+  //   **两套打法在 f 下的出牌完全不动**，于是 Σ count(N)×f(N) 就是真分。
+  //   它唯一答不了的是「会不会冒出第三种更优打法」。
+  // ⚠ 这条前提**只对单调递增的 f 成立**。f 要是非单调（比如「收 4 张
+  //   反而扣分」），贪心就会改挑别的牌，这份直方图当场失效。
+  if (process.env.DUMP_HIST) {
+    const tag = process.env.DUMP_HIST
+    for (let s = 0; s < 2; s++) {
+      const nm = (s === R.ME ? 'me' : 'foe')
+      const all = []
+      const jj = []
+      for (let b = 0; b <= B; b++) {
+        all.push(sum.catchHist[s][b])
+        jj.push(sum.catchHistJ[s][b])
+      }
+      console.log('#HIST ' + tag + ' ' + nm + ' all ' + all.join(' '))
+      console.log('#HIST ' + tag + ' ' + nm + ' J   ' + jj.join(' '))
+    }
+    console.log('#GAMES ' + tag + ' ' + g)
+  }
+  // ---- 两条行和自检 ----
+  //
+  // 分布是**另记一份**的，所以它跟 catches / caught / plays 对不上就说明
+  // 记漏了一个出口（这个项目反复栽的「复制一份逻辑，两份必然分叉」）。
+  // ⚠ 加权和那一条**溢出桶一进来就不成立**（它按下沿 B 计，真值更大），
+  //   所以溢出桶非空时只报「≥」而不报等号
+  const catches = sum.catches[0] + sum.catches[1]
+  const caught = sum.caught[0] + sum.caught[1]
+  const plays = sum.plays[0] + sum.plays[1]
+  console.log('')
+  console.log('  自检：收牌次数 ' + totalHit + ' == catches ' + catches
+    + (totalHit === catches ? ' ✓' : ' ✗ 分布漏了一个出口'))
+  console.log('  自检：出牌次数 ' + totalPlay + ' == plays ' + plays
+    + (totalPlay === plays ? ' ✓' : ' ✗'))
+  if (hit[B] > 0) {
+    console.log('  自检：收牌张数 ' + totalCard + ' ≤ caught ' + caught
+      + (totalCard <= caught ? ' ✓（溢出桶按下沿算，所以只能是 ≤）' : ' ✗'))
+  } else {
+    console.log('  自检：收牌张数 ' + totalCard + ' == caught ' + caught
+      + (totalCard === caught ? ' ✓' : ' ✗ 分布的加权和对不上'))
+  }
+}
+
 function cmdBase(args) {
   // **只有 base 走自由先手** —— 它要量的正是切牌定庄本身
   //（别的命令固定庄家先手，见 run 里 fixFirst 那段）
@@ -415,7 +573,22 @@ function cmdBase(args) {
     ['J 通吃占所有钓牌',
       pct(avg(sum.jackCatches[R.ME], sum.catches[R.ME])),
       pct(avg(sum.jackCatches[R.FOE], sum.catches[R.FOE])),
-      pct(both(function (s) { return avg(sum.jackCatches[s], sum.catches[s]) })), '25.7%']
+      pct(both(function (s) { return avg(sum.jackCatches[s], sum.catches[s]) })), '25.7%'],
+    // ---- 【养堆】诊断口〔2026-10-22〕：J 一下吃多肥 ----
+    //
+    // 上面那一行（J 占所有钓牌）**答不了「要不要忍 J」** —— J 迟早都会
+    // 打出去，忍不忍那个百分比都差不多。这一行才是：`JACK_HOLD` 开了
+    // 之后它要是**纹丝不动**，说明那道闸根本没咬上（堆本来就够厚），
+    // 两列的分差就不能当养堆的价值读。
+    // 参考值是现行代码上的基线，没量过之前留空
+    // 标签**故意不带空格**（不写「J 每次吃几张」）—— 上面那一行
+    // 「J 通吃占所有钓牌」里的空格会把 awk 的字段号错开一位，
+    // 取数脚本在它身上栽过（run-flood-each.sh 那个 $5/$6）
+    ['J每次吃几张',
+      f2(avg(sum.jackTook[R.ME], sum.jackCatches[R.ME])),
+      f2(avg(sum.jackTook[R.FOE], sum.jackCatches[R.FOE])),
+      f2(both(function (s) { return avg(sum.jackTook[s], sum.jackCatches[s]) })),
+      '〔新口，没量过〕']
   ]
   console.log('  项                 你(后手)   庄家(先手)  两人平均   参考值')
   console.log('  ' + '-'.repeat(62))
@@ -440,6 +613,130 @@ function cmdBase(args) {
     + ' · 平局 ' + pct(avg(sum.draws, g)))
   console.log('  后手分差（你 − 庄家）：' + (meanDiff(sum) >= 0 ? '+' : '') + f2(meanDiff(sum))
     + ' 分（标准误 ' + f2(stderrOf(sum)) + '）—— 量技能时要扣掉这个数')
+
+  // ---- 【养堆】的诊断口：只在旋钮开着时印〔2026-10-22〕 ----
+  //
+  // 用户定的对照实验：「一方有匹配就打，一方养堆直到 3/4/5 张才收」。
+  // **分差一个数答不了它** —— 「忍 2 次换一个大的」和「忍 12 次换一个
+  // 大的」能得出同一个分差，而两者对设计的含义相反。
+  if (sum.holdSkip[R.ME] + sum.holdSkip[R.FOE] > 0) {
+    console.log('')
+    console.log('  ---- 养堆诊断（HOLD_MIN=' + (process.env.HOLD_MIN || '-')
+      + ' / JACK_HOLD=' + (process.env.JACK_HOLD || '-') + '）----')
+    for (let s = 0; s < 2; s++) {
+      if (sum.holdSkip[s] === 0) continue
+      console.log('    ' + (s === R.ME ? '你  ' : '庄家')
+        + '  忍了 ' + f2(avg(sum.holdSkip[s], g)) + ' 手/局'
+        + '（占出牌 ' + pct(avg(sum.holdSkip[s], sum.plays[s])) + '）'
+        + '　每次放弃 ' + f2(avg(sum.holdSkipSum[s], sum.holdSkip[s])) + ' 张'
+        + '　合计放弃 ' + f2(avg(sum.holdSkipSum[s], g)) + ' 张/局')
+      // 忍不住的那些手：手里全是能钓到的牌，只好照打。
+      // **这一行不补的话上面那个「忍了 N 手」是虚的** —— 第一跑就是
+      // 这么栽的（`HOLD_MIN=3` 的「收 2 张」本该是 0，量出 1.72 次/局）
+      if (sum.holdForced[s] > 0) {
+        console.log('    ' + (s === R.ME ? '你  ' : '庄家')
+          + '  其中**忍不住** ' + f2(avg(sum.holdForced[s], g)) + ' 手/局'
+          + '（占忍的 ' + pct(avg(sum.holdForced[s], sum.holdSkip[s])) + '）'
+          + ' —— 手里全是能钓到的牌，只好照打')
+      }
+    }
+    console.log('    〔「合计放弃」要跟分差一起读：它是**账面成本**，'
+      + '而分差是净值 —— 两者的差就是养堆真正赚回来的那部分〕')
+  }
+
+  // ---- 【忍 1 手】的诊断口：**这一组才是验收判据**〔2026-10-22〕 ----
+  //
+  // 用户的话：「等到对局 AI 开始考虑是忍 1 手还是现在就收，这个改动才是合格的」。
+  // 那不是一个分差能答的 —— 分差 0 可能是「从没忍过」，也可能是
+  // 「忍了很多次、赚的赔的正好抵消」，而两者对设计的含义完全相反。
+  //
+  // 合格要**两条一起**〔2026-10-22 第一跑之后加的第二条〕：
+  //
+  //   甲 `忍了` 不为 0，而且 **hit / miss 两边都不空** ——
+  //      全 hit = 忍是白给的（没有赌，又变回最优解法了）；
+  //      全 miss = 忍是纯亏的（没人会忍，等于没加这个决策）。
+  //   乙 **上面那一行的「后手分差」≥ 0** —— 忍不能是严格劣势策略。
+  //
+  // ⚠ 乙是第一跑逼出来的：四组档值**全部满足甲**（hit 24~28% / miss 63~66%），
+  //   而分差是 −1.24 ~ −3.33。光有甲会放行一个「忍了必亏、所以没人会忍」
+  //   的设计 —— 那正是用户要去掉的「永远有最优解法」，只是换了个解法。
+  //
+  // ⚠ 闸上**带了 `holdCapped`**：`HOLD_BAND_MAX` 要是把所有忍都拦掉，
+  //   `holdOnce` 就是 0，整段诊断连同那个计数口一起不打 ——
+  //   而「一次都没忍」恰恰是最该看见的结果，不是该被静默掉的结果。
+  if (sum.holdOnce[R.ME] + sum.holdOnce[R.FOE]
+    + sum.holdCapped[R.ME] + sum.holdCapped[R.FOE]
+    + sum.holdEvFlip[R.ME] + sum.holdEvFlip[R.FOE] > 0) {
+    console.log('')
+    console.log('  ---- 忍 1 手诊断（SCORE_BANDS=' + (process.env.SCORE_BANDS || '-')
+      + ' / HOLD_LEAD=' + (process.env.HOLD_LEAD || '-')
+      + ' / HOLD_RUN=' + (process.env.HOLD_RUN || '1')
+      + ' / HOLD_BAND_MAX=' + (process.env.HOLD_BAND_MAX || '-')
+      + ' / HOLD_P=' + (process.env.HOLD_P || '100') + '）----')
+    for (let s = 0; s < 2; s++) {
+      if (sum.holdOnce[s] === 0) continue
+      const n = sum.holdOnce[s]
+      const hit = sum.holdOnceHit[s]
+      const miss = sum.holdOnceMiss[s]
+      // ⚠ **这儿打的是「放掉 / 收回」两个毛数，不打它们的差。**
+      //   第一版打的是「净赚 +2.28 分/局」，而同一跑的分差是 −3.06 ——
+      //   两个数反向。反向不是噪声：在贪心世界里那两次收牌**都拿得到**，
+      //   忍把两次并成一次，而那个差只扣了前一次的档值、没扣掉「少收一次」。
+      //   毛数不会骗人，差会 —— 所以差不打了，净值去看上面那行分差。
+      console.log('    ' + (s === R.ME ? '你  ' : '庄家')
+        + '  忍了 ' + f2(avg(n, g)) + ' 手/局'
+        + '　升档 ' + pct(avg(hit, n))
+        + '　没升 ' + pct(avg(miss, n))
+        + '　放掉 ' + f2(avg(sum.holdOnceGave[s], g))
+        + ' / 收回 ' + f2(avg(sum.holdOnceGot[s], g)) + ' 分每局')
+      // ⚠ 这一行不能省：忍完**再也没收到牌**的那些次（局结束了、
+      //   或者后面一直配不上）既不是 hit 也不是 miss，
+      //   不单列的话上面那两个百分比加起来不到 100%，看着像算错了
+      const dangle = n - hit - miss
+      if (dangle !== 0) {
+        console.log('      其中 ' + pct(avg(dangle, n)) + ' **忍完再没收到牌**'
+          + '（局结束 / 后面一直配不上；HOLD_RUN>1 时连忍也计在这儿）'
+          + ' —— 这些的「放掉」记了、「收回」是 0')
+      }
+    }
+    // ---- HOLD_BAND_MAX 的计数口 ----
+    //
+    // 它回答的是「**这个旋钮到底改了几次决策**」。两种读法都要命：
+    //   0 次  = 这支代码没触发过 → 这一跑跟不设上限是同一跑，
+    //           别把它当成「用户说得对」的证据
+    //   很多  = 上限真的在拦 → g1 末档系数的变化才是它造成的
+    if (process.env.HOLD_BAND_MAX) {
+      for (let s = 0; s < 2; s++) {
+        if (!sum.holdCapped[s]) continue
+        console.log('    ' + (s === R.ME ? '你  ' : '庄家')
+          + '  被档位上限拦下 ' + f2(avg(sum.holdCapped[s], g)) + ' 手/局'
+          + '（本来会忍、因为目标落在第 '
+          + (parseInt(process.env.HOLD_BAND_MAX, 10) + 2) + ' 档往后而改收）')
+      }
+      if (!sum.holdCapped[R.ME] && !sum.holdCapped[R.FOE]) {
+        console.log('    ⚠ **档位上限一次都没拦下** —— 这一跑等同于不设上限，')
+        console.log('      它的数不能当成「限制打法之后的数」用。')
+      }
+    }
+    // HOLD_P 的计数口。同一个道理：翻了 0 次 = 这一跑等同于不折
+    if (process.env.HOLD_P && process.env.HOLD_P !== '100') {
+      for (let s = 0; s < 2; s++) {
+        if (!sum.holdEvFlip[s]) continue
+        console.log('    ' + (s === R.ME ? '你  ' : '庄家')
+          + '  期望值折扣改掉 ' + f2(avg(sum.holdEvFlip[s], g)) + ' 次判断/局'
+          + '（不折会忍、折完不值）')
+      }
+      if (!sum.holdEvFlip[R.ME] && !sum.holdEvFlip[R.FOE]) {
+        console.log('    ⚠ **期望值折扣一次都没改变判断** —— 这一跑等同于 HOLD_P=100。')
+      }
+    }
+    console.log('    〔验收要**两条一起**：甲 hit / miss 两边都不空（有赢有输）；')
+    console.log('      乙 **上面那行的后手分差 ≥ 0**（忍不是严格劣势策略）。')
+    console.log('      只有甲会放行「忍了必亏所以没人忍」—— 那还是「永远有最优解法」。')
+    console.log('      「放掉 / 收回」是两个毛数，**它们的差不是净赚**，净值看分差。〕')
+  }
+
+  printCatchCurve(sum, g)
 
   // ---- 牌数守恒：最硬的一条自检 ----
   //
@@ -881,7 +1178,11 @@ function cmdRoles(args) {
 //（「X ≥ 1.5 而且游戏里在卖」）—— 真人在商店里就是这么挑的。
 //
 // **一件技能插哪种槽都行**（设计文档『技能必须通用』），所以不用管
-// 花色槽 / 点数槽的区别
+// 花色槽 / 点数槽的区别。
+//
+// ⚠ 这句只管**这儿怎么配装**，不是说两种槽等价 —— 设计文档那一章的
+// 四条补充条款全是「某种槽里失效 / 坑自己」的实例，而**条款四（颜色）
+// 在花色槽里差 4.15 分**。设计一件新技能的时候照那四条量，别照这一句
 const KIT_ORDER = [
   'chain', 'kindle', 'swapcard', 'flow', 'wild', 'peak', 'draft', 'coldhue'
 ]
