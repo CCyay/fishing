@@ -193,14 +193,26 @@
     <view v-if="showCustom" class="mask" @click="closeFinal">
       <view class="skill-box" @click.stop="noop">
         <view class="skill-box-head">
-          <text id="md-role-title" class="skill-box-title">{{ roleAt < 0 ? (roleMode == 'run' ? '这一轮用谁' : '选一张角色卡') : DRAW_ROLES[roleAt].name }}</text>
+          <text id="md-role-title" class="skill-box-title">{{ (roleMode == 'final' && customSide == 'foe' ? '庄家 · ' : '') + (roleAt < 0 ? (roleMode == 'run' ? '这一轮用谁' : '选一张角色卡') : DRAW_ROLES[roleAt].name) }}</text>
           <!-- `'' +` 打头照 cards.uts 的 faceOf 那条惯例（见 mySkills 那段） -->
           <text class="skill-box-sub">{{ roleAt < 0 ? '' + DRAW_ROLES.length + ' 个' : '盖住 ' + roleCover(roleAt) + ' 张牌' }}</text>
+        </view>
+
+        <!-- 终局：配哪一边。两边各自走同一套三步（选角色 → 看槽 → 挑技能），
+             切过去不会丢另一边已经配好的。庄家不配就照难度随机满配（跟原来一样） -->
+        <view v-if="roleMode == 'final'" class="side-row">
+          <view id="md-side-me" class="side-btn" :class="{ 'side-on': customSide == 'me' }" @click="switchSide('me')">
+            <text class="side-text" :class="{ 'side-text-on': customSide == 'me' }">你：{{ sideRoleName('me') }}</text>
+          </view>
+          <view id="md-side-foe" class="side-btn" :class="{ 'side-on': customSide == 'foe' }" @click="switchSide('foe')">
+            <text class="side-text" :class="{ 'side-text-on': customSide == 'foe' }">庄家：{{ sideRoleName('foe') }}</text>
+          </view>
         </view>
 
         <!-- 第一步：角色列表。卡片跟「角色」图鉴那边同一个样子：
              名字 + 特殊技 + 覆盖张数（锁着的换成门槛），下面是槽、特殊技效果 -->
         <scroll-view v-if="roleAt < 0" class="skill-box-body sv-out" direction="vertical">
+          <text v-if="roleMode == 'final' && customSide == 'foe'" class="skill-box-empty">不选的话，庄家照难度随机满配（困难只摇覆盖面最大的角色、简单只嵌一半的槽）</text>
           <view
             v-for="(role, ri) in DRAW_ROLES"
             :key="'rl-' + ri"
@@ -1023,6 +1035,20 @@
   // 一开始什么都没有，而角色定的是**你往哪个方向攒**
   const roleMode = ref<string>('final')
 
+  // ---------- 终局：庄家也能配〔2026-10-21〕----------
+  //
+  // 弹层的三步全读写 roleAt / slotSkills / slotPick 那一组 —— 给庄家再抄一套
+  // 模板和函数就是两份必然分叉的逻辑。所以做成**换手**：正在配的那一边
+  // 用 roleAt / slotSkills，另一边停在 parkedRole / parkedSlots，
+  // 切边就是两组互换（switchSide）。usedElsewhere 那条「一件技能只嵌一个槽」
+  // 也就自然只管当前这一边 —— 两边各有一副卡，撞了没关系。
+  //
+  // 庄家不配（parkedRole / roleAt 停在 -1）就照旧随机满配（rollRoleKit），
+  // 原来的玩法一点没变
+  const customSide = ref<string>('me')
+  const parkedRole = ref<number>(-1)
+  const parkedSlots = ref<number[]>([] as number[])
+
   // 闯关模式的角色解锁：按最远纪录放（见 draw-skills 的 ROLE_UNLOCK）。
   // 终局不设门槛 —— 它不记账，拦着没意义，而且那是「试配装」的地方
   function roleOpen(ri : number) : boolean {
@@ -1307,7 +1333,34 @@
     roleAt.value = -1
     slotSkills.value = [] as number[]
     slotPick.value = -1
+    customSide.value = 'me'
+    parkedRole.value = -1
+    parkedSlots.value = [] as number[]
     showCustom.value = true
+  }
+
+  // 切到另一边配：当前这一边停进 parked，另一边换出来（见 customSide 那段）
+  function switchSide(side : string) {
+    if (customSide.value == side) {
+      return
+    }
+    const role = roleAt.value
+    const slots = slotSkills.value
+    roleAt.value = parkedRole.value
+    slotSkills.value = parkedSlots.value
+    parkedRole.value = role
+    parkedSlots.value = slots
+    slotPick.value = -1
+    customSide.value = side
+  }
+
+  // 切换按钮上那一边现在是谁。庄家没选写「随机」，你没选写「未选」
+  function sideRoleName(side : string) : string {
+    const ri = customSide.value == side ? roleAt.value : parkedRole.value
+    if (ri >= 0) {
+      return DRAW_ROLES[ri].name
+    }
+    return side == 'foe' ? '随机' : '未选'
   }
 
   function closeFinal() {
@@ -1326,6 +1379,11 @@
       slotSkills.value = [] as number[]
       return
     }
+    // 庄家那一边的角色列表再退 = 回到你那一边（庄家保持「随机」）
+    if (roleMode.value == 'final' && customSide.value == 'foe') {
+      switchSide('me')
+      return
+    }
     showCustom.value = false
   }
 
@@ -1333,11 +1391,20 @@
     if (roleAt.value < 0) {
       return
     }
+    // 两边各在哪一组里取决于现在正配哪一边（见 customSide 那段）
+    const onMe = customSide.value == 'me'
+    const meRole = onMe ? roleAt.value : parkedRole.value
+    const meSlots = onMe ? slotSkills.value : parkedSlots.value
+    const foeRole = onMe ? parkedRole.value : roleAt.value
+    const foeSlots = onMe ? parkedSlots.value : slotSkills.value
     showCustom.value = false
+    // 你没选（只配了庄家就开打）：role 传 -1，对局页那边你这一侧照旧随机。
+    // 庄家没选就不带 foeRole —— 对局页照旧随机满配
     uni.navigateTo({
       url: '/pages/examples/blackjack/ap-fishing?mode=final'
-        + '&role=' + roleAt.value
-        + '&slots=' + slotSkills.value.join(',')
+        + '&role=' + meRole
+        + '&slots=' + meSlots.join(',')
+        + (foeRole >= 0 ? '&foeRole=' + foeRole + '&foeSlots=' + foeSlots.join(',') : '')
         + '&diff=' + finalDiff.value
     })
   }
@@ -1782,6 +1849,38 @@
   }
 
   /* 难度：三颗小胶囊，选中的填金 */
+  /* 终局配装弹层顶上那排「你 / 庄家」。选中那一边描亮 */
+  .side-row {
+    flex-direction: row;
+    margin-bottom: 8px;
+  }
+
+  .side-btn {
+    flex: 1;
+    padding: 6px 4px;
+    margin-right: 6px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #3a6f57;
+    align-items: center;
+  }
+
+  .side-on {
+    background-color: #e8b23a;
+    border-color: #e8b23a;
+  }
+
+  .side-text {
+    color: #cfe8db;
+    font-size: 12px;
+  }
+
+  .side-text-on {
+    color: #1a2e24;
+    font-weight: bold;
+  }
+
   .diff-row {
     flex-direction: row;
     align-items: center;
