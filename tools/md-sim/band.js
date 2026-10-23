@@ -87,13 +87,26 @@ for (let k = 0; k < K; k++) DUMMY.push(k + 1)
 // `-m` 只挂在「忍」的那两格上 —— `ctl` 是双方贪心，压根不调 `worthHolding`
 //
 // ⚠ 不带 `-m` 时**显式清成空串**，不是「不设」。`fn.js` 的 `run` 是
-//   `Object.assign({}, process.env, arm.env, …)` —— 外面 shell 里要是
+//   `Object.assign({}, process.env, ENV_PIN, arm.env, …)` —— 外面 shell 里要是
 //   残留着一个 `HOLD_BAND_MAX`，「不设」会把它原样继承进来，
 //   于是 A/B 两跑悄悄变成同一跑。空串在 ai.js 那边是 falsy → 回到 −1。
+//
+// 🔴 **但「空串 = 关」只对 `HOLD_BAND_MAX` 这类成立，对翻过默认的那几个是反的**
+//    〔2026-10-23 修〕。`HOLD_ONCE` / `HOLD_BOTH` / `HOLD_EV` / `HOLD_EV_SPLIT`
+//    的判据是 **`process.env.X !== '0'`**，于是 `''` → `'' !== '0'` → **开**。
+//
+//    这个脚本原先写 `HOLD_ONCE: ''` / `HOLD_BOTH: ''`，翻默认之前那是「关」，
+//    翻完就**静默变成「开」**：`ctl` 那一档标着「双方贪心」而实际两侧都在忍，
+//    `hme` 标着「只有你忍」而实际两侧都忍（分差必然≈0）。
+//
+//    ⚠ **这一处是 `export X=0` 那种钉法救不了的** —— 本脚本自己的 `arm.env`
+//    排在 `ENV_PIN` 之后，会把钉子覆盖掉。所以这儿必须改成字符串 `'0'`。
+//    同一天另外 13 处钉的是「没设」，这一处是「设了，但值的含义被翻反了」，
+//    **第二种更难发现**：grep `HOLD_ONCE` 能搜到它，看着像已经处理过了。
 const HM = { HOLD_BAND_MAX: M >= 0 ? '' + M : '', HOLD_P: '' + P }
 const ARMS = [
-  { tag: 'ctl', name: '双方贪心', env: Object.assign({ SCORE_BANDS: DUMMY.join(','), HOLD_ONCE: '' }, HM) },
-  { tag: 'hme', name: '只有你忍', env: Object.assign({ SCORE_BANDS: DUMMY.join(','), HOLD_ONCE: '1', HOLD_BOTH: '' }, HM) },
+  { tag: 'ctl', name: '双方贪心', env: Object.assign({ SCORE_BANDS: DUMMY.join(','), HOLD_ONCE: '0' }, HM) },
+  { tag: 'hme', name: '只有你忍', env: Object.assign({ SCORE_BANDS: DUMMY.join(','), HOLD_ONCE: '1', HOLD_BOTH: '0' }, HM) },
   { tag: 'hbo', name: '双方都忍', env: Object.assign({ SCORE_BANDS: DUMMY.join(','), HOLD_ONCE: '1', HOLD_BOTH: '1' }, HM) }
 ]
 

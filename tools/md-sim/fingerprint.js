@@ -159,6 +159,18 @@ const WATCH = [
     names: ['triggersOf', 'kitFromRole', 'kitFromSlots', 'slotLabels',
       'slotCover', 'isSuitSlot', 'roleCover', 'baitRankOf', 'specialIndexOf',
       'roleIndexOf', 'rollRoleKit']
+  },
+  {
+    file: 'draw-skills.uts',
+    group: '阶梯计分',
+    // 〔2026-10-23 加〕这三个是 `rules.js:8054` 那三个的手写副本。
+    // 盯函数体而不只是 `SCORE_BANDS` 的值，是因为**档位算法本身也会分叉** ——
+    // `(n-2)/2` 写成 `(n-1)/2` 的话档值一个字没变，而整套数据全错。
+    //
+    // ⚠ 唯一有意的差异：模拟器的 `scoreOf` 多一条 `SCORE_BANDS === null → return n`
+    //   （env 退回 R3 用的），源码没有 env 所以没有那条。**两边的函数体本来就不同**，
+    //   这一组盯的是「源码这边自己别漂」，不是「两边逐字相同」
+    names: ['scoreWith', 'scoreOf', 'bandOf']
   }
 ]
 
@@ -170,12 +182,26 @@ const CONSTS = [
   { file: 'ap-fishing.uvue', name: 'LOW_TIDE_STEP' },
   { file: 'ap-fishing.uvue', name: 'CLEAR_OPEN' },
   { file: 'ap-fishing.uvue', name: 'FIRM_GUARD' },
-  { file: 'ap-fishing.uvue', name: 'DEEP_EXTRA' },
+  // 〔`DEEP_EXTRA` 2026-10-23 撤了（深钩删了）—— 同上那条办法。
+  //   ⚠ `baseline.json` 里还留着 `"ap-fishing.uvue:DEEP_EXTRA": "1"` 和
+  //   skills 串里的 `deephook` / `deepline`，**那是对的**：基线是上一次
+  //   拍的快照，它就该反映当时的样子。下一次 `--save` 时自然消失〕
   // 〔DUMP_COUNT / SPILL_COUNT / EBB_COUNT 撤掉了（掏手 / 掏库 / 退潮
   //   三件技能 2026-10-14 删了）—— 照 SUIT_CAPACITY 那次的办法撤，
   //   留着只会每次报一条 MISSING〕
   // SUIT_CAPACITY 删了（花色槽砍成了一个特殊技能槽），所以这儿也撤掉 ——
   // 留着只会每次都报一条 MISSING，而噪音多了就没人看警报了
+  // ---- 阶梯计分（R4，2026-10-23 搬进源码）----
+  //
+  // **跟 `HAND_SIZE` 同级，不是平衡旋钮**：这三个数一改，
+  // 整套 X / D / 定价 / 闯关数据**全废** —— 不是「这一件要重定价」，
+  // 是全表重量（档值非线性，没法按比例缩）。
+  //
+  // **模拟器那边是 `rules.js` 的 `SCORE_BANDS` 默认值 `'1,4,12'`，两个必须一样** ——
+  // 同 `SURGE_PUSH` ↔ `SURGE_N`、`TAIL_PLAYS` ↔ `TAIL` 那两对的理由。
+  // ⚠ 而这一对有个**额外的不对称**：模拟器那边读 env（`SCORE_BANDS=off` 退回 R3），
+  //   源码没有 env。所以这一行只盯得住「默认值一样」，盯不住「有人跑 A/B 时搞混」
+  { file: 'draw-skills.uts', name: 'SCORE_BANDS' },
   { file: 'draw-skills.uts', name: 'RANK_CAPACITY' },
   { file: 'draw-skills.uts', name: 'BAIT_COUNT' },
   { file: 'draw-skills.uts', name: 'CYCLE_REFILL' },
@@ -262,7 +288,19 @@ function hashOf(code) {
 
 function constOf(text, name) {
   const m = new RegExp('const\\s+' + name + '\\s*:\\s*number\\s*=\\s*(-?\\d+)').exec(text)
-  return m ? m[1] : null
+  if (m) {
+    return m[1]
+  }
+  // ---- `number[]` 那一类〔2026-10-23 加，现在只有 `SCORE_BANDS`〕----
+  //
+  // 整个字面量当指纹，**空白一律压掉** —— 不然换行或者多一个空格
+  // 就报成漂移，而那种噪音多了警报就没人看了（照上面 SUIT_CAPACITY 那条的理由）。
+  // 只认一层方括号里没有 `]` 的内容，够用而且不会误吞后面的代码
+  const a = new RegExp('const\\s+' + name + '\\s*:\\s*number\\[\\]\\s*=\\s*\\[([^\\]]*)\\]').exec(text)
+  if (a) {
+    return '[' + a[1].replace(/\s+/g, '') + ']'
+  }
+  return null
 }
 
 // draw-skills.uts 里所有 `key: 'x', name:` 的顺序。

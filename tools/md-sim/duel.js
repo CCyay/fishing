@@ -41,7 +41,7 @@
 'use strict'
 const { spawn } = require('child_process')
 const path = require('path')
-const { FNS, FAMS_ALL, JMODES, B, score, parse, f2, pad, padR } = require('./fn.js')
+const { FNS, FAMS_ALL, JMODES, B, ENV_PIN, score, parse, f2, pad, padR } = require('./fn.js')
 
 const argv = process.argv.slice(2)
 let N = 20000
@@ -62,7 +62,12 @@ const LANES = 5
 function run(i, j) {
   const tag = 'd' + i + '_' + j
   return new Promise((res, rej) => {
-    const env = Object.assign({}, process.env, {
+    // ⚠ **`ENV_PIN` 是翻默认值的钉子，别删**（定义和缘由在 `fn.js`）。
+    //   2026-10-23 四个 AI 旋钮翻成了默认开，而这张 5×5 矩阵的
+    //   **第 0 行第 0 列写着「贪心（能收就收）」** —— 不钉的话那一格
+    //   变成「按 EV 忍 + 守 3 张闸」，整张矩阵没有一格是它标的那个打法，
+    //   而输出长得一模一样。`HOLD_MIN` / `HOLD_FOE` 在它之后，照旧覆盖
+    const env = Object.assign({}, process.env, ENV_PIN, {
       // ME 用 GRID[i]，FOE 用 GRID[j]。HOLD_FOE='0' 就是「对手不养堆」——
       // `holdMinOf` 里 `HOLD_FOE >= 0` 这一支接管，不会落到 HOLD_BOTH 上
       HOLD_MIN: '' + GRID[i],

@@ -122,13 +122,49 @@ function run(n, seed, mine, foe, opts) {
   const o = opts || {}
   const sum = {
     games: 0, plays: [0, 0], catches: [0, 0], caught: [0, 0],
+    // ⚠ **`taken` 跟 `caught` 不是同一个口径，别混用**〔2026-10-23 补〕
+    //
+    //   `caught`  = `G.stat.caught`  —— 诊断口，「这一侧收了几张牌」
+    //   `taken`   = `G.taken`        —— **规则层的张数守恒账**
+    //
+    // 两者在空槽基线下逐位相同，所以混用很久都没事。分叉点在
+    // `rules.js:11759`（易流把**手牌**也算离场）—— 那儿的注释写得很明白：
+    // 「`taken` 要跟着加，**不然守恒自检对不上**」。也就是说守恒那条式子
+    // （收走 + 堆里剩 + 手里剩 = 牌组）认的是 `taken`，不是 `caught`。
+    //
+    // 补它是为了**接现成入口而不是接一个今天刚好相等的量**
+    //（CLAUDE.md 第四节那条「复制一份逻辑，两份必然分叉」的同款）。
+    taken: [0, 0],
     jackCatches: [0, 0], jackTook: [0, 0], skillCatch: [0, 0],
     holdSkip: [0, 0], holdSkipSum: [0, 0], holdForced: [0, 0],
     // 【忍 1 手】的诊断口（ai.js 的 worthHolding 那段）
     holdOnce: [0, 0], holdOnceHit: [0, 0], holdOnceMiss: [0, 0],
     holdOnceGave: [0, 0], holdOnceGot: [0, 0],
-    // 两个旋钮各自的计数口：它们**改掉**了多少次决策
-    holdCapped: [0, 0], holdEvFlip: [0, 0],
+    // 三个旋钮各自的计数口：它们**改掉**了多少次决策。
+    // `holdRunBlocked` 是**上界**（见 ai.js 那道闸的注释），另两个是精确值
+    holdCapped: [0, 0], holdEvFlip: [0, 0], holdRunBlocked: [0, 0],
+    // 【HOLD_EV】真算概率那一套的诊断口（ai.js 的 holdEV 那段）。
+    // `holdEvPsum` 是「AI **信**的成功率」之和 —— 要拿它跟事后实测的
+    // 升档率对账，这正是 `HOLD_P=25` 栽的那一格（信 25%、实际 15.2%）
+    holdEvN: [0, 0], holdEvYes: [0, 0], holdEvPsum: [0, 0],
+    // 用户那三条判据的分桶：目标点数外面还剩 0 / 1 / 2+ 张
+    holdEvOut: [[0, 0, 0], [0, 0, 0]],
+    holdEvOutYes: [[0, 0, 0], [0, 0, 0]],
+    // 第二个分桶：**从哪一档起忍**（2/3 起 / 4/5 起 / 6 张及以上）。
+    // 用户的预判是「4→6 算出来一定不推荐忍」——
+    // 这两行就是让那句话可证伪，而不是靠写死一条上限做成同义反复
+    holdEvFrom: [[0, 0, 0], [0, 0, 0]],
+    holdEvFromYes: [[0, 0, 0], [0, 0, 0]],
+    // 第三个分桶：**情况 3（外面还剩 2 张）里再按牌组厚度切三档**。
+    // 用户：「我希望在情况 3 且牌组还很厚的条件下，忍 1 手还是有价值的，
+    // 4/5 档的积分要有这样的价值」—— 这三行就是那条验收线
+    holdEvThick: [[0, 0, 0], [0, 0, 0]],
+    holdEvThickYes: [[0, 0, 0], [0, 0, 0]],
+    // 【HOLD_EV_SPLIT】把「平」拆成「浅层被吃」和「只有饵被吃」〔2026-10-23〕。
+    // 用户：「对手手里既没有 2、也没有 J 是对的，**也配不上我那张饵**
+    // 要拎出来单独算」。`holdEvOver` = 原来把浅层那一支记成 `now` 高估的那一截，
+    // **旋钮关着也照记**，所以对照组不用重跑就能看出拆了值不值
+    holdEvPShal: [0, 0], holdEvPBait: [0, 0], holdEvOver: [0, 0],
     // 收成分布〔2026-10-22〕。桶数**从 rules 取**，不在这儿另写一个数
     catchHist: [R.newHist(), R.newHist()],
     catchHistJ: [R.newHist(), R.newHist()],
@@ -251,6 +287,9 @@ function run(n, seed, mine, foe, opts) {
       sum.plays[s] += G.stat.plays[s]
       sum.catches[s] += G.stat.catches[s]
       sum.caught[s] += G.stat.caught[s]
+      // ⚠ 这一个取的是 `G.taken`，**不是 `G.stat.taken`**（没有那个字段）——
+      //   它挂在规则层的 G 上，跟 score 并排记（`rules.js:8121`）
+      sum.taken[s] += G.taken[s]
       sum.jackCatches[s] += G.stat.jackCatches[s]
       sum.jackTook[s] += G.stat.jackTook[s]
       sum.holdSkip[s] += G.stat.holdSkip[s]
@@ -267,6 +306,26 @@ function run(n, seed, mine, foe, opts) {
       //   而上限拦下的那些手恰恰**没有**真忍
       if (G.stat.holdCapped) sum.holdCapped[s] += G.stat.holdCapped[s]
       if (G.stat.holdEvFlip) sum.holdEvFlip[s] += G.stat.holdEvFlip[s]
+      // 同理：被 `HOLD_RUN` 拦下的手**没有**真忍，所以也不在 initHoldStat 里
+      if (G.stat.holdRunBlocked) sum.holdRunBlocked[s] += G.stat.holdRunBlocked[s]
+      // 同上：`holdEvN` 在**每个决策点**都记，哪怕最后判了不忍 ——
+      // 所以它也不在 `initHoldStat` 里，得单独判一次
+      if (G.stat.holdEvN) {
+        sum.holdEvN[s] += G.stat.holdEvN[s]
+        sum.holdEvYes[s] += G.stat.holdEvYes[s]
+        sum.holdEvPsum[s] += G.stat.holdEvPsum[s]
+        sum.holdEvPShal[s] += G.stat.holdEvPShal[s]
+        sum.holdEvPBait[s] += G.stat.holdEvPBait[s]
+        sum.holdEvOver[s] += G.stat.holdEvOver[s]
+        for (let b = 0; b < 3; b++) {
+          sum.holdEvOut[s][b] += G.stat.holdEvOut[s][b]
+          sum.holdEvOutYes[s][b] += G.stat.holdEvOutYes[s][b]
+          sum.holdEvFrom[s][b] += G.stat.holdEvFrom[s][b]
+          sum.holdEvFromYes[s][b] += G.stat.holdEvFromYes[s][b]
+          sum.holdEvThick[s][b] += G.stat.holdEvThick[s][b]
+          sum.holdEvThickYes[s][b] += G.stat.holdEvThickYes[s][b]
+        }
+      }
       for (let b = 0; b <= R.CATCH_BINS; b++) {
         sum.catchHist[s][b] += G.stat.catchHist[s][b]
         sum.catchHistJ[s][b] += G.stat.catchHistJ[s][b]
@@ -426,11 +485,32 @@ function printCatchCurve(sum, g) {
     play.push(sum.pileHist[0][b] + sum.pileHist[1][b])
   }
   let totalHit = 0
-  let totalCard = 0
+  // ⚠ **这个变量 2026-10-23 晚些从 `totalCard` 改名成 `totalScore`。**
+  //
+  // 改名不是风格：它早上刚从「Σ hit[b]×b」改成「Σ hit[b]×scoreOf(b)」
+  // （见下面那段），**而名字没跟着改** —— 于是它同时在两个地方被用：
+  //   · 「占总分」那几列的分母 ← 正确，它就是总分
+  //   · 下面那条「收牌张数 == caught」的自检 ← **错的，它不是张数**
+  // 后者在 R4 下静默失效（见 `totalCardN` 那条）。名字说谎了半天。
+  let totalScore = 0
+  // 真·张数的加权和，**只给自检用**。R3 下它跟 `totalScore` 是同一个数，
+  // R4 下差得很远（实测 872918 vs 560775），而那正是那条自检要抓的东西
+  let totalCardN = 0
   let totalPlay = 0
   for (let b = 0; b <= B; b++) {
     totalHit += hit[b]
-    totalCard += hit[b] * b
+    totalCardN += hit[b] * b
+    // ⚠ **这儿必须走 `scoreOf`，不能用 `b`**〔2026-10-23 修的 bug〕
+    //
+    // 原来写的是 `hit[b] * b` —— 分子分母都按**张数**算。
+    // `SCORE_BANDS` 没设时「分 = 张数」，所以那一列碰巧是对的；
+    // 一设档值它就不是「占总分」了，是「占总张数」，而两者差得很远：
+    // 1,4,12 下收 6 张给 12 分却按 6 张算，整个 6+ 档被压掉一半还多
+    //（实测 1,4,12 双方都忍：这一列报 9.2%，真占总分是 24.8%）。
+    //
+    // 这正是 CLAUDE.md 那条「一个看起来合理的数不能当成机制对了」——
+    // 9.2% 看着就像「画饼档基本拿不到」，而它其实是口径错了。
+    totalScore += hit[b] * R.scoreOf(b)
     totalPlay += play[b]
   }
   console.log('')
@@ -454,12 +534,52 @@ function printCatchCurve(sum, g) {
     // 对它谈「收 4 张比收 3 张难」没有意义，混进来只会把曲线抹平
     const step = (prev > 0 ? f2(nhit[b] / prev) : '—')
     console.log('   ' + label.padStart(4) + '  ' + ('' + hit[b]).padStart(9)
-      + '  ' + pct(avg(hit[b] * b, totalCard)).padStart(7)
+      // 同上：分子也走 `scoreOf`。溢出桶（b === B）在分档下**反而更准** ——
+      // 真实 N 更大，但只要都落在顶档，`scoreOf` 给的就是同一个值
+      + '  ' + pct(avg(hit[b] * R.scoreOf(b), totalScore)).padStart(7)
       + '  |' + ('' + jhit[b]).padStart(8)
       + '  ' + ('' + nhit[b]).padStart(8)
       + '  ' + ('' + step).padStart(8)
       + '  ' + pct(avg(nhit[b], deep)).padStart(11))
     prev = nhit[b]
+  }
+  // ---------- 按**档**汇总，而且把 J 拆出来〔2026-10-23〕 ----------
+  //
+  // 加它的理由是实测抓到的：1,4,12 下 6+ 档每一行的「其中 J」都过半
+  //（收 6 张 54%、收 7 张 55%、收 8 张 57%），一行一行看看不出总量。
+  //
+  // 这件事对定 c 是决定性的：**抬 c 主要在给 J 加价，不是在奖励忍**。
+  // J 通吃不需要任何决策 —— 摸到就赢，而用户要的是「赌对手什么时候收」。
+  //
+  // 只在设了 `SCORE_BANDS` 时打：没设的话「档」这个概念不存在
+  if (R.SCORE_BANDS !== null) {
+    const bandHit = [0, 0, 0]
+    const bandJ = [0, 0, 0]
+    const bandScore = [0, 0, 0]
+    const bandJScore = [0, 0, 0]
+    for (let b = 2; b <= B; b++) {
+      const k = Math.min(2, R.bandOf(b))
+      if (k < 0) continue
+      bandHit[k] += hit[b]
+      bandJ[k] += jhit[b]
+      bandScore[k] += hit[b] * R.scoreOf(b)
+      bandJScore[k] += jhit[b] * R.scoreOf(b)
+    }
+    console.log('')
+    console.log('  ---- 按档汇总（档值 ' + R.SCORE_BANDS.join(',') + '）----')
+    console.log('  〔「J 占本档」过半 = 这一档主要是运气在发钱，不是决策在发钱〕')
+    console.log('    档        次数     次数占比    占总分 |   其中J    J占本档   J占全局分')
+    console.log('  ' + '-'.repeat(72))
+    const btag = ['2/3 档', '4/5 档', '6+ 档']
+    for (let k = 0; k < 3; k++) {
+      console.log('   ' + btag[k].padStart(6)
+        + '  ' + ('' + bandHit[k]).padStart(9)
+        + '  ' + pct(avg(bandHit[k], totalHit)).padStart(9)
+        + '  ' + pct(avg(bandScore[k], totalScore)).padStart(8)
+        + '  |' + ('' + bandJ[k]).padStart(8)
+        + '  ' + pct(avg(bandJ[k], bandHit[k])).padStart(9)
+        + '  ' + pct(avg(bandJScore[k], totalScore)).padStart(9))
+    }
   }
   console.log('')
   console.log('  ---- 出牌时堆有多厚（上面那条曲线的另一半）----')
@@ -512,11 +632,11 @@ function printCatchCurve(sum, g) {
   console.log('  自检：出牌次数 ' + totalPlay + ' == plays ' + plays
     + (totalPlay === plays ? ' ✓' : ' ✗'))
   if (hit[B] > 0) {
-    console.log('  自检：收牌张数 ' + totalCard + ' ≤ caught ' + caught
-      + (totalCard <= caught ? ' ✓（溢出桶按下沿算，所以只能是 ≤）' : ' ✗'))
+    console.log('  自检：收牌张数 ' + totalCardN + ' ≤ caught ' + caught
+      + (totalCardN <= caught ? ' ✓（溢出桶按下沿算，所以只能是 ≤）' : ' ✗'))
   } else {
-    console.log('  自检：收牌张数 ' + totalCard + ' == caught ' + caught
-      + (totalCard === caught ? ' ✓' : ' ✗ 分布的加权和对不上'))
+    console.log('  自检：收牌张数 ' + totalCardN + ' == caught ' + caught
+      + (totalCardN === caught ? ' ✓' : ' ✗ 分布的加权和对不上'))
   }
 }
 
@@ -554,26 +674,81 @@ function cmdBase(args) {
   // 同一个来路：少掉的那 6 手正是终局手牌萎缩期，那几手的收成最薄。
   //
   // 对不上的时候先问「是不是终局规则又动了」—— 这六个数全是它的函数
+  //
+  // ---- ⚠ **参考值现在有两套，按 `HOLD_ONCE` 分**〔2026-10-23 晚些〕 ----
+  //
+  // 决策层默认开了之后**五行的期望值全变了**（忍 1 手改的是打法，
+  // 不只是计分）—— 两套都是 20000 局实测的：
+  //
+  //            钓到   钓到占比  每次平均收  积分   J占   J每次吃
+  //   会忍（~~现默认~~）  7.1    30.8%     3.08     14.9   27.5%   3.63
+  //   不忍（HOLD_ONCE=0） 7.7  33.3%  2.85     14.0   25.7%   3.25
+  //
+  // ⚠ 「现默认」那三个字**同日晚些就作废了**，见紧接着的下一段 —— 两行都是
+  //   `JACK_HOLD=0`。留着不删是为了记住这一栏**翻过两次默认值**
+  //
+  // 「每人每局出牌 23」两套相同（局长由终局规则定，不由打法定）。
+  //
+  // ⚠ 写死一套的后果跟上面那条积分一样：**每跑一次都在说谎**，
+  //   而且是往「看着正常」的方向说 —— 7.1 对着 7.7 的参考值只差 8%，
+  //   没人会因此去查，于是「忍 1 手真的改了打法」这件事就被参考值盖住了。
+  // ---- ⚠ **同一天晚些又分叉了一层：现在是三套**〔2026-10-23〕 ----
+  //
+  // `JACK_HOLD` 的默认值从 0 定成了 **3**（用户拍板，见 `ai.js` 那段），
+  // 于是上面那两套**都不是现行默认了** —— 它们都在 `JACK_HOLD=0` 下量的。
+  // 现行默认（不带任何 env）实测：
+  //
+  //            钓到   钓到占比  每次平均收  积分   J占   J每次吃
+  //   守 J=3（现默认） 6.7    29.3%     3.25     16.6   26.3%   4.56
+  //
+  // 口径自检过了：这一套的按档汇总跟 `run-jack12.sh` 乙3 段**逐位相同**。
+  //
+  // ⚠ **`JACK_HOLD` 取 0/3 以外的 k（2、4、5）在 base 口径下没量过**
+  //   —— `run-jack12.sh` 量的是 `pick` 过滤后的几行，不含这六个。
+  //   所以那几档打 `?`，**不拿最近的一套顶上去**：顶上去就又是
+  //   上面那条「往看着正常的方向说谎」，而这一次连 8% 的差都没有。
+  //
+  // ⚠ 别叫 `held` —— 这个函数下面（牌数守恒那段）已经有一个
+  //   `const held = avg(sum.handLeft, g)`，同名会直接 SyntaxError
+  const holdOn = AI.HOLD_ONCE
+  const jk = AI.JACK_HOLD
+  // 三套参考值：now = 现行默认（会忍 + 守 J=3）/ a = 会忍不守 J / b = 不忍不守 J
+  const ref = function (now, a, b) {
+    if (jk !== 0 && jk !== 3) return '?'
+    if (!holdOn) return jk === 0 ? b : '?'
+    return jk === 3 ? now : a
+  }
   const rows = [
     ['每人每局出牌',
       f1(avg(sum.plays[R.ME], g)), f1(avg(sum.plays[R.FOE], g)),
       f1(both(function (s) { return avg(sum.plays[s], g) })), '23 次'],
     ['每人每局钓到',
-      f1(catches(R.ME)), f1(catches(R.FOE)), f1(both(catches)), '约 7.7 次'],
+      f1(catches(R.ME)), f1(catches(R.FOE)), f1(both(catches)),
+      ref('约 6.7 次', '约 7.1 次', '约 7.7 次')],
     ['钓到占出牌',
       pct(avg(sum.catches[R.ME], sum.plays[R.ME])),
       pct(avg(sum.catches[R.FOE], sum.plays[R.FOE])),
-      pct(both(function (s) { return avg(sum.catches[s], sum.plays[s]) })), '33%'],
+      pct(both(function (s) { return avg(sum.catches[s], sum.plays[s]) })),
+      ref('29%', '31%', '33%')],
     ['每次平均收',
       f2(avg(sum.caught[R.ME], sum.catches[R.ME])),
       f2(avg(sum.caught[R.FOE], sum.catches[R.FOE])),
-      f2(both(function (s) { return avg(sum.caught[s], sum.catches[s]) })), '2.85 张'],
+      f2(both(function (s) { return avg(sum.caught[s], sum.catches[s]) })),
+      ref('3.25 张', '3.08 张', '2.85 张')],
+    // ⚠ 期望值那一栏**必须跟着口径走**〔2026-10-23〕。R4（分档）下是 14.0、
+    //   退回 R3（`SCORE_BANDS=off`，分 = 张数）才是 21.8。
+    //   写死 21.8 的话 R4 每跑一次都在说谎 —— 而旁边四列（出牌 / 钓到 /
+    //   钓到占比 / 每次平均收）**两档逐位相同**，所以它们的期望值不用分叉
+    //   〔实证 `out-r4.txt` 甲 vs 乙段；原因是 `scoreWith` 对 n 单调不减，
+    //     加上「平手取张数多」那条 tie-break → `argmax score == argmax n`〕
     ['每人每局积分',
-      f1(perGame(R.ME)), f1(perGame(R.FOE)), f1(both(perGame)), '约 21.8 分'],
+      f1(perGame(R.ME)), f1(perGame(R.FOE)), f1(both(perGame)),
+      R.SCORE_BANDS === null ? '约 21.8 分' : ref('约 16.6 分', '约 14.9 分', '约 14.0 分')],
     ['J 通吃占所有钓牌',
       pct(avg(sum.jackCatches[R.ME], sum.catches[R.ME])),
       pct(avg(sum.jackCatches[R.FOE], sum.catches[R.FOE])),
-      pct(both(function (s) { return avg(sum.jackCatches[s], sum.catches[s]) })), '25.7%'],
+      pct(both(function (s) { return avg(sum.jackCatches[s], sum.catches[s]) })),
+      ref('26.3%', '27.5%', '25.7%')],
     // ---- 【养堆】诊断口〔2026-10-22〕：J 一下吃多肥 ----
     //
     // 上面那一行（J 占所有钓牌）**答不了「要不要忍 J」** —— J 迟早都会
@@ -588,7 +763,10 @@ function cmdBase(args) {
       f2(avg(sum.jackTook[R.ME], sum.jackCatches[R.ME])),
       f2(avg(sum.jackTook[R.FOE], sum.jackCatches[R.FOE])),
       f2(both(function (s) { return avg(sum.jackTook[s], sum.jackCatches[s]) })),
-      '〔新口，没量过〕']
+      // 2026-10-23 三档都量了（各 20000 局），不再是「没量过」
+      // ⚠ 这一行是**守 J 咬合与否最灵敏的一格**（上面那段注释说的就是它）：
+      //   3.63 → 4.56，涨了 0.93 张。它要是跟不守 J 那档一样，闸没咬上
+      ref('4.56 张', '3.63 张', '3.25 张')]
   ]
   console.log('  项                 你(后手)   庄家(先手)  两人平均   参考值')
   console.log('  ' + '-'.repeat(62))
@@ -604,6 +782,8 @@ function cmdBase(args) {
     //   「剩堆归没打最后一手的」  约 46.5%
     //   **现行（牌库空 + 各打 1 手 + 剩堆不算分）约 48%，平局掉到 3.7%**
     //     —— 平局变少是因为双方总分不再恒为 52（手里和堆上剩的都不算分）
+    //   ⚠ 那个 3.7% 是 **R3** 的；R4 现行默认实测 **3.5%**〔2026-10-23〕。
+    //     胜率那个「约 48%」两档都对（R4 现行默认 48.0%），所以下面没分叉
     //
     // **默认值跟 rules.js 一致（'old'）** —— 那边 2026-10-15 把默认从
     // pileNotLast 换过来了，这儿读 env 要用同一个默认，不然不设变量时报错档
@@ -621,8 +801,12 @@ function cmdBase(args) {
   // 大的」能得出同一个分差，而两者对设计的含义相反。
   if (sum.holdSkip[R.ME] + sum.holdSkip[R.FOE] > 0) {
     console.log('')
+    // ⚠ `JACK_HOLD` 从 `AI` 取，**不读 env**〔2026-10-23 默认 0 → 3〕——
+    //   跟下面那段「忍 1 手诊断」同一条规矩、同一个理由：
+    //   不写 env 时 `process.env.JACK_HOLD || '-'` 会打 `-`，而 `-` 在说
+    //  「这一跑没守闸」，实际守着 3 张。`HOLD_MIN` 默认仍是 0，可以读 env
     console.log('  ---- 养堆诊断（HOLD_MIN=' + (process.env.HOLD_MIN || '-')
-      + ' / JACK_HOLD=' + (process.env.JACK_HOLD || '-') + '）----')
+      + ' / JACK_HOLD=' + (AI.JACK_HOLD || '关') + '）----')
     for (let s = 0; s < 2; s++) {
       if (sum.holdSkip[s] === 0) continue
       console.log('    ' + (s === R.ME ? '你  ' : '庄家')
@@ -666,13 +850,26 @@ function cmdBase(args) {
   //   而「一次都没忍」恰恰是最该看见的结果，不是该被静默掉的结果。
   if (sum.holdOnce[R.ME] + sum.holdOnce[R.FOE]
     + sum.holdCapped[R.ME] + sum.holdCapped[R.FOE]
-    + sum.holdEvFlip[R.ME] + sum.holdEvFlip[R.FOE] > 0) {
+    + sum.holdEvFlip[R.ME] + sum.holdEvFlip[R.FOE]
+    + sum.holdEvN[R.ME] + sum.holdEvN[R.FOE] > 0) {
     console.log('')
-    console.log('  ---- 忍 1 手诊断（SCORE_BANDS=' + (process.env.SCORE_BANDS || '-')
+    // ⚠ **凡是默认值翻过的，一律从 rules / ai 取，不读 env**〔2026-10-23〕——
+    //   `SCORE_BANDS`=1,4,12、`HOLD_RUN` 锁死 1、`HOLD_ONCE` / `HOLD_EV` /
+    //   `HOLD_BOTH` 默认开。读 env 的话「不写」会打成 `-`，而那是在说谎：
+    //   `-` 在说「没开」，实际开着。这一行是整段诊断的口径标签，
+    //   它说谎的代价是**一整批数被记成另一个口径的数**。
+    console.log('  ---- 忍 1 手诊断（SCORE_BANDS='
+      + (R.SCORE_BANDS ? R.SCORE_BANDS.join(',') : 'off')
+      + ' / HOLD_ONCE=' + (AI.HOLD_ONCE ? '开' : '关')
+      + ' / HOLD_BOTH=' + (AI.HOLD_BOTH ? '两侧' : '只有你')
       + ' / HOLD_LEAD=' + (process.env.HOLD_LEAD || '-')
-      + ' / HOLD_RUN=' + (process.env.HOLD_RUN || '1')
+      + ' / HOLD_RUN=' + AI.HOLD_RUN + '（锁死）'
       + ' / HOLD_BAND_MAX=' + (process.env.HOLD_BAND_MAX || '-')
-      + ' / HOLD_P=' + (process.env.HOLD_P || '100') + '）----')
+      + ' / HOLD_P=' + (process.env.HOLD_P || '100')
+      + ' / HOLD_EV=' + (AI.HOLD_EV ? '开' : '关')
+      // 第四个翻过默认的〔2026-10-23，0 → 3〕，同样从 AI 取
+      + ' / JACK_HOLD=' + (AI.JACK_HOLD || '关')
+      + ' / HOLD_EV_FOE=' + (process.env.HOLD_EV_FOE || '1') + '）----')
     for (let s = 0; s < 2; s++) {
       if (sum.holdOnce[s] === 0) continue
       const n = sum.holdOnce[s]
@@ -695,9 +892,33 @@ function cmdBase(args) {
       const dangle = n - hit - miss
       if (dangle !== 0) {
         console.log('      其中 ' + pct(avg(dangle, n)) + ' **忍完再没收到牌**'
-          + '（局结束 / 后面一直配不上；HOLD_RUN>1 时连忍也计在这儿）'
+          + '（局结束 / 后面一直配不上。⚠ `HOLD_RUN` 2026-10-23 锁死在 1，'
+          + '所以这一栏**不再含连忍**；读历史数据时它含）'
           + ' —— 这些的「放掉」记了、「收回」是 0')
       }
+    }
+    // ---- HOLD_RUN 的计数口：**锁死 1 拦掉了多少**〔2026-10-23〕 ----
+    //
+    // 它回答的是「把连忍锁死在 1 手，到底改了几次决策」。在这之前
+    // 这个问题只能从分差残差反推 —— 台账里那条 ⚠ 标的就是那个弱证据。
+    //
+    // ⚠ **这是上界，不是精确值**（理由写在 ai.js 那道闸上：
+    //   要精确得把闸挪到 EV 之后，而那会污染 `holdEvN` / `holdEvYes`）。
+    //   上界已经滤掉了「升不了档」的手 —— 那些在闸后面也活不过两行。
+    //
+    // ⚠ **不跟 env 挂钩，永远打**：`HOLD_RUN` 是写死的常量，
+    //   没有「没开这个旋钮」这种状态。而 0 本身是个结论
+    //   （锁死没花钱），不是该被静默掉的空值。
+    for (let s = 0; s < 2; s++) {
+      if (!sum.holdRunBlocked[s]) continue
+      console.log('    ' + (s === R.ME ? '你  ' : '庄家')
+        + '  想连忍被拦下 ≤' + f2(avg(sum.holdRunBlocked[s], g)) + ' 手/局'
+        + '（已忍过 1 手、这一手还升得了档，被 HOLD_RUN=1 拦回去收了。'
+        + '上界：里面还含「EV 本来也判不忍」的那些）')
+    }
+    if (!sum.holdRunBlocked[R.ME] && !sum.holdRunBlocked[R.FOE]) {
+      console.log('    连忍上限一次都没拦下 —— 这一跑里 HOLD_RUN=1 没花钱，')
+      console.log('    放开它也不会变（**上界是 0，所以这一条是结论不是弱证据**）。')
     }
     // ---- HOLD_BAND_MAX 的计数口 ----
     //
@@ -728,6 +949,89 @@ function cmdBase(args) {
       }
       if (!sum.holdEvFlip[R.ME] && !sum.holdEvFlip[R.FOE]) {
         console.log('    ⚠ **期望值折扣一次都没改变判断** —— 这一跑等同于 HOLD_P=100。')
+      }
+    }
+    // ---------- HOLD_EV：真算概率那一套的诊断口 ----------
+    //
+    // 三件事要在这儿看得见，而且**缺一件就会误读**：
+    //
+    //   一、「算了几次 / 忍了几次」—— 忍的比例落在 0% 或 100% 的话，
+    //       这个 AI 还是个阈值开关，只是阈值挪了位置，**没有决策**；
+    //   二、「它信的成功率」vs 事后实测的升档率 —— 对不上说明模型有偏，
+    //       而光看 X 永远查不出来（`HOLD_P=25` 就是这么混过去的）；
+    //   三、**按用户那三条分桶** —— 外面还剩 0 张那一桶该几乎全忍
+    //       （「极力推荐」），剩 2 张那一桶该很少忍。三桶的忍率
+    //       要是长得一样，那就是概率没真的进判据。
+    // ⚠ 闸从 `process.env.HOLD_EV === '1'` 换成 `AI.HOLD_EV`〔2026-10-23〕——
+    //   默认值翻成开之后那个 env 判定恒 false，**整段诊断会静默消失**，
+    //   而消失的正好是上面这三件「缺一件就会误读」的东西
+    if (AI.HOLD_EV) {
+      for (let s = 0; s < 2; s++) {
+        if (!sum.holdEvN[s]) continue
+        const n = sum.holdEvN[s]
+        const yes = sum.holdEvYes[s]
+        console.log('    ' + (s === R.ME ? '你  ' : '庄家')
+          + '  算了 ' + f2(avg(n, g)) + ' 次/局'
+          + '　判忍 ' + pct(avg(yes, n))
+          + '　它信的成功率 ' + (yes ? pct(sum.holdEvPsum[s] / yes) : '—'))
+        // 【HOLD_EV_SPLIT 的诊断口】「平」拆开之后两支各占多少，
+        // 以及没拆时高估了多少分。**旋钮关着也打**，所以这一行就是
+        // 「拆了值不值」的对照 —— 高估那一截≈0 的话，拆了也白拆
+        console.log('      　　其中「平」拆两支：浅层被吃 '
+          + pct(avg(sum.holdEvPShal[s], n))
+          + '　只有饵被吃 ' + pct(avg(sum.holdEvPBait[s], n))
+          + '　**没拆时每次高估 ' + f2(avg(sum.holdEvOver[s], n)) + ' 分**'
+          // ⚠ **从 AI 取，别在这儿重写一遍 env 判断** —— 2026-10-23 默认值
+          //   从「关」翻成「开」，写死 `=== '1'` 的那份副本当场就会说谎
+          + (AI.HOLD_EV_SPLIT ? '（已拆）' : '（没拆）'))
+        // 用户那三条判据，一桶一行
+        // ⚠ 桶键是**目标点数**外面还剩几张，而判据里的 `d` 比它大 ——
+        //   `holdEV` 把所有「能切到我目标那一格或更深」的点数都算进 `d`，
+        //   而 **J 通吃（catchStart 返回 0）所以 J 永远在 `d` 里**。
+        //   于是「外面还剩 0 张」**不等于**对手拿不走：他还可能有 J。
+        //   这一行原先写的是「对手不可能有」，那句话是错的〔2026-10-23 改〕
+        const tag = ['外面还剩 0 张（已收 2 张；对手仍可能有 J）',
+          '外面还剩 1 张', '外面还剩 2 张以上']
+        for (let b = 0; b < 3; b++) {
+          const bn = sum.holdEvOut[s][b]
+          if (!bn) continue
+          console.log('        ' + tag[b] + '：遇到 ' + f2(avg(bn, g))
+            + ' 次/局，判忍 ' + pct(avg(sum.holdEvOutYes[s][b], bn)))
+        }
+        // 从哪一档起忍。用户：「2 升 4 的例子，3 升 5 一样的算法；
+        // 4 升 6 也可以算，但我相信一定是不推荐忍的」—— 第二行就是那句的检验
+        const ftag = ['2/3 档起（2→4、3→5）', '4/5 档起（4→6）', '6 张及以上起']
+        for (let b = 0; b < 3; b++) {
+          const bn = sum.holdEvFrom[s][b]
+          if (!bn) continue
+          console.log('        ' + ftag[b] + '：遇到 ' + f2(avg(bn, g))
+            + ' 次/局，判忍 ' + pct(avg(sum.holdEvFromYes[s][b], bn)))
+        }
+        // 情况 3 × 牌组厚度。用户：「我希望在情况 3 且牌组还很厚的条件下，
+        // 忍 1 手还是有价值的，4/5 档的积分要有这样的价值」
+        // ⚠ 30 / 15 是报表切点，不进判据（判据里的厚度是 missP 连乘的那个 U）
+        const ttag = ['情况 3 · 牌组厚（没见过的 ≥ 30 张）← **这一格是验收线**',
+          '情况 3 · 牌组中（15~29 张）', '情况 3 · 牌组薄（≤ 14 张）']
+        for (let b = 0; b < 3; b++) {
+          const bn = sum.holdEvThick[s][b]
+          if (!bn) continue
+          console.log('        ' + ttag[b] + '：遇到 ' + f2(avg(bn, g))
+            + ' 次/局，判忍 ' + pct(avg(sum.holdEvThickYes[s][b], bn)))
+        }
+      }
+      if (!sum.holdEvN[R.ME] && !sum.holdEvN[R.FOE]) {
+        console.log('    ⚠ **EV 一次都没算过** —— 决策点没到达（多半是 HOLD_ONCE 没开），')
+        console.log('      这一跑跟 HOLD_EV=0 是同一跑。')
+      } else {
+        console.log('    〔判忍率落在 0% 或 100% = 还是阈值开关，**没有决策**；')
+        console.log('      三桶的判忍率要拉得开 —— 拉不开就是概率没真进判据。')
+        console.log('      「它信的成功率」要跟上面那行实测的「升档」对得上，')
+        console.log('      对不上说明模型有偏，而光看分差查不出来。')
+        console.log('      起始档那三行：**「4/5 档起」的判忍率该远低于「2/3 档起」**。')
+        console.log('      它不是写死的（没开 HOLD_BAND_MAX 就没有任何上限拦它），')
+        console.log('      所以那一行高了的话，是模型跟直觉打架，得查谁对。')
+        console.log('      情况 3 那三行：**「牌组厚」那一格的判忍率要明显高于「牌组薄」**，')
+        console.log('      而且厚的那一格本身不能贴着 0% —— 贴着 0% 就是 4/5 档的 b 还没给够。〕')
       }
     }
     console.log('    〔验收要**两条一起**：甲 hit / miss 两边都不空（有赢有输）；')
@@ -766,7 +1070,27 @@ function cmdBase(args) {
     + ' 分　←（这个数越大，「抢先手」越值钱）')
   console.log('')
 
-  const collected = perGame(R.ME) + perGame(R.FOE)
+  // ⚠ **这一行 2026-10-23 晚些修的：原来是 `perGame(ME) + perGame(FOE)`，
+  //   而 `perGame` 返回的是 `sum.score` —— 积分，不是张数。**
+  //
+  // R3 下「积分 = 收走的张数」，所以它一直是对的。R4 一分档就散了：
+  // 实测它报「收走 28.0 + 2.4 + 6.0 = 36.4（一副 52 张）← 对不上，
+  // 去查 collect / harvestPile」。那 28.0 正好是 14.0 分 × 2 人。
+  //
+  // **这条误报比没有自检更坏**：它把人指向 `collect` / `harvestPile`，
+  // 而那两处一个字都没错。改用 `sum.caught`（真·张数）之后
+  // 43.6 + 2.4 + 6.0 = 52.0 ✓。
+  //
+  // 这是 R4 的第三个「口径随规则变了而代码没跟上」的点，
+  // 另两个在 `printCatchCurve`（占总分的分母、收牌张数那条自检）
+  // 和 `cmdVs` 的「拆开双方得分」那张表（「和」那一列）。
+  //
+  // ⚠ **第一版修的时候用的是 `sum.caught`，后来换成了 `sum.taken`。**
+  //   两个在空槽基线下逐位相同，所以 `caught` 跑出来也是 ✓ —— 可
+  //   `rules.js:11762` 写明守恒认的是 `taken`（易流把手牌也算离场，
+  //   那一笔只进 `taken`）。接一个「今天刚好相等」的量，就是这个项目
+  //   栽过好几次的那种分叉；`base` 哪天带上技能，它会**静默**开始误报。
+  const collected = avg(sum.taken[R.ME], g) + avg(sum.taken[R.FOE], g)
   const left = avg(sum.leftover, g)
   // **手里剩的也要算进来**（2026-10-15）：终局改成「牌库空 + 各打 1 手」
   // 之后牌不再全部打出，手里恒剩几张。漏了它这条检查每次都报「对不上 6 张」，
@@ -945,9 +1269,32 @@ function cmdOne(args) {
   console.log('  后手 ' + sign(m.back) + '   先手 ' + sign(m.front)
     + '   X ' + sign(m.x) + '   D ' + sign(m.d) + '   标准误 ' + f2(m.se))
   // 建议价的口径跟 cmdAll 逐字一致（锚 25 + X×21、取整到 5、两种不给干净数）
-  console.log('  建议价：' + (m.x <= 0 ? '—（X ≤ 0 是效果问题，不是定价问题）'
-    : String(Math.round((25 + m.x * 21) / 5) * 5)
-      + (Math.abs(m.d) > 1 ? '?　—— |D| > 1，先修平衡再谈价' : '')))
+  //
+  // ⚠ **这一行 2026-10-23 补了 R4 分支，而在那之前它是坏的。**
+  //   上面那句「跟 cmdAll 逐字一致」10-23 早些时候就不成立了：cmdAll 加了
+  //   `SCORE_BANDS !== null → '待定'` 的闸，**cmdOne 没加**。于是
+  //   `one soft --slot 2` 在 R4 下照旧印出「建议价：40」—— 那是拿 R3 的锚
+  //   （21 金币/分，每人每局 21.8 分时拟的）去算 R4 的 X（每人每局 16.6 分）。
+  //
+  //   抓到它纯属偶然：当时正在补软点那一格，而 0.68 × 21 + 25 = 39.3 → 40
+  //   恰好跟它现行的价 45 只差一档，**看着像个合理的结论**。
+  //   这就是 CLAUDE.md 第四节那条同色闸 bug 的同一种病 ——
+  //   **一个「看起来合理」的数不能当成机制对了**。
+  //
+  //   教训是结构性的：**同一个口径在两处各写一份，必然分叉**（rules.js 里
+  //   反复写的那句）。这儿是「两份公式 + 一份闸」，闸只长在其中一处。
+  //   真正的修法是把这段抽成一个 priceHint(x, d) 给两边调，
+  //   **这儿只补了闸**（改动面小、这一轮不动结构），所以分叉的根还在。
+  //
+  //   而现行定价**根本不走锚**：用户 2026-10-23 定的是「按 X 排名套现有价位池」
+  //   （价位一个不加一个不减 → 金币经济不动）。所以 R4 下这儿永远是「待定」，
+  //   锚那条分支只为 `SCORE_BANDS=off` 退回 R3 对照时留着
+  const priceHint = R.SCORE_BANDS !== null
+    ? '待定　—— R4 下不走锚，走「按 X 排名套现有价位池」（见台账第二节那条 🔴 全表重定价）'
+    : m.x <= 0 ? '—（X ≤ 0 是效果问题，不是定价问题）'
+      : String(Math.round((25 + m.x * 21) / 5) * 5)
+        + (Math.abs(m.d) > 1 ? '?　—— |D| > 1，先修平衡再谈价' : '')
+  console.log('  建议价：' + priceHint)
   console.log('\n  胜率：' + pct(avg(m.test.wins[R.ME], m.test.games))
     + '（基线 ' + pct(avg(m.base.wins[R.ME], m.base.games)) + '，'
     + (m.winGain >= 0 ? '+' : '') + pct(m.winGain) + '）')
@@ -961,7 +1308,10 @@ function cmdOne(args) {
   // 它是基线 +3.03 时代的判据。终局规则改成「牌库空 + 各打 1 手」之后
   // 基线只剩 +0.3，于是**任何正 D 都"超限"**，那条判据没意义了。
   // 现在两条合用：相对标准误显著 + 相对比例模型偏离（见下面那行）
-  console.log('\n  基线（双方同角色、槽全空）：后手分差 ' + sign(m.baseDiff))
+  console.log('\n  基线（双方同角色、槽全空、**固定庄家先手**）：后手分差 '
+    + sign(m.baseDiff))
+  console.log('  ⚠ 这一行**不能跟 `base` 的后手分差相减** —— `base` 走自由切牌'
+    + '（只有它传 freeFirst），这儿是固定庄家先手，两个口径。')
   console.log('  **D 要跟标准误比，别跟基线比** —— |D| < ' + f2(m.se * 2)
     + '（两个标准误）统计上分不开。')
   console.log('  口径跟 `all` 一致：双方同角色、各插同一个槽、**两侧都量**，'
@@ -1001,8 +1351,14 @@ function cmdAll(args) {
     + (slotAt + 1) + ' 个槽（' + slots[slotAt] + '，'
     + R.slotCover(slots[slotAt]) + ' 张牌）· ' + specialNote(args, role))
   console.log('按 X（技能本身的强度）排序\n')
-  console.log('  技能      覆盖面       后手    先手       X       D    建议价  现价')
-  console.log('  ' + '-'.repeat(74))
+  // ⚠ 表头里原先还有一列「现价」，而**行里从来没打过它**〔2026-10-23 摘掉〕。
+  // 模拟器侧没有价：`rules.js` 的 SKILLS 是手写副本，只抄了效果，
+  // 没有 `unlock` 字段（grep `unlock|price|金币` → 0 命中）。
+  // 要真打这一列得去读 `pages/examples/blackjack/draw-skills.uts`，
+  // 那是另一件事；在那之前**表头不能挂一个空列** ——
+  // 跟 ruleTag() 那次同一类错：标签跟底下的东西对不上，而没有检查会报。
+  console.log('  技能      覆盖面       后手    先手       X       D    建议价')
+  console.log('  ' + '-'.repeat(66))
   const o = rolesFor(args, role, true)
   const empty = R.emptyLoadout()
   // 基线格全表共用 —— 它不含任何槽技能，所以跟量哪一件无关
@@ -1040,20 +1396,48 @@ function cmdAll(args) {
     // **取整到 5 会把相近的 X 分到两档**（顺色 2.52 → 80、撒网 2.48 → 75，
     // 而两者差 0.04 < 标准误）。所以看建议价时，差一档等于没差 ——
     // 真正的判据是 X 本身
-    const want = l.x <= 0 ? '—'
-      : String(Math.round((25 + l.x * 21) / 5) * 5) + (Math.abs(l.d) > 1 ? '?' : '')
+    //
+    // ⚠ **R4 下这一列不印数**〔2026-10-23〕。`25 + X × 21` 的 21 是
+    //   **R3 的锚**（每人每局 21.8 分时拟的），R4 每人每局 16.6 分，
+    //   而且**不能按比例缩** —— 档值非线性，一件技能多收 1 张在 2/3 档里
+    //   值 0 分、跨进 4/5 档值 3 分。缩出来的是估算不是测量。
+    //
+    //   印一列用旧锚算的价，比不印坏得多：它看着像个结论，而**这一跑
+    //   恰恰就是用来定新锚的那一跑**（台账第四步）。所以 R4 打 `待定`，
+    //   等新的 X 分布出来、新锚定了，再把常数换掉、把这个分支去掉
+    const want = R.SCORE_BANDS !== null ? '待定'
+      : l.x <= 0 ? '—'
+        : String(Math.round((25 + l.x * 21) / 5) * 5) + (Math.abs(l.d) > 1 ? '?' : '')
     console.log('  ' + l.name.padEnd(10) + l.cover.padEnd(13)
       + sign(l.back).padStart(7) + sign(l.front).padStart(8)
       + sign(l.x).padStart(8) + sign(l.d).padStart(8)
       + want.padStart(8))
   }
-  console.log('\n  基线（双方同角色、槽全空）：后手分差 ' + sign(baseDiff)
-    + '（标准误 ' + f2(stderrOf(C)) + '）')
+  console.log('\n  基线（双方同角色、槽全空、**固定庄家先手**）：后手分差 '
+    + sign(baseDiff) + '（标准误 ' + f2(stderrOf(C)) + '）')
+  // ⚠ 口径标签不能省（2026-10-23 栽的）：这一行跟 `base` 打的「后手分差」
+  // 同名但**不同口径** —— `cmdBase` 是唯一传 freeFirst 的命令（自由切牌），
+  // 别的一律 fixFirst = FOE。R4 下两者分别是 −0.08 和 +0.56，差 7σ，
+  // 我当场把它当成了基线漂移去查 bug。标签长在打印处，才不会再查第二遍。
+  console.log('  ⚠ 这一行**不能跟 `base` 的后手分差相减**（那边是自由切牌）。')
   console.log('  每件的标准误约 ' + f2(lines.length > 0 ? lines[0].se : 0)
     + ' —— 比它小的差异不作数')
   // 目标档位 2026-10-15 从「+3~5」降下来：每人每局积分从 24.4 掉到 21.8
   //（终局规则换了），比例没变、绝对值跟着走
-  console.log('\n  目标档位：单件每局 +2.7 ~ +4.5 分（看 **X** 这一列）。')
+  //
+  // ⚠ **2026-10-23 R4（分档计分）之后这个区间作废，而我没有新的数能替它。**
+  //   每人每局积分 21.8 → 14.0，所以 +2.7~4.5 在 R4 下**一定不是对的区间**。
+  //   但新区间**不能按比例缩** —— 档值是非线性的，一件技能多收 1 张在
+  //   2/3 档里值 0 分、跨到 4/5 档里值 3 分。按比例推出来的数是估算，不是测量。
+  //   要定新区间得**先把全表重量一遍**，拿新的分布去定。那活还没干。
+  if (R.SCORE_BANDS === null) {
+    console.log('\n  目标档位：单件每局 +2.7 ~ +4.5 分（看 **X** 这一列）。')
+  } else {
+    console.log('\n  ⚠ **目标档位在 R4（分档计分）下还没定** —— 旧区间 +2.7~4.5 是')
+    console.log('    「分 = 张数」口径的（每人每局 21.8），而这一跑是 14.0。')
+    console.log('    **别按比例缩**：档值非线性，缩出来的是估算不是测量。')
+    console.log('    要退回旧口径对照：`SCORE_BANDS=off`。')
+  }
   // ---- 判 D 的办法换了（2026-10-15）----
   //
   // 原先是「D ≈ 2 要当心，基线优势就是 D 的上限」。基线只剩 +0.3 之后
@@ -1075,8 +1459,13 @@ function cmdAll(args) {
 // ---------- roles：八个角色的常驻技能各值多少分 ----------
 
 function cmdRoles(args) {
-  console.log('八个角色的**常驻特殊技能**，各跑 ' + args.n + ' 局（种子 '
-    + args.seed + ' 起）')
+  // ⚠ 这儿原先硬编码「八个角色」〔2026-10-23 改掉〕。它早就不是 8 了 ——
+  //   `R.DRAW_ROLES` 现在 23 条，而**上架的只有 11 条**，其余是模拟器专属原型
+  //   （潮主·花色 / 涌工·单槽 / 通号人·双槽 …）。硬编码一个数的坏处跟
+  //   上面参考值那一列同形：**每跑一次都在说谎，而且往「看着正常」的方向说**
+  console.log('共 ' + R.DRAW_ROLES.length + ' 个角色（含模拟器专属原型，'
+    + '上架的以 `draw-skills.uts` 的 `DRAW_ROLES` 为准）的**常驻特殊技能**，'
+    + '各跑 ' + args.n + ' 局（种子 ' + args.seed + ' 起）')
   console.log('槽一律空着 —— 量的是那件常驻技能本身，不含槽里插的东西')
   // X / D 两列是 2026-10-15 补的（原先只有单侧的「分差」）——
   // 口径跟 `all` / `one` 一致，所以这几个数可以直接跟全表比
@@ -1556,6 +1945,8 @@ function cmdVs(args) {
   // 后果是**静默读错口径**：`vs draft draft --role deepline --slot 1`
   // 看着是在量「K 槽」（4 张），实际量的是深海钓手的**第 0 槽 `♣`**
   //（13 张花色槽）—— 而覆盖面差 3.25 倍。
+  //〔⚠ `deepline`（深海钓手）2026-10-23 删了，上面那条命令**跑不起来了** ——
+  //  留着是因为这段记的是 `--slot` 那个 bug，换个角色名就对不上当时的数〕
   //
   // 我就是这么栽的：量出「吃水在 K 槽 7.66、A 槽 3.41」，正要下
   //「幅度跟槽上那个点数成正比」的结论，**而抖出它的是诊断口的发动次数**
@@ -2089,13 +2480,30 @@ function cmdVs(args) {
     // 两式相减 **Y′ − Y = 4.26** —— 不对称全在「**对手亏多少**」这一侧。
     //
     // 拆开双方得分就能直接读出 X / Y / Y′，不用再猜
+    //
+    // ⚠ **「和」那一列 2026-10-23 拆成了两列：和(分) 和 和(张)。**
+    //
+    // 原先只有一列，而下面那句解释写的是「**它跌说明有牌被留在了堆上没人收**」
+    // —— 那句话只在 **R3（积分 == 收走的张数）**下成立。R4 一分档就散了：
+    // 和(分) 跌也可能是**档位挪了**（同样的牌数分成更多次小收），
+    // 跟「牌留在堆上」毫无关系，而那恰好是洪水这类技能最可能干的事。
+    //
+    // 这是 R4 第三处「把分当张数用」，前两处在 `printCatchCurve`
+    //（占总分的分母、收牌张数那条自检）和 `cmdBase` 的牌数守恒。
+    // 三处的共同点：**R3 下两个量同名同值，所以混用了很久都没事；
+    // R4 把它们劈开，而混用的地方不报错，只给一个看着合理的数。**
     console.log('\n  ---- 拆开双方得分（每局平均）----')
-    console.log('            我的分   对手的分   和')
+    console.log('            我的分   对手的分    和(分)   和(张)')
     const scoreRow = function (label, sum) {
       const me = avg(sum.score[R.ME], sum.games)
       const foe = avg(sum.score[R.FOE], sum.games)
+      // 「牌去哪了」只能看这个 —— `sum.taken` 是**规则层的张数守恒账**
+      //（`rules.js:8121`，跟 score 并排记）。不用 `sum.caught`：
+      // 那是诊断口，易流那条路只进 taken 不进 caught（`rules.js:11759`）
+      const cards = avg(sum.taken[R.ME] + sum.taken[R.FOE], sum.games)
       return label.padEnd(16)
-        + f2(me).padStart(7) + f2(foe).padStart(11) + f2(me + foe).padStart(8)
+        + f2(me).padStart(7) + f2(foe).padStart(11)
+        + f2(me + foe).padStart(9) + f2(cards).padStart(9)
     }
     console.log('    ' + scoreRow('我空 / 对手空', C))
     console.log('    ' + scoreRow('我带 / 对手空', D))
@@ -2103,7 +2511,8 @@ function cmdVs(args) {
     console.log('    ' + scoreRow('我带 / 对手带', B))
     console.log('\n  对着基线行看：「我带」那行我涨了多少、对手跌了多少；')
     console.log('  「对手带」那行反过来。**两个「跌」不一样大**就是溢价的来源。')
-    console.log('  「和」那一列是双方总收牌 —— 它跌说明有牌被留在了堆上没人收。')
+    console.log('  **「牌去哪了」只能看「和(张)」** —— 它跌才说明有牌没人收（留在堆上或手里）。')
+    console.log('  「和(分)」跌可以只是档位挪了（同样的牌分成更多次小收），别混着读。')
   } else {
     console.log('我带【' + nameMine + '】 vs 对手带【' + nameTheirs + '】 · '
       + R.DRAW_ROLES[role].name + ' · 各插第 1 个槽（'

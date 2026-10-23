@@ -174,7 +174,9 @@ function check(G, st, where) {
   // 三之二、**旋钮关着时 score 必须逐位等于 taken**。
   // 这一条是上面那个改动的「它坏得了吗」—— 把 `scoreOf` 写错
   //（比如忘了 `n <= 1` 那一支）当场在这儿炸，而不是悄悄改掉全表的数。
-  if (!process.env.SCORE_BANDS) {
+  // ⚠ 判据**从 `R.SCORE_BANDS` 取，不读 env**〔2026-10-23 默认值翻成 `1,4,12` 之后〕。
+  //   读 env 的话「不写 = 关着」，而现在不写是**开着**，这一条会当场误报。
+  if (R.SCORE_BANDS === null) {
     for (const s of [R.ME, R.FOE]) {
       if (G.score[s] !== G.taken[s]) {
         return '铁律破了：SCORE_BANDS 没开，但 score ≠ taken\n'

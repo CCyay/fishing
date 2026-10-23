@@ -154,6 +154,8 @@ esbuild / tsc 能把 `.uts` 的类型注解剥掉给 node 用；而对局规则�
 | `againWaiting` / `firstNote` / `message` | 没有 | UI 旗标和播报 |
 | — | `riseBy` / `jackPlay` / `surgeLayer`（迎潮 / 逆涌） | **模拟器专属原型** —— 先量形状再搬进游戏（`refs.js` 把它们列在「专属候选」里） |
 | `afterPlayTail` 里**没有**退潮 / 洪水分支 | `floodFor` 那段**留着** | `SK.FLOOD = −1` 永不匹配，所以留着也不跑。留它是因为 `FLOOD_CAP` / `FLOOD_MIN` 两个旋钮里记着**两轮被数据否决的削弱方案** |
+| `SCORE_BANDS : number[] = [1, 4, 12]`（`draw-skills.uts`，**写死**） | 同名常量**读 env** | 模拟器要跑 A/B（`SCORE_BANDS=off` 退回 R3），游戏里没有 env。连带 `scoreOf` 那边多一条 `=== null → return n` 的短路 —— **函数体两边本来就不同，别去「对齐」** |
+| **5 个计分点**，其中 `dropBottomToFoe`（走水 / 过闸）**不进档** | 只有 `harvestAt` 一个漏斗，全进档 | 模拟器**不模庄家那七条特殊技**，所以走水 / 过闸这条路它根本没有。⚠ 后果：**那一格没有对照数据** |
 
 ### 三个「积压漂移」核对完了，都不是漂移〔2026-10-16〕
 

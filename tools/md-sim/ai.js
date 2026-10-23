@@ -291,8 +291,12 @@ function sinkCombo(G, side) {
 //   乙、**游戏真没这个决策**：忍一手在规则层就不划算
 //       → 那是设计问题，要加机制才有救。
 //
-// 分不开这两件事就没法回答用户 —— 所以先量。两个都**默认关**，
-// 默认口径一个字节不变，旧数全部不受影响。
+// 分不开这两件事就没法回答用户 —— 所以先量。
+//
+// ⚠ **这句话 2026-10-23 过期了，别照着读。** 原文是「两个都**默认关**，
+//   默认口径一个字节不变，旧数全部不受影响」。现在 `HOLD_MIN` 仍然默认 0，
+//   而 **`JACK_HOLD` 默认 3**（当天拍板，理由在它那一行）——
+//   所以「旧数不受影响」只对 `HOLD_MIN` 成立。
 //
 //   HOLD_MIN=k   这一手收成 < k 就不收，改去挑一张最安全的饵。
 //                ⚠ 普通匹配的**最小收成是 2**（匹配那张 + 自己），
@@ -318,19 +322,63 @@ function sinkCombo(G, side) {
 // 是一组干净的 A/B —— 没有先后手偏差要扣。
 //
 //   node tools/md-sim/sim.js base -n 20000                 ← 对照（两列应当齐平）
-//   JACK_HOLD=4 node tools/md-sim/sim.js base -n 20000     ← 只有「你」忍 J
-//   HOLD_MIN=3  node tools/md-sim/sim.js base -n 20000     ← 只有「你」挑收成
+//   HOLD_BOTH=0 JACK_HOLD=4 node tools/md-sim/sim.js base -n 20000  ← 只有「你」忍 J
+//   HOLD_BOTH=0 HOLD_MIN=3  node tools/md-sim/sim.js base -n 20000  ← 只有「你」挑收成
+//
+// ⚠ **第二行那个 `JACK_HOLD=4` 现在不再是「开 vs 关」的 A/B** ——
+//   当天 `JACK_HOLD` 默认翻成了 3，所以那一行量的是「你守 4 张 vs 庄家守 3 张」。
+//   真要量「守闸 vs 不守闸」得写 `HOLD_BOTH=0 JACK_HOLD=3`（对手那侧
+//   因为 `holdSide` 为假而整条判据不走，等价于关）。`run-jack12.sh` 的丙段就是这个形状。
+//
+// ⚠ **那两行 2026-10-23 加了 `HOLD_BOTH=0`，不加就不是 A/B 了。**
+//   `HOLD_BOTH` 当天翻成了默认开（口径要求，见下面那段），而它**不只管忍 1 手**
+//   —— `holdSide` 同时被 `HOLD_MIN`（这儿）和 `JACK_HOLD`（:936）读。
+//   所以不写 `HOLD_BOTH=0` 的话两侧一起开，分差必然≈0，**A/B 静默失效**。
 //
 // 读「每人每局积分」那一行的前两列：带旋钮那侧**高出去的那一截**
 // 就是养堆的价值。显著为正 = 甲（AI 笨，所有旧 X 都被压着）；
 // 0 或负 = 乙（规则层真的不划算，是设计问题）。
 //
-// `HOLD_BOTH=1` 让两侧都开 —— 那个档量的是**另一件事**（这套打法
+// `HOLD_BOTH` 让两侧都开 —— 那个档量的是**另一件事**（这套打法
 // 对「一局有多长、堆有多肥」的影响），别拿它当 A/B 读。
 const HOLD_MIN = process.env.HOLD_MIN ? parseInt(process.env.HOLD_MIN, 10) : 0
-const JACK_HOLD = process.env.JACK_HOLD ? parseInt(process.env.JACK_HOLD, 10) : 0
-const HOLD_BOTH = process.env.HOLD_BOTH === '1'
-// 哪一侧按这套打法走。默认只有 ME（= `base` 里「你(后手)」那一列）
+// ⚠ **2026-10-23 默认从 0 翻成 3**（R4 决策层定稿的第四个，用户拍板）。
+//
+// k 跟「档」是**精确对应**的，不是近似：J 收 `堆 + 1` 张，所以
+//   k=3 → 堆 ≥3 → 收 ≥4 → **J 再不会落进 2/3 档**
+// 而那正是用户那句话的原文：「给 J 加价…**这样就不会用在 2/3 档**」。
+//
+// 实测验证（`run-jack12.sh 20000`，R4 + 决策层默认开）：
+//   k=3 之下 2/3 档里的 J = **17 次 / 165459**（0.0%）—— 闸精确咬合，
+//   而 k=2 还有 37147 次（18.3%）。所以 3 是**实现那句话的最小 k**。
+//
+// ⚠ **强度峰其实在 k=4，不在 3，这是一次有意识的取舍。**
+//   不对称口径（`HOLD_BOTH=0`，丙段减丙0=+0.90）：
+//     k=2 +1.38 → +0.48 ｜ k=3 +3.06 → **+2.16** ｜ k=4 +4.01 → **+3.11** ｜ k=5 +3.57 → +2.67
+//   k=4 比 k=3 再高 +0.95（合成 se 0.12，约 8 个标准误，**不是噪声**）。
+//   没取它的理由是对称口径下的档形：k=4 让 6+ 档变成 **91.0% 是 J**
+//  （k=5 更是 95.1%，而且 J 独吞全局 56.8% 的分），
+//   那就把顶档从「忍出来的奖励」换成了「手里有没有 J」——
+//   跟用户定的第 4 条（「应该奖励忍 1 手的行为，这才有决策性」）正好相反。
+//   k=3 的 6+ 档 J 占 70.1%，仍然高，但那一档只占总分 18.5%。
+//
+// ⚠ 关掉要显式写 `JACK_HOLD=0`（`'0'` 是真字符串，parseInt 给 0）。
+//   不写 = 3，**所有不写它的跑都是守闸的 AI 跑的**。
+const JACK_HOLD = process.env.JACK_HOLD ? parseInt(process.env.JACK_HOLD, 10) : 3
+// ⚠ **2026-10-23 翻成默认开**（R4 决策层定稿的三个之一）。
+//
+// **这不是偏好，是口径要求。** 全表 / `one` / `vs` 都走 `measureBoth`，
+// 而它的口径是「双方同角色、各插同一个槽、两侧都量」——
+// 只给 ME 开会让两侧 AI 不对称，于是那张表的每一格都含一截
+// 「我方 AI 比对方聪明」的常数，**整张表失真**，而且是静默的。
+//
+// ⚠ 翻默认值的代价（CLAUDE.md：「旋钮的默认值 = 游戏里那件技能的样子」）：
+//   甲 上面那两条 A/B 配方要显式写 `HOLD_BOTH=0`，已经加了；
+//   乙 `holdSide` **三个旋钮共用**（HOLD_ONCE / HOLD_MIN / JACK_HOLD），
+//      所以这一翻把后两个的默认侧也改了 —— 它们默认是 0 / 0，
+//      不设就没区别，可**一旦设了就是双侧**，跟 10-22 之前的同名命令不同口径。
+const HOLD_BOTH = process.env.HOLD_BOTH !== '0'
+// 哪一侧按这套打法走。**默认两侧**（2026-10-23 起；之前是只有 ME）
 function holdSide(side) { return HOLD_BOTH || side === R.ME }
 
 // ---------- `HOLD_FOE`：两侧**不同**阈值〔2026-10-22〕 ----------
@@ -377,10 +425,9 @@ function holdMinOf(side) {
 //   轮流出牌 → 忍一手期间堆长 +2 → `scoreOf(n+2) > scoreOf(n)` 才值得忍。
 // 所以它跟 `SCORE_BANDS` 是配套的：计分不分档，这个旋钮什么也不做。
 //
-//   HOLD_ONCE=1     开（只有「你」这一侧，照 HOLD_BOTH 扩到两侧）
+//   HOLD_ONCE       **2026-10-23 翻成默认开**，`HOLD_ONCE=0` 关掉
 //   HOLD_LEAD=k     领先 ≥ k 分就不忍了（事实 2）。默认 0 = 不看比分。
-//   HOLD_RUN=k      最多连忍几手，默认 1。设 2 是**为了验事实 3**，
-//                   不是为了用 —— 用户说忍 2 手几乎不可能，那就量给他看。
+//   HOLD_RUN        **2026-10-23 锁死在 1，不再读 env。** 见下面那段。
 //
 // 诊断口（CLAUDE.md 第四节：新机制要配「它做了几次」）：
 //   holdOnce      忍了几次
@@ -400,9 +447,51 @@ function holdMinOf(side) {
 //   甲 hit/miss 两边都不空 —— 忍这件事有赢有输，不是定局
 //   乙 **分差 ≥ 0** —— 忍不是严格劣势策略，不然没人会忍，也就没有决策
 // 第一跑四组档值全部满足甲、全部违反乙（分差 −1.24 ~ −3.33）。
-const HOLD_ONCE = process.env.HOLD_ONCE === '1'
+// ⚠ **2026-10-23 翻成默认开。** 这是 R4 决策层定稿的总闸。
+//
+// 不开 = 用户那条验收线不达成：「等到对局 AI 开始考虑是忍 1 手
+// 还是现在就收，这个改动才是合格的」。在这之前 R4 的每一个数
+// 都是**对着一个从不忍的 AI** 量的 —— 阶梯计分搭着一个纯贪心 AI，
+// 等于把分档的那一半意义关掉了。
+//
+// 翻它的依据是验收两条同时过（`1,4,12` / HOLD_RUN=1 / 20000 局）：
+//   甲 hit/miss 两边都不空；乙 **后手分差 +0.90**（≥ 0，忍不是严格劣势）。
+// 第一跑四组档值全部违反乙（−1.24 ~ −3.33），所以乙是真闸不是摆设。
+//
+// `HOLD_ONCE=0` 退回不忍的 AI —— **那是读 10-23 之前所有数的口径**。
+const HOLD_ONCE = process.env.HOLD_ONCE !== '0'
 const HOLD_LEAD = process.env.HOLD_LEAD ? parseInt(process.env.HOLD_LEAD, 10) : 0
-const HOLD_RUN = process.env.HOLD_RUN ? parseInt(process.env.HOLD_RUN, 10) : 1
+// ⚠ **2026-10-23：锁死在 1，`HOLD_RUN` 这个 env 作废。**
+//
+// 它本来是**用来验用户事实 3** 的（「忍 2 手几乎不可能」），不是用来用的。
+// 量完的结论是 **那条事实在这个 AI 上不成立** —— 放开连忍到 2 之后
+// （20000 局，`1,4,12`，`out-band6.txt`）：
+//
+//   后手分差 **+0.90 → +1.86**（翻倍）、4/5 档起判忍 12.0 → 15.6%、
+//   「升档 + 没升」的残差 4.8% → **31.6%**（三成的忍进了第二手）。
+//   `1,4,40` 那一档更夸张：分差 +4.58 → **+12.56**。
+//
+// 用户 2026-10-23 拍的「锁死」+「维持现状」。
+//
+// ⚠ ⚠ **锁在这儿 = 锁在 AI，不是锁在规则。**〔当天晚些更正，原话写的是
+//   「规则层禁止」，那是错的 —— 用户问「连忍规则层锁死是什么」才查出来〕
+//
+//   `worthHolding` 是**决策函数**，不在 `rules.js` 里。而游戏里
+//   **根本没有「忍」这个动作** —— 它只是「选一张配不上的牌打出去」，
+//   所以它**不是一个可以禁止的操作**。真人想连忍几手就连忍几手。
+//
+//   于是这一行的真实含义是：**AI 主动不去吃这块肉**。后果要记住两条：
+//
+//   甲 往后所有 X / D 都是对着一个「每局主动少赚约 0.96 分」的 AI 量的
+//      （+0.90 vs 放开后的 +1.86，同一跑同一口径）。**这是系统性偏低，不是噪声。**
+//   乙 真人玩家能靠连忍压这个 AI。要真堵住得加一条**新规则**
+//      （比如「上一手能收而没收，这一手能收就必须收」），那要动源码 +
+//      玩家面文案 —— **2026-10-23 用户选了「维持现状」，没做。**
+//
+// ⚠ 留成常量不删，是为了让下面 `G.holdRun[side] >= HOLD_RUN` 那一行
+// 读起来还是「最多连忍几手」，而不是一个光秃秃的 1。
+// 要重跑那次验证的话**改这一行**，别再加回 env —— 加回去就又能被误用。
+const HOLD_RUN = 1
 // 忍一手期间堆长涨多少：你一张 + 对方一张。改成 1 可以量「只有自己那张」
 const HOLD_GROW = process.env.HOLD_GROW ? parseInt(process.env.HOLD_GROW, 10) : 2
 
@@ -437,10 +526,289 @@ const HOLD_GROW = process.env.HOLD_GROW ? parseInt(process.env.HOLD_GROW, 10) : 
 //   默认 100 = 不折，逐字回到旧行为。
 const HOLD_BAND_MAX = process.env.HOLD_BAND_MAX
   ? parseInt(process.env.HOLD_BAND_MAX, 10) : -1
+// ⚠ **2026-10-23 起这个旋钮默认是死的。** `HOLD_EV` 翻成默认开之后，
+//   `worthHolding` 走的是 EV 那一支，`HOLD_P` 所在的 `else if` 根本到不了。
+//   所以现在光设 `HOLD_P=25` **什么都不会发生，而且是静默的**
+//   —— 要用它得 `HOLD_EV=0 HOLD_P=25`。留着不删是因为它是
+//   「为什么换成 EV」那段论证的实物证据（信 25%、实际 15.2%）。
 const HOLD_P = process.env.HOLD_P ? parseInt(process.env.HOLD_P, 10) : 100
 
+// ---------- 【忍 1 手】真算一次概率：`HOLD_EV`〔2026-10-23〕 ----------
+//
+// 用户给的场景和判据（原话）：
+//
+//   「堆上就一张 2，而你手牌有 2，轮到你出牌
+//     1、如果已收卡牌有 2 张 2，那忍 1 手大概率是赚的，极力推荐
+//     2、如果已收卡牌有 1 张 2，那就要考虑牌组厚度，计算概率是否要忍 1 手
+//     3、如果已收卡牌没有 2，那就要考虑牌组厚度，计算概率是否要忍 1 手」
+//   「现在要做的就是考虑牌组厚度计算概率和收益，
+//     提高 4/5 档的积分让计算偏向忍 1 手」
+//
+// ---- 三条判据共用的那一个量 ----
+//
+// 「已收了几张 2」等价于「**这个点数还有几张下落不明**」：四张 2 里，
+// 堆上那张和我手里那张是看得见的，已收的也看得见，剩下的才可能在对手手里。
+// 已收 2 张 → 外面 0 张 → **对手不可能有 2** —— 那一格的风险只剩
+// 「他钓得走我压上去那张饵」，所以是「大概率赚的，极力推荐」。
+//
+// 而这个量 `outsideCount` **本文件第 19 行早就有了**（照源码的庄家记牌）。
+// `G.gone` 那本账 rules.js:11707 注明「庄家记牌要知道」——
+// 所以它是**正当的公开信息推断，不是偷看对手手牌**。
+//
+// ---- 缺的从来不是信号，是一个除法 ----
+//
+// `baitRisk` 把 `outsideCount` 当**张数**直接相加就完事，从没除以牌池大小。
+// 于是「牌组厚度」一次都没进过任何一处决策 —— 外面还剩 2 张，
+// 在 40 张未知牌里和在 6 张未知牌里是两回事，而旧代码把这两种局面
+// 判得一模一样。这就是用户指的那个缺口。
+//
+// ---- 它替换掉 `HOLD_P`，而换掉的理由是结构性的 ----
+//
+// `HOLD_P` 是个拍出来的常数折扣，而且实测不自洽（按 25% 下注，
+// 实际升档率 15.2%）。更要命的是它是**阈值开关**：判据
+// `later·p > now·100` 里**一个局面变量都没有**，于是 c ≤ 16 永不忍、
+// c ≥ 17 永远忍，中间没有「有时候」。那样的 AI 结构上不可能「开始考虑」,
+// 而「AI 开始考虑」正是用户给的验收线。
+//
+// `HOLD_EV=1` 之后判据里有了三个逐手都不同的局面变量：
+// **牌库厚度、对手手牌张数、这个点数外面还剩几张**。
+//
+//   HOLD_EV        **2026-10-23 翻成默认开**，`HOLD_EV=0` 退回老的 HOLD_P 那条
+//   HOLD_EV_FOE=0  失手那一支不算「对手收走多少」（默认算，见 holdEV）
+//   HOLD_EV_SPLIT=0 **关掉**「平」拆两支（2026-10-23 用户定：默认开，见下面那一大段）
+//
+// ⚠ **翻默认值的理由在上面那段里，不是「它更好」而是「另一个坏」**：
+//   `HOLD_P` 判据里一个局面变量都没有 → 结构上不可能「有时候忍」，
+//   而「AI 开始考虑」是用户给的验收线。关掉这个旋钮就退回那个
+//   阈值开关，**于是验收线自动不达成** —— 所以它跟 `HOLD_ONCE` 捆在一起翻。
+const HOLD_EV = process.env.HOLD_EV !== '0'
+const HOLD_EV_FOE = process.env.HOLD_EV_FOE !== '0'
+
+// ---------- `HOLD_EV_SPLIT`：把「平」拆成**饵被吃**和**浅层被吃**〔2026-10-23〕 ----------
+//
+// 用户原话：「对手手里既没有 2、也没有 J 是对的，**也配不上我那张饵**
+//            要拎出来单独算」。
+//
+// ---- 为什么非拆不可：两件事的**赔付不一样** ----
+//
+// 原来一支「平」，赔付一律记 `now`（= `scoreOf(bestCaught)`）。而实际上：
+//
+//   **饵被吃**：他出一张配我那张饵的牌，收走「饵 + 他自己那张」= 堆少 1 张，
+//               退回原来的 L 张。我那个目标还在原下标 `at`，
+//               下一手收 `L − at + 1 = bestCaught` 张 —— **`now` 是精确值。**
+//
+//   **浅层被吃**：他从 `jShal` 那一格切到堆顶，**把我目标上面的牌一起端走**。
+//               堆剩 `jShal` 张，我下一手只收 `jShal − at + 1` 张 ——
+//               **严格少于 `bestCaught`，而原来记的是 `now`，高估。**
+//
+// 那条高估原先是写在注释里认了的（「『平』那一支的收成取的是**上界**」），
+// 这个旋钮把它真的算出来。
+//
+// ---- 概率怎么分：**加一次 `missP`，不是把原来那次拆成乘法** ----
+//
+// ⚠ **不能写成 `missP(deep) × missP(shal)` 这种乘积。** 超几何是不放回的：
+//   「没摸到 deep」会让剩下的池子里 shal 的密度变高，于是
+//   `P(两样都没有) < P(没deep)·P(没shal)` —— 乘积**高估**。
+//   三个出口集互不重叠，所以正确写法是三次**累加**口径的 `missP`：
+//
+//     pLose = 1 − missP(D)                 他够得着我那张（2 或 J 或别的深牌）
+//     pShal = missP(D) − missP(D+S)        够不着我那张，但吃得到浅层
+//     pBait = missP(D+S) − missP(D+S+B)    连浅层也没有，只吃得到我那张饵
+//     pWin  = missP(D+S+B)                 一样都没有
+//
+//   原来的代码已经有 `missP(D)` 和 `missP(D+S+B)` 两次，**只多加 `missP(D+S)` 一次**。
+//   所以这一改**不动概率模型的正确性，只动「平」那一支的赔付**。
+//
+// ⚠ `jShal` 取的是**浅层里最小的 j**（= 他能切得最深的那一格），
+//   跟 `foeGain` 用 `deepest` 是**同一个约定**（假设他手里攥着最好的那张）。
+//   两处用同一个约定才能相减；换一个就得两处一起换。
+//
+// ---- **2026-10-23 用户定：默认开**（原来默认关）----
+//
+// 判的不是分差 —— 拆完分差一分没动（+0.86 → +0.90，se_diff 0.11；
+// J 守闸那档 +3.06 → +3.06）。判的是**它把忍砍在哪儿**：
+//   「4/5 档起（4→6）」判忍 17.4% → 12.0%、19.3% → 13.0%
+//   「2/3 档起（2→4）」判忍 29.6% → 29.6%、23.3% → 23.4%（纹丝不动）
+// 正好是用户那条线：「只在『忍完能落进 4/5』时才忍，到了 4/5 就收手，
+// 不去追 6/7」。而**这儿没有任何一处判「当前是不是 4/5 档」** ——
+// 只是把浅层那一支的赔付改成真值，4→6 自己就不划算了。
+//
+// ⚠ **翻默认值 = 改基准。** 2026-10-23 第五~七跑的数全在「没拆」那一档下跑的，
+//   作废公告在《摸打钓鱼-实测数据台账.md》第二节。要复现旧数用 `HOLD_EV_SPLIT=0`。
+//
+//   HOLD_EV_SPLIT=0  关（退回没拆那一档，跟第五~七跑逐字同行为）
+const HOLD_EV_SPLIT = process.env.HOLD_EV_SPLIT !== '0'
+
+// 对手手里**一张危险牌都没有**的概率（超几何，是精确值不是近似）。
+//
+// 未知牌池 U = 牌库 + 对手手牌：这两处我都看不见，所以「对手那 h 张」
+// 等价于从 U 张里均匀抽出的一个 h-子集。危险牌 d 张在池子里，
+// 一张都没落到他手上的概率是
+//
+//   C(U−d, h) / C(U, h) = Π_{i=0}^{h−1} (U−d−i) / (U−i)
+//
+// 写成连乘式而不是组合数：不溢出，而且 d > U−h（危险牌多到他必然摸到）时
+// 分子自然走到 ≤ 0，直接返回 0，不用特判。
+// **牌组厚度就是从这儿进计算的** —— 同样的 d，U 小的时候 p 掉得快得多
+function missP(U, h, d) {
+  if (d <= 0 || h <= 0 || U <= 0) return 1
+  let p = 1
+  for (let i = 0; i < h; i++) {
+    const top = U - d - i
+    if (top <= 0) return 0
+    p *= top / (U - i)
+  }
+  return p
+}
+
+// 对手打一张这个点数的牌，会钓到堆上哪一格（−1 = 钓不着）。
+//
+// **走 `catchStart` 这个唯一入口，不自己比点数。** 手写一份必然漏掉几条：
+// J 通吃（`catchStart` 第一句就返回 0 = 整堆）、保护挡着的格、结冰、
+// 点数卡的多点数、吃水那几条特殊匹配。CLAUDE.md 第四节那条
+// 「复制一份逻辑，两份必然分叉」说的就是这个 —— 而漏掉 J 会让
+// 「对手通吃整堆」这个最大的风险从模型里整个消失。
+//
+// `catchStart` 无副作用（rules.js:6996：「canCatch 每手要调它十几次，
+// 所以试算安全」），拿它当探针是现成做法 —— rules.js:5403 / 5434 / 5458
+// 三处都是 `catchStart(G, card, side, [], false)` 这个形状。
+//
+// ⚠ 探针的花色写死 `SUITS[0]`，而真牌四种花色都可能。`skills` 传空数组时
+//   花色只影响花色槽技能，那要配装才有 —— 所以**基线口径下精确**，
+//   带花色槽技能的跑里这个探针会偏（偏多少没量过）
+function foeReachOf(G, other, rank) {
+  return R.catchStart(G, R.makeCard(R.SUITS[0], rank, []), other, [], false)
+}
+
+// 忍这一手的期望收益（档值口径）。返回 null = 这个模型罩不住这个局面。
+//
+// ---- 三个分支，对应对手下一手的三种结果 ----
+//
+// 我钓的那一格记作 `at`（`bestCaught = L − at + 1`，所以 `at = L − bestCaught + 1`）。
+// 忍 = 压一张钓不着的饵上去，堆变成 L+1 张，而**我那个目标还在原下标 at**
+//（饵落在堆顶，不动下面的下标）。
+//
+//   输  对手钓得到 **at 或更深**的格 → 我那张被一起收走，什么也没剩
+//   平  对手只钓得到 at 以上（含我压的那张饵）→ 我那张还在，下一手照收
+//   赢  对手一格都钓不着，他只能再压一张 → 我下一手收 bestCaught + 2 张
+//
+// ⚠ 「平」那一支的收成取的是**上界** `bestCaught`。
+//   它在 `at === L−1`（我钓的就是堆顶那张）时是**精确值** —— 那时 at 以上
+//   只有我压的那张饵，对手钓走它之后堆原样退回去。而用户给的那个场景
+//   （堆上就一张 2）正是这一格。更深的局面它偏乐观，
+//   而偏的方向是**高估忍的价值**，所以这个 EV 要读作上限。
+function holdEV(G, side, bestCaught, card) {
+  const other = side === R.ME ? R.FOE : R.ME
+  const L = G.pile.length
+  const at = L - bestCaught + 1
+  // 收色 / 撒网那几件收的不是连续一段，`at` 会落到堆外 —— 模型不适用
+  if (at < 0 || at > L) return null
+  const h = G.hands[other].length
+  const U = G.deck.length + h
+  if (U <= 0 || h <= 0) return null
+  // ---- 扫一遍点数：分成「钓得到我那张」和「只钓得到它上面」 ----
+  let deep = 0
+  let shal = 0
+  let deepest = L
+  // 浅层里他能切得**最深**的那一格。初值 L = 只够得着堆顶那张
+  // （跟 `deepest` 同一个约定：假设他攥着最好的那张，见 HOLD_EV_SPLIT 那段）
+  let shalMin = L
+  for (let r = 0; r < R.RANKS.length; r++) {
+    const rank = R.RANKS[r]
+    const out = Math.max(0, outsideCount(G, side, rank))
+    if (out === 0) continue
+    const j = foeReachOf(G, other, rank)
+    if (j < 0) continue
+    if (j <= at) {
+      deep += out
+      if (j < deepest) deepest = j
+    } else {
+      shal += out
+      if (j < shalMin) shalMin = j
+    }
+  }
+  // ---------- 压上去那张饵自己也会被钓：用户说的那个「误差」 ----------
+  //
+  //   「2 在对方手牌的概率 * F(4) 来计算是否忍 1 手，当然也不能这么简单
+  //     还要加上自己打出这张牌是否会被匹配这个误差」
+  //
+  // 它落在**平局那条支路**上，不是第四种情况：饵被吃掉的话对手只收 2 张
+  //（饵在堆顶，他那一刀切不到我下面那张），我的目标还在，下一手照收 `now`。
+  // 所以这个误差进的是 `pWin` 的危险张数，把「赢」挤成「平」。
+  //
+  // ⚠ **这儿的挑法必须跟真正打出去那张一致**，不然就是在给一个
+  //   AI 不会做的动作估价。挑饵循环（`HOLD_PEN` 那一段）是**两层**：
+  //   先比「这张自己钓不钓得着」，再比分数。所以这儿也先分层 ——
+  //   只在「钓不着」那一层里取最小；那一层空了（手里全是钓得着的牌，
+  //   `holdForced` 记的那种）才退回全手牌。
+  //
+  // ⚠ 剩一处对不齐，**方向是乐观**（高估「赢」）：挑饵那边的分数还含
+  //   两处技能折扣（wants −1.5、伏流无点数 −1.0），能把 `baitRisk`
+  //   压到负数，于是层内选中的未必是 `baitRisk` 最小那张。
+  //   没把那段抄过来是因为 CLAUDE.md 那条「复制一份逻辑，两份必然分叉」——
+  //   真要对齐得把挑饵循环抽成函数，那是另一件事。
+  //   **空槽基线（base）下没有任何技能，所以那一处差在这一批里不存在。**
+  let baitOut = -1
+  let baitFree = -1
+  for (let i = 0; i < G.hands[side].length; i++) {
+    const c = G.hands[side][i]
+    if (c.rank === R.JACK || R.isFrozen(G, c)) continue
+    const risk = baitRisk(G, side, c)
+    if (baitOut < 0 || risk < baitOut) baitOut = risk
+    // 跟挑饵循环同一个判据、同一个 `sink=false` 约定
+    if (R.catchStart(G, c, side, R.skillsOf(G, side, c), false) >= 0) continue
+    if (baitFree < 0 || risk < baitFree) baitFree = risk
+  }
+  if (baitFree >= 0) baitOut = baitFree
+  if (baitOut < 0) baitOut = 0
+  const pNoDeep = missP(U, h, deep)
+  // ⚠ 中间这一次是 `HOLD_EV_SPLIT` 加的，**而它不改 pWin / pLose** ——
+  //   三个出口集互不重叠，`missP(D+S)` 夹在 `missP(D)` 和 `missP(D+S+B)` 之间，
+  //   拆完两支相加正好等于原来那一支。所以关着旋钮时逐字同行为
+  const pNoShal = missP(U, h, deep + shal)
+  const pWin = missP(U, h, deep + shal + baitOut)
+  const pMid = Math.max(0, pNoDeep - pWin)
+  // 拆开的两支：**浅层被吃** / **只有饵被吃**
+  const pShal = Math.max(0, pNoDeep - pNoShal)
+  const pBait = Math.max(0, pNoShal - pWin)
+  const pLose = Math.max(0, 1 - pNoDeep)
+  const now = R.scoreOf(bestCaught)
+  const win = R.scoreOf(bestCaught + HOLD_GROW)
+  // 浅层被端走之后我还剩几张可收：堆被切到只剩 `shalMin` 张，
+  // 我那个目标还在下标 `at`，所以收 `shalMin − at + 1`（含我自己那张）。
+  // **它严格 ≤ bestCaught**，差的就是原来被记成 `now` 的那一截
+  const shalPay = R.scoreOf(Math.max(0, shalMin - at + 1))
+  // 失手时对手收走的是「他那一刀到堆顶」加他自己那张 = (L+1) − deepest + 1。
+  // 算它是因为这是一场**赌**：输掉不只是「我没收到」，是「他收走了」——
+  // 用户那句「这 1 次获得的积分要能让对手无法翻盘」说的正是分差口径
+  const foeGain = HOLD_EV_FOE ? R.scoreOf(L + 2 - deepest) : 0
+  const ev = HOLD_EV_SPLIT
+    ? pWin * win + pBait * now + pShal * shalPay - pLose * foeGain
+    : pWin * win + pMid * now - pLose * foeGain
+  return {
+    ev: ev, now: now, pWin: pWin, pMid: pMid, pLose: pLose,
+    // 拆开那两支 + 浅层的真赔付，**诊断口**（CLAUDE.md 第四节：
+    // 新机制要配一个「它做了几次」的计数，光看 X 查不出传参错）
+    pShal: pShal, pBait: pBait, shalPay: shalPay,
+    // 用户那三条判据的分桶键：这个点数外面还剩几张（0 / 1 / 2+）
+    outs: Math.max(0, outsideCount(G, side, card.rank)),
+    // **牌组厚度**，分桶用〔2026-10-23 用户补的〕：
+    //   「我希望在情况 3（已收卡牌没有 2）且牌组还很厚的条件下，
+    //     忍 1 手还是有价值的，4/5 档的积分要有这样的价值」
+    //
+    // 情况 3 ↔ `outs === 2`（四张同点：我手里 1、堆上 1、外面 2），
+    // 是信息最差的一格；而厚牌库是让它**仍然划算**的那个条件 ——
+    // 因为 `missP` 是 Π(U−d−i)/(U−i)，U 越大越接近 1。
+    // 这两个量交叉起来才看得见「厚度真的进了判据」。
+    //
+    // ⚠ `U` 只是**记账用**，`missP` 里早就在用它了；
+    //   报表里的厚度切法（下面 sim.js 那三档）不参与任何决策
+    unseen: U
+  }
+}
+
 // 这一手值不值得忍。返回 true = 放掉这次 `bestCaught` 张的收成。
-function worthHolding(G, side, bestCaught) {
+function worthHolding(G, side, bestCaught, card) {
   if (!HOLD_ONCE || !holdSide(side)) return false
   if (bestCaught <= 0) return false
   // 事实 2：领先就落袋为安，换贪心打法
@@ -450,7 +818,32 @@ function worthHolding(G, side, bestCaught) {
   }
   // 事实 3：最多连忍 HOLD_RUN 手
   if (!G.holdRun) G.holdRun = [0, 0]
-  if (G.holdRun[side] >= HOLD_RUN) return false
+  if (G.holdRun[side] >= HOLD_RUN) {
+    // 【HOLD_RUN 的诊断口】**锁死 1 这一下拦掉了多少**〔2026-10-23〕
+    //
+    // 原先这儿是光秃秃一句 `return false` —— 静默。`holdCapped`（下面）
+    // 是 `HOLD_BAND_MAX` 的计数，不是它的，所以「锁死 HOLD_RUN=1
+    // 到底改变了几次决策」之前只能从分差残差反推，那是个很弱的证据。
+    //
+    // ⚠ 这个数是**上界**，不是精确值。精确值要把这道闸挪到 EV 之后
+    //   （照 `holdCapped` 那条「排在最后，为的是让计数口有意义」），
+    //   可那样会把 `holdEvN` / `holdEvYes` 污染成「含被 RUN 拦掉的手」
+    //   —— 正是 `holdCapped` 自己那条 ⚠ 说的毛病。两害相权取这个。
+    //
+    // 上界**收得很紧**，因为「升得了档」是忍手在三条支路下的**必要条件**：
+    //   · `HOLD_EV`：win === now 时 ev = pWin·now + pMid·now − pLose·foeGain
+    //     ≤ pNoDeep·now ≤ now，于是 `ev <= now` 当场 return false
+    //     （`HOLD_EV_SPLIT` 那支同理，shalPay ≤ now；
+    //      `ev === null` 那条退路走的就是下面这行 `later <= now`）；
+    //   · `HOLD_P === 100`：`later <= now` 直接 return false；
+    //   · 折扣支：later === now 要过 `later*P > now*100` 得 P > 100。
+    // 所以不带档跳的手**在这道闸后面也活不过两行**，记它只会虚高。
+    if (R.scoreOf(bestCaught + HOLD_GROW) > R.scoreOf(bestCaught)) {
+      if (!G.stat.holdRunBlocked) G.stat.holdRunBlocked = [0, 0]
+      G.stat.holdRunBlocked[side]++
+    }
+    return false
+  }
   // ---- 核心判据：忍一手升得了档吗 ----
   //
   // `HOLD_P=100`（默认）走**原样的比较**，不是走 `*100/100` ——
@@ -458,7 +851,81 @@ function worthHolding(G, side, bestCaught) {
   // 这个旋钮的头一条要求是关着的时候一个字都不改。
   const now = R.scoreOf(bestCaught)
   const later = R.scoreOf(bestCaught + HOLD_GROW)
-  if (HOLD_P === 100) {
+  if (HOLD_EV) {
+    // 真算一次：概率来自牌组厚度 + 这个点数外面还剩几张（见 holdEV 那段）
+    const ev = holdEV(G, side, bestCaught, card)
+    if (ev === null) {
+      // 模型罩不住的局面（收色 / 撒网收的不是连续一段、牌库和对手手牌都空了）
+      // —— 退回老判据，而不是一律不忍：一律不忍会把这些手静默吞掉
+      if (later <= now) return false
+    } else {
+      if (!G.stat.holdEvN) {
+        G.stat.holdEvN = [0, 0]; G.stat.holdEvYes = [0, 0]
+        G.stat.holdEvPsum = [0, 0]
+        G.stat.holdEvOut = [[0, 0, 0], [0, 0, 0]]
+        G.stat.holdEvOutYes = [[0, 0, 0], [0, 0, 0]]
+        G.stat.holdEvFrom = [[0, 0, 0], [0, 0, 0]]
+        G.stat.holdEvFromYes = [[0, 0, 0], [0, 0, 0]]
+        G.stat.holdEvThick = [[0, 0, 0], [0, 0, 0]]
+        G.stat.holdEvThickYes = [[0, 0, 0], [0, 0, 0]]
+        // 【HOLD_EV_SPLIT 的诊断口】三支概率各自的平均值，
+        // 以及「浅层被吃」那一支**少收了几分**（= 原来高估的那一截）。
+        // ⚠ 这几个数**不管旋钮开没开都记**，所以关着跑也能看见
+        //   「拆出来值不值得」—— 对照组不用重跑
+        G.stat.holdEvPShal = [0, 0]
+        G.stat.holdEvPBait = [0, 0]
+        G.stat.holdEvOver = [0, 0]
+      }
+      // 分桶键照用户那三条：外面还剩 0 张 / 1 张 / 2 张以上
+      const b = ev.outs >= 2 ? 2 : ev.outs
+      // 第二个分桶键：**从哪一档起忍**〔2026-10-23 用户补的〕
+      //
+      //   「我举的是 2 升 4 的例子，3 升 5 的也是一样的计算方法。
+      //     后面的 4 升 6 也可以算，但我相信 4 升 6 的计算结果
+      //     一定是不推荐忍 1 手的」
+      //
+      // ⚠ 关键在于「4→6 不推荐」**必须是算出来的**。
+      //   写死一条 `if (bandOf(bestCaught) >= 1) return false` 也能
+      //   得到同样的行为，可那样就把用户的判断变成了同义反复 ——
+      //   跟 `HOLD_BAND_MAX` 犯的是同一个毛病（见上面那段的 ⚠ 甲）。
+      //   所以这儿**只记账、不拦截**：4/5 档照样进 EV，
+      //   它要是自己算出「不划算」，那是一条可证伪的结论；
+      //   它要是算出「该忍」，那就是用户的直觉和模型打架，得查谁对。
+      //
+      // 桶：0 = 2/3 档起（2→4、3→5），1 = 4/5 档起（4→6），2 = 6 张及以上
+      const bf = Math.min(2, Math.max(0, R.bandOf(bestCaught)))
+      // 第三个分桶：**情况 3 × 牌组厚度**〔2026-10-23 用户补的〕
+      //
+      //   「我希望在情况 3（已收卡牌没有 2）且牌组还很厚的条件下，
+      //     忍 1 手还是有价值的」
+      //
+      // 只在 `outs >= 2`（情况 3，信息最差那一格）里按厚度再切三档。
+      // 这是**验收那一格**：它判忍率上不去，4/5 档的 b 就还没给够。
+      //
+      // ⚠ 切点 30 / 15 是**报表口径，不进判据** —— 判据里的厚度是
+      //   `missP` 连乘的那个 U，连续的。切点换了不会改任何一手打法，
+      //   只会改这三行怎么分组（所以它不是旋钮，没进 env）
+      const bt = b >= 2 ? (ev.unseen >= 30 ? 0 : (ev.unseen >= 15 ? 1 : 2)) : -1
+      G.stat.holdEvN[side]++
+      G.stat.holdEvOut[side][b]++
+      G.stat.holdEvFrom[side][bf]++
+      if (bt >= 0) G.stat.holdEvThick[side][bt]++
+      // 【HOLD_EV_SPLIT 的诊断口】拆出来的两支 + 高估的那一截。
+      // `holdEvOver` 是「原来记 now、实际只值 shalPay」的差额乘上它的概率 ——
+      // **它就是这个旋钮改掉的全部东西**，所以它≈0 的话拆了也白拆
+      G.stat.holdEvPShal[side] += ev.pShal
+      G.stat.holdEvPBait[side] += ev.pBait
+      G.stat.holdEvOver[side] += ev.pShal * (ev.now - ev.shalPay)
+      if (ev.ev <= now) return false
+      G.stat.holdEvYes[side]++
+      // **信的那个成功率**记下来，好跟事后实测的升档率对账 ——
+      // `HOLD_P=25` 就是栽在这儿（信 25%，实际 15.2%，而光看 X 查不出来）
+      G.stat.holdEvPsum[side] += ev.pWin
+      G.stat.holdEvOutYes[side][b]++
+      G.stat.holdEvFromYes[side][bf]++
+      if (bt >= 0) G.stat.holdEvThickYes[side][bt]++
+    }
+  } else if (HOLD_P === 100) {
     if (later <= now) return false
   } else {
     // 乙：按成功率折一下。「风险非常大已经不值得」就是这一行。
@@ -479,6 +946,11 @@ function worthHolding(G, side, bestCaught) {
   // 这是 CLAUDE.md 第四节那条：旋钮要配一个「它做了几次」的计数。
   // 没有它的话，`HOLD_BAND_MAX=1` 跑出来跟不设一样，分不清是
   // 「用户说得对」还是「这支代码根本没触发过」。
+  //
+  // ⚠ **`HOLD_EV` 和这个旋钮同时开的话 `holdEvYes` 会被污染** ——
+  //   上面那一支已经记了「EV 判它该忍」，而这儿可能再把它拦掉，
+  //   于是 `holdEvYes` 比真正忍了的次数多。两个旋钮本来就不该同时开
+  //   （一个是算出来的、一个是写死的），真要同时开就先把计数拆开
   if (HOLD_BAND_MAX >= 0 && R.bandOf(bestCaught + HOLD_GROW) > HOLD_BAND_MAX) {
     if (!G.stat.holdCapped) G.stat.holdCapped = [0, 0]
     G.stat.holdCapped[side]++
@@ -527,7 +999,8 @@ function pickCard(G, side) {
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (R.isFrozen(G, card)) continue
-    // 【养堆·JACK_HOLD】堆不够肥就先不打 J（默认关，见函数上面那段）。
+    // 【养堆·JACK_HOLD】堆不够肥就先不打 J（**默认 3**〔2026-10-23 从 0 翻的〕，
+    // 理由在常量那一行；k=3 ⇔「J 再不会落进 2/3 档」，是精确对应不是近似）。
     // 放在这儿 = 把它从**这个**循环里摘掉，于是它落到下面那个「挑饵」
     // 循环 —— 而那个循环 `continue` 掉 J（不拿 J 当饵），所以手里只剩
     // J 时 `pick` 是 −1，最后由 `randomFree` 兜底打出去。
@@ -668,13 +1141,31 @@ function pickCard(G, side) {
   // 计数会混（现成的教训：JACK_HOLD 和 HOLD_MIN 共用计数那一段）。
   if (!G.holdRun) G.holdRun = [0, 0]
   if (!G.holdWould) G.holdWould = [0, 0]
+  // 这一手是不是「忍 1 手」忍掉的 —— 下面挑饵要用它开分层（见那一行的 ⚠）
+  let heldOnce = false
   const initHoldStat = function (st) {
     if (st.holdOnce) return
     st.holdOnce = [0, 0]; st.holdOnceHit = [0, 0]; st.holdOnceMiss = [0, 0]
     st.holdOnceGave = [0, 0]; st.holdOnceGot = [0, 0]
   }
-  if (best >= 0 && worthHolding(G, side, bestCaught)) {
+  // `hand[best]` 是会打出去那张 —— `HOLD_EV` 要用它的点数做分桶键
+  //（用户那三条判据问的是「这个点数已收了几张」）
+  if (best >= 0 && worthHolding(G, side, bestCaught, hand[best])) {
     initHoldStat(G.stat)
+    // ⚠ **这一行是 2026-10-23 补的漏，补之前所有 HOLD_ONCE 的数都不能用。**
+    //
+    // 下面挑饵那个循环原来写的是 `const HOLD_PEN = hmin > 0` ——
+    // 「忍了之后要优先挑钓不着的那张」只对 `HOLD_MIN` 开。
+    // 而 `HOLD_ONCE` 不设 `HOLD_MIN`，于是 `hmin = 0`、分层没开，
+    // 挑饵只按 `baitRisk` 排，**它压根不看这张牌会不会钓到**。
+    //
+    // 后果就是 952 行那段墓碑记的那个病，原样复发一次：
+    // 判了「忍」，扔出去的饵匹配上堆顶，当场收 2 张 —— **根本没忍成**。
+    // （`HOLD_MIN=3` 那一跑实测 46% 的「忍」照样收了牌。）
+    //
+    // 补法照旧是分层不是过滤：手里全是钓得着的牌时还得打一张出去，
+    // 那叫真忍不住，`holdForced` 记它。
+    heldOnce = true
     G.stat.holdOnce[side]++
     // **放掉的档值在这儿记，不在结账那儿** —— 结账只在「后来真收到了」
     // 才发生，记在那边的话「忍完再没收到牌」那 10% 放掉的东西白白消失，
@@ -687,7 +1178,10 @@ function pickCard(G, side) {
   } else if (best >= 0 && G.holdRun && G.holdRun[side] > 0) {
     // 忍完之后真的收了 —— 这一笔结账。
     // ⚠ **结在「决定要收」这儿，不是在 harvestAt 里**：那边一次 play
-    //   可能触发两次收牌（深钩），结两次账就把 hit 灌成两倍。
+    //   可能触发**两次**收牌，结两次账就把 hit 灌成两倍。
+    //   〔原文举的例子是【深钩】，它 2026-10-23 删了 —— 删完**匹配线
+    //     确实只剩一次结算**，可这个位置仍然不能挪：收色 / 撒网走
+    //     `finishSweep`，而过闸 / 走水是另一方得分，三条都不该结到这笔账上〕
     initHoldStat(G.stat)
     const was = R.scoreOf(G.holdWould[side])
     const now = R.scoreOf(bestCaught)
@@ -732,7 +1226,9 @@ function pickCard(G, side) {
   //   （伏流无点数）两处折扣，`baitRisk` 能压到负数，所以任何固定幅度
   //   都不保证压得住。改成先比「钓不钓得着」、再比分数 ——
   //   跟幅度无关，而且 `HOLD_MIN` 关着时逐字退化成原来那一行
-  const HOLD_PEN = hmin > 0
+  // `heldOnce` 2026-10-23 加进来：原来只有 `hmin > 0`，于是这个分层
+  // 对 `HOLD_ONCE` 一直是关着的（详见上面 holdOnce 那一支的 ⚠）
+  const HOLD_PEN = hmin > 0 || heldOnce
   let pickScore = 99.0
   let pickPen = false
   for (let i = 0; i < hand.length; i++) {
@@ -1032,5 +1528,25 @@ function surgePick(G, side) {
 
 module.exports = {
   pickCard, swapPick, pickDeck, tideSink, freezePick, takePick, twinPick,
-  deadPick, surgePick, outsideCount, baitRisk, faceOfValue
+  deadPick, surgePick, outsideCount, baitRisk, faceOfValue,
+  // 打印用：`sim.js` 那一行要标「已拆 / 没拆」。**从这儿取，别在 sim.js 里
+  // 再写一遍 `process.env.HOLD_EV_SPLIT === '1'`** —— 默认值一翻那份副本就说谎了
+  //（CLAUDE.md：「复制一份逻辑，两份必然分叉」）
+  HOLD_EV_SPLIT,
+  // 同理〔2026-10-23〕：`HOLD_RUN` 锁死之后 `sim.js` 那行诊断头
+  // 原本读的 `process.env.HOLD_RUN || '1'` 就成了副本，从这儿取
+  HOLD_RUN,
+  // 同理，同一天的三个翻默认值〔2026-10-23〕。`sim.js` 那行诊断头
+  // 原本打的是 `process.env.HOLD_EV || '-'` —— 翻成默认开之后
+  // **那个 `-` 就是在说谎**（它在说「没开」，而实际开着）
+  HOLD_ONCE, HOLD_EV, HOLD_BOTH,
+  // 同理，同一天**第四个**翻默认值的〔2026-10-23，0 → 3〕。
+  // `sim.js` 那行养堆诊断头原本打 `process.env.JACK_HOLD || '-'` ——
+  // 同一个说谎形状，而这一个更坏：`-` 读起来像「这一跑没守闸」，
+  // 可它实际守着 3 张，于是整段「忍了几手 / 放弃几张」会被归到错的口径
+  JACK_HOLD,
+  // 诊断导出〔2026-10-23〕：`scene.js` 要在**手搭的局面**上问「这一手该不该忍」。
+  // 导出而不是在那边重写一份，理由同上一条 —— 手写的超几何和手写的
+  // 「哪些点数够得着」正是这个项目栽过的那两类分叉（`addFrostAt` / `baitRisk`）
+  holdEV, missP, foeReachOf
 }

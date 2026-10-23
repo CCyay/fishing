@@ -162,11 +162,27 @@ const JMODES = [
   { key: 'J按张数', jf: (n) => n }
 ]
 
+// ⚠ **翻默认值的钉子，别删。** 2026-10-23 一天里四个 AI 旋钮
+//   （`HOLD_ONCE` / `HOLD_EV` / `HOLD_BOTH` / `JACK_HOLD`）从「关」翻成了「开」，
+//   而这个脚本**整个是按翻之前的默认写的** —— `ARMS` 的头一档
+//   `ctl` 写着「对照（都贪心）」而 `env: {}`，不钉的话它会变成
+//   「两侧都按 EV 忍 + 都守 3 张闸」，而**那不是对照，是另一个打法**，
+//   于是后面每一档减 `ctl` 全错，且静默。
+//
+//   `.sh` 那十一个当天钉过了，这个漏了 —— 因为那次是
+//   `sh -n tools/md-sim/run-*.sh` 扫的，**而它是 `.js`，不叫 `run-*`**。
+//   〔同一个洞还盖着 `band.js`：它复用下面这个 `run()`，所以钉在这儿它也好了〕
+const ENV_PIN = {
+  HOLD_ONCE: '0', HOLD_EV: '0', HOLD_BOTH: '0', JACK_HOLD: '0'
+}
+
 // `n` 不传就用本脚本的 N。**`band.js` 复用这一个** ——
 // 再写一份 spawn 迟早会在「环境变量怎么叠」上分叉
 function run(arm, n) {
   return new Promise((res, rej) => {
-    const env = Object.assign({}, process.env, arm.env, { DUMP_HIST: arm.tag })
+    // ⚠ `ENV_PIN` 在 `arm.env` **之前** —— 各档自己写的 `HOLD_MIN` /
+    //   `HOLD_BOTH` / `JACK_HOLD` 照旧覆盖它，语义一个字没变
+    const env = Object.assign({}, process.env, ENV_PIN, arm.env, { DUMP_HIST: arm.tag })
     const p = spawn(process.execPath, [SIM, 'base', '-n', '' + (n || N)], { env })
     let out = ''
     p.stdout.on('data', (d) => { out += d })
@@ -426,7 +442,9 @@ async function main() {
 
 // `duel.js` 复用这份候选表和打分函数。**不许在那边再写一份 f 的定义** ——
 // 「复制一份逻辑，两份必然分叉」（rules.js 里反复写的那条）
-module.exports = { FNS, FAMS_ALL, JMODES, B, score, parse, run, f2, pad, padR }
+// `ENV_PIN` 导出来是给 `duel.js` 用的 —— 它自己 spawn（要按格传
+// `HOLD_MIN`/`HOLD_FOE`），走不了上面的 `run()`。**别在那边抄一份**
+module.exports = { FNS, FAMS_ALL, JMODES, B, ENV_PIN, score, parse, run, f2, pad, padR }
 
 if (require.main === module) {
   main().catch((e) => { console.error('✗ ' + e.message); process.exit(1) })

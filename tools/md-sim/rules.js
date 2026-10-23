@@ -201,7 +201,22 @@ const CUT = process.env.CUT !== '0'
 //
 // 标签跟默认值长在同一处，就不会再分叉
 function ruleTag() {
-  const tail = TAIL >= 999 ? '打完手牌' : '牌库空 + 各再打 ' + TAIL + ' 手'
+  // ⚠ **这一行 2026-10-23 修过，原文是「各再打 ' + TAIL + ' 手」—— 错的。**
+  //   `TAIL` 数的是**双方合计**（`endIf` 那边：
+  //   `plays[ME] + plays[FOE] - tailFrom >= TAIL`），而这句话写的是「**各**」。
+  //   于是现行默认 `TAIL=2` 被印成「各再打 2 手」，**整整多了一倍** ——
+  //   而上面第 85 行的注释一直写着正确的「TAIL=2…双方各再打 1 手」。
+  //
+  //   这就是本文件开头那条「标签跟默认值长在同一处」防的那类错，
+  //   只不过这一次分叉的不是默认值，是**单位**：一个合计量被插进了人均句式。
+  //   是用户读抬头时发现的，不是任何一条检查查出来的。
+  //
+  //   ⚠ **只有偶数 TAIL 能整除成「各几手」**，奇数时两侧天生不等
+  //   （`EVEN` 会补，但那是补到出牌数相等，不是补成「各 N 手」），
+  //   所以奇数照旧只报合计，不编一个 .5 出来
+  const tail = TAIL >= 999 ? '打完手牌'
+    : '牌库空 + 双方合计再打 ' + TAIL + ' 手'
+      + (TAIL % 2 === 0 ? '（各 ' + (TAIL / 2) + ' 手）' : '')
   const pile = BALANCE === 'pileNotLast' ? '剩堆归没打最后一手的'
     : (BALANCE === 'pileFirst' ? '剩堆归先手' : '剩堆不算分')
   const flags = [tail, pile]
@@ -2734,7 +2749,14 @@ function shuffle(rng, list) {
 // 代价太大（每一处 has(skills, SK.X) 都要动），新加的这张没有包袱
 
 const SP = {
-  CREEL: 'creel', NARROW: 'narrow', CLEAR: 'clear', DEEPHOOK: 'deephook',
+  CREEL: 'creel', NARROW: 'narrow', CLEAR: 'clear',
+  // 〔`DEEPHOOK: 'deephook'` 2026-10-23 **整个删掉了**，没照下面
+  //   活水 / 涨落 那条「key 原样留着」的办法。两者的差别在**还有没有引用**：
+  //   `SP.CYCLE` 留着是因为 `refill` 里还有两处 `hasSpecial(G, side, SP.CYCLE)`，
+  //   删了它那两处会拿 `undefined` 去比而误匹配；
+  //   而深钩的那一处 `hasSpecial` 当天一起删干净了，**零引用**，
+  //   所以留个死键只会让人以为这件技能还在表里。
+  //   删它为什么是删技能而不是调强度，见源码 `draw-skills.uts` 的墓碑〕
   // 【稳钩】删了（2026-10-13，连带「护饵」那一类效果）。key 留着是因为
   // firmGuardFor 还在，而它现在没有角色带 → 永远不触发。下次清理时
   // 连 FIRM_GUARD / firmGuardFor / pileGuard 那条数组一起删
@@ -3032,7 +3054,8 @@ function fuelOnHand(G, card) {
 //   AI_SEEN=1 CLEAR_OPEN=4 node sim.js roles -n 8000 | grep 镜湖
 const CLEAR_OPEN = process.env.CLEAR_OPEN
   ? parseInt(process.env.CLEAR_OPEN, 10) : 4
-const DEEP_EXTRA = 1      // 深钩：钓到时额外收堆底几张
+// 〔`DEEP_EXTRA` 2026-10-23 撤了（深钩删了）。源码侧那一行同步撤，
+//   `fingerprint.js` 的对照行也撤 —— 三处一起，不然指纹会报 MISSING〕
 const FIRM_GUARD = 4      // 稳钩：每局前几张落堆自带护
 const LIVE_OPEN = 2       // 活水：牌库顶几张明着
 const BAIT_COUNT = 3      // 囤饵：开局塞几张
@@ -3098,7 +3121,9 @@ const DRAW_ROLES = [
   { key: 'lock', name: '江口闸官', special: SP.NARROW, slots: ['A', '2', '3', '4'] },
   { key: 'upstream', name: '逆流船夫', special: SP.REVERSE, slots: ['5 6 7', '4'] },
   { key: 'mirror', name: '镜湖占卜师', special: SP.CLEAR, slots: ['♥', '3 4'] },
-  { key: 'deepline', name: '深海钓手', special: SP.DEEPHOOK, slots: ['♣', 'K'] },
+  // 〔深海钓手（`['♣', 'K']`，带深钩）2026-10-23 删了 —— 常驻技删了角色跟着删，
+  //   12 个角色每个都带一件 special，没有「空常驻技」这种形态。
+  //   ⚠ 一堆 `run-*.sh` 里有 `--role deepline --slot N`，**那些命令全失效了**〕
   { key: 'pond', name: '鱼塘老板', special: SP.BAIT, slots: ['7', '3 5', 'K'] },
   { key: 'night', name: '夜钓客', special: SP.TWOCOLOR, slots: ['A', '5', '9'] },
   // 〔候潮渔翁 2026-10-16 删了，连带常驻技【涨落】——
@@ -3404,7 +3429,8 @@ function baitRankOf(role) {
 //   江口闸官 / 填河工（4 个点数槽）  每件从管 4 张变管 16 张  ×4
 //   鱼塘老板（3 个）                                          ×3
 //   背篓渔夫 / 逆流船夫（2 个）                               ×2
-//   镜湖占卜师 / 深海钓手（只有 1 个点数槽）    **×1，一分不给**
+//   镜湖占卜师（只有 1 个点数槽）              **×1，一分不给**
+//     〔原文这一行还列着深海钓手，2026-10-23 随深钩一起删〕
 // 两张花色槽角色完全吃不到。所以它只能绑在一张特定的卡上，
 // 而那张卡的点数槽数就是它的定档旋钮（照一·丁：先量常驻技、再配槽）。
 //
@@ -3932,7 +3958,8 @@ function newGame(opts) {
     //
     //   riseBy    这一手「一次收走 ≥ RISE_MIN 张」的是哪一方（−1 = 没有）。
     //             记**哪一方**而不是布尔：收牌不只出牌方会发生
-    //             （过闸、深钩那几条会让另一方得分），而迎潮要的是
+    //             （过闸那几条会让另一方得分 —— 原文还举了深钩，
+    //               它 2026-10-23 删了，而判据没变），而迎潮要的是
     //             「**对方**收得狠」，认错边就反了
     //   jackPlay  这一手打出的是 J 吗
     riseBy: -1,
@@ -7907,7 +7934,7 @@ function keepMarks(G, at, burn, suit) {
   G.pileSuit[at] = suit
 }
 
-// 钓到之后：收那一段、【深钩】再捞堆底、记统计（照 finishCatch）
+// 钓到之后：收那一段、记统计（照 finishCatch）
 function finishCatch(G, side, from, count, card, skills) {
   // **记的是 collect 返回的实收，不是 count** —— 叠放之后两个数不再相等
   // （被埋的牌跟着走所以可能更多，带盾的宿主留下所以可能更少）
@@ -7920,21 +7947,32 @@ function finishCatch(G, side, from, count, card, skills) {
   const got = keepZero
     ? collectKeepZero(G, side, from, count, card)
     : collect(G, side, from, count)
-  // 【深钩】：在上面那一段收完之后才收，所以数的是**剩下的**堆 ——
-  // 刚才那一钩可能已经把堆底拿走了，那就少收或者收不着
-  let extra = 0
-  if (hasSpecial(G, side, SP.DEEPHOOK)) {
-    const n = Math.min(DEEP_EXTRA, G.pile.length)
-    if (n > 0) extra = collect(G, side, 0, n)
-  }
+  // ---- 这儿原先是【深钩】那一段〔2026-10-23 删〕 ----
+  //
+  //   let extra = 0
+  //   if (hasSpecial(G, side, SP.DEEPHOOK)) {
+  //     const n = Math.min(DEEP_EXTRA, G.pile.length)
+  //     if (n > 0) extra = collect(G, side, 0, n)
+  //   }
+  //
+  // ⚠ **这一段跟源码不是同一个形状，而那正是删它的直接原因。**
+  //   这儿走的是**第二次 `collect`**（两次结算），源码那边是
+  //   `caught = caught + got`（并进一次结算）。R3（积分 = 张数）下
+  //   两者相等（1+3 = 4），所以这个分叉藏了很久；
+  //   R4 阶梯计分一进来就是 `scoreOf(3)+scoreOf(1)=2` vs `scoreOf(4)=4`，
+  //   **差一倍**。两种读法都说得通，而为一件技能单开一条计分规则不划算。
+  //
+  //   删完之后 `harvestAt` 是整个模拟器**唯一**的计分漏斗，
+  //   「一手收几段」这个问题不再存在。再加技能想「顺手多收一把」，
+  //   先定它是并进这一次还是另算一次 —— 别再让两边各写各的
   G.stat.catches[side]++
-  G.stat.caught[side] += got + extra
+  G.stat.caught[side] += got
   // 收成分布〔2026-10-22〕：**记在这儿**，因为这一行正是
   // `caught` 的唯一累加点 —— 于是「分布的行和 == catches、
   // 加权和 == caught」两条自检精确成立（`sim.js` 的 printCatchCurve 查）。
   // 换个地方记就会跟这两个数分叉，而那正是这个项目反复栽的
   //「复制一份逻辑，两份必然分叉」
-  const tookN = got + extra
+  const tookN = got
   const bin = tookN < CATCH_BINS ? tookN : CATCH_BINS
   G.stat.catchHist[side][bin]++
   if (card.rank === JACK) {
@@ -7950,16 +7988,20 @@ function finishCatch(G, side, from, count, card, skills) {
     // 真正该看的是**打出去时堆有多肥**，而这个累加除以 `jackCatches`
     // 正是它（照 CLAUDE.md 第四节：旋钮要配一个「它做了几次 / 做成多大」
     // 的计数，光看 X 发现不了机制没接上）
-    G.stat.jackTook[side] += got + extra
+    G.stat.jackTook[side] += got
   } else if (has(skills, SK.HOOK) || has(skills, SK.SUITED)) {
     // 这一钓是靠技能才成立的吗 —— 粗略记一笔，报表里看技能到底在不在起作用
     G.stat.skillCatch[side]++
   }
 }
 
-// ---------- 阶梯计分 `SCORE_BANDS`〔2026-10-22，原型旋钮〕 ----------
+// ---------- 阶梯计分 `SCORE_BANDS`〔2026-10-22 起原型，**2026-10-23 定稿 = 现行规则**〕 ----------
 //
-// 现行规则是**积分 = 收走的张数**（铁律）。这个旋钮把它换成
+// ⚠ 下面这一整段是**原型时期**写的，所以它一直把分档说成「旋钮把它换成」。
+//   2026-10-23 之后不是了 —— **分档就是规则（R4）**，不分档才要显式关。
+//   原文留着是因为它记着当初为什么这么分档，那个理由没变。
+//
+// 〔原型期原文〕现行规则是**积分 = 收走的张数**（铁律）。这个旋钮把它换成
 // **按「收了几张」分档给分**，而分档的理由是用户给的那条：
 //
 //   **轮流出牌 → 忍一手期间堆长 +2**（你一张、对方一张）。
@@ -7992,9 +8034,28 @@ function finishCatch(G, side, from, count, card, skills) {
 //
 //   所以：**每个分档结构真跑一次**（拿直方图），之后那个结构下的
 //   任意档值都能离线重算，精确不是近似。`band.js` 就是干这个的。
+//
+// ⚠ ⚠ **2026-10-23 定稿：默认值翻成 `1,4,12`，规则档 R3 → R4。** ⚠ ⚠
+//
+// 这不再是「原型旋钮」了 —— 按 CLAUDE.md「**旋钮的默认值 = 游戏里那件技能的样子**」，
+// 既然 (a,b,c) 已经拍板，默认值就必须跟着翻。不翻的后果那一节有墓碑
+// （`WADE_SELF`：改了定稿忘了翻默认值，整张 `all` 表拿旧档的数定了新档的价）。
+//
+// 定下 `1,4,12` 的依据（20000 局，R3 基线，`out-band6.txt`，台账 §三之六·五之四）：
+//   · **b/a = 4** 是用户验收线「情况 3（已收没有 2）+ 牌库还厚 → 忍 1 手该有价值」
+//     的**最小值**。解析扫到 1/12 步长，3.75 不过、4.00 过，断点就在那儿。
+//   · **c/b = 3** 让「到了 4/5 就收手」还明显成立：4/5 档起判忍 12.0%
+//     对 2/3 档起 29.6%（比值 0.41）。c/b 到 5 时是 0.80、到 10 时**反超**到 1.47。
+//   · c=12 下 6+ 档占总分 24.5%、次数只占 4.0% —— 用户那条
+//     「6/7 档加更多但**基本无法拿到**」成立。
+//
+// 回到 R3 的「积分 = 张数」：`SCORE_BANDS=off`（或 `=0`、或置空）。
+// A/B 的时候必须显式写，**不能靠不写** —— 不写现在是 R4。
 const SCORE_BANDS = (function () {
-  const s = process.env.SCORE_BANDS
-  if (!s) return null
+  const s = process.env.SCORE_BANDS === undefined ? '1,4,12' : process.env.SCORE_BANDS
+  // `off` / `0` / 空 = 退回 R3。⚠ `=0` 不再解析成「单档档值 0」，
+  // 那个读法没人会用，而把它让给「关掉」才跟别的旋钮（`HOLD_EV_SPLIT=0`）一致
+  if (!s || s === 'off' || s === '0') return null
   const v = s.split(',').map(function (x) { return parseFloat(x) })
   for (let i = 0; i < v.length; i++) {
     if (!isFinite(v[i])) throw new Error('SCORE_BANDS 里有非数字：' + s)
@@ -12775,7 +12836,7 @@ module.exports = {
   GUARD_NONE, GUARD_ME, GUARD_FOE, ME, FOE, SK, SKILLS,
   // 特殊技能与角色（KIND_ANY / KIND_RANK 删了 —— 源码的 DrawSkill 没有 kind 了）
   SP, SP_NOTE, DRAW_ROLES, roleIndexOf, hasSpecial,
-  CLEAR_OPEN, DEEP_EXTRA, FIRM_GUARD, LIVE_OPEN, BAIT_COUNT, CYCLE_REFILL,
+  CLEAR_OPEN, FIRM_GUARD, LIVE_OPEN, BAIT_COUNT, CYCLE_REFILL,
   makeRng, randInt, pickOne, isRedSuit, sameSuit, makeCard, standardDeck, shuffle,
   // 配装：旧的那五个（putSuit / putRank / suitSizeOf / rankSizeOf / partnerSuit）
   // 连 levels 一起删了，换成角色模型
