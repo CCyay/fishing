@@ -1466,6 +1466,10 @@
   // 没带角色就照旧随机满配（老的终局入口还在，那颗按钮直接开打）
   let finalRole : number = -1
   let finalSlots : number[] = []
+  // 庄家的角色卡配装（关卡页的终局配装弹层切到「庄家」那一边配的）。
+  // -1 = 没配，照难度随机满配（rollRoleKit）—— 原来的玩法
+  let finalFoeRole : number = -1
+  let finalFoeSlots : number[] = []
   // 终局这一局的难度（0 简单 / 1 普通 / 2 困难，照 DIFF_*）。
   // 从关卡页的角色面板带过来，**不读存档** —— 终局不记账，
   // 它的难度也是一次性的
@@ -2015,7 +2019,12 @@
     frostHand = frostHand.concat([card])
   }
 
-  // 从手冰表里摘掉（落堆那一下调，接着在堆上贴）
+  // 从手冰表里摘掉。三条来路：
+  //   落堆那一下（frostOnLand，接着在堆上贴）；
+  //   **洗回牌库**（shuffleBack）、**换到对方手里**（摘钩 / 对换）—— 〔2026-10-21 补〕
+  //   原先只有落堆那一条，于是带冰的手牌被洗回牌库 / 被对方拿走之后**冰还跟着**：
+  //   谁摸到、谁拿到，谁就有一把看不见的钥匙，这一手收牌无视结冰，
+  //   堆上的冰牌照样被收走。而**钥匙是私有的**（打出前一直在主人手里）
   function dropFrostHand(card : PlainCard) {
     const keep : PlainCard[] = []
     for (let i = 0; i < frostHand.length; i++) {
@@ -9158,6 +9167,8 @@
     }
     if (skill == SK_UNHOOK) {
       const card = takeFromHand(victimIsFoe, index)
+      // 钥匙是私有的：换了主人就不带冰（见 dropFrostHand）
+      dropFrostHand(card)
       // 摘钩拿过来的牌进自己手里。**手牌可能因此超过上限** ——
       // 那没关系，回合末 refill 只负责「补到」上限，不负责弃牌
       if (byFoe) {
@@ -9176,6 +9187,7 @@
     // 对换：先把他那张拿过来，再挑一张自己的还给他。
     // 你那边要停下来挑，庄家自己挑（见 foeGivePick）
     const card = takeFromHand(victimIsFoe, index)
+    dropFrostHand(card)
     if (byFoe) {
       foeHand.value = foeHand.value.concat([card])
       foeShown.value = foeShown.value.concat([false])
@@ -9201,6 +9213,7 @@
       return
     }
     const card = takeFromHand(byFoe, index)
+    dropFrostHand(card)
     if (byFoe) {
       hand.value = hand.value.concat([card])
       // 庄家还过来的牌，它自己当然知道是什么
@@ -9706,6 +9719,8 @@
   // 整副重洗而不是只洗一部分：洗一半的话剩下那半的顺序还是知道的，
   // 而观潮刚看过的那两张正好在那一半里
   function shuffleBack(card : PlainCard) {
+    // 回了牌库就不再是谁的钥匙（见 dropFrostHand）
+    dropFrostHand(card)
     const next = deck.value.concat([card])
     for (let i = next.length - 1; i > 0; i--) {
       const k = Math.floor(Math.random() * (i + 1))
@@ -11332,15 +11347,15 @@
       //     见 kitFromRole）。庄家也摇一个角色，所以双方同一个结构，
       //     那一局比的是「这两套插法怎么互相咬」。
       //   没带 —— 老的随机满配（关卡页那颗「开启挑战」直接开打的入口）
-      if (finalRole >= 0) {
-        const mine = kitFromRole(finalRole, finalSlots)
+      if (finalRole >= 0 && finalRole < DRAW_ROLES.length) {
+        const mine = kitFromRole(finalRole, slotsFor(finalRole, finalSlots))
         myLevels.value = mine.levels
         myLoadout.value = mine.loadout
         // **角色得记下来** —— 那件常驻特殊技能靠它现查（见 specialLevel）。
         // 漏了这一步的话配装是对的，可满篓、稳钩那些一个都不生效
         myRole.value = mine.role
-        // 庄家按难度摇：困难只摇覆盖面最大的角色、简单只嵌一半的槽
-        const foe = rollRoleKit(finalDiff)
+        // 庄家：配过就照配的，没配就按难度摇（困难只摇覆盖面最大的角色、简单只嵌一半的槽）
+        const foe = finalFoeKit()
         foeLevels.value = foe.levels
         foeLoadout.value = foe.loadout
         level.value = finalLevel()
@@ -11356,7 +11371,8 @@
         myLevels.value = mine.levels
         myLoadout.value = mine.loadout
         myRole.value = mine.role
-        const foe = rollRoleKit(finalDiff)
+        // 你没选、庄家选了（只配了庄家就开打）也走这儿
+        const foe = finalFoeKit()
         foeLevels.value = foe.levels
         foeLoadout.value = foe.loadout
         level.value = finalLevel()
@@ -11672,6 +11688,25 @@
     uni.redirectTo({ url: '/pages/examples/blackjack/draw-levels' })
   }
 
+  // 槽位对齐到这个角色的槽数，技能下标越界的当空槽。
+  // URL 是外面传进来的，kitFromRole 按角色的槽数逐个取 —— 少一个就越界
+  function slotsFor(role : number, slots : number[]) : number[] {
+    const out : number[] = []
+    for (let i = 0; i < DRAW_ROLES[role].slots.length; i++) {
+      const k = i < slots.length ? slots[i] : -1
+      out.push(k >= 0 && k < DRAW_SKILLS.length ? k : -1)
+    }
+    return out
+  }
+
+  // 终局庄家的配装：关卡页配过就照配的，没配就照难度随机满配
+  function finalFoeKit() : DrawKit {
+    if (finalFoeRole >= 0 && finalFoeRole < DRAW_ROLES.length) {
+      return kitFromRole(finalFoeRole, slotsFor(finalFoeRole, finalFoeSlots))
+    }
+    return rollRoleKit(finalDiff)
+  }
+
   onLoad((options : OnLoadOptions) => {
     // 一行摆得下几张牌堆的牌，量一次（出牌记录那一块的高度看它，见 pileWrapped）。
     // **放在 newGame 之前** —— newGame 一跑就有牌落堆，那会儿它得已经是真数
@@ -11693,6 +11728,22 @@
       for (let i = 0; i < parts.length; i++) {
         const v = parseInt(parts[i])
         finalSlots.push(isNaN(v) ? -1 : v)
+      }
+    }
+    // 庄家那一边（foeRole / foeSlots），格式跟 role / slots 一样
+    finalFoeRole = -1
+    finalFoeSlots = []
+    const foeRoleOpt = options['foeRole']
+    if (finalMode && foeRoleOpt != null && ('' + foeRoleOpt) != '') {
+      const fr = parseInt('' + foeRoleOpt)
+      finalFoeRole = isNaN(fr) ? -1 : fr
+    }
+    const foeSlotsOpt = options['foeSlots']
+    if (finalMode && foeSlotsOpt != null && ('' + foeSlotsOpt) != '') {
+      const parts = ('' + foeSlotsOpt).split(',')
+      for (let i = 0; i < parts.length; i++) {
+        const v = parseInt(parts[i])
+        finalFoeSlots.push(isNaN(v) ? -1 : v)
       }
     }
     // 难度。老的终局入口（那颗直接开打的按钮）不带它，那就按普通

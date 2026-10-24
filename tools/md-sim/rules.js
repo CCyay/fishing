@@ -4869,6 +4869,11 @@ function reclaimPick(G, side, played, skills) {
 }
 
 
+// 从手冰表里摘掉（洗回牌库 / 换到对方手里时）。落堆那一条在 frostOnLand 里自己摘
+function dropFrostHandSim(G, card) {
+  G.frostHand = G.frostHand.filter(function (c) { return c !== card })
+}
+
 function frostOnHand(G, card) {
   for (let k = 0; k < G.frostHand.length; k++) {
     if (G.frostHand[k] === card) return true
@@ -9502,6 +9507,9 @@ function probeFor(G, side, card) {
 function shuffleBack(G, card) {
   // 回了牌库的牌不再带【推牌】
   dropSurgeHand(G, card)
+  // 也不再是谁的钥匙（照源码 shuffleBack，2026-10-21 补）——
+  // 原先手冰表只在落堆时清，洗回牌库的冰牌谁摸到谁就有一把看不见的钥匙
+  dropFrostHandSim(G, card)
   G.deck.push(card)
   G.deck = shuffle(G.rng, G.deck)
 }
@@ -12335,12 +12343,15 @@ function doTakeFrom(G, side, skill, index, ai) {
   }
   // 摘钩、对换都把牌拿到自己手上（可能超过上限 —— refill 只负责「补到」）。
   // 从对方手里拿的牌，对方当然知道它是什么
+  // 钥匙是私有的：换了主人就不带冰（照源码 doTakeFrom / doGiveBack）
+  dropFrostHandSim(G, card)
   giveTo(G, side, card, true)
   if (skill !== SK.SWAPCARD) return
   // 对换：再挑一张自己的还他
   const back = ai.swapPick(G, side)
   if (back >= 0 && G.hands[side].length > 0) {
     const give = takeFromHand(G, side, back)
+    dropFrostHandSim(G, give)
     giveTo(G, other, give, true)
   }
 }
