@@ -364,6 +364,19 @@ const HOLD_MIN = process.env.HOLD_MIN ? parseInt(process.env.HOLD_MIN, 10) : 0
 //
 // ⚠ 关掉要显式写 `JACK_HOLD=0`（`'0'` 是真字符串，parseInt 给 0）。
 //   不写 = 3，**所有不写它的跑都是守闸的 AI 跑的**。
+//
+// 🔴 **而它不受 `HOLD_ONCE` 管**（判据在 :1008，只看 `JACK_HOLD > 0 && holdSide`）。
+//   2026-10-23 栽的第三次：我手写了一条「退回旧档」的对照命令
+//   `SCORE_BANDS=off HOLD_ONCE=0 node tools/md-sim/campaign.js`，
+//   以为 `HOLD_ONCE` 是决策层的总闸 —— **它不是**，那一跑两侧照旧守着 3 张 J 闸，
+//   于是对照组回不到 R3 的 37.8%，停在 25.6%，**差 12.2 个点全是这一个漏**。
+//
+//   **退回「翻默认值之前」只有一个配方，照抄 `run-band.sh:31`，四个一个不少：**
+//     HOLD_ONCE=0 HOLD_EV=0 HOLD_BOTH=0 JACK_HOLD=0
+//   自己按「哪个是总闸」去推要写哪几个，**推错了是静默的**。
+//   〔前两次同坑：十一个 `run-*.sh`（钉上了）、`fn.js:165`（漏了，因为它不叫
+//     `run-*`，当时是 `sh -n run-*.sh` 扫的）。这第三次漏的是**手写的一次性命令** ——
+//     它既不是 .sh 也不是 .js，任何扫文件的办法都扫不到。〕
 const JACK_HOLD = process.env.JACK_HOLD ? parseInt(process.env.JACK_HOLD, 10) : 3
 // ⚠ **2026-10-23 翻成默认开**（R4 决策层定稿的三个之一）。
 //

@@ -5487,6 +5487,12 @@ function surgeLayer(G, side, fuel, ice, nOver) {
     flipped++
     if (at >= 0) {
       sg.hits[side]++
+      // ⚠ **下面两条 `collect` 不走 `noteCatch`，所以它们收的牌
+      //   既不进 `catches` / `caught`，也不进收成分布**〔2026-10-24 查到的〕。
+      //   这是旧账，不是这次改出来的 —— 补上去会动 `catches` / `caught`，
+      //   而那两个数进过台账，一改就要发作废公告。
+      //   `SURGE_HIT` 的 `'score'` / `'thief'` 两档都不是默认档，
+      //   所以现行默认下它不发生；**哪天要量这两档，先把这儿接上 `noteCatch`。**
       if (SURGE_HIT === 'score') {
         sg.back[side] += collect(G, side, at, G.pile.length - at)
       } else if (SURGE_HIT === 'flip') {
@@ -6051,6 +6057,13 @@ function nextSameRank(G, side, card) {
 // 五档，默认 = 定稿：
 //   （不设）= 'least' 定稿 ／ 'judge' 判定档（判废，留作对照）
 //   'color' 旧的「跟它自己同颜色」 ／ 'suit' 同花色 ／ 'off' = 不点同色
+//
+// 🔴 **闯关口径下这一刀要 −3.5 个点**〔2026-10-24 量出来的，台账第五节终表〕
+//   `color` → `least`（**连同去掉自带燃烧，两刀捆在这一个旋钮里**）
+//   让简单档通关率 **37.8% → 34.3%**（seed 1，se 0.70，2×2 全跑过、无交互）。
+//   `chain` 在 `PLAYER_POOL` 里，所以削的是**玩家那一侧**。
+//   当时只看了 `sim.js` 的 X 口径，**没跑闯关** —— 这是事后补的账，不是反对那一刀。
+//   退回去量：`CHAIN_HUE=color`（它**同时**退掉颜色规则和自带燃烧，见 5968 行）。
 const CHAIN_HUE = process.env.CHAIN_HUE || 'least'
 // ---------- 连锁那一维，**三档**〔2026-10-16 从布尔扩成三档〕 ----------
 //
@@ -7934,6 +7947,39 @@ function keepMarks(G, at, burn, suit) {
   G.pileSuit[at] = suit
 }
 
+// ---------- 收一次牌的统计口：**四条收牌路共用这一个**〔2026-10-24 抽出来的〕 ----------
+//
+// 原先 `catches` / `caught` 在**四处**各手写一遍 —— `finishCatch`（匹配线）、
+// `floodFor` 的 `'each'` 档和收尾两处、`harvestPile`（收色 / 撒网）。
+// 而**收成分布 `catchHist` 只长在其中一处**（匹配线那处）。
+//
+// 于是撒网 / 收色 / 洪水收的牌**一张都不进分布**，而漏得完全无声。
+// 更糟的是那三条正好是「一次收走一片」那一类 ——
+// **R4 分档之下最该看分布的恰恰就是它们**（一片要够 4 张才跨进第二档）。
+//
+// ⚠ 为什么藏了这么久：唯一印这张表的命令是 `sim.js base`，
+//   而它把双方 loadout 写死成 `R.emptyLoadout()`（`sim.js:656`），
+//   那三条一次都不跑。`printCatchCurve` 末尾「收牌次数 == catches」
+//   那条自检**本来就能抓到它**，只是从来没在带技能的格子上跑过
+//   —— 2026-10-24 给 `cmdOne` 补了 `CATCH_CURVE=1` 之后才有机会跑。
+//
+// 所以这儿只能有一个口。照 `harvestAt` 那段自己写的话：
+// 挂在任一条上都会漏掉另一条，**而漏了是静默的**。
+//
+// ⚠ 这个函数**不碰 `G.score` / `G.taken`** —— 计分的唯一一行在
+//   `harvestAt`（`G.score[side] += scoreOf(taken)`），两件事别混。
+//   这儿纯统计，加它不改任何一局的走向。
+//
+// 返回分桶号，给调用方接着记 J 那一笔用 —— **别在外面再算一次 `bin`**，
+// 两处各算一遍就会分叉，而「非 J = 总 − J」分叉了会算出负数
+function noteCatch(G, side, got) {
+  G.stat.catches[side]++
+  G.stat.caught[side] += got
+  const bin = got < CATCH_BINS ? got : CATCH_BINS
+  G.stat.catchHist[side][bin]++
+  return bin
+}
+
 // 钓到之后：收那一段、记统计（照 finishCatch）
 function finishCatch(G, side, from, count, card, skills) {
   // **记的是 collect 返回的实收，不是 count** —— 叠放之后两个数不再相等
@@ -7965,16 +8011,11 @@ function finishCatch(G, side, from, count, card, skills) {
   //   删完之后 `harvestAt` 是整个模拟器**唯一**的计分漏斗，
   //   「一手收几段」这个问题不再存在。再加技能想「顺手多收一把」，
   //   先定它是并进这一次还是另算一次 —— 别再让两边各写各的
-  G.stat.catches[side]++
-  G.stat.caught[side] += got
-  // 收成分布〔2026-10-22〕：**记在这儿**，因为这一行正是
-  // `caught` 的唯一累加点 —— 于是「分布的行和 == catches、
-  // 加权和 == caught」两条自检精确成立（`sim.js` 的 printCatchCurve 查）。
-  // 换个地方记就会跟这两个数分叉，而那正是这个项目反复栽的
-  //「复制一份逻辑，两份必然分叉」
-  const tookN = got
-  const bin = tookN < CATCH_BINS ? tookN : CATCH_BINS
-  G.stat.catchHist[side][bin]++
+  // 〔2026-10-24〕这儿原先是三行手写的 `catches++ / caught += / catchHist++`，
+  // 而它上面挂着一句「这一行正是 `caught` 的唯一累加点」——
+  // **那句话是错的，而且正因为信了它，分布漏了三条收牌路。**
+  // 判据搬到 `noteCatch` 头上了
+  const bin = noteCatch(G, side, got)
   if (card.rank === JACK) {
     // **同一个 `bin`**，不另算一遍 —— 两处各算一次分桶就是
     //「复制一份逻辑，两份必然分叉」，而这一份分叉了的话
@@ -10853,8 +10894,8 @@ function floodFor(G, side) {
       const gotEach = collect(G, side, at, G.pile.length - at)
       fd.gotSum[side] += gotEach
       fd.hits[side]++
-      G.stat.catches[side]++
-      G.stat.caught[side] += gotEach
+      // 〔2026-10-24〕原先这儿只加 catches / caught，**分布漏了**，见 noteCatch
+      noteCatch(G, side, gotEach)
       // 【保护】可能把某几张留在堆上，那几张里也许有洪水翻上来的。
       // 兜一道底：fresh 不能超过现在的堆长
       if (fresh > G.pile.length) fresh = G.pile.length
@@ -10880,8 +10921,8 @@ function floodFor(G, side) {
   const got = collect(G, side, hitAt, G.pile.length - hitAt)
   fd.gotSum[side] += got
   fd.hits[side]++
-  G.stat.catches[side]++
-  G.stat.caught[side] += got
+  // 〔2026-10-24〕同上，这条也漏过分布
+  noteCatch(G, side, got)
 }
 
 // 要收的那一段 [at, 堆顶] 里，每张**本来属于谁**。返回其中「刚翻上来的」有几张。
@@ -10909,10 +10950,9 @@ function countGot(G, fd, side, at, fresh) {
 // 收牌本身整个交给 harvestAt（叠放的账在那儿算，见它那段注释）
 function harvestPile(G, side, wanted) {
   const taken = harvestAt(G, side, wanted)
-  if (taken > 0) {
-    G.stat.catches[side]++
-    G.stat.caught[side] += taken
-  }
+  // 〔2026-10-24〕**撒网 / 收色就是从这儿漏的** —— 原先只加 catches / caught，
+  // 分布那一笔没记，于是这一族在「收 N 张」曲线上完全不存在。见 noteCatch
+  if (taken > 0) noteCatch(G, side, taken)
   return taken
 }
 

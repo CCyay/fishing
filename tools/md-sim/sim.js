@@ -472,7 +472,17 @@ function f2(x) { return x.toFixed(2) }
 //               改 f(N) 之前必须看它：**改一个几乎不发生的档等于没改**
 //
 // 口径：两人合计。一边一列没有意义 —— 这是规则的性质，不是谁的打法。
-function printCatchCurve(sum, g) {
+//
+// ⚠ **上面那句只在「双方对称」的格子里成立**〔2026-10-24 加第二个调用方时补的〕。
+//   它原先只被 `cmdBase` 调（双方空手、同角色 → 合计确实是规则的性质）。
+//   现在 `cmdOne` 也调（`CATCH_CURVE=1`），而那儿**两侧不对称** ——
+//   `m.test` 那一格是「我带、对手空手」，合计会把带技能那方的分布
+//   跟不带的那方**对半稀释**。
+//   **要按侧看只有一条路：`DUMP_HIST=<tag>` 吐的 `#HIST … me / foe` 两行。**
+//
+// `tagSuffix`：`DUMP_HIST` 的标签后缀。同一条命令里调两次（我带 / 基线）时
+//   不加它的话两份 `#HIST` 标签一模一样，离线根本分不开是哪一格
+function printCatchCurve(sum, g, tagSuffix) {
   const B = R.CATCH_BINS
   const hit = []     // 收 N 张发生了几次
   const jhit = []    // 其中靠 J 通吃的
@@ -603,7 +613,7 @@ function printCatchCurve(sum, g) {
   // ⚠ 这条前提**只对单调递增的 f 成立**。f 要是非单调（比如「收 4 张
   //   反而扣分」），贪心就会改挑别的牌，这份直方图当场失效。
   if (process.env.DUMP_HIST) {
-    const tag = process.env.DUMP_HIST
+    const tag = process.env.DUMP_HIST + (tagSuffix === undefined ? '' : '-' + tagSuffix)
     for (let s = 0; s < 2; s++) {
       const nm = (s === R.ME ? 'me' : 'foe')
       const all = []
@@ -1316,6 +1326,33 @@ function cmdOne(args) {
     + '（两个标准误）统计上分不开。')
   console.log('  口径跟 `all` 一致：双方同角色、各插同一个槽、**两侧都量**，'
     + '所以这几个数可以直接跟全表比。')
+  // ---- `CATCH_CURVE=1`：连「收 N 张」的分布一起打〔2026-10-24 加的〕 ----
+  //
+  // **为什么非加不可**：R4 之下「这件技能值几分」和「它被档结构怎么对待」
+  // 是两个问题，而 X 只答得出第一个。典型是【撒网】【退潮】这一类
+  // 「一次收走一片」—— 一片要够 4 张才跨进第二档，够不够**只能看分布**。
+  //
+  // 加之前这个诊断**取不到**：`printCatchCurve` 唯一的调用方是 `cmdBase`，
+  // 而 `cmdBase` 把双方的 loadout 写死成 `R.emptyLoadout()`（见那行）——
+  // 于是「带着技能的那一侧收 N 张的分布」在整个工具里没有出口。
+  //
+  // 默认不打，理由是 `one` 的输出会长出三张表；它不改任何既有数字。
+  //
+  // ⚠ **这两张表跟 `base` 打的那张不是同一个口径，三者都别相减**：
+  //   · `base` —— 自由切牌（只有它传 `freeFirst`）、双方空手
+  //   · 这儿的「我带」 —— 固定庄家先手、ME 带 FOE 空手（**不对称**）
+  //   · 这儿的「基线」 —— 固定庄家先手、双方空手
+  //   第三条跟 `base` 只差一个切牌口径，看着最像可比的，**恰恰是最容易栽的**。
+  if (process.env.CATCH_CURVE) {
+    console.log('\n  ======== 我带那一格（m.test：ME 带、FOE 空手）========')
+    console.log('  ⚠ 下面是**两人合计**，而这一格两侧不对称 ——'
+      + '带技能那方的分布被不带的那方稀释了一半。')
+    console.log('  要按侧分开：`DUMP_HIST=x` 的 `#HIST x-test me` 那一行。')
+    // 局数走 `sum.games` 不走 `args.n`，照 `cmdBase` 那行
+    printCatchCurve(m.test, m.test.games, 'test')
+    console.log('\n  ======== 基线那一格（m.base：双方空手，**对照用**）========')
+    printCatchCurve(m.base, m.base.games, 'base')
+  }
 }
 
 // ---------- all：全表一张定价表 ----------
