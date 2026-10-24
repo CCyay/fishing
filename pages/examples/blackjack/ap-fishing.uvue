@@ -74,6 +74,7 @@
           :id="'ap-foe-hand-' + index"
           class="card card-small"
           :class="{
+            'card-foe-open': foeOpen(index),
             'card-back': !foeOpen(index),
             'card-frozen': isFrozen(card),
             'card-dead': isDead(card),
@@ -83,12 +84,19 @@
           <view v-if="!foeOpen(index)" class="card-back-art card-back-art-small">
             <view class="card-back-gem card-back-gem-small"></view>
           </view>
-          <text v-if="foeOpen(index)" class="card-rank card-rank-small" :class="{ 'card-red': isRed(card) }">{{ faceOnCard(card.rank) }}</text>
-          <text v-if="foeOpen(index)" class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
-          <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
-          <!-- 【死水】废掉的标出来。不标的话那张牌看着跟别的一样，
-               而它打出来什么也不发生 —— 那就是规则坏了的感觉 -->
-          <text v-else-if="isDead(card)" class="card-dead-tag">废</text>
+          <!-- 翻开的牌跟你的手牌同一套版式〔2026-10-24〕：
+               上半部花色放大当底、点数白字描边叠在中间，下半部标签行 -->
+          <view v-if="foeOpen(index)" class="card-head card-head-small">
+            <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            <text class="card-rank card-rank-small card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
+          </view>
+          <!-- 冻 / 废**盖着的牌也印**（冻结挑的是位置，你锁的那张多半盖着） -->
+          <view class="card-tags">
+            <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
+            <!-- 【死水】废掉的标出来。不标的话那张牌看着跟别的一样，
+                 而它打出来什么也不发生 —— 那就是规则坏了的感觉 -->
+            <text v-else-if="isDead(card)" class="card-dead-tag">废</text>
+          </view>
         </view>
       </view>
     </view>
@@ -152,7 +160,9 @@
                  印在牌上就不用对照了：**要破它就得钓走这一张**，
                  所以「是哪一张」是这件事的全部要点 -->
             <text v-if="pileEffectName(index) != '' && !murked(index)" class="card-effect">{{ pileEffectName(index) }}</text>
-            <!-- 下半部的标签行：烧 / 冰 / 通配 / 盾 / 叠，按这个顺序排开，放不下就换行 -->
+            <!-- 下半部的标签行：烧 / 冰 / 通配 / 保护 / 叠，按这个顺序排开，放不下就换行。
+                 保护那个标签**写「保护」不写「盾」**〔2026-10-24〕—— 跟词条同名，
+                 玩家看见的是关键词，不是实现里的叫法 -->
             <view class="card-tags">
             <!-- 【燃烧】：这张已经着了，下一次野火就把它收走。
                  **非标不可** —— 不标的话「哪几张烧得掉」只能靠记，
@@ -185,7 +195,7 @@
             <!-- 浊水藏住的格子连角标也不印 —— 「这一叠值几分、扛几次」
                  正是它该藏的那类信息 -->
             <text v-if="wardLayers(index) > 0 && !murked(index)" class="card-ward-tag"
-              >盾{{ wardLayers(index) > 1 ? wardLayers(index) : '' }}</text
+              >保护{{ wardLayers(index) > 1 ? wardLayers(index) : '' }}</text
             >
             <text v-if="underCount(index) > 0 && !murked(index)" class="card-stack-tag"
               >+{{ underCount(index) }}</text
@@ -392,13 +402,13 @@
     </view>
 
     <!-- 凝水 / 净水：挑**堆上**一张。两件共用这一块，提示语按技能换。
-         不挑也行 —— 牌已经丢弃了，所以「不挑」就是白丢一张
-         （跟开包「放弃」一个道理：代价已经付了） -->
+         凝水不挑就是白丢一张（牌已经丢弃了，代价已经付了）；
+         **净水不挑 = 直接打出**（当普通牌落堆、照常匹配，2026-10-24） -->
     <view v-if="pilePick >= 0" class="tide-box">
       <text class="tide-text">{{ pilePickText }}</text>
       <view class="tide-actions">
         <view id="ap-pile-skip" class="tide-btn tide-btn-plain" @click="onPilePick(-1)">
-          <text class="tide-btn-text tide-btn-text-plain">不挑</text>
+          <text class="tide-btn-text tide-btn-text-plain">{{ pilePick == SK_CLEAN ? '直接打出' : '不挑' }}</text>
         </view>
       </view>
     </view>
@@ -581,7 +591,8 @@
             @click="onPlay(index)">
             <view class="card-head card-head-hand">
               <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
-              <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card) }">{{ faceOnCard(card.rank) }}</text>
+              <!-- 被【死水】废掉的印 0、描橙黄（「跟牌面对不上」那个色），不再印原点数 -->
+              <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
             </view>
             <!-- 点数卡贴上来的那几个点数。描成金的 ——
                  「这张还算 7 点」是打牌时必须看见的，牌面上写不出来 -->
@@ -649,8 +660,12 @@
         <!-- 牌面走 computed（cutFace / cutSuit / cutRed）而不是在模板里
              断言 `cutFly!` —— 那张牌是可空的，而模板里的非空断言
              在 uvue 的编译里不保险 -->
-        <text class="card-rank cut-rank" :class="{ 'card-red': cutRed }">{{ cutFace }}</text>
-        <text class="card-suit cut-suit" :class="{ 'card-red': cutRed }">{{ cutSuit }}</text>
+        <!-- 跟牌堆 / 手牌同一套版式〔2026-10-24〕：花色放大当底，点数白字描边叠在中间。
+             它没有标签，所以整张牌就是那个「头」 -->
+        <view class="card-head card-head-cut">
+          <text class="card-suit cut-suit" :class="{ 'card-red': cutRed }">{{ cutSuit }}</text>
+          <text class="card-rank cut-rank card-rank-over" :class="{ 'card-red': cutRed }">{{ cutFace }}</text>
+        </view>
       </view>
       <!-- 飞走那一段把字一起淡掉 —— 留着的话它会在半空中突然没了牌、
            只剩一行字，那比没动画更怪 -->
@@ -1473,7 +1488,7 @@
   // 终局这一局的难度（0 简单 / 1 普通 / 2 困难，照 DIFF_*）。
   // 从关卡页的角色面板带过来，**不读存档** —— 终局不记账，
   // 它的难度也是一次性的
-  let finalDiff : number = DIFF_NORMAL
+  let finalDiff : number = DIFF_EASY
 
   // ---------- 角色的那件常驻特殊技能 ----------
   //
@@ -1723,6 +1738,11 @@
   //
   // 不用 ref：它跟 pendingSkills 一样是「这一手之内」的，不进界面
   let pickSkills : number[] = []
+  // 【净水】「直接打出」要用的落堆点数（playFor 里那个 worth，挑牌停下来时存着）
+  let pickWorth : number[] = []
+  // 【净水】盖上去了：它**停在那一格**、已经从那里判过匹配，这一手的
+  // resolveMatch 不能再把它摘下来当新打出的牌去配（那样它会被挪到堆顶）
+  let stayPut : boolean = false
   // ---------- 【伏流】这一手贴过标签了吗 ----------
   //
   // **重入闸。** 伏流挑完标签之后 onPilePick 会重新调一次 straightFor
@@ -1901,7 +1921,8 @@
   // 切出那张牌的牌面 —— 模板读这三个，不在模板里断言 `cutFly!`
   const cutFace = computed<string>(() : string => {
     const c = cutFly.value
-    return c == null ? '' : rankFace(c!.rank)
+    // 无点数什么都不印（照 faceOnCard）
+    return c == null ? '' : faceOnCard(c!.rank)
   })
   const cutSuit = computed<string>(() : string => {
     const c = cutFly.value
@@ -3827,7 +3848,9 @@
       return '凝水：点堆上一张给它贴保护 —— 那张被收走时不走一次'
     }
     if (pilePick.value == SK_CLEAN) {
-      return '净水：点堆上一张去掉它所有在场效果（已经变 0 或无点数的不还原）'
+      // 〔2026-10-24 改：原先这句还是净水旧版的效果（去掉在场效果、不还原点数），
+      //   而它早就改成「盖上去代替那一张」了 —— 照 desc 原文写〕
+      return '净水：点堆上一张盖上去（停在那一格、从那里判一次匹配），或者直接打出'
     }
     if (pilePick.value == SK_RAISE) {
       return '抬水：点堆上一张给它加 ' + pickStep.value
@@ -3947,6 +3970,13 @@
       }
       return
     }
+    // 净水「直接打出」：不盖，当普通牌落堆、照常匹配（2026-10-24）
+    if (which == SK_CLEAN && card != null && index < 0) {
+      message.value = message.value + ' 净水：直接打出。'
+      landCard(card!, false, matchSkills, matchSink, pickWorth)
+      afterPlay(false)
+      return
+    }
     if (card == null || index < 0 || index >= pile.value.length) {
       // 没挑：那张牌**哪儿都没去** —— 没进堆、也没叠上去，等于出场了。
       // 代价在发动那一刻就付了（照开包「放弃」那条规矩）
@@ -4031,7 +4061,24 @@
       message.value = message.value + ' ' + who + '净水：盖住 ' + name
         + '，现在这一格算 ' + cardName(card) + '。'
         + (gone > 0 ? '它那 ' + gone + ' 条在场效果跟着埋了。' : '')
-      return false
+      // 〔2026-10-24〕它**停在那一格**，并从那里判一次匹配（照抬水的「随即判」）。
+      // 原先接着走 resolveMatch —— 那条路把它摘下来当新打出的牌去配，
+      // 配不中就放回堆顶，于是「盖在那张上面代替那张」变成了「换到堆顶」
+      stayPut = true
+      const hit = raiseMatch(index, byFoe)
+      if (hit < 0) {
+        message.value = message.value + '没撞上，停在那一格。'
+        return false
+      }
+      const lo = hit < index ? hit : index
+      const hi = hit < index ? index : hit
+      const taken : number[] = []
+      for (let i = lo; i <= hi; i++) {
+        taken.push(i)
+      }
+      message.value = message.value + '撞上 ' + cardName(pile.value[hit])
+        + '，收走 ' + taken.length + ' 张。'
+      return startSweep(byFoe, taken, [] as number[], TAIL_HEAD)
     }
     // ---------- 【抬水】：加点数，然后那一张判一次匹配 ----------
     //
@@ -4605,6 +4652,12 @@
   // 牌面上那个字跟点数叠在花色上一样大，反而像个点数
   function faceOnCard(rank : string) : string {
     return rank == BLANK_RANK ? '' : rankFace(rank)
+  }
+
+  // 手牌（你的、庄家翻开的）上印的点数。被【死水】废掉的**印 0**〔2026-10-24〕——
+  // 它判定上就是 0 点牌，原先照印牌面那个点数，玩家会照着它去算钓不钓得到
+  function handFace(card : PlainCard) : string {
+    return isDead(card) ? '0' : faceOnCard(card.rank)
   }
 
   function pileShifted(index : number) : boolean {
@@ -5714,6 +5767,8 @@
     // 玩家弹提示条等点，庄家当场自己挑
     const stacking = hasTrigger(skills, SK_CALM) || hasTrigger(skills, SK_CLEAN)
       || hasTrigger(skills, SK_RAISE)
+    // 净水盖上去之后这一手**不再走 resolveMatch**（见 stayPut）—— 每手先清
+    stayPut = false
     if (stacking) {
       // 三件撞在同一张牌上的时候按这个顺序取一件 —— 不叠加。
       // 一张牌只叠得到一个地方，而三件各要一次挑牌
@@ -5724,32 +5779,51 @@
       // 而牌面那个数写在牌上、谁都数得出来（跟退潮一个口径）
       const step = card.value
       // 堆是空的：没地方叠 —— 那张牌等于白放了
-      if (pile.value.length == 0) {
+      // 净水在空堆上没地方盖 → **直接打出**（往下落 landCard）；另外两件照旧白放
+      const cleanDirect = which == SK_CLEAN && pile.value.length == 0
+      if (pile.value.length == 0 && !cleanDirect) {
         message.value = message.value + (byFoe ? ' 庄家' : ' ')
           + DRAW_SKILLS[which].name + '：场上没牌可叠，这张白放了。'
         afterPlay(byFoe)
         return true
       }
-      if (byFoe) {
-        const at = foePilePick(which, step)
+      if (cleanDirect) {
+        message.value = message.value + (byFoe ? ' 庄家' : ' ') + '净水：场上没牌可盖，直接打出。'
+      } else if (byFoe) {
+        // 庄家的净水：盖上去收得多就盖，不然**直接打出**（见 foeCleanPick）
+        const at = which == SK_CLEAN ? foeCleanPick(card, worth, skills, sink)
+          : foePilePick(which, step)
         if (at >= 0) {
-          // 开演收牌特效了就别调 afterPlay（只有抬水会）
           if (!doPilePick(which, at, true, step, card)) {
             afterPlay(true)
           }
-        } else {
+          return true
+        }
+        if (which != SK_CLEAN) {
           message.value = message.value + ' 庄家'
             + DRAW_SKILLS[which].name + '：没挑，这张白放了。'
           afterPlay(true)
+          return true
         }
+        // 净水直接打出：落下面那条正常落堆的路（调用处接 afterPlay）
+        message.value = message.value + ' 庄家净水：直接打出。'
       } else {
-        // 等你点堆上一张。提示条和「不挑」按钮见 pilePickText
         pilePick.value = which
         pickStep.value = step
         pickCard.value = card
+        pickWorth = worth
+        return true
       }
-      return true
     }
+    landCard(card, byFoe, skills, sink, worth)
+    return false
+  }
+
+  // 一张牌**正常落堆**之后的那一串：落到堆顶（或堆底）→【结冰】规则（钥匙落堆全场贴冰、
+  // 冰雷检测）→ 拢水。原先写在 playFor 里，2026-10-24 抽出来 ——
+  // 【净水】「直接打出」也要走完同一串，复制一份的话两边必然分叉
+  function landCard(card : PlainCard, byFoe : boolean, skills : number[],
+    sink : boolean, worth : number[]) {
     if (sink) {
       unshiftPile(card, byFoe, GUARD_NONE, worth)
     } else {
@@ -5837,7 +5911,6 @@
             : '，牌库空了，没垫上保护。')
       }
     }
-    return false
   }
 
   // 技能都结算完了，拿这张牌去匹配，然后交回合。
@@ -5848,6 +5921,12 @@
   // 放回去之后那几张也在「匹配那张 → 堆顶」这一段里）。
   // 它身上的点数、花色照技能结算完的样子带回去（见底压过的就是压过的）
   function resolveMatch(byFoe : boolean) {
+    // 净水盖上去了：它停在那一格、已经从那里判过匹配（见 doPilePick 那段）
+    if (stayPut) {
+      stayPut = false
+      endPlay(byFoe)
+      return
+    }
     const card = lastPlayed
     const at0 = card == null ? -1 : pileIndexOf(card!)
     if (at0 < 0) {
@@ -7852,6 +7931,40 @@
       }
     }
     return best
+  }
+
+  // 庄家的【净水】盖哪一格，-1 = 直接打出。
+  //   盖上去能收几张：盖在 i、从 i 往外找同点数最远的那张（照 raiseMatch），收两者之间一段；
+  //   直接打出能收几张：catchStart 那一套（从对上那张到堆顶，+1 是它自己）。
+  // 取收得多的。都收不到就盖你身上挂着在场效果的那张（原先的用法），没有就直接打出
+  function foeCleanPick(card : PlainCard, worth : number[], skills : number[], sink : boolean) : number {
+    let best = -1
+    let most = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      for (let k = 0; k < pile.value.length; k++) {
+        if (k == i || guardedAgainst(k, true) || matchLocked(k, true)) {
+          continue
+        }
+        if (!anyEquals(worth, pileValsAt(k), 0)) {
+          continue
+        }
+        // +1 是它自己，再 +1 是底下埋着的那张（收走这一格时跟着走、算一分）
+        const span = (k > i ? k - i : i - k) + 2
+        if (span > most) {
+          most = span
+          best = i
+        }
+      }
+    }
+    const at = catchStart(card, true, skills, sink)
+    const direct = at < 0 ? 0 : pile.value.length - at + 1
+    if (most > direct) {
+      return best
+    }
+    if (direct > 0) {
+      return -1
+    }
+    return foePilePick(SK_CLEAN, 0)
   }
 
   function foeFreezePick() : number {
@@ -11746,8 +11859,8 @@
         finalFoeSlots.push(isNaN(v) ? -1 : v)
       }
     }
-    // 难度。老的终局入口（那颗直接开打的按钮）不带它，那就按普通
-    finalDiff = DIFF_NORMAL
+    // 难度。老的终局入口（那颗直接开打的按钮）不带它，那就按简单（默认，2026-10-24）
+    finalDiff = DIFF_EASY
     const diff = options['diff']
     if (finalMode && diff != null && ('' + diff) != '') {
       const d = parseInt('' + diff)
@@ -12029,7 +12142,7 @@
     height: 76px;
     margin-bottom: 6px;
     justify-content: flex-start;
-    padding-top: 4px;
+    padding-top: 2px;
   }
 
   /* 手牌：跟牌堆同一套版式（上半部点数 + 花色，下半部点数卡 / 技能 / 标签） */
@@ -12046,8 +12159,8 @@
      ⚠ 想要的是「只有重叠处变白」，而那要遮罩 / 混合模式（mask、mix-blend-mode、
      background-clip: text），**uni-app x 的 App 端都不支持**；描边是能做到的最接近的样子。
 
-     **只有牌堆和手牌用这一套** —— 庄家那排小牌（34x48）和切牌那张照旧上下叠，
-     它们只印点数花色、没有标签 */
+     牌堆、你的手牌、庄家翻开的手牌都用这一套（庄家那排 2026-10-24 统一过来）。
+     开局切牌那张也是（.card-head-cut）—— 它没有标签，整张牌就是头 */
   .card-head {
     position: relative;
     width: 100%;
@@ -12055,14 +12168,19 @@
     justify-content: center;
   }
 
-  /* 牌堆（54x76）：头 40 + 标签行 12 + 下沿效果名 12，三段不重叠 */
+  /* 牌堆（54x76）：头 44 + 标签行 12 + 下沿效果名 12，三段不重叠 */
   .card-head-pile {
-    height: 40px;
+    height: 44px;
   }
 
-  /* 手牌（46x64）：头 32，下面还要放点数卡 / 技能名 / 标签行 */
+  /* 手牌（46x64）：头 34，下面还要放点数卡 / 技能名 / 标签行 */
   .card-head-hand {
-    height: 32px;
+    height: 34px;
+  }
+
+  /* 庄家那排（34x48）：头 30，下面只有冻 / 废那一行 */
+  .card-head-small {
+    height: 30px;
   }
 
   /* 下半部的标签行：放不下就换行。效果名那条（.card-effect）仍然压在下沿 */
@@ -12258,6 +12376,12 @@
     margin-bottom: 4px;
   }
 
+  /* 庄家翻开的那几张从顶上排（盖着的牌背照旧居中） */
+  .card-foe-open {
+    justify-content: flex-start;
+    padding-top: 2px;
+  }
+
   .card-back-art {
     border-width: 1px;
     border-style: solid;
@@ -12293,17 +12417,18 @@
      行高 = 头的高度，跟花色那个字中心对齐 */
   .card-rank-pile {
     font-size: 22px;
-    line-height: 40px;
+    line-height: 44px;
   }
 
   /* 手牌的点数：字号不变，行高 = 头的高度 */
   .card-rank-hand {
-    line-height: 32px;
+    line-height: 34px;
   }
 
-  /* 庄家那排小牌：点数跟着小一号。必须排在 .card-rank 后面 */
+  /* 庄家那排小牌：点数跟着小一号。必须排在 .card-rank 后面。行高 = 头的高度 */
   .card-rank-small {
     font-size: 14px;
+    line-height: 30px;
   }
 
   .card-suit {
@@ -12311,21 +12436,22 @@
     font-size: 16px;
   }
 
-  /* 花色当底：牌堆 36px、手牌 28px（原先比点数小一大截，而顺色、收色、
-     一色、隔凌这几件全靠一眼认出花色和颜色）。行高 = 头的高度 */
+  /* 花色当底：牌堆 40px、手牌 32px、庄家那排 26px〔2026-10-24 再放大；
+     牌的尺寸和点数字号都没动〕。顺色、收色、一色、隔凌这几件全靠一眼认出
+     花色和颜色。行高 = 头的高度 */
   .card-suit-pile {
-    font-size: 36px;
-    line-height: 40px;
+    font-size: 40px;
+    line-height: 44px;
   }
 
   .card-suit-hand {
-    font-size: 28px;
-    line-height: 32px;
+    font-size: 32px;
+    line-height: 34px;
   }
 
-  /* 庄家那排小牌（34x48）保持原来的 12px —— 16px 会把「冻」「废」角标挤出去 */
   .card-suit-small {
-    font-size: 12px;
+    font-size: 26px;
+    line-height: 30px;
   }
 
   .card-red {
@@ -12909,12 +13035,21 @@
     transition-duration: 420ms;
   }
 
+  /* 切牌那张（96x128）整张就是头：花色 84px 当底，点数 40px 叠在中间。
+     行高都 = 头高，两个字中心对齐。牌大，描边也加粗一点 */
+  .card-head-cut {
+    height: 120px;
+  }
+
   .cut-rank {
     font-size: 40px;
+    line-height: 120px;
+    text-shadow: 0 0 3px #1a1a1a;
   }
 
   .cut-suit {
-    font-size: 26px;
+    font-size: 84px;
+    line-height: 120px;
   }
 
   /* 飞向庄家（屏幕上方那排手牌）/ 飞向你（下方那排）。

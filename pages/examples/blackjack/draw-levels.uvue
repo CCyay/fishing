@@ -760,7 +760,8 @@
   })
 
   // ---- 难度 ----
-  const diff = ref<number>(DIFF_NORMAL)
+  // 默认简单〔2026-10-24〕，refresh 里照存档改过来
+  const diff = ref<number>(DIFF_EASY)
 
   const canPickDiff = computed<boolean>(() : boolean => {
     return runFresh(save.value)
@@ -1187,7 +1188,7 @@
   // 终局那一局的难度。**不写存档** —— 终局是不记账的沙盒，
   // 它的难度也该是一次性的。默认跟着闯关那档（见 refresh），
   // 在角色面板里随时能改
-  const finalDiff = ref<number>(DIFF_NORMAL)
+  const finalDiff = ref<number>(DIFF_EASY)
 
   // 卡片上那一行：现有金币 / 生命。生命 0 = 这一轮还没开打，报满的
   const runMeta = computed<string>(() : string => {

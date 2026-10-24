@@ -688,8 +688,9 @@ export function clearDrawAt(index : number) {
 const KEY_DIFF : string = 'md_diff_'
 
 export function difficultyOf(index : number) : number {
-  const v = toInt(readString(KEY_DIFF + index), DIFF_NORMAL)
-  return v >= DIFF_EASY && v <= DIFF_HARD ? v : DIFF_NORMAL
+  // 没存过（新档）就是**简单**〔2026-10-24，原先普通〕。存过的照读
+  const v = toInt(readString(KEY_DIFF + index), DIFF_EASY)
+  return v >= DIFF_EASY && v <= DIFF_HARD ? v : DIFF_EASY
 }
 
 export function setDifficulty(index : number, diff : number) {

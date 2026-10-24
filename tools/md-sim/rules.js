@@ -7367,7 +7367,11 @@ function playFor(G, side, index, ai) {
   // 一张牌只叠得到一个地方，而三件各要一次挑牌
   const stacking = has(skills, SK.CALM) || has(skills, SK.CLEAN)
     || has(skills, SK.RAISE) || has(skills, SK.DRAG)
-  if (stacking) {
+  // 【净水】〔2026-10-24 改，照源码〕：盖上去收得多就盖，不然**直接打出** ——
+  // 直接打出就不进叠放这条路，落到下面正常出牌那一串（落堆、结冰规则、匹配）
+  const cleanOnly = stacking && !has(skills, SK.CALM) && has(skills, SK.CLEAN)
+  const cleanAt = cleanOnly && G.pile.length > 0 ? cleanPick(G, side, card, skills, sink) : -1
+  if (stacking && !(cleanOnly && cleanAt < 0)) {
     const which = has(skills, SK.CALM) ? SK.CALM
       : (has(skills, SK.CLEAN) ? SK.CLEAN
         : (has(skills, SK.RAISE) ? SK.RAISE : SK.DRAG))
@@ -7386,7 +7390,8 @@ function playFor(G, side, index, ai) {
     // 它需要 calm 才犯，所以独苗 lockice 组（同样的庄家侧）一直在报喜。
     //
     // 「白放 = 离场」照旧（游戏语义不动），只是离场得进 G.waste 而不是蒸发。
-    const at = G.pile.length === 0 ? -1 : pilePick(G, which, side, step)
+    const at = which === SK.CLEAN ? cleanAt
+      : (G.pile.length === 0 ? -1 : pilePick(G, which, side, step))
     if (at >= 0) doPilePick(G, which, at, side, step, card)
     else G.waste.push(card)
     afterPlay(G, side, skills, card, ai)
@@ -7395,15 +7400,16 @@ function playFor(G, side, index, ai) {
     // 三件的结果并不一样，而差别是那个函数**自己判出来的**，不用在这儿分支：
     //   凝水 / 抬水 —— 牌垫在别人下面，不在 pile 里 → pileIndexOf 返回 -1，
     //     直接交回合（源码那句「不进堆就没有匹配可言，所以不用另加闸」）；
-    //   净水 —— 盖上去那张**进了 pile**（它换掉了那一格），所以它是当前牌，
-    //     照常匹配。注意那也意味着匹配不中时它会被挪到堆顶 / 堆底
-    //     （resolveMatch 一律先摘下来再放回去）—— 源码就是这个行为
+    //   净水 —— **不走**〔2026-10-24〕。它盖上去之后停在那一格、已经从那里
+    //     判过一次匹配（doPilePick 里照抬水的 raiseMatch）。原先接着走
+    //     resolveMatch，那条路把它摘下来当新打出的牌去配、配不中就放回堆顶 ——
+    //     「盖在那张上面代替那张」变成了「换到堆顶」
     // 叠放那三件也要走燃烧那一步 —— 它是「一张牌打完了」的通路之一，
     // 漏在这儿的话凝水 / 净水 / 抬水 那几手就不蔓延、不闭合
     // 叠放那条路也要接 chainAfterBurn —— **一张牌能同时触发两件技能**
     // （花色槽一件、点数槽一件），所以「凝水 + 传火」这种牌是可能的
     chainAfterBurn(G, side, skills, card, burnStep(G, side))
-    resolveMatch(G, side, card, skills, sink)
+    if (which !== SK.CLEAN) resolveMatch(G, side, card, skills, sink)
     // 【留潮】的驻场那一句：**匹配之后**给刚打的那张贴【大数】。
     //
     // 排在 resolveMatch 后面是这一句的全部内容（「匹配后」）——
@@ -8407,6 +8413,30 @@ function pilePick(G, which, side, step, skip) {
 //
 // card 是**要叠上去那张** —— 三条叠放都要把它放进 G.stacked。
 // 只有抬水会收牌
+// 【净水】盖哪一格，-1 = 直接打出（照源码 foeCleanPick，两侧共用）。
+//   盖上去能收几张：盖在 i、从 i 往外找同点数最远的那张，收两者之间一段；
+//   直接打出能收几张：catchStart 那一套（从对上那张到堆顶，+1 是它自己）。
+// 取收得多的。都收不到就盖对方挂着在场效果的那张（原先的用法），没有就直接打出
+function cleanPick(G, side, card, skills, sink) {
+  const worth = landVals(G, card, [], false)
+  let best = -1
+  let most = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    for (let k = 0; k < G.pile.length; k++) {
+      if (k === i || guardedAgainst(G, k, side)) continue
+      if (!anyEquals(worth, pileValsAt(G, k), 0)) continue
+      // +1 是它自己，再 +1 是底下埋着的那张（收走这一格时跟着走、算一分）
+      const span = (k > i ? k - i : i - k) + 2
+      if (span > most) { most = span; best = i }
+    }
+  }
+  const at = catchStart(G, card, side, skills, sink)
+  const direct = at < 0 ? 0 : G.pile.length - at + 1
+  if (most > direct) return best
+  if (direct > 0) return -1
+  return pilePick(G, SK.CLEAN, side, 0)
+}
+
 function doPilePick(G, which, i, side, step, card) {
   // ---- 凝水：垫在它下面当盾 ----
   //
@@ -8450,6 +8480,14 @@ function doPilePick(G, which, i, side, step, card) {
     //
     // 对**盾**来说那是对的：保护是贴给那一张牌的，那张牌不再是当前牌了，
     // 保护就没有对象（合流吃掉有盾的邻居同理）。源码行为一样
+    // 停在那一格，从那里判一次匹配（照抬水，2026-10-24 照源码改）
+    const hit = raiseMatch(G, i, side)
+    if (hit < 0) return
+    const lo = hit < i ? hit : i
+    const hi = hit < i ? i : hit
+    const wanted = []
+    for (let k = 0; k < G.pile.length; k++) wanted.push(k >= lo && k <= hi)
+    harvestPile(G, side, wanted)
     return
   }
   // ---- 抬水：加点数，然后那一张判一次匹配 ----
