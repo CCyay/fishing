@@ -1044,8 +1044,8 @@ function pickCard(G, side) {
     const at = R.catchStart(G, card, side, skills, false)
     let caught = 0
     if (at >= 0) {
-      // 收几张：「匹配那张到堆顶」再加自己
-      caught = G.pile.length - at + 1
+      // 收几张：「匹配那张到堆顶」再加自己 —— 走 catchCountAt（【中毒】会截断，原型）
+      caught = R.catchCountAt(G, card, side, skills, at)
     }
     // ---------- 【映照】：这一手能收几张，**要按变完之后算**〔2026-10-21〕 ----------
     //

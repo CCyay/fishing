@@ -341,7 +341,7 @@ const SKILLS = [
   { key: 'narrow', name: '窄口' },
   { key: 'creel', name: '满篓' },
   { key: 'twin', name: '同号' },
-  { key: 'draft', name: '吃水' },
+  // 〔吃水 2026-10-25 删了（用户定）：21 匹配那条线改由【零递】承担 —— 见 DEAD_SKILLS〕
   { key: 'soft', name: '软点' },
   { key: 'dead', name: '死水' },
   { key: 'calm', name: '凝水' },
@@ -741,6 +741,61 @@ const SKILLS = [
   { key: 'frostwild', name: '冰通配' },
   // 冰雷（进了游戏）：手里 1 张牌贴冰；**这张**之后被贴上冰时，你收走整堆
   { key: 'icebomb', name: '冰雷' },
+  // 【毒苹果】（原型，2026-10-25 · 白雪公主那一套）：它带上【中毒】。见 POISON_* 那段
+  { key: 'apple', name: '毒果' },
+  // 白雪公主那一套的另外三件（原型，2026-10-25）—— 每件都把「墙」（【中毒】）和
+  //「钥匙」（不受毒影响的收牌线）装在同一件里，躲开「两件式」那个死因
+  // 【白雪】无点数；改按花色匹配（= 顺色）；它带上【中毒】（在 skillsOf 里展开成顺色 + 毒苹果）
+  { key: 'snow', name: '白雪' },
+  // 【七矮人】它带【通配】；【顺子匹配】；收完之后，堆顶那张带上【中毒】
+  { key: 'dwarf', name: '矮人' },
+  // 【王子之吻】这一手的连续匹配无视【中毒】；收完之后，堆顶那张带上【中毒】
+  { key: 'kiss', name: '吻醒' },
+  // ---------- 用户 2026-10-25 那两条（要评价）----------
+  // 【毒顺】它带上【中毒】【通配】；你 1 张手牌带上【顺子匹配】（墙 + 通配材料在堆上，钥匙在手里）
+  { key: 'poisonline', name: '毒顺' },
+  // 【毒色】它带上【中毒】、视为任意花色；你 1 张手牌带上【花色匹配】
+  { key: 'poisonsuit', name: '毒色' },
+  // ---------- 用户 2026-10-25 又两条（要评价）----------
+  // 【染堆】堆上的牌变成跟此牌相同花色；你 1 张手牌带上【花色匹配】
+  { key: 'dyepile', name: '染堆' },
+  // 【传色·同花】（原型）【花色匹配】；你手里**同花色**的牌都带上【花色匹配】
+  //〔原名传色。2026-10-25 上架的「传色」是**同颜色**那一版（key suitcolor），这一件留作对照〕
+  { key: 'suitspread', name: '传色·同花' },
+  // 【藏色】（原型，2026-10-25 用户要评价）：堆上**其他**跟它同花色的牌变成无点数；你 1 张手牌带上【花色匹配】
+  { key: 'voidsuit', name: '藏色' },
+  // 【雪覆】（原型，2026-10-25 用户要评价）：【花色匹配】，之后堆上全变成无点数
+  { key: 'snowcover', name: '雪覆' },
+  // 【传遍】（原型，2026-10-25 用户要评价）：【花色匹配】；你手里的牌都带上【花色匹配】（J 除外）
+  { key: 'suitall', name: '传遍' },
+  // 【传色】（2026-10-25 进了游戏，原型名传彩）：【花色匹配】；你手里**同颜色**的牌都带上【花色匹配】（J 除外）
+  { key: 'suitcolor', name: '传色' },
+  // ---------- 2026-10-25 · 21 匹配两件原型（用户「设计一下 21 匹配的技能」）----------
+  //
+  // 【传吃】【21 匹配】；你手里**点数比它小**的牌都带上【21 匹配】（J、无点数不贴）
+  //   传色那个形状搬到 21 匹配上。要治的是吃水那条斜率：吃水的预算 = 21 − 槽上的点数，
+  //   所以它在 A 槽强、K 槽弱（R4 实测 A 2.89 / K 槽 0.6 上下）。这一件**槽越大贴得越多**，
+  //   A 槽几乎贴不出（只有 0 点牌比 A 小），K 槽能贴满手 —— 斜率反着走。
+  //   标签复用递吃的 draftHand（同一条兑现路径，打出那一手摘）
+  { key: 'spreaddraft', name: '传吃' },
+  // 【满点】【21 匹配】；**正好凑满 21** 时收走整堆
+  //   二十一点那个「正好 21」。不动预算（预算轴是死的，天花板 +0.55），
+  //   动的是**精算的回报**：差一点和正好是两回事，于是「打哪张」要算到个位。
+  //   「凑满」= 这一段（含它自己）点数和正好 21，而且这一段本身已经凑成（≥ 2 张）
+  { key: 'exactdraft', name: '满点' },
+  // 【零递】（2026-10-25 进了游戏，价 100）：置 0；1 张手牌带上【21 匹配】
+  //   = 递吃 + 它自己落成 0 点牌。0 点在 21 匹配里不占预算也不断链 = 免费垫片，
+  //   所以自己落下的那张正好是之后那张标签牌的料；代价是这一手不能普通匹配。
+  //   贴哪张照递吃（doDraftTag：手里点数最小的那张）
+  { key: 'zerodraft', name: '零递' },
+  // ---------- 2026-10-25 · 用户又两条（要评价）----------
+  // 【减递】堆上所有牌（含它自己）点数 −N；1 张手牌带上【21 匹配】。N = `MINUS_TAG_N`（默认 1）。
+  //   减法走 dropPile（照低吃：减到 0 的留在堆上当垫片，不收）；贴哪张照递吃
+  { key: 'minustag', name: '减递' },
+  // 【多递】手里 N 张 / 同颜色 / 同花色的牌带上【21 匹配】（它自己不走 21 匹配，照递吃）。
+  //   `TAGX` = n2 / n3 / all / color / suit（默认 n2）。n 档挑点数最小的那几张；
+  //   color / suit 比的是**它**的花色。J、无点数、贴过的不贴（照 doDraftTag）
+  { key: 'tagmany', name: '多递' },
   // ---------- 2026-10-21 ·【递吃】：21 匹配**第一次做成标签** ----------
   //
   // 打出时，给手里**点数最小**的那张贴上【21 匹配】；那张牌打出去时
@@ -1263,8 +1318,9 @@ const SK = {
   // 另外两件各自的：连竿 X −0.78 **而且** D=+3.31 破了基线优势上限；
   // 同花 X −0.32。
   //
-  // 吃水：先在模拟器里量形状，后来进了游戏代码（`draw-skills.uts` 表尾）
-  DRAFT: skAt('draft'),
+  // 吃水：先在模拟器里量形状，后来进了游戏代码；**2026-10-25 删了**，钉 SK_GONE。
+  // 21 匹配那条线（draftReach / 那几个 DRAFT_* 旋钮）留着 —— 零递和几件原型还走它
+  DRAFT: SK_GONE,
   // 软点（追加 1 点，归深的镜像）、死水（废对手两张手牌）
   SOFT: skAt('soft'), DEAD: skAt('dead'),
   // 野火：无点数；获取下一张【野火】；收走堆上带火的，给剩下的和它自己点火
@@ -1330,7 +1386,10 @@ const SK = {
   // 结凌 / 藏凌 / 寒流 2026-10-20 删了，钉成 SK_GONE（见 SK_GONE 那段）
   FROST: SK_GONE, HIDE: SK_GONE,
   ICELOCK: skAt('icelock'), ICEDRAW: skAt('icedraw'), ICECOLOR: skAt('icecolor'), ICEKEY: skAt('icekey'),
-  THAW: skAt('thaw'), ICEDRAFT: skAt('icedraft'), FROSTWILD: skAt('frostwild'), ICEBOMB: skAt('icebomb'), THAWDRAW: skAt('thawdraw'),
+  THAW: skAt('thaw'), ICEDRAFT: skAt('icedraft'), FROSTWILD: skAt('frostwild'), ICEBOMB: skAt('icebomb'), APPLE: skAt('apple'),
+  SNOW: skAt('snow'), DWARF: skAt('dwarf'), KISS: skAt('kiss'),
+  POISONLINE: skAt('poisonline'), POISONSUIT: skAt('poisonsuit'),
+  DYEPILE: skAt('dyepile'), SUITSPREAD: skAt('suitspread'), VOIDSUIT: skAt('voidsuit'), SNOWCOVER: skAt('snowcover'), SUITALL: skAt('suitall'), SUITCOLOR: skAt('suitcolor'), SPREADDRAFT: skAt('spreaddraft'), EXACTDRAFT: skAt('exactdraft'), ZERODRAFT: skAt('zerodraft'), MINUSTAG: skAt('minustag'), TAGMANY: skAt('tagmany'), THAWDRAW: skAt('thawdraw'),
   LOCKDRAW: skAt('lockdraw'), LOCKBACK: skAt('lockback'), LOCKCOLOR: skAt('lockcolor'),
   COLDHUE: SK_GONE,
   // 霜降 2026-10-15 删了（『结冰族四件』那一节的结论：结凌和霜降两件都删）。
@@ -2929,7 +2988,9 @@ const SP = {
   // 而不是在判定那一层伪装。理由是后者要在 `sameSuit` / `isRedSuit` /
   // `pileSuit` 一共十几处各打一个补丁 —— 那正是「复制一份逻辑，
   // 两份必然分叉」。改牌本身的话下游**一行都不用动**
-  TODIA: 'todia'
+  TODIA: 'todia',
+  // 【苏醒】（白雪公主，原型 2026-10-25）：你的连续匹配不受【中毒】影响
+  WAKE: 'wake'
 }
 
 // ---------- 【常涌】那个原型的两个旋钮〔2026-10-20〕----------
@@ -3062,6 +3123,23 @@ const BAIT_COUNT = 3      // 囤饵：开局塞几张
 const CYCLE_REFILL = 6    // 涨落：补牌时补到几张（比 HAND_SIZE 多 2）
 // 【死水】废对手几张手牌（照 draw-skills 的 DEAD_COUNT）
 const DEAD_COUNT = 2
+
+// ---------- 【中毒】（原型，2026-10-25）----------
+//
+// 贴在堆上一张牌上的标签。**连续匹配**（普通匹配、21 匹配、J 通吃〔看 POISON_J〕）
+// 从堆顶往下收，收到带【中毒】的牌就停；顺子匹配、按花色匹配（顺色）不受影响 ——
+// 它们本来就不走 resolveMatch 那一段（顺色走，所以单独排除）。
+//
+// 三个旋钮（用户 2026-10-25 要量的那三条）：
+//   POISON_LIFE  'perm' 永续 / '1' / '2' / '3'：毒牌**留下**时能拦几次（像【保护】的层数）
+//   POISON_FATE  'stay' 毒牌和它下面的都留下 / 'taken' 毒牌被收走、它下面的留下
+//                （'taken' 天然只拦一次 —— 牌一走毒就没了，所以那时 LIFE 不起作用）
+//   POISON_J     'block' J 通吃也被拦 / 'pass' J 照收整堆
+const POISON_LIFE = process.env.POISON_LIFE || 'perm'
+const POISON_FATE = process.env.POISON_FATE || 'stay'
+const POISON_J = process.env.POISON_J || 'block'
+// POISON_OWN  'both' 不分敌我（自己的连续匹配也被拦）/ 'foe' 只拦对手
+const POISON_OWN = process.env.POISON_OWN || 'both'
 // 【冻结】对方最多同时几张被冻住。
 //
 // **默认 99 = 不设上限 = 现在游戏里的样子**〔2026-10-21 用户定，源码那头
@@ -3197,6 +3275,8 @@ const DRAW_ROLES = [
   // 两档可以直接比（**覆盖面是这一件唯一的强度旋钮**）
   { key: 'tidehue', name: '潮主·花色', special: SP.RISEKEY, slots: ['♥'] },
   { key: 'risewatch', name: '迎潮人', special: SP.RISE, slots: ['A', '5', '8', 'Q'] },
+  // 【白雪公主】（原型，2026-10-25）：常驻【苏醒】；槽 ♥（红唇、毒苹果）+ 7（七个小矮人）
+  { key: 'snowwhite', name: '白雪公主', special: SP.WAKE, slots: ['♥', '7'] },
   // 【涌工】：【常涌】的载体（2026-10-20 原型）。槽照江口闸官 / 潮主
   //（A/2/3/4 = 量表标准），这样常驻技那一项可以跟别的卡直接比。
   //
@@ -3774,6 +3854,12 @@ function skillsOf(G, side, card) {
   // 不这么做的话 AI 评估「打这张值不值」时读不到 ♦ 槽那一件
   const view = diaOn(G, side) ? { suit: diaSuitOf(lo, card), rank: card.rank } : card
   const out = triggersOf(lo, view)
+  // 【白雪】（原型）= 【花色匹配】 + 毒果（没匹配上就带【中毒】）。
+  // 〔2026-10-25 用户定【花色匹配】：自带无点数；收走堆上同花色的牌（至少 SNOW_MIN 张才算成功），
+  //   **不收夹在中间的**（间隔匹配，所以天然不受【中毒】）。原先展开成顺色那一版作废〕
+  if (out.indexOf(SK.SNOW) >= 0 && !process.env.SNOW_NOPOISON) {
+    if (out.indexOf(SK.APPLE) < 0) out.push(SK.APPLE)
+  }
   // 【点数互通】（角色常驻技原型）：**按侧**判，所以放在这一层而不是
   // `triggersOf` 里。放这儿还顺带让 `ai.js` 自动跟上 ——
   // 它那四处调的全是 `R.skillsOf`，一处都没绕开
@@ -3996,6 +4082,15 @@ function newGame(opts) {
     wildTag: [],
     // 冰雷：堆上埋着的雷 {card, side}
     bombs: [],
+    // 【中毒】：堆上带毒的牌 {card, life}（life 是还能拦几次，永续 = Infinity）
+    poison: [],
+    // 毒顺 / 毒色（原型）：手里带【顺子匹配】/【花色匹配】的牌（钥匙，打出那一手用掉）；
+    // 堆上视为任意花色的牌
+    straightKey: [],
+    // 手里带【花色匹配】的牌（染堆 / 传色给的；打出那一手用掉）
+    matchKey: [],
+    suitKey: [],
+    anySuit: [],
     // 【保护】贴过标签的那几张牌（对象引用，照 wildTag 那个模式）。
     //〔2026-10-19 用户定：**保护是独立标签**，不等于「底下垫着一张盾」〕
     wardTag: [],
@@ -5132,6 +5227,37 @@ function draftTagOn(G, card) {
 //            它根本当不了这条线的那一张
 //   **已贴过** `draftHand` 是引用清单，重贴在 `draftTagOn` 看来跟没贴一样，
 //            而那会让 `tagged` 虚高、利用率虚低（照 tagOwnHand 那条）
+const MINUS_TAG_N = process.env.MINUS_TAG_N ? parseInt(process.env.MINUS_TAG_N, 10) : 1
+const TAGX = process.env.TAGX || 'n2'
+
+// 【多递】：按 TAGX 给 side 手里的牌贴【21 匹配】，返回贴了几张
+function doTagMany(G, side, card) {
+  const hand = G.hands[side]
+  const pool = []
+  for (let i = 0; i < hand.length; i++) {
+    const c = hand[i]
+    if (c.rank === JACK || draftTagOn(G, c)) continue
+    const vals = cardVals(c)
+    if (vals.length === 0) continue
+    let own = 99
+    for (let k = 0; k < vals.length; k++) if (vals[k] < own) own = vals[k]
+    pool.push({ c: c, own: own })
+  }
+  let pick = []
+  if (TAGX === 'color') pick = pool.filter(function (p) { return isRedSuit(p.c.suit) === isRedSuit(card.suit) })
+  else if (TAGX === 'suit') pick = pool.filter(function (p) { return p.c.suit === card.suit })
+  else if (TAGX === 'all') pick = pool
+  else {
+    const n = parseInt(TAGX.slice(1), 10)
+    pick = pool.slice(0).sort(function (a, b) { return a.own - b.own }).slice(0, n)
+  }
+  for (let i = 0; i < pick.length; i++) G.draftHand.push(pick[i].c)
+  return pick.length
+}
+
+// 【零递】的对照档：整堆置 0（默认关 = 只有它自己置 0）
+const ZERO_ALL = process.env.ZERO_ALL === '1'
+
 function doDraftTag(G, side) {
   const hand = G.hands[side]
   let best = -1
@@ -6435,6 +6561,15 @@ function cardVals(card) {
 // 顺色拿整个点数换一次按花色钓，洪水拿点数换一串翻牌 —— 两件都是「点数整个不算」
 // 收色也在「拿点数换一次按花色的清扫」这一类里，所以跟顺色、洪水一起。
 // G 是为了齐顶 —— 它要读堆才算得出「最大的那个点数」
+// 这张牌是谁的：在谁手里就是谁的，在堆上看是谁打的。都不是就当是你的（只给【两色】那一下用）
+function ownerOf(G, card) {
+  if (G.hands[FOE].indexOf(card) >= 0) return FOE
+  if (G.hands[ME].indexOf(card) >= 0) return ME
+  const at = G.pile.indexOf(card)
+  if (at >= 0) return G.pileByFoe[at] ? FOE : ME
+  return G.turn === FOE ? FOE : ME
+}
+
 function valuesOf(G, card, skills) {
   // 〔原先这儿有一支「死水废掉的牌算 0 点，判在最前面盖掉下面所有分支」。
   //   死水改成「把牌变成 0 点牌」之后不需要了：`cardVals` 读 card.value
@@ -6447,7 +6582,13 @@ function valuesOf(G, card, skills) {
   // 〔抹点数那一族（压邻 / 掏手 / 掏库 / 封色 / 分水 / 退潮）2026-10-14 全删了，
   //   它们在这儿那几支跟着删〕
   // 全表的收牌类技能都靠这一条挡（收一片的代价是这张不钓）
-  if (has(skills, SK.SUITED) || has(skills, SK.FLOOD) || has(skills, SK.HUE)
+  // 〔顺色 2026-10-25 从这一行撤了（照源码）：改成变点数，见下面 SUITED 那支〕
+  // 【零递】（原型）：置 0
+  if (has(skills, SK.ZERODRAFT)) return [0]
+  if (has(skills, SK.FLOOD) || has(skills, SK.HUE) || has(skills, SK.SNOW)
+    || has(skills, SK.SUITSPREAD) || (G && G.matchKey && G.matchKey.indexOf(card) >= 0)
+    // 【花色匹配】那几件：打出后全堆（包括它自己）变无点数，跟「它无点数」等价（照源码）
+    || has(skills, SK.SUITIFY) || has(skills, SK.SNOWCOVER) || has(skills, SK.SUITALL) || has(skills, SK.SUITCOLOR)
     // ---- 【野火】**退出这一族**（2026-10-13 最终）----
     //
     // 它在这一族里进出过四次（无条件无点数 → 条件性 → 置 0 → 不改 → 无点数），
@@ -6558,6 +6699,17 @@ function valuesOf(G, card, skills) {
   }
   // 齐顶：算堆上**同颜色**牌里最大的那个点数，覆盖掉牌面和点数卡。
   // 堆上没有同颜色的牌就按自己的点数算（照 ap-fishing 的 valuesOf）
+  // 【顺色】〔2026-10-25，照源码〕：点数变成堆上第一张（最底下那张）同花色牌的点数。
+  // 「同花色」要看这张牌是谁的（【两色】），valuesOf 没有 side 参数，所以从牌找主人
+  if (has(skills, SK.SUITED)) {
+    const owner = ownerOf(G, card)
+    for (let i = 0; i < G.pile.length; i++) {
+      if (G.pile[i] !== card && sameSuit(G, pileSuitAt(G, i), card.suit, owner)) {
+        return pileValsAt(G, i).slice(0)
+      }
+    }
+    return cardVals(card)
+  }
   if (has(skills, SK.PEAK)) {
     const red = isRedSuit(card.suit)
     let top = 0
@@ -6670,8 +6822,12 @@ function catchStart(G, card, side, skills, sink) {
     return sink ? size - 1 : 0
   }
   const hook = has(skills, SK.HOOK)
-  const suited = has(skills, SK.SUITED)
-  const mine = valuesOf(G, card, skills)
+  // 【花色匹配】钥匙（毒色给的手牌标签）：多一条按花色的线，**点数照留**（不像顺色那样无点数）
+  // 〔顺色那条花色线 2026-10-25 撤了（改成变点数）。剩下的只有毒色原型给的花色钥匙〕
+  const suited = suitKeyOn(G, card)
+  // 【减递】（原型）：整堆连它自己 −N 之后，它按**减过的**点数匹配（resolveMatch 里塞进 G.mineOverride）。
+  // 不塞的话它拿原点数去对一个减过的堆，几乎永远对不上 —— 2026-10-25 第一跑就栽在这儿
+  const mine = (G.mineOverride && G.mineOverride.card === card) ? G.mineOverride.vals : valuesOf(G, card, skills)
   // 〔【量水】原先在这儿有一支（点数 = 堆张数 → 整堆），技能删了〕
   // ---- 【21 匹配】（吃水）：**判在普通匹配之前**〔2026-10-19〕 ----
   //
@@ -6696,7 +6852,12 @@ function catchStart(G, card, side, skills, sink) {
   // G.draftOpen 上。别的件恒为真，所以这一句对现行规则是 no-op
   if (DRAFT_FIRST && hasDraftLine(skills, G, card) && draftLineOpen(G, skills, card)
     && (DRAFT_ANCHOR === 'self' || !sink)) {
-    const reach = draftReach(G, card, side, mine, null, sink)
+    const o21 = {}
+    const reach = draftReach(G, card, side, mine, o21, sink)
+    // 【满点】正好凑满 21（这一段的和 == 预算）→ 收走整堆
+    if (reach >= 0 && has(skills, SK.EXACTDRAFT) && o21.sum === o21.budget) {
+      return sink ? size - 1 : 0
+    }
     if (reach >= 0) return reach
   }
   // 普通那三条线：从堆底往上找（命中最深 = 收最多）
@@ -6706,7 +6867,7 @@ function catchStart(G, card, side, skills, sink) {
     if (guardedAgainst(G, i, side)) continue
     const theirs = pileValsAt(G, i)
     // 花色比的是 pileSuitAt（染水改过的算改后的）
-    if (suited && sameSuit(G, pileSuitAt(G, i), card.suit, side)) { best = i; break }
+    if (suited && suitMatchAt(G, i, card, side)) { best = i; break }
     if (anyEquals(mine, theirs, 0)) { best = i; break }
     // 磁钩：对得上比它大 1 的点数。J 不吃这条
     if (hook && G.pile[i].rank !== JACK && anyEquals(mine, theirs, 1)) { best = i; break }
@@ -6758,6 +6919,7 @@ function hasDraftLine(skills, G, card) {
     || has(skills, SK.ICEDRAFT)
     || has(skills, SK.HUEDRAFT)
     || has(skills, SK.ALTDRAFT) || has(skills, SK.PUSHDRAFT)
+    || has(skills, SK.SPREADDRAFT) || has(skills, SK.EXACTDRAFT)
   // ⚠ **SK.TAGDRAFT 不在这儿**，是有意的 —— 见 SK 表里那条注释
 }
 
@@ -7095,6 +7257,8 @@ function reflectPick(G, side, card, skills, sink) {
 
 function playFor(G, side, index, ai) {
   const card = takeFromHand(G, side, index)
+  // 毒顺 / 毒色的钥匙在这一手用掉（endPlay 里摘），记下是哪张
+  G.keyNow = card
   // 【归方】（原型）：**真改牌**，而且必须在 `skillsOf` 之前 ——
   // 这张牌要带着 ♦ 去触发、去落堆、去给 `sameSuit` / `isRedSuit` 读。
   // 改完下游一行都不用动（理由见 SP.TODIA）。
@@ -7572,6 +7736,8 @@ function playFor(G, side, index, ai) {
 // **【燃烧】那一步不在这儿了**（2026-10-13）—— 它挪到了 resolveMatch **之前**，
 // 见 burnStep 那段的「为什么必须排在匹配前面」
 function endPlay(G, side) {
+  // 钥匙（顺子 / 花色匹配）打出那一手用掉
+  if (G.keyNow) { dropKeys(G, G.keyNow); G.keyNow = null }
   // ---- 堆的奇偶结构：相邻两张同奇偶的比例〔2026-10-20 加〕 ----
   //
   // 纯计数，不改任何行为。加它是为了查一个反常：撒网落堆后
@@ -7900,6 +8066,19 @@ function resolveMatch(G, side, card, cardSkills, sink) {
     dr.zeroIn[side] += probe.zeroIn
     dr.zeroOut[side] += probe.zeroOut
     if (probe.got >= DRAFT_MIN) dr.hits[side]++
+    if (has(skills, SK.EXACTDRAFT)) {
+      const st = PROTO_STAT.exactdraft
+      st.fires++
+      if (probe.got >= DRAFT_MIN) st.hits++
+      if (probe.got >= DRAFT_MIN && probe.sum === probe.budget) {
+        st.exact++
+        st.extra += G.pile.length - probe.got
+      }
+    }
+    if (draftTagOn(G, card) && G.spreadHand && G.spreadHand.indexOf(card) >= 0) {
+      PROTO_STAT.spreaddraft.cashed++
+      if (probe.got >= DRAFT_MIN) PROTO_STAT.spreaddraft.hits++
+    }
     if (probe.stop === 'over') dr.stopOver[side]++
     else if (probe.stop === 'void') dr.stopVoid[side]++
     else if (probe.stop === 'guard') dr.stopGuard[side]++
@@ -7907,7 +8086,9 @@ function resolveMatch(G, side, card, cardSkills, sink) {
     else if (probe.stop === 'end') dr.stopEnd[side]++
     else dr.stopEmpty[side]++
   }
+  if (has(skills, SK.MINUSTAG)) G.mineOverride = { card: card, vals: vals }
   const at = catchStart(G, card, side, skills, sink)
+  G.mineOverride = null
   if (at < 0) {
     // 没钓到：落下。【稳钩】的头几张在这时候护上
     const guard = firmGuardFor(G, side)
@@ -7926,12 +8107,206 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   if (sink) {
     unshiftPile(G, card, side, GUARD_NONE, vals)
     keepMarks(G, 0, burn, suit)
-    finishCatch(G, side, 0, at + 2, card, skills)
+    // 【中毒】截断：落堆底那一段从堆底往上收，碰到最低那张毒就停
+    let count = at + 2
+    const p = poisonApplies(card, skills, G, side) && !suitKeyAnchor(G, card, at, side)
+      ? poisonLowest(G, 1, at + 1, side) : -1
+    if (p >= 0) count = poisonHit(G, p, card, count - p, side) ? p : p + 1
+    finishCatch(G, side, 0, count, card, skills)
+    if (has(skills, SK.KISS) && G.pile.length > 0) addPoison(G, G.pile[G.pile.length - 1], side)
   } else {
     pushPile(G, card, side, GUARD_NONE, vals)
     keepMarks(G, G.pile.length - 1, burn, suit)
-    finishCatch(G, side, at, G.pile.length - at, card, skills)
+    // 【中毒】截断：从堆顶往下收，碰到最高那张毒就停（打出的这张自己不算）
+    let from = at
+    const p = poisonApplies(card, skills, G, side) && !suitKeyAnchor(G, card, at, side)
+      ? poisonHighest(G, at, G.pile.length - 2, side) : -1
+    if (p >= 0) from = poisonHit(G, p, card, p - at, side) ? p + 1 : p
+    finishCatch(G, side, from, G.pile.length - from, card, skills)
+    // 【王子之吻】收完之后，堆顶那张带上【中毒】（把刚穿过的墙重新封上）
+    if (has(skills, SK.KISS) && G.pile.length > 0) addPoison(G, G.pile[G.pile.length - 1], side)
   }
+}
+
+// ---------- 【中毒】的几个小工具（原型）----------
+function addPoison(G, card, side) {
+  G.poison = G.poison.filter(function (e) { return inPile(G, e.card) && e.card !== card })
+  const life = POISON_LIFE === 'perm' ? Infinity : parseInt(POISON_LIFE, 10)
+  G.poison.push({ card: card, life: life, side: side })
+  const d = poisonDiag(G); d.tags++
+}
+
+function poisonDiag(G) {
+  G.stat.poisonDiag = G.stat.poisonDiag || { tags: 0, blocks: 0, kept: 0, jBlocks: 0, selfBlocks: 0, selfKept: 0 }
+  return G.stat.poisonDiag
+}
+
+function poisonOn(G, card, side) {
+  for (let k = 0; k < G.poison.length; k++) {
+    if (POISON_OWN === 'foe' && side !== undefined && G.poison[k].side === side) continue
+    if (G.poison[k].card === card && G.poison[k].life > 0) return G.poison[k]
+  }
+  return null
+}
+
+// 这一手的收牌受毒影响吗：顺色（按花色匹配）不受；J 看 POISON_J
+function poisonApplies(card, skills, G, side) {
+  // 〔顺色的豁免 2026-10-25 撤了 —— 它改成变点数、走普通匹配（连续匹配），照样被中毒拦〕
+  // 【王子之吻】这一手无视【中毒】；【苏醒】（白雪公主常驻）她的连续匹配都不受毒
+  if (has(skills, SK.KISS)) return false
+  // WAKE_OFF=1：关掉苏醒（量它净值的对照档）
+  if (G && !process.env.WAKE_OFF && hasSpecial(G, side, SP.WAKE)) return false
+  if (card.rank === JACK && POISON_J !== 'block') return false
+  return true
+}
+
+function poisonHighest(G, lo, hi, side) {
+  for (let i = hi; i >= lo; i--) if (poisonOn(G, G.pile[i], side)) return i
+  return -1
+}
+
+function poisonLowest(G, lo, hi, side) {
+  for (let i = lo; i <= hi; i++) if (poisonOn(G, G.pile[i], side)) return i
+  return -1
+}
+
+// 毒拦下了一次。返回**毒牌留不留下**（true = 留下，那它和它下面 / 上面的都不收）。
+// kept = 被挡下的张数（诊断口）
+function poisonHit(G, p, card, kept, side) {
+  const e = poisonOn(G, G.pile[p], side)
+  const d = poisonDiag(G)
+  d.blocks++
+  // 拦的是自己（毒是自己铺的）—— 诊断口：【中毒】不分敌我，自己的连续匹配也被拦
+  if (e.side === side) { d.selfBlocks++; d.selfKept += kept }
+  if (card.rank === JACK) d.jBlocks++
+  if (POISON_FATE === 'taken') {
+    d.kept += kept
+    G.poison = G.poison.filter(function (x) { return x !== e })
+    return false
+  }
+  d.kept += kept + 1
+  e.life--
+  if (e.life <= 0) G.poison = G.poison.filter(function (x) { return x !== e })
+  return true
+}
+
+// AI 估算「这一手普通匹配能收几张」（还没落堆，at 是 catchStart 的返回值）。
+// 跟 resolveMatch 同一个截断口径，不然 AI 会照着收不到的那几张去挑牌
+// ---------- 毒顺 / 毒色的钥匙（原型）----------
+// 顺子钥匙：它自己必须在顺子里、按自己的点数（不当通配），差 1
+const KEY_LINE_OPT = { self: 'own', step: 1, pileMin: 1, hand: 0 }
+
+function straightKeyOn(G, card) { return G.straightKey.indexOf(card) >= 0 }
+function suitKeyOn(G, card) { return G.suitKey.indexOf(card) >= 0 }
+
+// 花色匹配：同花色，或者堆上那张视为任意花色
+function suitMatchAt(G, i, card, side) {
+  return sameSuit(G, pileSuitAt(G, i), card.suit, side) || G.anySuit.indexOf(G.pile[i]) >= 0
+}
+
+// 这一手是花色钥匙**按花色**对上的吗（是 → 那一段不受中毒）
+function suitKeyAnchor(G, card, at, side) {
+  return suitKeyOn(G, card) && at >= 0 && at < G.pile.length && suitMatchAt(G, at, card, side)
+}
+
+// 钥匙用掉 / 牌离手：从两张表里摘掉
+function dropKeys(G, card) {
+  G.straightKey = G.straightKey.filter(function (c) { return c !== card })
+  G.matchKey = G.matchKey.filter(function (c) { return c !== card })
+  G.suitKey = G.suitKey.filter(function (c) { return c !== card })
+}
+
+function keyLineCount(G, side, card) {
+  const best = bestChain(G, side, -1, cardVals(card), KEY_LINE_OPT)
+  if (best === null) return 0
+  let lo = G.pile.length
+  for (let v = best.from; v <= best.to; v++) {
+    if (best.deepest[v] >= 0 && best.deepest[v] < lo) lo = best.deepest[v]
+  }
+  return G.pile.length - lo + 1
+}
+
+// 顺子钥匙给哪张：没带钥匙、不是 J，点数离堆上牌最近（差 ≤ 2 的张数最多）
+function straightKeyPick(G, side) {
+  const hand = G.hands[side]
+  let best = -1, most = -1
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i].rank === JACK || straightKeyOn(G, hand[i])) continue
+    let n = 0
+    for (let k = 0; k < G.pile.length; k++) {
+      const vs = pileValsAt(G, k)
+      for (let j = 0; j < vs.length; j++) if (Math.abs(vs[j] - hand[i].value) <= 2) { n++; break }
+    }
+    if (n > most) { most = n; best = i }
+  }
+  return best
+}
+
+// 花色钥匙给哪张：没带钥匙、不是 J，堆上同花色（或任意花色）那张最深的
+function suitKeyPick(G, side) {
+  const hand = G.hands[side]
+  let best = -1, deepest = G.pile.length + 1
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i].rank === JACK || suitKeyOn(G, hand[i])) continue
+    let at = G.pile.length
+    for (let k = 0; k < G.pile.length; k++) if (suitMatchAt(G, k, hand[i], side)) { at = k; break }
+    if (at < deepest) { deepest = at; best = i }
+  }
+  return best
+}
+
+// ---------- 【花色匹配】（染堆 / 传色原型）----------
+// 词条原文：自带无点数；匹配堆上同花色的牌（**另外**至少 2 张才算成功），收走那几张和它自己，
+// 夹在中间的不收。同花色走 suitMatchAt（含【两色】、视为任意花色）
+function matchKeyOn(G, card) { return G.matchKey.indexOf(card) >= 0 }
+
+function keyDiag(G) {
+  G.stat.keyDiag = G.stat.keyDiag || { given: 0, used: 0, hits: 0, got: 0 }
+  return G.stat.keyDiag
+}
+
+function suitMatchWanted(G, side, card, at0) {
+  const wanted = []
+  let hits = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    const hit = i !== at0 && suitMatchAt(G, i, card, side)
+    if (hit) hits++
+    wanted.push(hit || i === at0)
+  }
+  return hits >= 2 ? wanted : null
+}
+
+function suitMatchFor(G, side, card) {
+  const at0 = pileIndexOf(G, card)
+  if (at0 < 0) return
+  const d = keyDiag(G)
+  d.used++
+  const wanted = suitMatchWanted(G, side, card, at0)
+  if (wanted === null) { suitMatchVoid(G); return }
+  d.hits++
+  for (let i = 0; i < wanted.length; i++) if (wanted[i]) d.got++
+  harvestPile(G, side, wanted)
+  suitMatchVoid(G)
+}
+
+// 染堆给哪张：没带钥匙、不是 J，**跟它同花色**的优先（堆刚被染成这个花色）；没有就第一张
+function dyeKeyPick(G, side, played) {
+  const hand = G.hands[side]
+  let any = -1
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i].rank === JACK || matchKeyOn(G, hand[i])) continue
+    if (hand[i].suit === played.suit) return i
+    if (any < 0) any = i
+  }
+  return any
+}
+
+function catchCountAt(G, card, side, skills, at) {
+  const base = G.pile.length - at + 1
+  if (!poisonApplies(card, skills, G, side) || suitKeyAnchor(G, card, at, side)) return base
+  const p = poisonHighest(G, at, G.pile.length - 1, side)
+  if (p < 0) return base
+  return POISON_FATE === 'taken' ? G.pile.length - p + 1 : G.pile.length - p
 }
 
 // 放回去之后把拿下来之前的火和花色写回去（照源码 keepMarks）。
@@ -8238,11 +8613,14 @@ function removePileAt(G, at) {
 
 // 一色（照 suitifyFor）：堆上**它的花色严格最多**（含它自己，打平不算；
 // 堆上至少还有 1 张别的牌）→ 整堆收走。不是就什么也不做（2026-10-12 起不再染色）
+// 一色（2026-10-25 用户定，照源码）：严格最多（并列不算）→ 整堆染成它的花色；【花色匹配】
+// 〔同一天先试过并列也算那一档（tie），♥ 槽 +10.28，收回来了。SUITIFY_TIE=1 还能跑那一档〕
 function suitifyFor(G, side, card) {
   if (pileIndexOf(G, card) < 0) return
-  if (G.pile.length > 1 && suitLeads(G, side, card, false)) {
-    harvestPile(G, side, G.pile.map(function () { return true }))
+  if (suitLeads(G, side, card, false, !!process.env.SUITIFY_TIE)) {
+    for (let i = 0; i < G.pile.length; i++) G.pileSuit[i] = card.suit
   }
+  suitMatchFor(G, side, card)
 }
 
 // 堆上它的花色是不是**严格**最多的那门（打平**不算** —— 别的门必须都比它少）。
@@ -8269,7 +8647,7 @@ function suitifyFor(G, side, card) {
 //   **严格最多就收**  ♥ +5.55 / ♣ +4.17 / A +1.49 / K +1.14
 //   最多之一就收      ♥ +11.22 / ♣ +9.94 / A +3.77 / K +3.25
 const ALL_SUITS = ['♠', '♥', '♦', '♣']
-function suitLeads(G, side, card, extra) {
+function suitLeads(G, side, card, extra, tie) {
   let mine = extra ? 1 : 0
   for (let i = 0; i < G.pile.length; i++) {
     if (sameSuit(G, pileSuitAt(G, i), card.suit, side)) mine++
@@ -8282,7 +8660,8 @@ function suitLeads(G, side, card, extra) {
       if (sameSuit(G, pileSuitAt(G, i), s, side)) n++
     }
     // **>= 不是 >** —— 打平就不算，见上面那段
-    if (n >= mine) return false
+    // tie = 并列也算（一色 2026-10-25 起用这一档）
+    if (tie ? n > mine : n >= mine) return false
   }
   return true
 }
@@ -8932,6 +9311,81 @@ function afterPlay(G, side, skills, played, ai) {
       if (isRedSuit(mine[i].suit) === isRedSuit(played.suit)) addFrostHand(G, mine[i])
     }
   }
+  // 【毒顺】【毒色】（原型）：自己带中毒（落在堆上才贴），给 1 张手牌钥匙
+  if (has(skills, SK.POISONLINE)) {
+    if (inPile(G, played)) {
+      // KEY_NOPOISON=1：不贴中毒（拆分量用）
+      if (!process.env.KEY_NOPOISON) addPoison(G, played, side)
+      if (G.wildTag.indexOf(played) < 0) G.wildTag.push(played)
+    }
+    const at = straightKeyPick(G, side)
+    if (at >= 0) G.straightKey.push(G.hands[side][at])
+  }
+  if (has(skills, SK.POISONSUIT)) {
+    if (inPile(G, played)) {
+      if (!process.env.KEY_NOPOISON) addPoison(G, played, side)
+      G.anySuit.push(played)
+    }
+    const at = suitKeyPick(G, side)
+    if (at >= 0) G.suitKey.push(G.hands[side][at])
+  }
+  // 【顺子匹配】钥匙：这张是带着它打出的 → 判一次顺子（它自己必须在里面，不当通配）
+  if (straightKeyOn(G, played)) {
+    const at0 = pileIndexOf(G, played)
+    const d = poisonDiag(G)
+    d.lineKeys = (d.lineKeys || 0) + 1
+    if (at0 >= 0 && chainHarvest(G, side, at0, KEY_LINE_OPT, FLOW_SPAN) !== null) d.lineHits = (d.lineHits || 0) + 1
+  }
+  // ---- 染堆 / 传色（原型）----
+  // 先结算这张牌自己带着的【花色匹配】（手牌钥匙，或者传色本身），再发新钥匙 ——
+  // 不然传色会把刚打出这张也算进「手里同花色」（它已经离手了，不会，但顺序写清楚）
+  if (matchKeyOn(G, played) || has(skills, SK.SUITSPREAD) || has(skills, SK.SNOWCOVER)
+    || has(skills, SK.SUITALL) || has(skills, SK.SUITCOLOR)) suitMatchFor(G, side, played)
+  // 【传彩】（原型）：手里同颜色的牌都带上【花色匹配】（J 除外）
+  if (has(skills, SK.SUITCOLOR)) {
+    const mine = G.hands[side]
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].rank !== JACK && !matchKeyOn(G, mine[i]) && isRedSuit(mine[i].suit) === isRedSuit(played.suit)) {
+        G.matchKey.push(mine[i]); keyDiag(G).given++
+      }
+    }
+  }
+  // 【传遍】（原型）：手里的牌都带上【花色匹配】（J 除外）
+  if (has(skills, SK.SUITALL)) {
+    const mine = G.hands[side]
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].rank !== JACK && !matchKeyOn(G, mine[i])) { G.matchKey.push(mine[i]); keyDiag(G).given++ }
+    }
+  }
+  // 【雪覆】（原型）：花色匹配之后（成没成都一样），堆上剩下的牌全变成无点数
+  if (has(skills, SK.SNOWCOVER)) {
+    for (let i = 0; i < G.pile.length; i++) G.pileVals[i] = []
+  }
+  // 【藏色】（原型）：堆上**其他**同花色的牌变成无点数（它自己照常匹配），再发一把花色钥匙
+  if (has(skills, SK.VOIDSUIT)) {
+    for (let i = 0; i < G.pile.length; i++) {
+      if (G.pile[i] !== played && sameSuit(G, pileSuitAt(G, i), played.suit, side)) G.pileVals[i] = []
+    }
+    const at = dyeKeyPick(G, side, played)
+    if (at >= 0) { G.matchKey.push(G.hands[side][at]); keyDiag(G).given++ }
+  }
+  if (has(skills, SK.DYEPILE)) {
+    for (let i = 0; i < G.pile.length; i++) G.pileSuit[i] = played.suit
+    const at = dyeKeyPick(G, side, played)
+    if (at >= 0) { G.matchKey.push(G.hands[side][at]); keyDiag(G).given++ }
+  }
+  if (has(skills, SK.SUITSPREAD)) {
+    const mine = G.hands[side]
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].rank !== JACK && mine[i].suit === played.suit && !matchKeyOn(G, mine[i])) {
+        G.matchKey.push(mine[i]); keyDiag(G).given++
+      }
+    }
+  }
+  // 【七矮人】（原型）：顺子匹配那一组，收中之后封毒
+  if (has(skills, SK.DWARF)) dwarfFor(G, side, played)
+  // 【毒苹果】（原型）：它带上【中毒】（落在堆上才贴 —— 这一手钓中就跟着走了）
+  if (has(skills, SK.APPLE) && inPile(G, played)) addPoison(G, played, side)
   // 冰雷（原型）：手里 1 张贴冰，打出这张登记成雷
   if (has(skills, SK.ICEBOMB)) {
     // 贴几张：ICEBOMB_KEYS（默认 1）
@@ -8966,6 +9420,10 @@ function afterPlay(G, side, skills, played, ai) {
   // 收色、撒网：散着收一批
   if (has(skills, SK.HUE)) {
     hueFor(G, side, played)
+  }
+  // 【白雪】的【花色匹配】（原型）：跟收色同组（散收），门槛 SNOW_MIN
+  if (has(skills, SK.SNOW)) {
+    snowFor(G, side, played)
   }
   if (has(skills, SK.CAST)) {
     castFor(G, side, played)
@@ -9545,6 +10003,8 @@ function probeFor(G, side, card) {
 function shuffleBack(G, card) {
   // 回了牌库的牌不再带【推牌】
   dropSurgeHand(G, card)
+  // 也不再带顺子 / 花色钥匙（毒顺 / 毒色原型）
+  dropKeys(G, card)
   // 也不再是谁的钥匙（照源码 shuffleBack，2026-10-21 补）——
   // 原先手冰表只在落堆时清，洗回牌库的冰牌谁摸到谁就有一把看不见的钥匙
   dropFrostHandSim(G, card)
@@ -9894,6 +10354,10 @@ const PROTO_STAT = {
     tagged: 0, cashed: 0, fired: 0, budSum: 0, sumSum: 0, gotSum: 0,
     gifted: 0, giftPlayed: 0
   },
+  // 【传吃】fires 发动 / tagged 贴了几张 / cashed 带它打出几张 / hits 其中凑成几次
+  spreaddraft: { fires: 0, tagged: 0, cashed: 0, hits: 0 },
+  // 【满点】fires 发动 / hits 凑成 / exact 正好 21 / extra 正好 21 时比原本多收几张
+  exactdraft: { fires: 0, hits: 0, exact: 0, extra: 0 },
   // 设计二〔2026-10-21〕：递吃 + 「牌堆点数 −N」。不是新技能，是**递吃上的一个旋钮**
   //（`DRAFT_MINUS`），所以计数也只记减法那一截：
   //   fires   减了几次（= 带递吃标签的牌打出去几次，该跟 tagdraft.cashed 对得上）
@@ -10028,6 +10492,43 @@ function protoOnLand(G, side, skills, card, ai) {
   //
   // ⚠ 贴的是**打出之后**剩下的手里那几张 —— 刚打的这张已经离开 `hands`，
   //   所以不会贴到自己身上（贴了也没用，它这一手已经判完了）
+  // ---- 【传吃】：手里点数比它小的牌都贴【21 匹配】〔2026-10-25 原型〕----
+  // 「比它小」用 draftReach 的 own 口径（多值牌取最小）；它自己没点数 → 一张都不贴
+  if (has(skills, SK.SPREADDRAFT) && at0 >= 0) {
+    const st = PROTO_STAT.spreaddraft
+    st.fires++
+    const mv = pileValsAt(G, at0)
+    if (mv.length > 0) {
+      let own = 99
+      for (let k = 0; k < mv.length; k++) if (mv[k] < own) own = mv[k]
+      if (!G.spreadHand) G.spreadHand = []
+      const hand = G.hands[side]
+      for (let i = 0; i < hand.length; i++) {
+        const c = hand[i]
+        if (c.rank === JACK || draftTagOn(G, c)) continue
+        const vals = cardVals(c)
+        if (vals.length === 0) continue
+        let v = 99
+        for (let k = 0; k < vals.length; k++) if (vals[k] < v) v = vals[k]
+        if (v < own) { G.draftHand.push(c); G.spreadHand.push(c); st.tagged++ }
+      }
+    }
+  }
+  // 【减递】整堆（含它自己）−N，再贴 1 张（照低吃 + 递吃）
+  if (has(skills, SK.MINUSTAG)) {
+    dropPile(G, MINUS_TAG_N)
+    if (doDraftTag(G, side)) PROTO_STAT.tagdraft.tagged++
+  }
+  // 【多递】
+  if (has(skills, SK.TAGMANY)) PROTO_STAT.tagdraft.tagged += doTagMany(G, side, card)
+  // 【零递】贴标签走递吃同一条路（计数也记在 tagdraft 那一份里）
+  // `ZERO_ALL=1`：对照档「**整堆**（含它自己）置 0；1 张手牌带上【21 匹配】」（用户 2026-10-25 要对比）
+  if (has(skills, SK.ZERODRAFT) && ZERO_ALL) {
+    for (let i = 0; i < G.pile.length; i++) {
+      if (rawVals(G, i).length > 0) G.pileVals[i] = [0]
+    }
+  }
+  if (has(skills, SK.ZERODRAFT) && doDraftTag(G, side)) PROTO_STAT.tagdraft.tagged++
   if (has(skills, SK.TAGDRAFT)) {
     const st = PROTO_STAT.tagdraft
     if (doDraftTag(G, side)) st.tagged++
@@ -11008,15 +11509,57 @@ function hueFor(G, side, card) {
   const wanted = []
   let hits = 0
   for (let i = 0; i < G.pile.length; i++) {
-    const hit = sameSuit(G, pileSuitAt(G, i), card.suit, side)
+    // 相同颜色视为同花色（2026-10-25，照源码）
+    const hit = isRedSuit(pileSuitAt(G, i)) === isRedSuit(card.suit)
     if (hit) hits++
     wanted.push(hit)
   }
-  if (hits <= 1) return
-  harvestPile(G, side, wanted)
+  // 【花色匹配】门槛：**另外**至少 2 张同花色（hits 含它自己，所以 ≥ 3）〔2026-10-25，原先 1 张〕
+  if (hits > 2) harvestPile(G, side, wanted)
+  suitMatchVoid(G)
 }
 
 // 同奇偶吗：任一个点数跟 odd 同奇偶就算（0 算偶数，一个点数都没有的不算）
+// 【花色匹配】（白雪，原型）：堆上**另外**至少 SNOW_MIN 张同花色（含视为任意花色的）才算成功，
+// 收走那几张和它自己，夹在中间的不收
+const SNOW_MIN = process.env.SNOW_MIN ? parseInt(process.env.SNOW_MIN, 10) : 2
+const SNOW_COLOR = process.env.SNOW_COLOR !== '0'
+function snowWanted(G, side, card, at0) {
+  const wanted = []
+  let hits = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    // 相同颜色视为同花色（2026-10-25 用户定，SNOW_COLOR=0 关掉）—— 只管白雪自己这条线
+    const hit = i !== at0 && (suitMatchAt(G, i, card, side)
+      || (SNOW_COLOR && isRedSuit(pileSuitAt(G, i)) === isRedSuit(card.suit)))
+    if (hit) hits++
+    wanted.push(hit || i === at0)
+  }
+  return hits >= SNOW_MIN ? wanted : null
+}
+
+function snowFor(G, side, card) {
+  const at0 = pileIndexOf(G, card)
+  if (at0 < 0) return
+  const wanted = snowWanted(G, side, card, at0)
+  const d = poisonDiag(G)
+  d.snowFires = (d.snowFires || 0) + 1
+  if (wanted === null) { suitMatchVoid(G); return }
+  d.snowHits = (d.snowHits || 0) + 1
+  let n = 0
+  for (let i = 0; i < wanted.length; i++) if (wanted[i]) n++
+  d.snowGot = (d.snowGot || 0) + n
+  harvestPile(G, side, wanted)
+  suitMatchVoid(G)
+}
+
+// 【花色匹配】词条（2026-10-25 用户加的一句）：**打出后堆上的牌变成无点数**（成没成都一样）。
+// SM_VOID=0 关掉（对照档）。收色 / 一色 / 白雪 / 花色钥匙都走这一个口
+const SM_VOID = process.env.SM_VOID !== '0'
+function suitMatchVoid(G) {
+  if (!SM_VOID) return
+  for (let i = 0; i < G.pile.length; i++) G.pileVals[i] = []
+}
+
 function sameParity(vals, odd) {
   for (let k = 0; k < vals.length; k++) {
     if ((vals[k] % 2 === 1) === odd) return true
@@ -11464,6 +12007,29 @@ function frostWildFor(G, side, card) {
 }
 
 // AI 预估：把带冰的那几张**临时**算成通配（不改冰），估完撤掉
+// 【七矮人】（原型）：自带通配、差 1 的顺子匹配（照冰通配那条收法，不带冰）；
+// 收中之后，剩下的堆顶那张带上【中毒】
+const DWARF_OPT = { self: 'wild', step: 1, pileMin: 1, hand: 0 }
+function dwarfFor(G, side, card) {
+  const at0 = pileIndexOf(G, card)
+  if (at0 < 0) return
+  const best = chainHarvest(G, side, at0, DWARF_OPT, FLOW_SPAN)
+  if (best === null) return
+  if (G.pile.length > 0) addPoison(G, G.pile[G.pile.length - 1], side)
+  const d = poisonDiag(G); d.dwarfSeals = (d.dwarfSeals || 0) + 1
+}
+
+// 七矮人能凑出几张（AI 挑牌的预估，照 frostWildCount 去掉冰那一步）
+function dwarfCount(G, side, card) {
+  const best = bestChain(G, side, -1, cardVals(card), DWARF_OPT)
+  if (best === null) return 0
+  let lo = G.pile.length
+  for (let v = best.from; v <= best.to; v++) {
+    if (best.deepest[v] >= 0 && best.deepest[v] < lo) lo = best.deepest[v]
+  }
+  return G.pile.length - lo + 1
+}
+
 function frostWildCount(G, side, card) {
   const add = []
   if (!FROSTWILD_NOCONV) {
@@ -12383,6 +12949,7 @@ function doTakeFrom(G, side, skill, index, ai) {
   // 从对方手里拿的牌，对方当然知道它是什么
   // 钥匙是私有的：换了主人就不带冰（照源码 doTakeFrom / doGiveBack）
   dropFrostHandSim(G, card)
+  dropKeys(G, card)
   giveTo(G, side, card, true)
   if (skill !== SK.SWAPCARD) return
   // 对换：再挑一张自己的还他
@@ -12390,6 +12957,7 @@ function doTakeFrom(G, side, skill, index, ai) {
   if (back >= 0 && G.hands[side].length > 0) {
     const give = takeFromHand(G, side, back)
     dropFrostHandSim(G, give)
+    dropKeys(G, give)
     giveTo(G, other, give, true)
   }
 }
@@ -12561,6 +13129,11 @@ function harvestCount(G, card, skills, side) {
   if (sweep > 0) return sweep
   // 冰雷：这张钥匙能引爆我的雷 → 整堆
   if (bombReady(G, card, side)) return G.pile.length
+  // 白雪（原型）：【花色匹配】那几张 + 它自己；够不上门槛就是 0
+  if (has(skills, SK.SNOW)) {
+    const w = snowWanted(G, side, card, -1)
+    if (w !== null) { let n = 0; for (let i = 0; i < w.length; i++) if (w[i]) n++; return n + 1 }
+  }
   const hue = has(skills, SK.HUE)
   const cast = has(skills, SK.CAST)
   // 【伏流】也要在这儿估 —— 它是第四条匹配线，catchStart 对它一概返回 −1，
@@ -12590,20 +13163,43 @@ function harvestCount(G, card, skills, side) {
   // 涉水同理 —— 第四条匹配线，catchStart 看不见它
   if (has(skills, SK.WADE)) return wadeCount(G, side, card)
   if (has(skills, SK.FROSTWILD)) return frostWildCount(G, side, card)
+  if (has(skills, SK.DWARF)) return dwarfCount(G, side, card)
+  if (straightKeyOn(G, card)) return keyLineCount(G, side, card)
+  // 带【花色匹配】的牌（手牌钥匙 / 传色本身）：对上那几张 + 它自己，够不上门槛就是 0
+  if (matchKeyOn(G, card) || has(skills, SK.SUITSPREAD) || has(skills, SK.SNOWCOVER) || has(skills, SK.SUITALL)
+    || has(skills, SK.SUITCOLOR)) {
+    const w = suitMatchWanted(G, side, card, -1)
+    if (w === null) return 0
+    let n = 0
+    for (let i = 0; i < w.length; i++) if (w[i]) n++
+    return n + 1
+  }
   // 顺流：第五条判定线（按排序），catchStart 对它一概返回 −1。
   // 漏这一支的后果跟伏流一样 —— 这件技能在 AI 手里**整件作废**
   if (has(skills, SK.ORDER)) return orderCount(G, side, card)
   // 染水：堆上已经全是它的花色 → 整堆 + 它自己
-  if (has(skills, SK.SUITIFY) && G.pile.length > 0 && suitLeads(G, side, card, true)) return G.pile.length + 1
+  // 一色（2026-10-25）：最多之一 → 整堆（另外至少 2 张）；不成立 → 花色匹配那几张
+  if (has(skills, SK.SUITIFY)) {
+    if (suitLeads(G, side, card, true, !!process.env.SUITIFY_TIE)) return G.pile.length >= 2 ? G.pile.length + 1 : 0
+    const w = suitMatchWanted(G, side, card, -1)
+    if (w === null) return 0
+    let n = 0
+    for (let i = 0; i < w.length; i++) if (w[i]) n++
+    return n + 1
+  }
   if (!hue && !cast) return 0
   const size = G.pile.length
   const odd = card.value % 2 === 1
   const marked = []
   for (let i = 0; i < size; i++) marked.push(false)
   if (hue) {
+    let hueHits = 0
     for (let i = 0; i < size; i++) {
-      if (sameSuit(G, pileSuitAt(G, i), card.suit, side)) marked[i] = true
+      // 相同颜色视为同花色（照 hueFor）
+      if (isRedSuit(pileSuitAt(G, i)) === isRedSuit(card.suit)) { marked[i] = true; hueHits++ }
     }
+    // 【花色匹配】门槛：不到 2 张就收不成（照 hueFor）
+    if (hueHits < 2) for (let i = 0; i < size; i++) marked[i] = false
   }
   if (cast) {
     for (let i = size - 1; i >= 0; i--) {
@@ -12917,6 +13513,7 @@ function playGame(opts, ai) {
 }
 
 module.exports = {
+  catchCountAt,
   HELD_FROST,
   SUITS, RANKS, RANK_VALUES, SKILL_RANKS, JACK, ZERO_RANK, BLANK_RANK, HAND_SIZE,
   // 收成分布的桶数 —— sim.js 印表、check.js 自检都要它。

@@ -28,7 +28,7 @@
            横过来之后技能说明能用满整块宽度（~690px），基本不折行 -->
       <view class="side-head">
         <text :id="'md-duel-name-' + si" class="side-who">{{ SIDE_NAMES[si] }}</text>
-        <text class="side-name">{{ DRAW_ROLES[ri].name }}</text>
+        <text class="side-name">{{ roleOf(ri).name }}</text>
         <text class="side-cover">盖 {{ roleCover(ri) }} 张</text>
         <view class="side-gap"></view>
         <!-- 翻 180° 给坐对面那个人读 —— 见 toggleFlip 那段 -->
@@ -39,14 +39,15 @@
 
       <!-- 一行一件技能 —— 槽标签 / 管几张 / 名字 / **效果全文**。
            常驻技算第一行（它不占槽，但它是整局都在的那件）-->
-      <view class="slot-line">
+      <!-- 简易角色（简易模式）没有常驻特殊技 —— 这一行不印 -->
+      <view v-if="specialNameOf(ri) != ''" class="slot-line">
         <text class="slot-tag slot-tag-always">常驻</text>
         <text class="slot-num"></text>
         <text class="slot-skill">{{ specialNameOf(ri) }}</text>
         <text class="slot-desc">{{ specialDescOf(ri) }}</text>
       </view>
       <view
-        v-for="(label, k) in DRAW_ROLES[ri].slots"
+        v-for="(label, k) in roleOf(ri).slots"
         :key="'dsl-' + si + '-' + k"
         :id="'md-duel-sheet-' + si + '-' + k"
         class="slot-line">
@@ -92,9 +93,9 @@
         </view>
         <scroll-view class="book-body sv-out" direction="vertical">
           <view v-for="(ri, si) in roles" :key="'dsp-' + si" class="rule-sec">
-            <text class="rule-title">{{ SIDE_NAMES[si] }}　{{ DRAW_ROLES[ri].name }}</text>
-            <!-- 常驻技摆最前：它不占槽、整局都在 -->
-            <view class="my-skill">
+            <text class="rule-title">{{ SIDE_NAMES[si] }}　{{ roleOf(ri).name }}</text>
+            <!-- 常驻技摆最前：它不占槽、整局都在（简易角色没有，不印） -->
+            <view v-if="specialNameOf(ri) != ''" class="my-skill">
               <view class="my-skill-head">
                 <text class="my-skill-cover">常驻</text>
                 <text class="my-skill-name">{{ specialNameOf(ri) }}</text>
@@ -102,7 +103,7 @@
               <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
             </view>
             <view
-              v-for="(label, k) in DRAW_ROLES[ri].slots"
+              v-for="(label, k) in roleOf(ri).slots"
               :key="'dsd-' + si + '-' + k"
               class="my-skill">
               <view class="my-skill-head">
@@ -178,7 +179,7 @@
 
 <script setup lang="uts">
   // ==========================================================
-  // ---------- 实战模式的配装手册（2026-10-14） ----------
+  // ---------- 实战对决的配装手册（2026-10-14） ----------
   // ==========================================================
   //
   // 两个人在 `draw-levels` 那个弹层里轮流配好之后跳到这儿。这一页**只读**：
@@ -207,6 +208,8 @@
   import {
     DRAW_SKILLS,
     DRAW_ROLES,
+    roleOf,
+    validRole,
     SPECIAL_SKILLS,
     specialIndexOf,
     isSuitSlot,
@@ -277,14 +280,14 @@
     const nextRoles : number[] = []
     const nextSlots : number[][] = []
     const rA = optInt(options, 'rA')
-    if (rA >= 0 && rA < DRAW_ROLES.length) {
+    if (validRole(rA)) {
       nextRoles.push(rA)
-      nextSlots.push(optSlots(options, 'sA', DRAW_ROLES[rA].slots.length))
+      nextSlots.push(optSlots(options, 'sA', roleOf(rA).slots.length))
     }
     const rB = optInt(options, 'rB')
-    if (rB >= 0 && rB < DRAW_ROLES.length) {
+    if (validRole(rB)) {
       nextRoles.push(rB)
-      nextSlots.push(optSlots(options, 'sB', DRAW_ROLES[rB].slots.length))
+      nextSlots.push(optSlots(options, 'sB', roleOf(rB).slots.length))
     }
     roles.value = nextRoles
     slots.value = nextSlots
@@ -363,12 +366,12 @@
   }
 
   function specialNameOf(ri : number) : string {
-    const at = specialIndexOf(DRAW_ROLES[ri].special)
+    const at = specialIndexOf(roleOf(ri).special)
     return at < 0 ? '' : SPECIAL_SKILLS[at].name
   }
 
   function specialDescOf(ri : number) : string {
-    const at = specialIndexOf(DRAW_ROLES[ri].special)
+    const at = specialIndexOf(roleOf(ri).special)
     return at < 0 ? '' : SPECIAL_SKILLS[at].desc
   }
 
@@ -376,9 +379,9 @@
   //
   // 跟 draw-levels 那边同名函数是**两份**，而这是有意的：那一份绑在
   // 那个页面的配装编辑流程上，这一份只认「角色是谁」。
-  // 两份都只读 DRAW_ROLES[ri].slots，不会分叉
+  // 两份都只读 roleOf(ri).slots，不会分叉
   function doubleTextOf(ri : number) : string {
-    const slotList = DRAW_ROLES[ri].slots
+    const slotList = roleOf(ri).slots
     const suits : string[] = []
     const ranks : string[] = []
     for (let i = 0; i < slotList.length; i++) {

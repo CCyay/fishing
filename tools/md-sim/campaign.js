@@ -103,7 +103,7 @@ const FOE_ROLES = [
   //
   // 特殊技那一处（再钩 ↔ 封竿）**两条都没模**，所以它不改变任何数 ——
   // 同步只为别让副本跟源码分叉
-  { name: '鲸落拾骨人', specials: ['seal'], slots: [['draft', 1, true], ['cast', 2, false]] },
+  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, true], ['cast', 2, false]] },
   { name: '深渊君主', specials: ['again'], slots: [['wild', 1, true], ['hook', 1, false], ['suited', 1, false]] }
 ]
 const MODELED_SP = ['hand', 'pinch']
@@ -183,7 +183,7 @@ function foeMode(diff, level, ease) {
 //   详见《摸打钓鱼-实测数据台账.md》第五节 campaign 那一段。
 const PLAYER_POOL = [
   'flow', 'chain', 'swapcard', 'kindle', 'wild', 'flood',
-  'draft', 'peak', 'wade', 'unhook', 'suitify', 'cast', 'raise', 'suited',
+  'zerodraft', 'peak', 'wade', 'unhook', 'suitify', 'cast', 'raise', 'suited',
   // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。
   //   **留着的后果是静默的**：
   //   ⚠ 写这条注释时**带引号写了那个 key，refs.js 当场误报成真引用** ——

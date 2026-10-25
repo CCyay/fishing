@@ -152,14 +152,18 @@
           <view id="md-custom" class="card-btn" @click="openFinalRole">
             <text class="card-btn-text">自定义技能</text>
           </view>
+          <!-- 简易模式：双方都没有常驻特殊技、只有一个点数槽（点数随机），技能从全部里挑 -->
+          <view id="md-final-simple" class="card-btn" @click="openFinalSimple">
+            <text class="card-btn-text">简易模式</text>
+          </view>
         </view>
       </view>
 
-      <!-- 实战模式：给**实体对战**发一套配装。
+      <!-- 实战对决：给**实体对战**发一套配装。
            手机在这个模式里不跑对局 —— 它只发配装、当规则手册 -->
       <view class="card card-duel">
         <view class="card-head">
-          <text class="now-id">实战模式</text>
+          <text class="now-id">实战对决</text>
           <view class="card-head-gap"></view>
           <text class="now-reward">拿真牌打</text>
         </view>
@@ -168,6 +172,10 @@
         <view class="card-acts">
           <view id="md-duel-go" class="card-btn card-btn-main" @click="openDuel">
             <text class="card-btn-text card-btn-text-dark">{{ duelRoles.length == 0 ? '发两套' : '接着配' }}</text>
+          </view>
+          <!-- 简易模式：各发一个随机点数槽、没有特殊技，技能从全部里挑。每次都重新发 -->
+          <view id="md-duel-simple" class="card-btn" @click="openDuelSimple">
+            <text class="card-btn-text">简易模式</text>
           </view>
         </view>
       </view>
@@ -193,7 +201,7 @@
     <view v-if="showCustom" class="mask" @click="closeFinal">
       <view class="skill-box" @click.stop="noop">
         <view class="skill-box-head">
-          <text id="md-role-title" class="skill-box-title">{{ (roleMode == 'final' && customSide == 'foe' ? '庄家 · ' : '') + (roleAt < 0 ? (roleMode == 'run' ? '这一轮用谁' : '选一张角色卡') : DRAW_ROLES[roleAt].name) }}</text>
+          <text id="md-role-title" class="skill-box-title">{{ (roleMode == 'final' && customSide == 'foe' ? '庄家 · ' : '') + (roleAt < 0 ? (roleMode == 'run' ? '这一轮用谁' : '选一张角色卡') : roleOf(roleAt).name) }}</text>
           <!-- `'' +` 打头照 cards.uts 的 faceOf 那条惯例（见 mySkills 那段） -->
           <text class="skill-box-sub">{{ roleAt < 0 ? '' + DRAW_ROLES.length + ' 个' : '盖住 ' + roleCover(roleAt) + ' 张牌' }}</text>
         </view>
@@ -233,7 +241,7 @@
 
         <!-- 第二步：那几个槽。点一个槽进技能列表 -->
         <scroll-view v-else-if="slotPick < 0" class="skill-box-body sv-out" direction="vertical">
-          <text class="skill-box-empty">{{ specialNameOf(roleAt) }}（常驻）：{{ specialDescOf(roleAt) }}</text>
+          <text class="skill-box-empty">{{ isSimpleRole(roleAt) ? '简易模式：没有常驻特殊技，只有这一个点数槽（点数是随机发的）' : specialNameOf(roleAt) + '（常驻）：' + specialDescOf(roleAt) }}</text>
           <!-- 终局自己的难度，**跟闯关那档分开记**（不写存档）——
                终局是不记账的沙盒：你可能想用简单试一套配装、
                再用困难拿同一套挑战。绑死在闯关那档上就没法分开玩了 -->
@@ -251,7 +259,7 @@
           </view>
           <text class="diff-note">{{ finalDiffNote }}</text>
           <view
-            v-for="(label, si) in DRAW_ROLES[roleAt].slots"
+            v-for="(label, si) in roleOf(roleAt).slots"
             :key="'sl-' + si"
             :id="'md-slot-' + si"
             class="my-skill"
@@ -271,7 +279,7 @@
 
         <!-- 第三步：给这个槽挑技能 -->
         <scroll-view v-else class="skill-box-body sv-out" direction="vertical">
-          <text class="skill-box-empty">嵌进 {{ DRAW_ROLES[roleAt].slots[slotPick] }} 槽（已嵌的会被换掉）</text>
+          <text class="skill-box-empty">嵌进 {{ roleOf(roleAt).slots[slotPick] }} 槽（已嵌的会被换掉）</text>
           <view
             v-for="(skill, k) in DRAW_SKILLS"
             :key="'ps-' + k"
@@ -297,13 +305,13 @@
             <text class="card-btn-text card-btn-text-dark">清空这个槽</text>
           </view>
           <view class="card-btn" @click="backFinal">
-            <text class="card-btn-text">{{ slotPick >= 0 ? '回到槽位' : (roleAt >= 0 ? '换角色' : '关闭') }}</text>
+            <text class="card-btn-text">{{ slotPick >= 0 ? '回到槽位' : (roleAt >= 0 && !isSimpleRole(roleAt) ? '换角色' : '关闭') }}</text>
           </view>
         </view>
       </view>
     </view>
 
-    <!-- ---------- 实战模式：两个人轮流配装 ---------- -->
+    <!-- ---------- 实战对决：两个人轮流配装 ---------- -->
     <!--
       流程单向：**甲配** → 按「交给乙」→ **乙配** → 按「出手册」→
       跳 `draw-duel` 页展示双方。手册不在这儿 —— 它是独立页面，
@@ -317,7 +325,7 @@
           #md-slot-0 驱动这个页面，撞上就会把那几条断言带偏
     -->
     <!-- `duelRoleNow() >= 0` 这道守卫是**必需的**，不是洁癖：下面整屏都在读
-         DRAW_ROLES[duelRoleNow()]，而 uvue 里数组越界会当场崩。
+         roleOf(duelRoleNow())，而 uvue 里数组越界会当场崩。
          openDuel 保证了开面板时它已经 >= 0，但模板不该依赖调用方 -->
     <view v-if="showDuel && duelRoleNow() >= 0" class="mask">
       <view class="duel-box">
@@ -333,10 +341,10 @@
 
         <!-- ===== 配置屏 ===== -->
         <scroll-view v-if="duelPick < 0" class="duel-body sv-out" direction="vertical">
-          <text class="skill-box-sub">{{ DRAW_ROLES[duelRoleNow()].name }} · {{ specialNameOf(duelRoleNow()) }} · 盖 {{ roleCover(duelRoleNow()) }} 张</text>
+          <text class="skill-box-sub">{{ roleOf(duelRoleNow()).name + (specialNameOf(duelRoleNow()) != '' ? ' · ' + specialNameOf(duelRoleNow()) : '') }} · 盖 {{ roleCover(duelRoleNow()) }} 张</text>
           <text class="skill-box-empty">{{ specialDescOf(duelRoleNow()) }}</text>
           <view
-            v-for="(label, si) in DRAW_ROLES[duelRoleNow()].slots"
+            v-for="(label, si) in roleOf(duelRoleNow()).slots"
             :key="'dsl-' + si"
             :id="'md-duel-slot-' + si"
             class="my-skill"
@@ -355,7 +363,7 @@
 
         <!-- ===== 挑技能屏：只有发给这个人的那 8 件 ===== -->
         <scroll-view v-else class="duel-body sv-out" direction="vertical">
-          <text class="skill-box-empty">嵌进 {{ DRAW_ROLES[duelRoleNow()].slots[duelPick] }} 槽（发给{{ DUEL_NAMES[duelSide] }}的 {{ duelPoolNow().length }} 件，配不上的留着不用）</text>
+          <text class="skill-box-empty">嵌进 {{ roleOf(duelRoleNow()).slots[duelPick] }} 槽（发给{{ DUEL_NAMES[duelSide] }}的 {{ duelPoolNow().length }} 件，配不上的留着不用）</text>
           <view
             v-for="(k, pi) in duelPoolNow()"
             :key="'dsk-' + pi"
@@ -631,6 +639,9 @@
     //
     // 「选角色卡 + 嵌技能」现在闯关和终局**共用**（见 goRole / goFinalRole）
     DRAW_ROLES,
+    roleOf,
+    isSimpleRole,
+    rollSimpleRole,
     SPECIAL_SKILLS,
     specialIndexOf,
     isSuitSlot,
@@ -642,7 +653,7 @@
     roleUnlocked,
     ROLE_UNLOCK,
     ROLE_UNLOCK_CLEAR,
-    // 实战模式摇技能池用（48 件里取 8 件不重复）
+    // 实战对决摇技能池用（48 件里取 8 件不重复）
     rollSpots
   } from '@/pages/examples/blackjack/draw-skills.uts'
   // 名词解释。**这张表从本文件搬出去了**（2026-10-14）——
@@ -1090,7 +1101,7 @@
     roleAt.value = ri
     slotPick.value = -1
     const blank : number[] = []
-    for (let i = 0; i < DRAW_ROLES[ri].slots.length; i++) {
+    for (let i = 0; i < roleOf(ri).slots.length; i++) {
       blank.push(-1)
     }
     slotSkills.value = blank
@@ -1155,7 +1166,7 @@
   //
   // **这张表搬去 `draw-terms.uts` 了**（2026-10-14）。
   //
-  // 搬的原因：实战模式的配装手册是**独立页面**（`draw-duel.uvue`），
+  // 搬的原因：实战对决的配装手册是**独立页面**（`draw-duel.uvue`），
   // 而 uvue 的 `<script setup>` **不导出任何东西** —— 手册页一个字都拿不到
   // 这儿的 const。而实体对战时玩家手边没有规则弹窗，手册必须自带词条。
   //
@@ -1221,7 +1232,7 @@
   // 斜杠分**槽**，括号里是这个槽盖住多少张牌 ——
   // 不写张数的话「♥」和「6 7」看着差不多，可实际上一个 13 张一个 8 张
   function slotsText(ri : number) : string {
-    const slots = DRAW_ROLES[ri].slots
+    const slots = roleOf(ri).slots
     let text = ''
     for (let i = 0; i < slots.length; i++) {
       text = text + (text == '' ? '' : ' / ') + slots[i] + '（' + slotCover(slots[i]) + ' 张）'
@@ -1279,13 +1290,13 @@
   }
 
   function specialNameOf(ri : number) : string {
-    const at = specialIndexOf(DRAW_ROLES[ri].special)
+    const at = specialIndexOf(roleOf(ri).special)
     return at < 0 ? '' : SPECIAL_SKILLS[at].name
   }
 
   // 那件常驻技能的**初始档**说明（终局不升级，所以只报第 0 档）
   function specialDescOf(ri : number) : string {
-    const at = specialIndexOf(DRAW_ROLES[ri].special)
+    const at = specialIndexOf(roleOf(ri).special)
     return at < 0 ? '' : SPECIAL_SKILLS[at].desc
   }
 
@@ -1294,14 +1305,14 @@
   //
   // ---- 从 computed 改成带参函数（2026-10-14）----
   //
-  // 实战模式要对它自己那个角色算同一件事，而 computed 绑死在 roleAt 上。
+  // 实战对决要对它自己那个角色算同一件事，而 computed 绑死在 roleAt 上。
   // 模板里调函数本来就是这个文件的风格（slotsText(ri)、slotHint(label)、
   // roleCover(ri) 都是），所以改签名比再抄一份便宜
   function doubleTextOf(ri : number) : string {
     if (ri < 0 || ri >= DRAW_ROLES.length) {
       return ''
     }
-    const slots = DRAW_ROLES[ri].slots
+    const slots = roleOf(ri).slots
     const suits : string[] = []
     const ranks : string[] = []
     // 一个槽可能印着好几样，所以要摊到标签这一层数
@@ -1340,6 +1351,19 @@
     showCustom.value = true
   }
 
+  // 终局的简易模式：你和庄家**各发一个随机点数槽**、没有常驻特殊技，
+  // 直接进「看槽」那一步（没有选角色这一步）。庄家那一边照样能切过去配，不配就随机一件
+  function openFinalSimple() {
+    roleMode.value = 'final'
+    customSide.value = 'me'
+    roleAt.value = rollSimpleRole()
+    slotSkills.value = [-1]
+    parkedRole.value = rollSimpleRole()
+    parkedSlots.value = [-1]
+    slotPick.value = -1
+    showCustom.value = true
+  }
+
   // 切到另一边配：当前这一边停进 parked，另一边换出来（见 customSide 那段）
   function switchSide(side : string) {
     if (customSide.value == side) {
@@ -1358,8 +1382,11 @@
   // 切换按钮上那一边现在是谁。庄家没选写「随机」，你没选写「未选」
   function sideRoleName(side : string) : string {
     const ri = customSide.value == side ? roleAt.value : parkedRole.value
+    if (isSimpleRole(ri)) {
+      return '点数槽 ' + roleOf(ri).slots[0]
+    }
     if (ri >= 0) {
-      return DRAW_ROLES[ri].name
+      return roleOf(ri).name
     }
     return side == 'foe' ? '随机' : '未选'
   }
@@ -1373,6 +1400,15 @@
   function backFinal() {
     if (slotPick.value >= 0) {
       slotPick.value = -1
+      return
+    }
+    // 简易模式没有「选角色」这一步：再退就是关掉（庄家那边退回你这边）
+    if (isSimpleRole(roleAt.value)) {
+      if (customSide.value == 'foe') {
+        switchSide('me')
+        return
+      }
+      showCustom.value = false
       return
     }
     if (roleAt.value >= 0) {
@@ -1411,7 +1447,7 @@
   }
 
   // ==========================================================
-  // ---------- 【实战模式】给**实体对战**发配装（2026-10-14）----------
+  // ---------- 【实战对决】给**实体对战**发配装（2026-10-14）----------
   // ==========================================================
   //
   // 随机发 1 个角色 + DUEL_POOL 件技能，你自己挑着配进槽，
@@ -1479,7 +1515,7 @@
       for (let s = 0; s < DUEL_SIDES; s++) {
         pools.push(rollSpots(DRAW_SKILLS.length, DUEL_POOL))
         const blank : number[] = []
-        for (let i = 0; i < DRAW_ROLES[roles[s]].slots.length; i++) {
+        for (let i = 0; i < roleOf(roles[s]).slots.length; i++) {
           blank.push(-1)
         }
         slots.push(blank)
@@ -1495,6 +1531,29 @@
 
   // 下面这几个都按「当前这个人」取 —— 模板里到处写
   // duelSlots[duelSide] 会又长又容易错
+  // 实战对决的简易模式：**每次都重新发** —— 两人各一个随机点数槽，
+  // 技能池是全部技能（用户定：简易模式都从全部技能里挑）
+  function openDuelSimple() {
+    const roles : number[] = []
+    const pools : number[][] = []
+    const slots : number[][] = []
+    const all : number[] = []
+    for (let k = 0; k < DRAW_SKILLS.length; k++) {
+      all.push(k)
+    }
+    for (let s = 0; s < DUEL_SIDES; s++) {
+      roles.push(rollSimpleRole())
+      pools.push(all)
+      slots.push([-1])
+    }
+    duelRoles.value = roles
+    duelPools.value = pools
+    duelSlots.value = slots
+    duelSide.value = 0
+    duelPick.value = -1
+    showDuel.value = true
+  }
+
   function duelRoleNow() : number {
     return duelSide.value < duelRoles.value.length ? duelRoles.value[duelSide.value] : -1
   }
@@ -1532,7 +1591,7 @@
     let text = ''
     for (let s = 0; s < duelRoles.value.length; s++) {
       text = text + (text == '' ? '' : '　') + DUEL_NAMES[s] + ' '
-        + DRAW_ROLES[duelRoles.value[s]].name
+        + roleOf(duelRoles.value[s]).name
         + '（' + duelFilled(s) + '/' + duelSlots.value[s].length + '）'
     }
     return text
@@ -1635,10 +1694,16 @@
 </script>
 
 <style>
+  /* ---- 2026-10-25 样式优化 ----
+     只改样式，结构 / id / 事件一律没动（ap-fishing.test.js 按 id 驱动这一页）。
+     原先几乎每样东西都描同一条 1px 金边，按钮、卡片、难度分不出轻重。
+     现在三档：主按钮实心金 + 阴影；次要按钮 / 顶上那排是半透明深底、细金边；
+     卡片是细边 + 阴影浮在更深一档的底色上。三张卡各一个色调：
+     闯关金、终局绿、实战蓝 */
   .page {
     flex: 1;
     padding: 16px;
-    background-color: #0b5d3b;
+    background-color: #08482e;
   }
 
   .head {
@@ -1648,37 +1713,39 @@
   }
 
   .title {
-    color: #e8b23a;
-    font-size: 24px;
+    color: #f2c14e;
+    font-size: 26px;
     font-weight: bold;
+    letter-spacing: 2px;
   }
 
   .head-back {
-    color: #e8b23a;
-    font-size: 15px;
+    color: #f2c14e;
+    font-size: 14px;
     font-weight: bold;
     padding: 6px 14px;
     border-radius: 16px;
-    border-width: 1px;
-    border-style: solid;
-    border-color: #e8b23a;
+    background-color: rgba(0, 0, 0, 0.22);
   }
 
   .sub {
-    color: #9fd9bd;
+    color: #8cc9ab;
     font-size: 12px;
-    margin-top: 2px;
+    margin-top: 4px;
   }
 
   .run-box {
-    margin-top: 12px;
+    margin-top: 14px;
     padding: 10px 12px;
     border-radius: 10px;
-    background-color: #0e3a28;
+    background-color: rgba(0, 0, 0, 0.22);
+    border-left-width: 4px;
+    border-left-style: solid;
+    border-left-color: #f2c14e;
   }
 
   .run-text {
-    color: #e8b23a;
+    color: #f6dc8f;
     font-size: 15px;
     font-weight: bold;
   }
@@ -1686,12 +1753,13 @@
   /* .run-sub（那行规则提示）删了，样式一起 */
 
   .go-btn {
-    height: 46px;
-    border-radius: 23px;
-    margin-top: 10px;
+    height: 48px;
+    border-radius: 24px;
+    margin-top: 12px;
     align-items: center;
     justify-content: center;
-    background-color: #e8b23a;
+    background-color: #f2c14e;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
   }
 
   .go-text {
@@ -1702,24 +1770,25 @@
 
   .top-actions {
     flex-direction: row;
-    margin-top: 10px;
+    margin-top: 12px;
   }
 
   .top-btn {
     flex: 1;
-    height: 40px;
-    border-radius: 20px;
-    margin-right: 8px;
+    height: 38px;
+    border-radius: 10px;
+    margin-right: 6px;
     align-items: center;
     justify-content: center;
+    background-color: rgba(0, 0, 0, 0.22);
     border-width: 1px;
     border-style: solid;
-    border-color: #e8b23a;
+    border-color: rgba(242, 193, 78, 0.35);
   }
 
   .top-btn-text {
-    color: #e8b23a;
-    font-size: 15px;
+    color: #f2c14e;
+    font-size: 14px;
     font-weight: bold;
   }
 
@@ -1758,30 +1827,35 @@
 
   .levels {
     flex: 1;
-    margin-top: 12px;
+    margin-top: 14px;
   }
 
   /* 一张牌子。原先这块地方摆的是十二个关卡格子，
      而那十二格里只有一格点得动 */
   .card {
-    padding: 12px;
-    margin-bottom: 10px;
-    border-radius: 10px;
-    background-color: #0e6b45;
+    padding: 14px;
+    margin-bottom: 12px;
+    border-radius: 14px;
+    background-color: #0d6141;
     border-width: 1px;
     border-style: solid;
-    border-color: #e8b23a;
+    border-color: rgba(242, 193, 78, 0.55);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28);
   }
 
   /* 终局那张：底色压暗一档，边框也不抢 —— 它不在那条十二关的线上 */
   .card-final {
-    background-color: #0e3a28;
-    border-color: #1b8a58;
+    background-color: #0c3f2b;
+    border-color: rgba(64, 200, 136, 0.6);
   }
 
   .card-head {
     flex-direction: row;
     align-items: center;
+    padding-bottom: 8px;
+    border-bottom-width: 1px;
+    border-bottom-style: solid;
+    border-bottom-color: rgba(255, 255, 255, 0.1);
   }
 
   /* 没有章节名可写的牌子，拿它把右边那个标签推到头 */
@@ -1792,10 +1866,10 @@
   /* 口号那一行。比机制说明亮一档 —— 它是这张牌子的脸面，
      底下那行小字才是规则 */
   .card-slogan {
-    color: #ffffff;
+    color: #eaf6ef;
     font-size: 13px;
-    font-weight: bold;
     margin-top: 10px;
+    line-height: 19px;
   }
 
   /* .card-note（牌子上那段机制说明）用完就没了，样式一起删 */
@@ -1846,7 +1920,7 @@
 
   .card-acts {
     flex-direction: row;
-    margin-top: 12px;
+    margin-top: 14px;
   }
 
   /* 难度：三颗小胶囊，选中的填金 */
@@ -1901,13 +1975,15 @@
     border-radius: 13px;
     align-items: center;
     justify-content: center;
+    background-color: rgba(0, 0, 0, 0.2);
     border-width: 1px;
     border-style: solid;
-    border-color: #e8b23a;
+    border-color: rgba(242, 193, 78, 0.4);
   }
 
   .diff-on {
-    background-color: #e8b23a;
+    background-color: #f2c14e;
+    border-color: #f2c14e;
   }
 
   /* 一轮开打之后没选中的那两颗压暗：点得到（会提示为什么不能换），但看着就是锁着的 */
@@ -1916,7 +1992,7 @@
   }
 
   .diff-text {
-    color: #e8b23a;
+    color: #f2c14e;
     font-size: 12px;
   }
 
@@ -1926,9 +2002,10 @@
   }
 
   .diff-note {
-    color: #9fd9bd;
+    color: #8cc9ab;
     font-size: 11px;
     margin-top: 6px;
+    line-height: 16px;
   }
 
   /* 这一轮的角色。金色 + 左边一条竖杠 —— 跟难度那一行（淡绿）
@@ -1948,20 +2025,23 @@
     flex: 1;
     height: 40px;
     border-radius: 20px;
-    margin-right: 8px;
+    margin-right: 6px;
     align-items: center;
     justify-content: center;
+    background-color: rgba(0, 0, 0, 0.2);
     border-width: 1px;
     border-style: solid;
-    border-color: #e8b23a;
+    border-color: rgba(242, 193, 78, 0.45);
   }
 
   .card-btn-main {
-    background-color: #e8b23a;
+    background-color: #f2c14e;
+    border-color: #f2c14e;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
   }
 
   .card-btn-text {
-    color: #e8b23a;
+    color: #f2c14e;
     font-size: 14px;
     font-weight: bold;
   }
@@ -1971,8 +2051,8 @@
   }
 
   .now-id {
-    color: #e8b23a;
-    font-size: 18px;
+    color: #f2c14e;
+    font-size: 19px;
     font-weight: bold;
     margin-right: 8px;
   }
@@ -1985,8 +2065,12 @@
   }
 
   .now-reward {
-    color: #fff3c4;
-    font-size: 12px;
+    color: #3b2a00;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 9px;
+    background-color: #f6dc8f;
   }
 
   /* 原先这张牌子里还列着庄家带的技能（.now-label / .now-foe / .now-skill），
@@ -2027,7 +2111,7 @@
     margin-top: 8px;
   }
 
-  /* ---- 实战模式的盒子：比 .skill-box 宽、而且不限高 ----
+  /* ---- 实战对决的盒子：比 .skill-box 宽、而且不限高 ----
 
      .skill-box 是 300×340 的小窗，那个尺寸是给「扫一眼就关掉」的面板定的。
      实战那份是**配装手册** —— 两个人隔着桌子读、里面还要印全部名词解释，
@@ -2056,8 +2140,8 @@
   /* 实战那张牌子。比终局那张再暗一档 —— 它不在那条十二关的线上，
      也不是「向王座挑战」，它是把牌搬到桌上去 */
   .card-duel {
-    background-color: #0b3222;
-    border-color: #2f8fd0;
+    background-color: #0b2f3f;
+    border-color: rgba(76, 168, 230, 0.65);
   }
 
   .skill-box-empty {
