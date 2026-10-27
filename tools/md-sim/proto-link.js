@@ -66,8 +66,12 @@ if (duel && R.RANK_LINK !== '') {
 //   `chain, kindle, swapcard, flow, wild, peak, draft, coldhue`
 //   的前两件在 R5 下是全表最弱的几件，末两件的技能已经删了）。
 //   **所以这个脚本的所有旧满配数一并作废**，整段理由在 sim.js 那张名单上〕
+//
+// 〔2026-10-27 又跟了一次（同一天的第二刀）：**对换删了**，第 2 位空出来，
+//   照「X 降序的前八件上架件」补上第 9 位的【引火】（R5 +3.31）。
+//   整段理由在 sim.js 那张名单上 —— **满配数再废一次**〕
 const KIT_ORDER = [
-  'flood', 'swapcard', 'flow', 'gift', 'swapflow', 'wade', 'unhook', 'peak'
+  'flood', 'flow', 'gift', 'swapflow', 'wade', 'unhook', 'peak', 'kindle'
 ]
 
 function skillIndexOf(key) {

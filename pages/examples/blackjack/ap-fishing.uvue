@@ -402,6 +402,23 @@
       </view>
     </view>
 
+    <!-- 倒饵：挑**任意张**自己的手牌塞给庄家。
+         整块照换水那一块（上面那块）—— 同样借手牌那一排挑、
+         同样点一张送一张、同样靠右边那颗钮收尾。两块的分别只有一处：
+         牌的去向是**对方手上**，不是牌库。
+
+         ⚠ 这件技能反直觉：给对方东西**反而更强**。手牌 4 张是下限、
+         回合末只补到下限，所以塞给他一张废牌 = 剥夺他一次摸牌，
+         他还要多花一手把它打掉。**所以挑的时候专挑自己最没用的** -->
+    <view v-if="baitPending" class="tide-box">
+      <text class="tide-text">{{ baitDone > 0 ? ('倒饵：已塞给庄家 ' + baitDone + ' 张，还能接着点手牌') : '倒饵：点手牌塞给庄家，想给几张给几张（回合末你会补新的）' }}</text>
+      <view class="tide-actions">
+        <view id="ap-bait-skip" class="tide-btn tide-btn-plain" @click="onBait(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">{{ baitDone > 0 ? '给完了' : '不给' }}</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 滤饵：3 张已经摸到手上了，现在挑 2 张退回牌库。
          挑的动作同样借手牌那一排（照换水）。
 
@@ -929,6 +946,12 @@
     SK_PRESS,
     SK_UNHOOK,
     SK_SWAPCARD,
+    // 【倒饵】〔2026-10-27 上架〕—— 接【对换】的后半句，放开成**任意张**。
+    // 上面那个 `SK_SWAPCARD` 同日起是 −1（对换删了），**留着是有理由的**：
+    // 这个文件还有四处读它（2746 的提示文案、7648/7650 的分支、12754 的闸），
+    // 而 `triggersOf` 只往列表里塞 `>= 0` 的槽主，所以那四处恒不命中。
+    // 整个导出删掉的话它们会拿 `undefined` —— **静默不匹配**，查不出来
+    SK_DUMPBAIT,
     SK_NARROW,
     SK_CREEL,
     SK_TWIN,
@@ -1870,6 +1893,15 @@
   const swapPending = ref<boolean>(false)
   // 这一次换水已经塞回去几张了（只用来写提示和结算文案）
   const swapDone = ref<number>(0)
+  // 倒饵等你挑手牌**塞给庄家**（形状跟换水一模一样：任意张、按钮收尾）。
+  //
+  // ⚠ **不复用 swapPending**，理由跟滤饵那条一样但更硬：两件的收尾
+  // 去向不同（换水进牌库、这件进对方手里），而 `onPlay` 那道岔是按
+  // pending 分发的 —— 复用的话同一次点击分不清该走哪条路。
+  // 实测这件 X +2.75（R6 · A 槽 · 20000 局 · SE 0.15）
+  const baitPending = ref<boolean>(false)
+  // 这一次倒饵已经塞出去几张了（照 swapDone，只用来写提示和结算文案）
+  const baitDone = ref<number>(0)
   // 滤饵等你挑手牌退回牌库。
   //
   // ⚠ **不能复用 swapPending** —— 两件技能的 pending 形状不一样：
@@ -2646,6 +2678,8 @@
     return myTurn.value && !over.value && !catching.value && !tidePending.value
       && !swapPending.value && !freezePending.value && !pickPending.value
       && !bombPending.value && !zeroDraftPending.value
+      // 【倒饵】跟换水同形（任意张 + 收尾钮），所以同样只要没收尾就不许出牌
+      && !baitPending.value
       // 【滤饵】强制退满，没退够不许出牌（比换水那条更硬 ——
       // 换水可以按钮收尾，这件没有「不退」那条路）
       && !siftPending.value
@@ -2691,6 +2725,9 @@
     }
     if (swapPending.value) {
       return '你的回合 · 换水'
+    }
+    if (baitPending.value) {
+      return '你的回合 · 倒饵'
     }
     // 滤饵报**还差几张**（照分饵那条：不报的话点完一张看着像卡住了）
     if (siftPending.value) {
@@ -7802,6 +7839,48 @@
         }
       }
     }
+    // 倒饵：挑**任意张**自己的手牌塞给对方。
+    //
+    // 排在换水后面：两件都只动自己手牌、都不碰堆，位置在这一串之内就行；
+    // 而两件撞在同一张牌上时走换水（它先 return），这一次作废 ——
+    // **一个回合只停一次**，跟换水/滤饵那一对一个规矩。
+    //
+    // ⚠ 它给对方塞牌，可局长是中性的（按一整个回合算）：我少一张 →
+    //   回合末补 2 张（牌库 −2）；他手里 5 张 > 下限 4 → **回合末不补**。
+    //   一个回合下来双方各少摸一次，账对平。所以这件真正花掉的是
+    //   **他的一次随机摸牌**，不是他的一张牌。
+    if (hasTrigger(skills, SK_DUMPBAIT)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      if (mine.length > 0) {
+        if (!byFoe) {
+          baitDone.value = 0
+          baitPending.value = true
+          return
+        }
+        // 庄家自己挑：**跟它换水那一段逐句同构**，只有去向换了
+        //（`shuffleBack` → `doGiveBack`）。同一把尺子（foeSwapPick =
+        // 扔最没用的那张）、同一道「见好就收」闸、同样第一张无条件给。
+        //
+        // 那道闸在模拟器里实测值 **3.5 分**（`BAIT_N=3` 不带闸 −0.75、
+        // 带闸 +2.75）：不收手的话手里不够废牌，J 也会被塞出去 ——
+        // 而 J 通吃，送一张 J 给他是净送分
+        let out = 0
+        while (foeHand.value.length > 0) {
+          const at = foeSwapPick()
+          if (at < 0) {
+            break
+          }
+          if (out > 0 && foeSwapUseful(foeHand.value[at])) {
+            break
+          }
+          doGiveBack(true, at)
+          out = out + 1
+        }
+        if (out > 0) {
+          message.value = message.value + ' 庄家倒饵，塞给你 ' + out + ' 张。'
+        }
+      }
+    }
     // 滤饵：先摸 SIFT_DRAW 张，**然后**从手里（含刚摸的）挑 SIFT_BACK 张退回牌库。
     //
     // 排在换水后面：两件都只动自己手牌、都不碰堆，所以位置只要在这一串之内就行。
@@ -8635,7 +8714,11 @@
     if (index < 0) {
       message.value = message.value + ' 你没还牌（白拿一张）。'
     } else {
+      // 文案要在 `doGiveBack` **之前**取名字 —— 那一下之后这张就不在手里了。
+      //〔这一句 2026-10-27 从 `doGiveBack` 里挪出来，理由同那边的注释〕
+      const name = cardName(hand.value[index])
       doGiveBack(false, index)
+      message.value = message.value + ' 你把 ' + name + ' 还给了庄家。'
     }
     resolveMatch(false)
   }
@@ -10104,13 +10187,24 @@
       : ' 对换：' + name + ' 到你手上了，挑一张还给庄家。')
     if (byFoe) {
       doGiveBack(true, foeGivePick())
+      // 〔文案 2026-10-27 从 `doGiveBack` 里挪到这儿 —— 那个函数现在
+      //   跟【倒饵】共用，而倒饵一次送好几张，每张报一句会刷满结算栏〕
+      message.value = message.value + ' 它还给你一张。'
       return
     }
     // 记个账：现在等你挑自己的那张
     giveBack.value = 1
   }
 
-  // 对换第二步：把自己第 index 张还给对方
+  // 把自己第 index 张手牌交到对方手上 —— **「给对手一张牌」这个动作的唯一入口**。
+  //
+  // 〔2026-10-27 从「对换第二步」变成共用件：对换删了，而【倒饵】
+  //   （任意张地送牌）做的是同一件事 × N 次。两边共用一份，不复制 ——
+  //   三条 `drop*`（钥匙是私有的，换了主人就不带冰 / 不带匹配钥匙）
+  //   漏一条就是一个静默的规则分叉〕
+  //
+  // ⚠ **它不报文案**，由调用方报：倒饵一次可能送好几张，
+  //   每张报一句会把结算栏刷满（这正是把文案挪出去的理由）。
   function doGiveBack(byFoe : boolean, index : number) {
     const mine = byFoe ? foeHand.value : hand.value
     if (index < 0 || index >= mine.length) {
@@ -10128,9 +10222,6 @@
       foeHand.value = foeHand.value.concat([card])
       foeShown.value = foeShown.value.concat([true])
     }
-    message.value = message.value + (byFoe
-      ? ' 它还给你一张。'
-      : ' 你把 ' + cardName(card) + ' 还给了庄家。')
   }
 
   // 庄家对换时还哪张：扔最没用的那张，尺子照【换水】（见 foeSwapPick）
@@ -10577,6 +10668,41 @@
     message.value = n > 0
       ? ('换水：你塞回 ' + n + ' 张重洗，回合末会补新的。')
       : '你没换牌。'
+    resolveMatch(false)
+  }
+
+  // 倒饵：你挑中了第 index 张要塞给庄家（-1 表示「给完了 / 不给」）。
+  //
+  // **跟 `onSwap` 逐句同构**，只有两处不同：
+  //   牌的去向走 `doGiveBack`（进对方手里）而不是 `shuffleBack`（进牌库）；
+  //   文案换了一套。
+  // 两件同是「任意张」，所以收尾的形状也一样：点一张送一张、`baitPending`
+  // 不关，靠那颗钮（index < 0）或者手牌点空了收尾 ——
+  // 别照冻结/择饵那种「挑完就走」的 pending 抄。
+  //
+  // ⚠ **这儿不设张数上限是有意的**：`desc` 写的就是「任意张」。
+  //   模拟器那边 `BAIT_N=9` 跟 `=3` 逐位相同（打出 1 张后手里只剩 3 张，
+  //   3 就是硬上限），所以两边**不是一个带上限一个不带**，是同一件事。
+  function onBait(index : number) {
+    if (!baitPending.value) {
+      return
+    }
+    if (index >= 0 && index < hand.value.length) {
+      const name = cardName(hand.value[index])
+      doGiveBack(false, index)
+      baitDone.value = baitDone.value + 1
+      message.value = '你把 ' + name + ' 塞给了庄家。'
+      // 还有牌就接着挑；点空了没得挑，自己收尾
+      if (hand.value.length > 0) {
+        return
+      }
+    }
+    baitPending.value = false
+    const n = baitDone.value
+    baitDone.value = 0
+    message.value = n > 0
+      ? ('倒饵：你塞给庄家 ' + n + ' 张，回合末你会补新的。')
+      : '你没给牌。'
     resolveMatch(false)
   }
 
@@ -11761,6 +11887,11 @@
       onSwap(index)
       return
     }
+    // 倒饵同理：点手牌是「挑这张塞给庄家」
+    if (baitPending.value) {
+      onBait(index)
+      return
+    }
     // 滤饵同理：点手牌是「挑这张退回牌库」（刚摸上来的那几张也在这一排里，
     // 一样能退 —— 「从摸的和原有的里一起挑」是这件技能的全部机制）
     if (siftPending.value) {
@@ -12752,6 +12883,12 @@
         // 所以拿它们当饵是白赚一次效果
         || hasTrigger(skills, SK_PRESS) || hasTrigger(skills, SK_UNHOOK)
         || hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_TWIN)
+        // ⚠ **【倒饵】有意**不在这个列表里〔2026-10-27〕—— 跟下面滤饵
+        //   那一条一模一样的处境：它结构上该在（塞牌给对方那一下跟
+        //  「这张有没有钓中」完全无关，当饵白赚一次），而它上架时的
+        //   X **+2.75** 和据此定的价 **85** 就是在「不在列表里」的 AI 下量的。
+        //   两边（这份 + `ai.js` 的 `wants`）要一起加才算改对，加完那个数作废。
+        //   → **登记在案的待办**，不是漏了；在那之前 +2.75 当下限看
         // 凝水 / 净水 / 抬水**压根不落堆**（叠到别的牌上去了），所以也
         // 谈不上钓 —— 它们换的是一次精确操作。拿它们当「饵」是唯一的用法，
         // 而且比别的饵更安全：牌出场了，对手连收都收不着
@@ -12771,8 +12908,12 @@
         //
         //   它们留下一条还管事的判据：**「钓不钓到都照样发动」的技能，
         //   拿来当饵是白赚一次效果** —— 所以 AI 该优先拿它们下饵。
-        //   那条现在由上面活着的几件撑着（压舱 / 摘钩 / 对换 / 同号
-        //   动对方手牌和牌库，凝水那三件不落堆）〕
+        //   那条现在由上面活着的几件撑着（压舱 / 摘钩动对方手牌，
+        //   凝水那三件不落堆）。
+        //   ⚠ 这一句里原先还列着**对换**和**同号** —— 两件都删了
+        //  （对换 2026-10-27、同号 2026-10-26），常量现在是 −1、
+        //   上面那两条 `hasTrigger` 恒不命中。留着不碍事，别照它
+        //   推断「现在哪几件在这张表里」〕
       if (wants && score <= fewest + 1) {
         score = score - 1.5
       }
@@ -12905,6 +13046,9 @@
     tideMarks.value = [] as boolean[]
     swapPending.value = false
     swapDone.value = 0
+    // 倒饵那两个同理（它跟换水同形，清法也同形）
+    baitPending.value = false
+    baitDone.value = 0
     // 滤饵那三个一起清（照上面那条判据：**每个 pending 都要在这儿清**，
     // 漏了的话重开一局时 canPlay 被它按着 → 整局点不动手牌）
     siftPending.value = false

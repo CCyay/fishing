@@ -182,7 +182,14 @@ function foeMode(diff, level, ease) {
 //   三条路（都没定）：①照 X 更新、接受偏强；②按价加权抽；③真加商店模型。
 //   详见《摸打钓鱼-实测数据台账.md》第五节 campaign 那一段。
 const PLAYER_POOL = [
-  'flow', 'chain', 'swapcard', 'kindle', 'wild', 'flood',
+  'flow', 'chain', 'kindle', 'wild', 'flood',
+  // 〔2026-10-27 一删一补，**两件都走上面那条口径**（「在卖 + X ≥ 1.5」）：
+  //   删 `swapcard`（对换，技能删了 —— 留着就是洪水栽过的那个静默空槽）；
+  //   补 `dumpbait`（倒饵，同日上架、价 85、R6 X **+2.75**）。
+  //   ⚠ 这是「上架也要过一遍这个池子」那一条的正用 —— 漏了它，
+  //     模拟出来的玩家永远买不到一件 +2.75 的货，通关率虚低。
+  //   ⚠ **池子一动，通关率的绝对数就不可比了**（23.7% 那一批）〕
+  'dumpbait',
   'zerodraft', 'peak', 'wade', 'unhook', 'suitify', 'cast', 'raise', 'suited',
   // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。
   //   **留着的后果是静默的**：
