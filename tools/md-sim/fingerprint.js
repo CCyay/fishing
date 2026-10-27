@@ -286,8 +286,29 @@ function hashOf(code) {
   return crypto.createHash('sha1').update(strip(code)).digest('hex').slice(0, 12)
 }
 
+// 🔴 **这两条正则 2026-10-27 加了行首锚，因为它们读到了墓碑里的旧值。**
+//
+// 栽法：`draw-skills.uts:171` 是一行墓碑注释
+//   `// ~~export const SCORE_BANDS : number[] = [1, 4, 12]~~`
+// 而活着的那一行在 **19 行之后**（`:190`，`= []` = 张 = 分）。
+// `exec` 取的是**全文第一处**，于是这个工具一直把 R4 的阶梯档值
+// `[1,4,12]` 当成现行值报出来 —— **而这是全表数据的总开关**，
+// 报错了等于说「源码还在跑 R4 计分」。
+//
+// ⚠ 它**不是只报错一个值，而是把「有意的差异」报成了「两边分叉」** ——
+//   读的人下一步会去改源码或者改模拟器，而两边本来就是对的。
+//
+// 修法用**行首锚**（`^\s*(?:export\s+)?const`，`m` 标志），不用剥注释：
+//   剥注释要动字符串字面量里的 `//`，那是另一类误伤。
+//   墓碑行以 `// ~~` 开头，锚一上就自然落空。
+// ⚠ 代价：**声明必须独占一行的开头**（可以有缩进、可以带 `export`）。
+//   这个仓库的常量都是顶层声明，现行全部命中 —— 哪天有人写成
+//   `const A = 1; const B = 2`，这儿会报 `MISSING` 而**不是静默读错**，
+//   那个方向是对的（宁可报缺失，不要报一个错的值）。
+const ANCHOR = '^[ \\t]*(?:export[ \\t]+)?const[ \\t]+'
+
 function constOf(text, name) {
-  const m = new RegExp('const\\s+' + name + '\\s*:\\s*number\\s*=\\s*(-?\\d+)').exec(text)
+  const m = new RegExp(ANCHOR + name + '\\s*:\\s*number\\s*=\\s*(-?\\d+)', 'm').exec(text)
   if (m) {
     return m[1]
   }
@@ -296,7 +317,7 @@ function constOf(text, name) {
   // 整个字面量当指纹，**空白一律压掉** —— 不然换行或者多一个空格
   // 就报成漂移，而那种噪音多了警报就没人看了（照上面 SUIT_CAPACITY 那条的理由）。
   // 只认一层方括号里没有 `]` 的内容，够用而且不会误吞后面的代码
-  const a = new RegExp('const\\s+' + name + '\\s*:\\s*number\\[\\]\\s*=\\s*\\[([^\\]]*)\\]').exec(text)
+  const a = new RegExp(ANCHOR + name + '\\s*:\\s*number\\[\\]\\s*=\\s*\\[([^\\]]*)\\]', 'm').exec(text)
   if (a) {
     return '[' + a[1].replace(/\s+/g, '') + ']'
   }

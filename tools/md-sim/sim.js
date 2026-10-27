@@ -83,7 +83,7 @@ const AI = require('./ai.js')
 const DEFAULT_ROLE = 'lock'
 
 function parseArgs(argv) {
-  const out = { _: [], n: 20000, seed: 1, role: DEFAULT_ROLE, slot: 0, special: false }
+  const out = { _: [], n: 20000, seed: 1, role: DEFAULT_ROLE, slot: 0, special: false, proto: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '-n') { out.n = parseInt(argv[++i], 10) }
@@ -91,6 +91,12 @@ function parseArgs(argv) {
     else if (a === '--role') { out.role = argv[++i] }
     else if (a === '--slot') { out.slot = parseInt(argv[++i], 10) }
     else if (a === '--special') { out.special = true }
+    // `--proto`：`all` 连模拟器专属原型一起量〔2026-10-27 加，用户定「只在
+    // 模拟器里的技能不用再量了」〕。**默认不量** —— 原型有 59 件、是上架件
+    // 的 1.6 倍，而它们在定价表里一行都不能引用（台账那一节写着
+    // 「一个都不要引用」）。所以默认档下这张表跑得快一倍半，而且没有噪音行。
+    // ⚠ 它**只管 `all`**；`one` / `vs` / `pair` 是点名量的，点到谁量谁
+    else if (a === '--proto') { out.proto = true }
     else { out._.push(a) }
   }
   return out
@@ -142,6 +148,9 @@ function run(n, seed, mine, foe, opts) {
     stJTook: [0, 0], stJCatches: [0, 0],
     // 「为什么这一方更容易被抢」的四个拆解口〔2026-10-27 补〕—— 分母都是 stAsked
     stMine: [0, 0], stPileAt: [0, 0], stOver: [0, 0], stFoeHand: [0, 0],
+    // 可抢率按 myCount 分档（下标 = 张数，封顶 8）—— 分「构成差 / 档内差」用
+    stMAsk: [[0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0]],
+    stMAble: [[0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0]],
     holdSkip: [0, 0], holdSkipSum: [0, 0], holdForced: [0, 0],
     // 【忍 1 手】的诊断口（ai.js 的 worthHolding 那段）
     holdOnce: [0, 0], holdOnceHit: [0, 0], holdOnceMiss: [0, 0],
@@ -336,6 +345,10 @@ function run(n, seed, mine, foe, opts) {
         sum.stPileAt[s] += sd.pileAt[s]
         sum.stOver[s] += sd.over[s]
         sum.stFoeHand[s] += sd.foeHand[s]
+        for (let b = 0; b < sd.mAsk[s].length; b++) {
+          sum.stMAsk[s][b] += sd.mAsk[s][b]
+          sum.stMAble[s][b] += sd.mAble[s][b]
+        }
       }
       sum.holdSkip[s] += G.stat.holdSkip[s]
       sum.holdSkipSum[s] += G.stat.holdSkipSum[s]
@@ -800,9 +813,26 @@ function cmdBase(args) {
   //
   //              钓到   钓到占比  每次平均收  积分   J占   J每次吃
   //   ~~R4 现默认~~ ~~6.7~~ ~~29.3%~~ ~~3.25~~ ~~16.6~~ ~~26.3%~~ ~~4.56~~
-  //   **R5 现默认**  5.0    21.4%     4.41    21.9   32.4%   5.43
+  //   ~~R5~~      ~~5.0~~ ~~21.4%~~ ~~4.41~~ ~~21.9~~ ~~32.4%~~ ~~5.43~~
+  //   **R6 现默认**  5.5    21.7%     4.35    23.9   30.2%   5.44
   //
   //   〔R5 实测：`out-r5-base.txt`，20000 局，不带任何 env，分差 −0.06（se 0.10）〕
+  //
+  // ---- ⚠⚠ **2026-10-27 同日第二次：R6（`TAIL` 2→6），整列第四次重量** ----
+  //
+  // 这一次改的不是计分也不是 AI，是**终局长度**：牌库空后双方合计
+  // 再打 6 手（各 3 手），把【抢牌】带来的先手优势推回 0
+  //（−0.88 → +0.08，四档实测在 `rules.js` 的 `TAIL` 那段）。
+  //
+  // **R5 那一行跟着全废** —— 局长从 23.2 涨到 25.3 手/人（+9%），
+  // 六个数里有五个在动。形状上是「多打两手 ⇒ 多钓 0.5 次」：
+  // 钓到 5.0→5.5、积分 21.9→23.9，而每次收的张数**反倒薄了一点**
+  //（4.41→4.35）—— 终局那几手是无补充阶段，堆养不厚。
+  // J 占比 32.4%→30.2% 同一个因：多出来的那几次钓牌里 J 的比重低。
+  //
+  // ⚠ **R5 和 R6 的数一个都不能相减** —— 中间隔着一整条规则，
+  //   而且隔的是**改局长**那一类（CLAUDE.md 第四节：按整回合算）。
+  //   全表 40 件技能的 X 同样作废，要在 R6 下重跑一遍 `all`。
   //
   // 形状变了而不只是数变了：**钓牌次数掉三成、每次收的张数涨三成半**，
   // 乘起来守恒（积分 21.9 ≈ 张数）。抢牌把「收 2 张」这档几乎抹掉了
@@ -831,20 +861,22 @@ function cmdBase(args) {
     ['每人每局出牌',
       f1(avg(sum.plays[R.ME], g)), f1(avg(sum.plays[R.FOE], g)),
       f1(both(function (s) { return avg(sum.plays[s], g) })),
-      ref('23.2 次', '?', '?')],
+    //   〔R6：局长不只由终局规则定了，`TAIL` 本身就是那条规则 ——
+    //     2→6 把它从 23.2 推到 25.3〕
+      ref('25.3 次', '?', '?')],
     ['每人每局钓到',
       f1(catches(R.ME)), f1(catches(R.FOE)), f1(both(catches)),
-      ref('约 5.0 次', '?', '?')],
+      ref('约 5.5 次', '?', '?')],
     ['钓到占出牌',
       pct(avg(sum.catches[R.ME], sum.plays[R.ME])),
       pct(avg(sum.catches[R.FOE], sum.plays[R.FOE])),
       pct(both(function (s) { return avg(sum.catches[s], sum.plays[s]) })),
-      ref('21.4%', '?', '?')],
+      ref('21.7%', '?', '?')],
     ['每次平均收',
       f2(avg(sum.caught[R.ME], sum.catches[R.ME])),
       f2(avg(sum.caught[R.FOE], sum.catches[R.FOE])),
       f2(both(function (s) { return avg(sum.caught[s], sum.catches[s]) })),
-      ref('4.41 张', '?', '?')],
+      ref('4.35 张', '?', '?')],
     // ⚠ 期望值那一栏**必须跟着口径走**〔2026-10-23〕。R4（分档）下是 14.0、
     //   退回「分 = 张数」才是 21.8。
     //   写死 21.8 的话 R4 每跑一次都在说谎 —— 而旁边四列（出牌 / 钓到 /
@@ -859,14 +891,22 @@ function cmdBase(args) {
     //   它们**不能相减** —— 中间隔着一整条规则。
     ['每人每局积分',
       f1(perGame(R.ME)), f1(perGame(R.FOE)), f1(both(perGame)),
+    // ⚠ **2026-10-27 再分一层：`TAIL`**。原先只按抢牌分两档
+    //   （21.9 / 21.8），而那两个数都是 `TAIL=2` 下量的 ——
+    //   R6 把终局拉到 6 手，局长 +9%，积分跟着到 **23.9**。
+    //   「无抢牌」那一支在 R6 下**没量过**，所以打 `?` 而不是沿用 21.8：
+    //   沿用就是上面反复写的那条「往看着正常的方向说谎」。
+    //   要补它：`STEAL_ON=0 node sim.js base -n 20000`
       R.SCORE_BANDS === null
-        ? (R.STEAL_ON ? '约 21.9 分' : '约 21.8 分')
+        ? (R.TAIL === 6
+          ? (R.STEAL_ON ? '约 23.9 分' : '?')
+          : (R.TAIL === 2 ? (R.STEAL_ON ? '约 21.9 分' : '约 21.8 分') : '?'))
         : ref('约 16.6 分', '约 14.9 分', '约 14.0 分')],
     ['J 通吃占所有钓牌',
       pct(avg(sum.jackCatches[R.ME], sum.catches[R.ME])),
       pct(avg(sum.jackCatches[R.FOE], sum.catches[R.FOE])),
       pct(both(function (s) { return avg(sum.jackCatches[s], sum.catches[s]) })),
-      ref('32.4%', '?', '?')],
+      ref('30.2%', '?', '?')],
     // ---- 【养堆】诊断口〔2026-10-22〕：J 一下吃多肥 ----
     //
     // 上面那一行（J 占所有钓牌）**答不了「要不要忍 J」** —— J 迟早都会
@@ -975,6 +1015,38 @@ function cmdBase(args) {
     // ⚠ 别拿这四个数去跟**别的口径**的跑相减：`base` 走自由切牌
     //   （`freeFirst`），而其余命令是固定庄家先手 —— 要读先后手的差
     //   必须 `CUT=0`（庄家恒先手），不然「你/庄家」是**座位**不是先后手
+    //
+    // ---- 再把可抢率按 `myCount` 分档，拆「构成差 / 档内差」 ----
+    //
+    // 上面那四个口只说了「后手的匹配薄 0.05 张」，而薄**怎么**变成
+    // 可抢率高 1.9pp 有两条路，补偿方向相反（见 rules.js `mAsk` 那段）：
+    //   每档可抢率两边一样  ⇒ 纯构成差，真因在「为什么后手打得薄」
+    //   每档可抢率后手更高  ⇒ 档内差，那 0.05 只是陪跑
+    console.log('    可抢率按「这手本来能收几张」分档（占比 % · 该档可抢率）：')
+    {
+      // Σ mAsk == asked 是一条免费自检 —— 对不上就是直方图没接在
+      // 跟 `asked++` 同一条路上（而那种分叉是静默的）
+      const chk = [0, 0]
+      for (let s = 0; s < 2; s++) {
+        for (let b = 0; b < sum.stMAsk[s].length; b++) chk[s] += sum.stMAsk[s][b]
+      }
+      for (let b = 0; b < sum.stMAsk[R.ME].length; b++) {
+        if (sum.stMAsk[R.ME][b] + sum.stMAsk[R.FOE][b] === 0) continue
+        let line = '      收 ' + (b === 8 ? '8+' : '' + b) + ' 张：'
+        for (let s = 0; s < 2; s++) {
+          line += '  ' + (s === R.ME ? '你' : '庄家') + ' '
+            + pct(avg(sum.stMAsk[s][b], chk[s])) + ' · 可抢 '
+            + pct(avg(sum.stMAble[s][b], sum.stMAsk[s][b]))
+        }
+        console.log(line)
+      }
+      for (let s = 0; s < 2; s++) {
+        if (chk[s] !== sum.stAsked[s]) {
+          console.log('    ⚠ 直方图对不上：Σ mAsk=' + chk[s]
+            + ' 但 asked=' + sum.stAsked[s] + ' —— 两处没接在同一条路上')
+        }
+      }
+    }
     // ---- 收牌拆四路：**必须互斥**，而「抢」和「J」本来有交集 ----
     //
     // J 抢牌那一手同时落进 `jackCatches` 和 `steal.catches`，所以
@@ -1852,8 +1924,22 @@ function cmdAll(args) {
   const baseDiff = meanDiff(C)
   const baseWin = avg(C.wins[R.ME], C.games)
   const lines = []
+  // ---- 原型过滤〔2026-10-27，用户定「只在模拟器里的技能不用再量了」〕----
+  //
+  // 判据是**名字带尖括号**：上架那天改中文名、`key` 一个字母不动
+  //（《技能与关卡设计.md:5087》），所以 `〈〉` 恰好等于「还没上架」。
+  // ⚠ 不拿 `refs.js` 的 `SIM_ONLY` 当判据 —— 那是**另一份手写名单**，
+  //   两份必然分叉；而 `name` 是技能表自己带的，改名就是上架那一刀。
+  //
+  // **丢掉多少要打出来，不许静默截断** —— 一张少了 49 行的表看着跟
+  // 「全量跑完」一模一样，而下一个人会以为原型都没过线
+  // ⚠ 49 不是 59：`name: '〈'` 全文 59 处，其中 **10 处在角色表**
+  //（`rules.js:3832-3924`），而 `all` 只遍历 `R.SKILLS` ——
+  //   我报过一次 59，那是把两张表的匹配数加在一起了
+  let skipped = 0
   for (let i = 0; i < R.SKILLS.length; i++) {
     const def = R.SKILLS[i]
+    if (!args.proto && def.name.indexOf('〈') === 0) { skipped++; continue }
     const lo = R.kitWithOne(role, slotAt, i)
     const D = run(args.n, args.seed, lo, empty, o)
     const A = run(args.n, args.seed, empty, lo, o)
@@ -1930,6 +2016,12 @@ function cmdAll(args) {
   console.log('  ⚠ 这一行**不能跟 `base` 的后手分差相减**（那边是自由切牌）。')
   console.log('  每件的标准误约 ' + f2(lines.length > 0 ? lines[0].se : 0)
     + ' —— 比它小的差异不作数')
+  // 丢了几件要说出来（见上面那段）。`--proto` 下 skipped 恒 0，这一行不印
+  if (skipped > 0) {
+    console.log('  上表 ' + lines.length + ' 件 = 上架件；'
+      + '另有 **' + skipped + ' 件模拟器专属原型（名字带〈〉）没量** —— '
+      + '要连原型一起跑加 `--proto`。')
+  }
   // 目标档位 2026-10-15 从「+3~5」降下来：每人每局积分从 24.4 掉到 21.8
   //（终局规则换了），比例没变、绝对值跟着走
   //
@@ -1982,15 +2074,87 @@ function cmdAll(args) {
     console.log('\n  目标档位：单件每局 +2.7 ~ +4.5 分（看 **X** 这一列）。')
     console.log('  〔这是 R3「分 = 张数」口径的旧区间，只在退回 R3 时有效。〕')
   } else {
-    console.log('\n  目标档位：**单件 X +1.0 ~ +5.5**〔2026-10-26 用户定〕')
-    console.log('    下限 1.0 = 「带着它要能明确增加胜率」—— **体感线**，')
-    console.log('      比统计线（2σ = ' + f2((lines.length > 0 ? lines[0].se : 0) * 2)
-      + '，跟空槽分得开）高得多，那是故意的。')
-    console.log('    X < 1 的件**先别判死**：配合件改量**边际 X**')
+    // ---- 下限 2026-10-27 从体感线换成**胜率线**，而且**现算不写死** ----
+    //
+    // 用户原话：「**把胜率提高到 50%，X 需要多少，这个作为区间起点**」。
+    // 口径用户定：**座位平均（跟 X 同口径）**。
+    //
+    // 推导的第一步是个**恒等式，不用量**：座位平均口径下，基线那一格的胜率
+    // **恒等于 `(100 − 平局%) / 2`** —— 基线格双方配装完全相同，于是
+    // `wins[ME] + wins[FOE] + draws = games`，取两侧平均就是各占非平局的一半。
+    // （R5 验过逐位相等：(46.0 + 51.2)/2 = 48.60 == (100 − 2.8)/2。）
+    // 所以「补到 50%」要补的正好是 **平局% / 2**，再除以 Δ胜率/X 的斜率。
+    //
+    // ⚠⚠ **为什么现算而不是填一个常数。**
+    //   它随**平局率**浮动，而平局率是**规则档的属性**、不是技能的属性
+    //   （R5 2.8% → R6 2.6%）。写死的话，下次换规则档这条线会**静默过期**
+    //   —— 而本项目栽过的那一整类（`WADE_SELF` 改定稿忘翻默认值、
+    //   `CHAIN_SELF` 默认值不等于 desc、`FLOW_SPAN` 注释自称的默认值
+    //   不等于代码的）全是同一个病：**一个跟着别处走的量被抄成了常数。**
+    //
+    // 两种算法都打出来，取**偏严**那个（见下面「为什么取严的」）：
+    //   甲 **斜率法**：门槛附近那一档（x ∈ [0.6, 1.6]）过原点拟合。
+    //     不取全表平均 —— 高 X 段比值明显低（胜率有天花板，洪水是全表最低），
+    //     把它放进来会**压低斜率、抬高门槛**。
+    //   乙 **夹逼法**：直接在表里找夹住目标 Δ胜率 的那两件，线性插值。
+    //     它**不用模型**，而且正好落在关心的那一点上；代价是只吃两格的噪声。
+    const drawPct = 100 * avg(C.draws, C.games)
+    const target = drawPct / 2      // = 要补的 Δ胜率（百分点）
+    // 甲
+    const near = lines.filter(function (l) { return l.x >= 0.6 && l.x <= 1.6 })
+    let sx = 0, sw = 0
+    for (let i = 0; i < near.length; i++) { sx += near[i].x; sw += near[i].winX }
+    const slope = sx > 0 ? sw / sx : 0
+    const xSlope = slope > 0 ? target / slope : -1
+    // 乙：按 x 升序扫，找第一对在 Δ胜率 上夹住 target 的相邻件
+    const asc = lines.slice().sort(function (a, b) { return a.x - b.x })
+    let xBrack = -1, loName = '', hiName = ''
+    for (let i = 0; i + 1 < asc.length; i++) {
+      const lo = asc[i], hi = asc[i + 1]
+      if (lo.winX <= target && target <= hi.winX && hi.winX > lo.winX) {
+        xBrack = lo.x + (target - lo.winX) / (hi.winX - lo.winX) * (hi.x - lo.x)
+        loName = lo.name; hiName = hi.name
+        break
+      }
+    }
+    const cands = [xSlope, xBrack].filter(function (v) { return v > 0 })
+    // 取偏严（大的那端）再向上取整到 0.1。**理由是代价不对称**：
+    // 挡松了 = 一件该重做的件留在表里（没人会再查它）；
+    // 挡严了 = 一件边缘件去量一次边际 X（而那条补救口本来就有）。
+    const floor = cands.length > 0 ? Math.ceil(Math.max.apply(null, cands) * 10) / 10 : 0
+    if (floor > 0) {
+      console.log('\n  目标档位：**单件 X +' + f1(floor) + ' ~ +5.5**')
+      console.log('    上限 5.5〔2026-10-26 用户定〕· 下限**这一跑现算的**'
+        + '〔2026-10-27 用户定：「把胜率提高到 50%」· 座位平均口径〕：')
+      console.log('      基线胜率 ≡ (100 − 平局 ' + f1(drawPct) + '%) / 2 = '
+        + f2((100 - drawPct) / 2) + '%  ⇒ 要补 Δ胜率 ' + f2(target) + ' 点')
+      if (xSlope > 0) {
+        console.log('      甲 斜率法：x∈[0.6,1.6] 共 ' + near.length
+          + ' 件，斜率 ' + f2(slope) + ' ⇒ X_min ' + f2(xSlope))
+      }
+      if (xBrack > 0) {
+        console.log('      乙 夹逼法：' + loName + ' / ' + hiName
+          + ' 两件夹住 ⇒ X_min ' + f2(xBrack))
+      }
+      console.log('      取偏严那端、向上取整到 0.1 ⇒ **+' + f1(floor) + '**'
+        + '（每件 se ' + f2(lines.length > 0 ? lines[0].se : 0)
+        + '，所以别读小数点后第二位）')
+    } else {
+      // 算不出来要说清是哪一步断的，别打一个假的 0
+      console.log('\n  目标档位：上限 +5.5〔2026-10-26 用户定〕· '
+        + '**下限这一跑算不出来**')
+      console.log('    两种算法都没落地：门槛档（x∈[0.6,1.6]）'
+        + (near.length === 0 ? '一件都没有' : '有 ' + near.length + ' 件但斜率 ≤ 0')
+        + '，且没有两件在 Δ胜率 上夹住 ' + f2(target) + ' 点。')
+      console.log('    多半是表太短或口径不对 —— 别退回写死的 1.0，那是已作废的体感线。')
+    }
+    console.log('    低于下限的件**先别判死**：配合件改量**边际 X**')
     console.log('      （`pair <这件> <搭档>`，看「已有搭档再加这件」那一行），')
     console.log('      边际 X ≥ 1 也算合格，而且那个数就当它的 X。')
-    console.log('    旧区间 +2.7~4.5 是 R3「分 = 张数」口径的，已作废；')
-    console.log('      要退回旧口径对照：`SCORE_BANDS=off`。')
+    console.log('    ~~旧下限 1.0~~ 是**体感线**（「带着它要能明确增加胜率」，'
+      + '2026-10-26 定），2026-10-27 换成上面这条胜率线；')
+    console.log('      ~~更旧的 +2.7~4.5~~ 是 R3「分 = 张数」口径的。'
+      + '要退回 R3 对照：`SCORE_BANDS=off`。')
   }
   // ---- 判 D 的办法换了（2026-10-15）----
   //
