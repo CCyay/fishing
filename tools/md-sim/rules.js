@@ -4746,10 +4746,51 @@ function newGame(opts) {
       //   是叠放 / 保护 / 结冰（预估不含那三样）。差得离谱 ⇒ 口径接错了
       //   jTook/jCatches 抢牌那一手里**打的是 J** 的那部分（见 finishCatch
       //           那段 ⚠：「抢」和「J」两路有交集，不减掉它拆三路会出负分母）
+      //
+      // ---- 下面四个是「**为什么**这一方更容易被抢」的拆解口〔2026-10-27 补〕 ----
+      //
+      // 起因：`CUT=0 base` 量出双方**匹配次数对称**（7.92 vs 7.94），
+      // 而「对方能抢」却偏 1.9pp（后手 38.3% / 先手 36.4%）—— 偏斜全在
+      // 转化率上。可转化率是一个合成量：`able/asked = P(bestN > myCount)`，
+      // 它至少由三样东西决定，而**只看 able/asked 分不开是哪一样**：
+      //
+      //   mine    这一手**我本来能收几张**（= `myCount`，全样本；
+      //           注意 `lost` 只在**抢成功**时累加 myCount，是条件样本，
+      //           两者不是一回事 —— 拿 lost/asked 当 myCount 均值会偏大）
+      //   pileAt  问的那一刻**堆有多厚**（含 A 刚落堆那张，见下面那条 ⚠）
+      //   over    对方手里「收得比 myCount 多」的**有几张**（不是有没有）
+      //   foeHand 对方手里**一共几张**（over 的分母；手牌不止 4 张，
+      //           `refill` 只补到下限、上限不限）
+      //
+      // 读法：`mine` 小 = 我这一手本来就薄，门槛低 → 好抢；
+      //       `over/foeHand` = 对方手里的「超越密度」。
+      //       两者方向相反时才要看 `pileAt`（堆厚同时抬高两边）。
+      //
+      // ⚠ 这四个的分母**都是 `asked`**（每问一次记一笔），不是 `able` ——
+      //   拿 able 当分母就只剩「抢成功那些」，而要解释的恰恰是
+      //   **成功率本身**，条件在结果上会把因果洗掉（选择偏差）
       steal: {
         asked: [0, 0], able: [0, 0], stolen: [0, 0], byJack: [0, 0],
         gain: [0, 0], lost: [0, 0], took: [0, 0], catches: [0, 0],
-        jTook: [0, 0], jCatches: [0, 0]
+        jTook: [0, 0], jCatches: [0, 0],
+        mine: [0, 0], pileAt: [0, 0], over: [0, 0], foeHand: [0, 0],
+        // ---- 可抢率**按 `myCount` 分档**〔2026-10-27 第二刀〕 ----
+        //
+        // 上面那四个口量出：双方只有 `mine` 在动（后手 3.87 / 先手 3.92），
+        // 堆厚和对方手牌数是平的。但那还分不开两种解释，而**两者的补偿
+        // 方向相反**，所以不能挑一个信：
+        //
+        //   构成差 —— 同一档上可抢率相同，只是后手落在薄档的次数多
+        //             ⇒ 真因在「后手为什么打出更薄的匹配」
+        //   档内差 —— 同一档上后手就是更容易被抢
+        //             ⇒ 那 0.05 只是陪跑，真因还没找到
+        //
+        // 下标 = `myCount`，封顶 8（`B_MAX`）。分母 mAsk、分子 mAble。
+        // ⚠ 这是**无条件直方图**（每问一次记一笔），跟上面四个口同分母 ——
+        //   逐档 mAble/mAsk 就是「这一档的可抢率」，而
+        //   `Σ mAsk == asked`、`Σ mAble == able` 是一条免费自检
+        mAsk: [[0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0]],
+        mAble: [[0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0]]
       },
       // ---- 收成分布的诊断口〔2026-10-22〕 ----
       //
@@ -8996,6 +9037,12 @@ function stealTry(G, side, myCount) {
   //   **只改这一处等于让抢牌判定跟 AI 自己的眼光分叉** —— 那比偏一点更坏。
   let best = -1
   let bestN = 0
+  // 「能超过 myCount 的有几张」—— 诊断口，见 `stat.steal` 那段的 `over`。
+  // ⚠ 它**只能在这个循环里数**：换个地方重数一遍就是那条墓碑
+  //  （「复制一份逻辑，两份必然分叉」），而且分叉的症状是静默的 ——
+  //   两份对冻牌 / `at < 0` 的处理稍有出入，`over` 就跟 `able` 对不上了。
+  //   自检：`over > 0` 必然 `able++`，反之亦然（两者逐局同步）
+  let over = 0
   for (let i = 0; i < G.hands[foe].length; i++) {
     const c = G.hands[foe][i]
     // ⚠ 这是【冻结】（`SK.FREEZE`，**打不出去**，见 `playableCount`），
@@ -9007,8 +9054,17 @@ function stealTry(G, side, myCount) {
     const at = catchStart(G, c, foe, sk, false)
     if (at < 0) continue
     const n = catchCountAt(G, c, foe, sk, at)
+    if (n > myCount) over++
     if (n > bestN) { bestN = n; best = i }
   }
+  // 四个拆解口记在**成败分叉之前** —— 分母是 `asked` 不是 `able`，
+  // 理由写在 `stat.steal` 那段最后那条 ⚠（条件在结果上会洗掉因果）。
+  // ⚠ `G.pile.length` 此刻**含 A 刚落堆那张**（见上面第二条 ⚠），
+  //   所以它跟 `myCount` 同口径，两个数能直接相减
+  sd.mine[side] += myCount
+  sd.pileAt[side] += G.pile.length
+  sd.over[side] += over
+  sd.foeHand[side] += G.hands[foe].length
   // 「**只要收的比对方多**」—— 严格大于，平手不给抢
   if (best < 0 || bestN <= myCount) return false
   sd.able[side]++

@@ -140,6 +140,8 @@ function run(n, seed, mine, foe, opts) {
     stAsked: [0, 0], stAble: [0, 0], stStolen: [0, 0], stByJack: [0, 0],
     stGain: [0, 0], stLost: [0, 0], stTook: [0, 0], stCatches: [0, 0],
     stJTook: [0, 0], stJCatches: [0, 0],
+    // 「为什么这一方更容易被抢」的四个拆解口〔2026-10-27 补〕—— 分母都是 stAsked
+    stMine: [0, 0], stPileAt: [0, 0], stOver: [0, 0], stFoeHand: [0, 0],
     holdSkip: [0, 0], holdSkipSum: [0, 0], holdForced: [0, 0],
     // 【忍 1 手】的诊断口（ai.js 的 worthHolding 那段）
     holdOnce: [0, 0], holdOnceHit: [0, 0], holdOnceMiss: [0, 0],
@@ -330,6 +332,10 @@ function run(n, seed, mine, foe, opts) {
         sum.stCatches[s] += sd.catches[s]
         sum.stJTook[s] += sd.jTook[s]
         sum.stJCatches[s] += sd.jCatches[s]
+        sum.stMine[s] += sd.mine[s]
+        sum.stPileAt[s] += sd.pileAt[s]
+        sum.stOver[s] += sd.over[s]
+        sum.stFoeHand[s] += sd.foeHand[s]
       }
       sum.holdSkip[s] += G.stat.holdSkip[s]
       sum.holdSkipSum[s] += G.stat.holdSkipSum[s]
@@ -951,7 +957,24 @@ function cmdBase(args) {
           + '　实收 ' + f2(avg(sum.stTook[s], sum.stCatches[s])) + ' 张/次'
           + '（预估 ' + f2(avg(sum.stGain[s], sum.stStolen[s])) + '）')
       }
+      // 「对方能抢」那个百分比**是个合成量**，这一行把它拆开〔2026-10-27〕。
+      // 分母一律 `stAsked`（每问一次记一笔），理由见 rules.js `stat.steal` 那段
+      console.log('    ' + sideName(s)
+        + '  └ 拆开：这手本来能收 ' + f2(avg(sum.stMine[s], sum.stAsked[s])) + ' 张'
+        + '　问时堆厚 ' + f2(avg(sum.stPileAt[s], sum.stAsked[s]))
+        + '　对方手里 ' + f2(avg(sum.stFoeHand[s], sum.stAsked[s])) + ' 张'
+        + ' / 能超过 ' + f2(avg(sum.stOver[s], sum.stAsked[s])) + ' 张'
+        + '（密度 ' + pct(avg(sum.stOver[s], sum.stFoeHand[s])) + '）')
     }
+    // 读这四个数的**唯一正确姿势**：先看「这手本来能收」差多少。
+    //
+    // 门槛是**严格大于 `myCount`**，所以 myCount 低 1 张 ≈ 把抢牌门槛
+    // 整降一档 —— 它比「对方手里有几张」更能解释转化率的差。
+    // 两边 myCount 一样时才轮到「超越密度」，再往后才是堆厚。
+    //
+    // ⚠ 别拿这四个数去跟**别的口径**的跑相减：`base` 走自由切牌
+    //   （`freeFirst`），而其余命令是固定庄家先手 —— 要读先后手的差
+    //   必须 `CUT=0`（庄家恒先手），不然「你/庄家」是**座位**不是先后手
     // ---- 收牌拆四路：**必须互斥**，而「抢」和「J」本来有交集 ----
     //
     // J 抢牌那一手同时落进 `jackCatches` 和 `steal.catches`，所以
