@@ -181,6 +181,63 @@ function baitRisk(G, side, card) {
   return risk
 }
 
+// ---------- 【埋锚】打出这一张之后，手里还留着几张「钥匙」〔2026-10-27〕 ----------
+//
+// 用户的规格：「**在手牌有对子时要优先打（把匹配牌埋到深处）**」，
+// 以及细化的那一条：「情景1：堆底是 3。a：手牌有 3 或 J…b：手牌无 3 或 J
+// —— 一般不建议 AI 在 b 下养堆」。
+//
+// 这个函数算的是 a 跟 b 的分野：**我打出去那张，自己还收不收得回来**。
+//
+// ---- 为什么这不是 `baitRisk` 的同义词（查出来的，不是推的）----
+//
+// `baitRisk` 数的是**外面**还剩几张同点数（`outsideCount` 已经减掉我手里的），
+// 所以它偏好「外面剩得少」那张 —— 而那包含两种完全不同的牌：
+//
+//   甲 **对子**：我手里 2 张 → 外面剩 2 张 → risk 2   ← 用户要的锚
+//   乙 **孤张死点数**：另外 3 张都已离场 → 外面剩 0 张 → risk **0**  ← 它排更前
+//
+// 乙当饵确实最安全（对手钓不走），**可我也钓不走** —— 埋下去就是堆上一块
+// 谁也动不了的死肉，那个堆从此只有 J 收得走。于是现行挑饵循环
+// **系统性地偏好埋死点数**，正好是埋锚的反面。
+//
+// 所以这是一个**独立的分层维度**，不能靠调 `baitRisk` 的权重实现 ——
+// 两个口径在乙这一格上是**反向**的，任何固定幅度都压不住（跟
+// `HOLD_PEN` 那段「也不用加一个大罚分」是同一条理由）。
+//
+// ⚠ **不走 `catchStart`**，而那是有意的、也是这个函数唯一的近似：
+//   那条唯一入口问的是「这张牌对**堆上现在的局面**钓得到哪一格」，
+//   而这儿那张锚还没落堆，局面还不存在。所以这儿只能比手牌内部的点数，
+//   于是**保护 / 结冰 / 技能匹配面这几层都没算进来** ——
+//   `keysFor > 0` 是「我有钥匙」的**必要条件，不是充分条件**。
+//   （真正的回收照旧由 `catchStart` 判，这儿只管挑哪张埋。）
+//
+// ⚠ **J 不算这个点数的钥匙。** 它通吃整堆、不挑点数，所以「手里有 J」
+//   是一把**万能钥匙**（用户那句「或手牌有 J」说的正是它），
+//   跟「埋哪一张」这个选择无关 —— 算进来的话每张牌的 keys 都 +1，
+//   这个分层当场失效。J 那一路走 `HOLD_REACH`，不走这儿。
+function keysFor(G, side, idx) {
+  const hand = G.hands[side]
+  const vals = R.cardVals(hand[idx])
+  let keys = 0
+  for (let i = 0; i < hand.length; i++) {
+    if (i === idx) continue
+    if (hand[i].rank === R.JACK) continue
+    if (R.isFrozen(G, hand[i])) continue
+    const other = R.cardVals(hand[i])
+    let hit = false
+    for (let a = 0; a < vals.length && !hit; a++) {
+      // 0 点谁也按点数钓不走 —— 跟 `baitRisk` 跳过 0 是同一条约定
+      if (vals[a] === 0) continue
+      for (let b = 0; b < other.length; b++) {
+        if (vals[a] === other[b]) { hit = true; break }
+      }
+    }
+    if (hit) keys++
+  }
+  return keys
+}
+
 // 点数值写回牌面那个字符串（照 draw-save.uts 的 faceOfValue）
 function faceOfValue(v) {
   const at = R.RANK_VALUES.indexOf(v)
@@ -652,6 +709,121 @@ const HOLD_EV_FOE = process.env.HOLD_EV_FOE !== '0'
 //   HOLD_EV_SPLIT=0  关（退回没拆那一档，跟第五~七跑逐字同行为）
 const HOLD_EV_SPLIT = process.env.HOLD_EV_SPLIT !== '0'
 
+// ---------- 【埋锚】+【够得着才养堆】：用户 2026-10-27 的两条规格 ----------
+//
+// 原话两段。先是打法：「**在手牌有对子时要优先打（把匹配牌埋到深处）**，
+// 在有能匹配到堆底的牌时（或手牌有 J）可以适当养堆」；然后细化成一个
+// 情景判据：
+//
+//   情景1：堆底是 3
+//   a：手牌有 3 或 J，要计算牌组和对方手牌有 3 或 J 的概率。
+//   b：手牌无 3 或 J
+//   一般不建议 AI 在 b 下养堆。a 下也要计算概率科学养堆，
+//   **当手牌 J 越多时对方 3 或 J 的概率越小时越要养堆**。
+//
+// ---- 逐句对一遍实现：三句里有一句**已经做完了** ----
+//
+// 照 CLAUDE.md 那条「原型跑之前，对着词条逐句核一遍实现」：
+//
+//   甲 「要计算牌组和对方手牌有 3 或 J 的概率」
+//      → **`holdEV` 已经是这个**，而且是精确的超几何不是估算：
+//        `missP(U, h, d)` = Π(U−d−i)/(U−i)，未知池 U = 牌库 + 对手手牌；
+//        危险点数是扫一遍 `RANKS` 用 `foeReachOf` 问出来的，而**它走
+//        `catchStart` 唯一入口，所以 J 通吃自带算在里面**（那段注释写着
+//        「漏掉 J 会让『对手通吃整堆』这个最大的风险从模型里整个消失」）。
+//      → 「**手牌 J 越多时对方的概率越小**」也已经自动成立，不用写一行：
+//        `outsideCount` 把我手里的 J 减掉了，所以 d 跟着小、`missP` 跟着大。
+//      **所以这一句不加代码。** 加一份等效实现就是墓碑上那条
+//      「复制一份逻辑，两份必然分叉」。
+//
+//   乙 「b（够不着堆底）下不建议养堆」      → `HOLD_REACH`，下面
+//   丙 「有对子时要优先打，把匹配牌埋到深处」 → `HOLD_ANCHOR`，下面
+//
+// ---- 两个都**默认关**，而且这一条是故意的 ----
+//
+// 它们改的是**打法不是技能**，而全表 / `one` / `vs` 都走 `measureBoth`
+//（双方同角色、各插同一个槽）—— 默认开的话每一格都含一截「AI 变聪明了」
+// 的常数，**整张 40 件的表静默作废**，那是这个项目最大的一次重测
+//（`JACK_HOLD` 翻默认值那次的代价写在它那一行）。
+//
+// 所以：默认关 = 旧数一个字节不受影响；要量就显式开，而且照
+// `ai.js` 养堆那一段的配方走**不对称口径**（`HOLD_BOTH=0` + `base`），
+// 两侧都开量出来的分差必然≈0。
+//
+//   HOLD_ANCHOR=1  挑饵时优先挑「手里还留着钥匙」的那张（丙）
+//   HOLD_REACH=1   这一手够不着堆底就不忍（乙）
+//
+// ⚠ 两条**要能分开量**，别一起开就报一个数：丙改的是「埋哪张」，
+//   乙改的是「忍不忍」，而**丙会制造乙的前提**（埋下锚才有「够得着堆底」
+//   这个局面）。所以它们耦合，而耦合的两件事合在一起量就分不出
+//   哪一条在起作用 —— 这正是 CLAUDE.md 第四节那条「一次把矩阵量全」：
+//   四格（关关 / 只丙 / 只乙 / 都开），不是两格。
+const HOLD_ANCHOR = process.env.HOLD_ANCHOR === '1'
+const HOLD_REACH = process.env.HOLD_REACH === '1'
+
+// ---------- 【按概率忍】`HOLD_MIX`〔2026-10-27 用户〕 ----------
+//
+// 原话：「算出 忍 的概率后，可以用生成随机数的方法，如果随机数落在概率里就忍。」
+//
+// 原先是**硬阈值**（`ev.ev > now`），于是同一个局面永远给同一个答案。
+// 四档（判据在 `worthHolding` 里那段）：
+//   `keep`（**默认**）以 `1 − ev.pLose`（我那张没被一起收走）的概率忍
+//   `off`   硬阈值（2026-10-27 之前的默认）
+//   `pwin`  以 `ev.pWin`（对手一格都钓不着）的概率忍
+//   `gate`  先过 EV 那道硬闸，再按 `pWin` 掷骰 —— 只会忍得更少
+//
+// ---- ⚠⚠ **2026-10-27 翻成默认 `keep`**〔用户定：「AI 的忍改成按概率掷骰」〕 ----
+//
+// 实测（张=分 · 抢牌 · `base` · 2000 局 · `HOLD_BOTH=0` 对战【能吃就吃】，
+// 分差 = 你 − 庄家，se 0.27~0.29，`out-sai-*.txt` / `out-sj-*.txt`）：
+//
+//   档        捏 J（JACK_HOLD=3）   不捏 J（=0）
+//   off       +2.64 / 56.4%        +0.12 / 48.8%
+//   pwin      +4.43 / 61.5%        —
+//   **keep**  **+6.03 / 66.5%**    **+4.10 / 61.4%**
+//   gate      +2.52 / 55.9%        —
+//
+// 三条读数，**第三条是决定性的**：
+//   一 `keep` 是四档最高，而 `gate`（硬闸 + 掷骰）是最差 ——
+//     「先过一道 EV 闸」净亏 3.5 分，所以硬闸不是保险而是枷锁。
+//   二 `gate` 相对 `off` 只改掉 **1.6%** 的决策，近乎空转。
+//   三 **`off` 档的养堆价值 ≈ 0**（不捏 J 时 +0.12，无抢牌下 +0.03）——
+//     那个 +2.64 几乎全是捏 J 的功劳。换 `keep` 之后不捏 J 也有 **+4.10**，
+//     也就是说桌上一直有 4 分，而 EV 硬闸太保守，一分都没榨出来。
+//
+// 判忍率这时才跟信念挂上钩（`out-sai-mix-keep.txt`）：
+//   外面还剩 0 / 1 / 2+ 张 → 判忍 71.1% / 47.5% / 40.7%，
+//   忍完**真升档** 61.5% / 51.3% / 48.7% —— 单调同向，三桶拉得开。
+//   `off` 档那三桶是 26.1% / 1.4% / 0.1%，即「还是阈值开关，没有决策」。
+//
+// ⚠ **翻这个默认值作废了全表 40 件的 X**（它们全是硬阈值下量的）。
+//   同一天翻的还有 `rules.js` 的 `STEAL_ON`（抢牌）和 `SCORE_BANDS`（张=分），
+//   三个一起作废同一批数 —— 名单在台账的作废公告那一节。
+//
+// ⚠ 它**不是规则，是打法**，所以它不进 `ruleTag`（那个只报规则档）。
+//   它报在「埋锚/够得着」那一行的 `HOLD_MIX=` 里，每一跑都印。
+//
+// ⚠⚠ **它动同种子的局面流** —— 这是这个旋钮独有的读数陷阱。
+//   `G.rng` 是整局共用的那一条序列（发牌、补牌都从它取），
+//   所以多掷一次骰子**就把后面所有牌都换了**。后果：
+//     甲 跟 `HOLD_MIX=off` 之间**没有「逐位相同」这种回归可做**
+//        —— 2026-10-27 翻默认值之后，受影响的反过来是**所有历史对照**：
+//        想复现旧数必须显式写 `HOLD_MIX=off`，靠不写是复现不出来的；
+//     乙 开 vs 关的差里掺着「**不同的牌**」—— 20000 局下那是噪声不是偏差，
+//        可小样本（2000 局）要当心，se 读不过来的话加局数不是换解释。
+//
+//   ⚠ 它掷骰的位置在 `worthHolding` 里，而那条函数被 `holdSide` 挡着
+//     （`HOLD_ONCE=0` 或非本侧时整条 return false，根本不掷）——
+//     所以 `HOLD_ONCE=0` 的对照档**不受这次翻默认值影响**，`band.js`
+//     的 `ctl`（双方贪心）照旧成立。
+//   〔同一条的旧实例：`campaign.js` 的难度旋钮也动随机流，
+//     而那边是靠「同一套假设下两个档位的相对关系」绕过去的〕
+//
+// ⚠ 用 `G.rng` **不是 `Math.random`**。源码那边用 `Math.random`（见
+//   `rules.js:3106`），而模拟器这边整条随机流都要可复现 ——
+//   混进一个 `Math.random` 就等于把种子废掉，而且是静默的。
+const HOLD_MIX = process.env.HOLD_MIX || 'keep'
+
 // 对手手里**一张危险牌都没有**的概率（超几何，是精确值不是近似）。
 //
 // 未知牌池 U = 牌库 + 对手手牌：这两处我都看不见，所以「对手那 h 张」
@@ -824,6 +996,14 @@ function holdEV(G, side, bestCaught, card) {
 function worthHolding(G, side, bestCaught, card) {
   if (!HOLD_ONCE || !holdSide(side)) return false
   if (bestCaught <= 0) return false
+  // 【按桶结账】这一手的「外面还剩几张」桶键，留给 `pickCard` 那边结账用
+  //（用户 2026-10-27 的 c：「已有 3 张 3 被收走…要不要在 3 的基础上养堆」）。
+  //
+  // ⚠ **每次进来先清**：桶键只在下面 `HOLD_EV` 那一支算得出来，
+  //   而 `HOLD_EV=0` 走老路时压根没有它 —— 不清的话会拿**上一手**的桶
+  //   去给这一手结账，于是三个桶的兑现率互相串台，而且是静默的
+  if (!G.holdOutB) G.holdOutB = [-1, -1]
+  G.holdOutB[side] = -1
   // 事实 2：领先就落袋为安，换贪心打法
   if (HOLD_LEAD > 0) {
     const other = side === R.ME ? R.FOE : R.ME
@@ -891,6 +1071,9 @@ function worthHolding(G, side, bestCaught, card) {
       }
       // 分桶键照用户那三条：外面还剩 0 张 / 1 张 / 2 张以上
       const b = ev.outs >= 2 ? 2 : ev.outs
+      // 带给结账那边（见这个函数开头那段）。**判没判忍都记** ——
+      // 读的那一侧只在「真忍了」之后才取它，所以这儿不用分支
+      G.holdOutB[side] = b
       // 第二个分桶键：**从哪一档起忍**〔2026-10-23 用户补的〕
       //
       //   「我举的是 2 升 4 的例子，3 升 5 的也是一样的计算方法。
@@ -929,7 +1112,38 @@ function worthHolding(G, side, bestCaught, card) {
       G.stat.holdEvPShal[side] += ev.pShal
       G.stat.holdEvPBait[side] += ev.pBait
       G.stat.holdEvOver[side] += ev.pShal * (ev.now - ev.shalPay)
-      if (ev.ev <= now) return false
+      // ---------- 【按概率忍】`HOLD_MIX`（见函数外那段） ----------
+      //
+      // 原来这儿是**硬阈值**：`ev.ev > now` 就忍，否则不忍 —— 同一个局面
+      // 永远给同一个答案。用户 2026-10-27：「算出忍的概率后，可以用生成
+      // 随机数的方法，如果随机数落在概率里就忍。」
+      const evYes = ev.ev > now
+      let yes = evYes
+      if (HOLD_MIX !== 'off') {
+        // 「忍的概率」在现行模型里有**两个**现成的量，而且差得远，
+        // 所以两档都留着一次量全（别边推边量）：
+        //   `pwin` = 对手**一格都钓不着** → 我下一手收 bestCaught+2（真赚）
+        //   `keep` = 1 − pLose = 我那张**没被一起收走**（没亏，含「只有饵被吃」）
+        const p = HOLD_MIX === 'keep' ? 1 - ev.pLose : ev.pWin
+        const roll = G.rng() < p
+        // `gate` = 先过 EV 那道硬闸，再掷骰（只会比原来忍得**少**）；
+        // 另两档不看 EV 符号，于是 EV 为负的局面也会以 p 的概率忍
+        yes = HOLD_MIX === 'gate' ? (evYes && roll) : roll
+        if (!G.stat.mixOn) {
+          G.stat.mixOn = [0, 0]; G.stat.mixAdd = [0, 0]
+          G.stat.mixDrop = [0, 0]; G.stat.mixPsum = [0, 0]
+        }
+        G.stat.mixOn[side]++
+        G.stat.mixPsum[side] += p
+        // 「这个旋钮改了多少次决策」，**而且分方向** —— 只报一个总数的话
+        // 看不出它是在多忍还是少忍，而两者的后果相反
+        if (yes && !evYes) G.stat.mixAdd[side]++
+        if (!yes && evYes) G.stat.mixDrop[side]++
+      }
+      if (!yes) return false
+      // ⚠ 开了 `HOLD_MIX` 之后，下面这几个 `*Yes` 的口径从「**EV 判它该忍**」
+      //   变成「**最终真判了忍**」。报表里那几个判忍率跟着变意思，
+      //   所以跨 `HOLD_MIX` 档比较判忍率时要记着这一点
       G.stat.holdEvYes[side]++
       // **信的那个成功率**记下来，好跟事后实测的升档率对账 ——
       // `HOLD_P=25` 就是栽在这儿（信 25%，实际 15.2%，而光看 X 查不出来）
@@ -969,10 +1183,231 @@ function worthHolding(G, side, bestCaught, card) {
     G.stat.holdCapped[side]++
     return false
   }
+  // ---------- 【够得着才养堆】`HOLD_REACH`：用户情景 1 的 b 支 ----------
+  //
+  //   「b：手牌无 3 或 J —— **一般不建议 AI 在 b 下养堆**」
+  //
+  // 「够得着堆底」翻成这儿的变量是**一个等式**，不是一条启发式：
+  // 我钓的那一格 `at = L − bestCaught + 1`（跟 `holdEV` 同一行口径），
+  // 于是
+  //
+  //   `at <= 0`  ⟺  我这一刀从堆底起  ⟺  **收整堆**  ⟺  用户的 a
+  //   `at > 0`   ⟺  我只够得着浅层                    ⟺  用户的 b
+  //
+  // 而 a 的两种来源正好是用户列的那两样，不用分别判：
+  // 手里那张 3 匹配堆底 → `catchStart` 返回 0；手里有 J → `catchStart`
+  // 对 J **恒返回 0**（通吃）。两条都落在 `at === 0` 这一格里。
+  //
+  // ---- 为什么这道闸是真的有东西，不是同义反复 ----
+  //
+  // 现行模型里忍一手的回报是 `win = scoreOf(bestCaught + HOLD_GROW)`
+  // —— **够不着堆底也照样 +2 张**（饵落堆顶、我的目标还在原下标 `at`，
+  // 所以下一手收 `L+2 − at + 1`）。所以 b 在 EV 里不是「回报小」，
+  // 它只被 `pLose × foeGain` 那一项压着，而那是**概率加权**的。
+  // 用户这一条是把它改成**硬闸**：够不着堆底就一律不忍。
+  //
+  // 两者谁对是可证伪的 —— 所以这儿**不默认开**（见上面那段），
+  // 关着时 `reachDeep` 照旧记账，于是「忍的手里有几成是 a」
+  // **对照组不用重跑就看得见**（照 `holdEvPShal` 那几行的做法）。
+  //
+  // ⚠ 排在 `HOLD_BAND_MAX` 之后 = 排在最后，照它那段的理由：
+  //   这样 `reachBlock` 精确等于「**这个旋钮改变了多少次决策**」，
+  //   不含那些本来就会被 RUN / LEAD / EV / 上限拦下的手。
+  //   代价同样照它那条 ⚠：两个旋钮同时开时 `holdEvYes` 会被污染
+  //   （EV 判了该忍，这儿又拦掉）—— 两个都默认关，所以默认口径不受影响。
+  // ⚠ **两档都记，`return` 才受旋钮管。** 只在拦下时记的话，关着那一跑
+  //   `reachShal` 恒 0 —— 于是**对照组没有分母**，「现行 AI 忍的手里有几成
+  //   是 b」这个数就得专门再跑一次才看得见。照 `holdEvPShal` 那几行的
+  //   做法（「这几个数不管旋钮开没开都记，所以关着跑也能看见值不值得拆」）。
+  //
+  // 于是两档的口径随旋钮而变，读的时候要分开：
+  //   关着：`reachDeep + reachShal` = `holdOnce`（真忍了的全部）
+  //   开着：`reachDeep` = `holdOnce`，而 `reachShal` = **这道闸拦掉了几次**
+  const at = G.pile.length - bestCaught + 1
+  if (!G.stat.reachDeep) { G.stat.reachDeep = [0, 0]; G.stat.reachShal = [0, 0] }
+  if (at <= 0) {
+    G.stat.reachDeep[side]++
+  } else {
+    G.stat.reachShal[side]++
+    if (HOLD_REACH) return false
+  }
   return true
 }
 
+// ---------- 【攒组合】集齐两件再接连打出〔2026-10-26 用户提的打法〕 ----------
+//
+// 用户原话：「像这类配合件 应该要手牌集齐了这两件后再接连打出吧。
+// 量一下，留在手中等集齐再打 / 原打法 比较下哪一种分数比较高」。
+//
+// **跟上面那一整族【养堆】旋钮不是一回事，别混**：
+//
+//   养堆（HOLD_MIN / JACK_HOLD / HOLD_ONCE / HOLD_EV）忍的是
+//     「**这一张**现在打出收得太少」—— 看的是**堆**；
+//   攒组合忍的是「**那一张**还没到手」—— 看的是**自己的手牌**。
+//
+// 所以它独立旋钮、独立计数，而且**两族不该同时开**
+//（holdSkip 那对计数被 JACK_HOLD 和 HOLD_MIN 混过一次，见 pickCard 里那段）。
+//
+// 形状（以定稿的【拢水】+【伏流】为例，江口闸官 A 槽 / '2' 槽）：
+// 拢水落堆 = 往堆上码两张料（它自带【通配】【保护】），而**伏流才是
+// 提款手柄**（顺子匹配 + 通配）。两张分开打的话，中间对手有一整手的机会
+// 把那堆料收走 —— 于是「先 A、下一手 2」该比「见 A 就打」多拿分。
+// **该不该多拿，要量，不能推。**
+//
+// 旋钮：`COMBO_HOLD='料件,提款件'`（技能 key，逗号分隔）。空 = 关（默认）。
+//
+// ⚠ **这是打法不是技能，所以 `one` / `all` / `vs` 那个口径量不了它**
+//   —— 上面 314-318 行那条：两边都变聪明的话差值是 0，要的是不对称。
+//   默认**只给 R.ME 这一侧**用，`COMBO_HOLD_BOTH=1` 才两侧都用。
+//   读数读「我的分 / 对手的分」那一对和 `back`，不读 X。
+const COMBO_HOLD = process.env.COMBO_HOLD || ''
+const COMBO_HOLD_BOTH = process.env.COMBO_HOLD_BOTH === '1'
+// ---- `COMBO_HOLD_IDLE=1`：**只忍钓不着的那张料**〔2026-10-26 加的第二档〕 ----
+//
+// 第一跑（纯形态）量出来是 −2.84 / −2.92，而诊断口指出两条成本：
+//   甲 `账面放弃 3.93 张/局` —— 料牌这一手能收 5 张也照样攥着；
+//   乙 `忍了 52.6% 的出牌手数` + `集齐 18.0%` —— A 牌常驻堵在手里。
+// 这一档只拆掉甲：钓得着就当场兑现，钓不着才扣住。
+//
+// ⚠ 于是这一档的语义**退化成「料牌不当饵烧掉」** —— 钓不着的牌在主循环里
+//   本来也选不上（`bestCaught` 初值 0，`sc > bestSc` 过不去），所以它
+//   唯一改的是下面那个挑饵循环。这不是「弱一点的攒组合」，
+//   是**另一个打法**，读数时别跟上一档连成一条曲线
+const COMBO_HOLD_IDLE = process.env.COMBO_HOLD_IDLE === '1'
+// key → 技能下标。查一次、查不到就抛 —— 拼错一个 key 而静默当成「关着」
+// 的话，跑出来是一张跟原打法逐位相同的表，而那看起来像「这个打法没用」
+const comboPair = (function () {
+  if (!COMBO_HOLD) return null
+  const keys = COMBO_HOLD.split(',')
+  if (keys.length !== 2) {
+    throw new Error('COMBO_HOLD 要两个技能 key、逗号分隔（料件,提款件），收到：'
+      + COMBO_HOLD)
+  }
+  const at = keys.map(function (k) {
+    const key = k.trim()
+    for (let i = 0; i < R.SKILLS.length; i++) {
+      if (R.SKILLS[i].key === key) return i
+    }
+    throw new Error('COMBO_HOLD 里查不到技能 key：' + key)
+  })
+  return { bait: at[0], cash: at[1] }
+})()
+
+// 这一侧「集齐」要的两组点数。装不齐两件就返回 null —— 于是这个旋钮
+// 在不带这套组合的跑里**一个字节都不改**（照 `wants` 那条「条件性的件
+// 要带条件」的判据：无条件开的话 AI 会为一套它根本没装的组合忍牌）。
+//
+// **只认点数槽**：花色槽的「集齐」没有意义 —— 一张牌一个花色，
+// 而「手里有没有那个花色」跟「哪张是料、哪张是提款」对不上。
+function comboRanksOf(G, side) {
+  if (!comboPair) return null
+  if (!COMBO_HOLD_BOTH && side !== R.ME) return null
+  const lo = G.loadouts[side]
+  const bait = []
+  const cash = []
+  for (let i = 0; i < lo.rankOwner.length; i++) {
+    if (lo.rankOwner[i] === comboPair.bait) bait.push(R.SKILL_RANKS[i])
+    if (lo.rankOwner[i] === comboPair.cash) cash.push(R.SKILL_RANKS[i])
+  }
+  if (!bait.length || !cash.length) return null
+  return { bait: bait, cash: cash }
+}
+
+// 诊断口（CLAUDE.md 第四节：「X 之外必须有一个『它做了几次』的计数」）。
+// 懒建，照 `initHoldStat` —— 这几个是**决策层**的量，不进 rules.js 的 stat 表
+function initComboStat(st) {
+  if (st.comboHold) return
+  st.comboHold = [0, 0]        // 忍了几手（一手一笔，手里两张料也只记一笔）
+  st.comboHoldSum = [0, 0]     // 忍掉的那几手本来能收几张（账面成本）
+  st.comboForced = [0, 0]      // 其中「忍不住」的：手里全是料，照旧打出去了
+  st.comboReady = [0, 0]       // 集齐了几手（两种点数同时在手）
+  st.comboBaitPlay = [0, 0]    // 料牌打出去了几次（下面两个的分母）
+  st.comboChain = [0, 0]       // 其中下一手**接上了**提款牌
+  st.comboBroke = [0, 0]       // 其中下一手打了别的 —— 没接连上
+}
+
 function pickCard(G, side) {
+  // ⚠ **「这一手忍了吗」要在这儿清，不能在 core 里面清** —— core 开头有
+  //   三条早退（`G.random` / `rushFlood` / `sinkCombo`），走那三条的手
+  //   根本到不了清零那一行，于是上一手的 `true` 会留着，
+  //   下一手打出料牌时被 `comboTally` 记成一次假的「忍不住」。
+  //   这种污染只污染诊断口、不改决策，所以**光看 X 查不出来**
+  if (comboPair) {
+    if (!G.comboHeldNow) G.comboHeldNow = [false, false]
+    G.comboHeldNow[side] = false
+  }
+  const at = pickCardCore(G, side)
+  // 「**接连**打出」那半句的诊断口。放在这儿而不是 core 里面，是因为
+  // core 有七个 return（rushFlood / sinkCombo / best / pick / randomFree…），
+  // 包在外面才不会漏掉其中某一条路
+  if (comboPair) comboTally(G, side, at)
+  return at
+}
+
+// 料牌打出之后，**下一手**是不是接上了提款牌。
+// 这一笔只记账、不改决策 —— 要是接连率本来就高，那就不需要再加一个
+// 「连击」旋钮；低的话才值得加。**先量再决定**，别两件一起上
+function comboTally(G, side, at) {
+  const ranks = comboRanksOf(G, side)
+  if (!ranks) return
+  const hand = G.hands[side]
+  if (!G.comboArmed) G.comboArmed = [false, false]
+  const card = (at >= 0 && at < hand.length) ? hand[at] : null
+  const isBait = card ? ranks.bait.indexOf(card.rank) >= 0 : false
+  const isCash = card ? ranks.cash.indexOf(card.rank) >= 0 : false
+  initComboStat(G.stat)
+  // 上一手打的是料 —— 这一手接上了没有
+  if (G.comboArmed[side]) {
+    if (isCash) G.stat.comboChain[side]++
+    else G.stat.comboBroke[side]++
+    G.comboArmed[side] = false
+  }
+  // 「忍不住」：这一手判了忍，可最后 randomFree 还是把料打出去了
+  if (G.comboHeldNow && G.comboHeldNow[side] && isBait) {
+    G.stat.comboForced[side]++
+  }
+  if (isBait) {
+    G.stat.comboBaitPlay[side]++
+    G.comboArmed[side] = true
+  }
+}
+
+// ---------- 【上牌区】：被迫从这一区出牌时挑哪张〔2026-10-26〕 ----------
+//
+// **不复用 `pickCard`**，而这是个有意的取舍，不是偷懒：
+// `pickCardCore` 从头到尾按「手牌下标」在做事 —— 养堆忍 J、攒组合、
+// 映照借脸、挑饵、`randomFree` 兜底，每一条都读 `G.hands[side]`。
+// 把它改成「下标可能指向另一个数组」要动七条 return 路径，
+// 而那正是这个项目反复栽的那个形状（「复制一份逻辑，两份必然分叉」——
+// 只不过这次分叉的会是现役那份）。
+//
+// 所以这儿只实现**这一区真正需要的那条判据**：规则说「必须出 1 张」，
+// 所以没有「忍不忍」的决策空间，只剩「哪张收得最多」。
+// 用的尺子是 `pickCardCore` 主循环那把**同一把**（`catchStart` +
+// `catchCountAt`），不另写一份。
+//
+// ⚠ 已知的欠缺，**记下来别当成它量准了**：
+//   上牌区的牌不过 `JACK_HOLD`（养堆忍 J）那道闸 —— 被迫出牌时没得忍，
+//   所以那是规则本身的后果，不是 AI 的缺口；
+//   但「平手时花掉哪张更便宜」（映照那条 `spend`）这儿**没接** ——
+//   真要有技能往这一区塞牌，这是第一个要补的地方。
+//   `return 0` 的兜底（全都收不到时出第一张）同理：它是**可复现**的，
+//   不是最优的
+function boardPick(G, side) {
+  const zone = G.boardZone[side]
+  let best = 0
+  let bestCaught = -1
+  for (let i = 0; i < zone.length; i++) {
+    const card = zone[i]
+    const skills = R.skillsOf(G, side, card)
+    const at = R.catchStart(G, card, side, skills, false)
+    const caught = at >= 0 ? R.catchCountAt(G, card, side, skills, at) : 0
+    if (caught > bestCaught) { bestCaught = caught; best = i }
+  }
+  return best
+}
+
+function pickCardCore(G, side) {
   // 关卡表的 random：连钓都不挑（照源码 foePickCard 开头那一支）
   if (G.random[side]) return randomFree(G, side)
   // 【洪水】偷时间：**排在「挑钓得最多的」之前**，因为它要表达的正是
@@ -1009,6 +1444,33 @@ function pickCard(G, side) {
   // 那种跑法得先把计数拆成两对
   let jackHeld = false
   let jackWould = 0
+  // ---- 【攒组合】这一手的两个前提，**循环外算一次**（见 comboPair 那段） ----
+  //
+  // `comboReady` 在这一手之内不会变（手牌不动），所以不放进循环。
+  // ⚠ 提款牌**被冻着就不算集齐** —— 冻着的牌打不出去，攥着料等它
+  //   等的是一张这一手兑不了的牌
+  const comboRanks = comboRanksOf(G, side)
+  let comboReady = false
+  if (comboRanks) {
+    for (let i = 0; i < hand.length; i++) {
+      if (R.isFrozen(G, hand[i])) continue
+      if (comboRanks.cash.indexOf(hand[i].rank) >= 0) { comboReady = true; break }
+    }
+    initComboStat(G.stat)
+    if (comboReady) G.stat.comboReady[side]++
+  }
+  // 〔`G.comboHeldNow[side]` 的清零在 `pickCard` 那个外壳里，不在这儿 ——
+  //   理由见那一行的 ⚠（这儿上面有三条早退，清不到）〕
+  // 这一手忍掉的料本来能收几张（取最多的那张，照 jackWould 那个口径）
+  let comboWould = 0
+  // 扣住了哪几个**下标** —— 下面挑饵循环读它。
+  //
+  // ⚠ **传下标，不是在那边把条件再写一遍**〔2026-10-26 改的〕。原来两处
+  //   各判一次 `bait.indexOf(card.rank)`，加了 `COMBO_HOLD_IDLE` 之后
+  //   那个条件要读 `caught`，而挑饵循环算不出 `caught` —— 两份就必然分叉，
+  //   而且分叉的后果正是「主循环忍了、挑饵循环照样扔出去」那个假忍
+  //（2026-10-22 `HOLD_PEN` 栽过一次的形状）
+  const comboHeldAt = []
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (R.isFrozen(G, card)) continue
@@ -1122,6 +1584,27 @@ function pickCard(G, side) {
     //   那样「阶梯计分」这个改动的效果能干净归因到「忍不忍」上，
     //   不会掺进「AI 在同档里改挑了别的牌」。
     //   （顺带：多收一张本身也有价值 —— 牌离场、对手配不着了。）
+    // ---------- 【攒组合】提款牌还没到手，这张料先不打 ----------
+    //
+    // ⚠ **位置在 `caught` 算完之后**，跟 JACK_HOLD 那一条（算之前就 continue）
+    //   不一样 —— 理由是诊断口：J 通吃的收成有现成公式（堆 + 1），
+    //   而一张普通料牌放弃了多少只能让这个循环算出来。放前面省的那点
+    //   时间换来的是一个量不出成本的旋钮，不划算。
+    //
+    // ⚠ **不设「收得够多就别忍了」那道闸**。这一跑量的是用户说的那个
+    //   打法的**纯形态**，掺一道闸进去，量出来的就不是它了。
+    //   忍掉的收成记在 `comboHoldSum` 里 —— 要是那个数很大而分差是负的，
+    //   下一步才是去配那道闸，而不是现在先替它假设一个。
+    // `COMBO_HOLD_IDLE` 这一档：钓得着就当场兑现，只扣住闲着的那张
+    if (comboRanks && !comboReady && comboRanks.bait.indexOf(card.rank) >= 0
+      && !(COMBO_HOLD_IDLE && caught > 0)) {
+      // 一手只记一笔（手里两张料也是一笔）—— 照 jackHeld 那条 ⚠：
+      // 记成「忍了几张」的话，忍的次数会莫名其妙地超过出牌次数
+      G.comboHeldNow[side] = true
+      comboWould = Math.max(comboWould, caught)
+      comboHeldAt[i] = true
+      continue
+    }
     const sc = R.scoreOf(caught)
     const bestSc = R.scoreOf(bestCaught)
     if (sc > bestSc
@@ -1160,6 +1643,13 @@ function pickCard(G, side) {
     if (st.holdOnce) return
     st.holdOnce = [0, 0]; st.holdOnceHit = [0, 0]; st.holdOnceMiss = [0, 0]
     st.holdOnceGave = [0, 0]; st.holdOnceGot = [0, 0]
+    // 【按桶兑现率】〔2026-10-27〕用户的 c 问的是「要不要在这一格养堆」，
+    // 而现行只有**判忍率**（= AI 信了几成）和**整体**升档率，
+    // 两者对不上过一次（`HOLD_P=25`：信 25%、实际 15.2%，而光看 X 查不出来）。
+    // 这两个数组把整体那一对按「外面还剩 0 / 1 / 2+ 张」拆开，
+    // 于是「28.8% 判忍的那一格到底赚没赚」变成一个可读的数
+    st.holdOnceHitB = [[0, 0, 0], [0, 0, 0]]
+    st.holdOnceMissB = [[0, 0, 0], [0, 0, 0]]
   }
   // `hand[best]` 是会打出去那张 —— `HOLD_EV` 要用它的点数做分桶键
   //（用户那三条判据问的是「这个点数已收了几张」）
@@ -1187,6 +1677,9 @@ function pickCard(G, side) {
     G.holdRun[side]++
     // 记下**放掉的是多少张** —— 下一次真收牌时拿它结账（hit / miss）
     G.holdWould[side] = bestCaught
+    // 连桶键一起扣住（见 `worthHolding` 开头那段）。−1 = 这一手没走 EV 支
+    if (!G.holdWouldB) G.holdWouldB = [-1, -1]
+    G.holdWouldB[side] = G.holdOutB ? G.holdOutB[side] : -1
     best = -1
   } else if (best >= 0 && G.holdRun && G.holdRun[side] > 0) {
     // 忍完之后真的收了 —— 这一笔结账。
@@ -1200,14 +1693,40 @@ function pickCard(G, side) {
     const now = R.scoreOf(bestCaught)
     if (now > was) G.stat.holdOnceHit[side]++; else G.stat.holdOnceMiss[side]++
     G.stat.holdOnceGot[side] += now
+    // 同一笔账按桶再记一遍（见 initHoldStat 那段）。
+    // ⚠ 口径跟整体那一对**完全一致**（同一个 `now > was`、同一个位置），
+    //   所以三个桶的和该等于整体 —— 对不上就是桶键串台了，先查代码
+    const bb = G.holdWouldB ? G.holdWouldB[side] : -1
+    if (bb >= 0) {
+      if (now > was) G.stat.holdOnceHitB[side][bb]++
+      else G.stat.holdOnceMissB[side][bb]++
+    }
     G.holdRun[side] = 0
     G.holdWould[side] = 0
+    if (G.holdWouldB) G.holdWouldB[side] = -1
   }
   // JACK_HOLD 那一侧的计数。**只在「忍了 J 而且这一手最终没收牌」时记** ——
   // 忍住 J 之后照样用别的牌钓到了的，那不叫忍（什么也没放弃）
   if (jackHeld && best < 0) {
     G.stat.holdSkip[side]++
     G.stat.holdSkipSum[side] += jackWould
+  }
+  // 【攒组合】这一手忍了料牌 —— **跟 jackHeld 那一条的口径不一样，是有意的**。
+  //
+  // 那一条只在「忍了 J 而且最终没收牌」时记（忍住 J 还照样钓到了的不算忍）；
+  // 这一条**忍了就记**，因为这个旋钮改掉的决策不止「收不收」那一层：
+  // 料牌被摘掉之后，它在下面挑饵那个循环里**也不许当饵**，
+  // 所以哪怕这一手拿别的牌钓到了，料牌仍然是被这个旋钮扣在手里的。
+  // 记的是 CLAUDE.md 第四节要的那个数：「**这个旋钮改变了多少次决策**」。
+  //
+  // ⚠ 于是 `comboHoldSum` 是**毛数**（账面成本），而且里面有不少 0 ——
+  //   本来也钓不着的料牌放弃 0 张。净值看分差那一行，别拿这个减
+  // ⚠ 闸上要有 `comboRanks` —— `G.comboHeldNow` 只在旋钮开着时建
+  //（建在 `pickCard` 那个外壳里），不带这个条件的话普通跑会在这儿读
+  //  undefined 的下标，**每一跑当场抛**
+  if (comboRanks && G.comboHeldNow[side]) {
+    G.stat.comboHold[side]++
+    G.stat.comboHoldSum[side] += comboWould
   }
   if (best >= 0) return best
   if (!G.smart[side]) return randomFree(G, side)
@@ -1244,9 +1763,29 @@ function pickCard(G, side) {
   const HOLD_PEN = hmin > 0 || heldOnce
   let pickScore = 99.0
   let pickPen = false
+  // 【埋锚】选中那张还留着几把钥匙（见 keysFor）。
+  // **不管旋钮开没开都记**，照 `holdEvPShal` 那几行的做法 ——
+  // 关着那一跑的 `anchorBury / anchorNone` 就是「现行挑饵本来有几成
+  // 带钥匙」，于是这个旋钮值不值得开，**对照组不用重跑就看得见**
+  let pickAnchor = false
+  let pickKeys = 0
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (card.rank === R.JACK || R.isFrozen(G, card)) continue
+    // 【攒组合】料牌也不当饵扔出去 —— **这一行不补的话上面那个「忍」是假的**，
+    // 跟 2026-10-22 那个 `HOLD_PEN` 漏洞一模一样的形状（见上面那段）：
+    // 摘掉的只是「偏好钓最多的」，而这个循环按 `baitRisk` 排、
+    // 压根不看这张牌是不是料。
+    //
+    // 这儿用**过滤**不用分层（跟 `HOLD_PEN` 相反），理由是语义不同：
+    // 那边忍的是「收成」，手里全是能钓到的牌时必须打一张，所以要排序；
+    // 这边忍的是「这一张」，手里只剩料牌时由下面的 `randomFree` 兜底 ——
+    // 那正是「忍不住了」，`comboForced` 记它（照 JACK_HOLD 那条路）
+    //
+    // 判的是**上面那个循环扣下来的下标**，不是在这儿把条件重写一遍 ——
+    // 理由见 `comboHeldAt` 那一行的 ⚠（`COMBO_HOLD_IDLE` 要读 `caught`，
+    // 而这个循环算不出 `caught`）
+    if (comboHeldAt[i]) continue
     let score = baitRisk(G, side, card) * 1.0
     const skills = R.skillsOf(G, side, card)
     // ---------- 【窥视】【照水】【染水】要**带条件**才算「想发动」 ----------
@@ -1273,6 +1812,37 @@ function pickCard(G, side) {
     // 而硬给它一个「以后会用上」的折扣就又回到了白付风险那条路
     //〔`pairFreeze`（有冻结搭档吗）2026-10-16 跟着窥视、照水一起删了 ——
     //  它只给那两件用。上面那段推理留着，下一件情报类技能还会撞上同一个坑〕
+    // ⚠⚠ `WANTS_PEN` 这道旋钮 2026-10-27 加 —— **它是为了查一个怀疑，
+    //    而那个怀疑一旦成立，整张价位池都要重新认认**。
+    //
+    //    起因：【顶钩】（〈boardgive〉）上架那天往下面这张表里补了一行，
+    //    **分掉了 0.51**（A 槽 X 1.35 → 0.84，se 0.12，4σ），
+    //    而计数口证明那一行真的接上了（发动次数 138978 → 156500，+12.6%）。
+    //    方向跟下面引潮那块墓碑写的「漏掉的后果是低估，不是高估」**正好相反**。
+    //
+    //    ~~怀疑（未验证）：这个 1.5 是 R3 线性计分时代定的 —— 那时候少收 1 张
+    //      就是少 1 分，1.5 刚好压得住。而 R4 是阶梯（2/3→1 分、4/5→4 分、
+    //      6+→12 分），少收 1 张可能掉一整档（1→4 差 3 分、4→12 差 8 分）。~~
+    //
+    //    🔴 **上面那条怀疑作废了，前提是假的**〔2026-10-27 同日稍晚〕：
+    //      现行**不是 R4 是 R5**，而 R5 的 `SCORE_BANDS` 默认 `off`
+    //     （`rules.js:9788` 的实现原文：`=== undefined ? 'off'`）——
+    //      **张 = 分，跟 R3 同一个形状**。所以「阶梯计分让少收 1 张掉一整档」
+    //      这个机制在现行规则下压根不存在。
+    //      〔这是 CLAUDE.md 那条「引用一个数之前先看作废公告」的实例：
+    //        我上下文里的「现行 = R4」是过期的，而作废公告就在台账 §1179〕
+    //
+    //    **改口之后的怀疑（同样未验证，别当结论）**：R5 相对 R3 真正多出来的是
+    //    **【抢牌】**，而它把「一张牌值多少」整个换了一张分布
+    //   （收 2 张 45.2% → 15.7%、收 ≥4 张 23.4% → 42.3%，见 `STEAL_ON` 那段）。
+    //    打一张次优牌的真实风险因此可能**比 1.5 大得多**（打出去被抢的那条路
+    //    R3 下不存在），也可能更小 —— 方向不知道，这正是要跑 A/B 的理由。
+    //
+    //    查法：`WANTS_PEN=0` 等价于「这件不在表里」（折扣变成空操作），
+    //    所以拿一件**已上架、已在表里**的件跑 A/B 就能看出来 —— 选的是
+    //    【压舱】（`press`），因为它是顶钩的直接对照（前半句一字不差）。
+    //    〔常量提到模块顶上 —— 这一段在**每张候选牌**
+    //      上都跑一遍，`process.env` 查表放这儿会白费 20000 局 × 每手几张〕
     const pairSuitLine = R.has(skills, SK.SUITED) || R.has(skills, SK.HUE)
     const wants = R.has(skills, SK.TIDE)
       || R.has(skills, SK.FREEZE)
@@ -1294,6 +1864,11 @@ function pickCard(G, side) {
       // 动对方手牌、从牌库检索这几件钓不钓到都照样发动，当饵白赚一次
       || R.has(skills, SK.PRESS) || R.has(skills, SK.UNHOOK)
       || R.has(skills, SK.SWAPCARD) || R.has(skills, SK.TWIN)
+      // 〔**`SK.BOARDGIVE`（【顶钩】/〈boardgive〉）2026-10-27 从这张表里
+      //   撤掉 —— 技能删了（X −1.14）。它在这儿的理由是通用的，
+      //   下一件「动对手手牌」的技能照样适用：这一刀挪的是**对手手里**
+      //   的牌，跟「我打出去这张有没有钓中」完全无关 —— 当饵白赚一次。
+      //   它留下的实测在下面那个 ⚠⚠ 里（1.35 → 0.84），**那一段别删**〕
       // 【引潮】2026-10-16 补进来 —— 它 10-14 加原型时漏了这一行。
       //
       // 它属于上面那一类（动对方手牌、钓不钓到都照样发动），判据一样：
@@ -1302,6 +1877,15 @@ function pickCard(G, side) {
       // **漏掉的后果是低估，不是高估**：AI 不会为了发动它打一张次优牌，
       // 于是它的 X 被压着。10-14 量出来的「翻 1 张 X +0.61」是在这个
       // 缺陷下跑的，那个数要当下限看。
+      //
+      // ⚠⚠ **上面加粗那句 2026-10-27 有了一个实测反例，原文留着。**
+      //    【顶钩】补这一行之后 X 从 1.35 **掉到 0.84**（4σ，计数口证明
+      //    那一行真接上了：发动次数 +12.6%）—— 方向正好相反。
+      //    所以这条推理**不是通用的**：它成立的前提是「白付的 1.5 折扣
+      //    小于技能本身的收益」，而那个前提在 R4 阶梯计分下可能不再成立
+      //   （上面 `WANTS_PEN` 那一大段是为查这个加的）。
+      //    引潮自己这一格**没有重量过**，所以它的 +0.61 是不是也该反过来，
+      //    现在不知道 —— 别拿这条墓碑去替任何别的件背书。
       //
       // 〔别照 `SK.FROST` 那一族的样子推断「不在表里就是弱」——
       //   那条是 CLAUDE.md 记着的误读：被动件不需要主动打，
@@ -1313,7 +1897,7 @@ function pickCard(G, side) {
       || R.has(skills, SK.CALM) || R.has(skills, SK.CLEAN)
       || R.has(skills, SK.RAISE)
     if (wants && score <= fewest + 1) {
-      score = score - 1.5
+      score = score - WANTS_PEN
     }
     // 〔压底族六件、抄底、连竿、同花、余烬 / 接火 / 添柴 / 布火
     //   在 2026-10-14 那一轮全删了，各自的分支跟着删。
@@ -1339,21 +1923,55 @@ function pickCard(G, side) {
     // 【养堆】这张饵**自己也钓得着**吗。`sink` 传 false，照这个文件
     // 既有的约定（挑牌阶段一律按正常落堆算，见上面那个主循环）
     const pen = HOLD_PEN && R.catchStart(G, card, side, skills, false) >= 0
+    // 【埋锚】打出这张之后手里还剩几把钥匙（见 `keysFor` 那段）。
+    // **无条件算**（记账要用），只有排序那一项受旋钮管
+    const keys = keysFor(G, side, i)
+    // ⚠ **必须带 `holdSide`**〔2026-10-27 查出来的〕：`worthHolding` 的那道
+    //   总门在 :934（`!HOLD_ONCE || !holdSide(side)` 直接 return false），
+    //   所以【够得着才养堆】自动跟着 `HOLD_BOTH` 走；而**挑饵这个循环不受
+    //   那道门管**，不加这一句的话 `HOLD_BOTH=0` 下庄家照样埋锚 ——
+    //   于是「新 AI vs 能吃就吃」那个对战口径里，对面也偷偷聪明了半截。
+    //   这正是上面 `holdSide` 那段注释的乙条（三个旋钮共用一道门），现在是四个。
+    const anchor = HOLD_ANCHOR && holdSide(side) && keys > 0
     // 原来那一行是 `if (score < pickScore)`，pickScore 初值 99 ——
     // 也就是「分数 ≥ 99 的谁都别选」。那道兜底照旧，只是挪到了前面，
     // 这样下面那个三段比较只管排序、不兼管兜底
     if (score >= 99.0) continue
-    // 先比「钓不钓得着」（钓不着的优先），再比分数。平手留给靠前的那张 ——
-    // 跟原来的严格 `<` 一致。`HOLD_PEN` 为假时 `pen` 恒 false，
-    // 第二项永不成立、第三项退化成 `score < pickScore`，**逐字等于原来那行**
-    if (pick < 0 || (pickPen && !pen) || (pen === pickPen && score < pickScore)) {
+    // 先比「钓不钓得着」（钓不着的优先），**再比有没有钥匙**，最后比分数。
+    // 平手留给靠前的那张 —— 跟原来的严格 `<` 一致。
+    //
+    // ⚠ 【埋锚】那一层**必须排在 `score` 前面**，不能靠调 `baitRisk` 的权重：
+    //   两个口径在「孤张死点数」那一格上是**反向**的（risk 0 = 最优先，
+    //   而它恰恰是最没用的锚），所以任何固定幅度都压不住。
+    //   完整判据在 `keysFor` 上面那段。
+    //
+    // 两个旋钮都关着时 `pen` / `anchor` 恒 false：第二项和第三项永不成立，
+    // 第四项退化成 `score < pickScore`，**逐字等于原来那行**
+    if (pick < 0
+      || (pickPen && !pen)
+      || (pen === pickPen && !pickAnchor && anchor)
+      || (pen === pickPen && anchor === pickAnchor && score < pickScore)) {
       pickScore = score
       pick = i
       pickPen = pen
+      pickAnchor = anchor
+      pickKeys = keys
     }
   }
   // 挑出来的饵自己也钓得着 = 手里全是能钓到的牌，这一手真忍不住
   if (pickPen) G.stat.holdForced[side]++
+  // 【埋锚】的诊断口（CLAUDE.md 第四节：旋钮要配一个「它做了几次」）。
+  // **关着也记** —— 关着那一跑的比值就是对照组，见上面 `pickKeys` 那段。
+  //
+  // 读法：`anchorBury / (anchorBury + anchorNone)` = 扔出去的饵里有几成
+  // 自己还收得回来。旋钮开了之后这个比值该**明显上去**；
+  // 没上去就是手里压根没有对子（那是牌的事，不是旋钮没接上），
+  // 而那时候 `anchorNone` 会很大 —— 两个数一起看才分得清这两种情况
+  if (pick >= 0) {
+    if (!G.stat.anchorBury) { G.stat.anchorBury = [0, 0]; G.stat.anchorNone = [0, 0] }
+    if (pickKeys > 0) G.stat.anchorBury[side]++
+    else G.stat.anchorNone[side]++
+  }
   return pick >= 0 ? pick : randomFree(G, side)
 }
 
@@ -1458,6 +2076,27 @@ function takePick(G, side) {
   return best
 }
 
+// 〔**`boardGivePick` / `BGIVE_JACK` 2026-10-27 跟〈boardgive〉一起删了**
+//   （X −1.14，墓碑在 `draw-skills.uts` 的 `DEAD_SKILLS`）。
+//
+//   它留下一条判据，而那条跟这件技能的强度无关：
+//   **「查看对方手牌，选 1 张」这半句不决定挑牌的尺子** ——
+//   压舱是把牌**拿走**，所以挑他最好的那张（`takePick` 给 J 打 100 分）；
+//   那一件是逼他**打出去**，所以挑他最差的那张。照抄 `takePick`
+//   会量出一个**反向**的数，而那是静默的。下一件挑对手手牌的技能
+//   要先定这一条朝哪边，再写代码。
+//
+//   另一条留着：`BGIVE_JACK` 是「开了旋钮却没改尺子，于是它静默地
+//   一次都不发动、而 X 照样打印一个像样的数」的典型（纯 argmin
+//   永远挑不到 J —— J 通吃，收成恒为全场最高）。配套计数的办法
+//   在 `deadPick` 那段 ⚠⚠ 上同样写着。〕
+
+// 「为触发技能打一张次优牌」的风险折扣。整段判据写在用它的那一行上
+//（`wants` 那张表的末尾）—— **默认 1.5 是 R3 时代定的，R4 下没重标过**。
+// `WANTS_PEN=0` 等价于「表里的件一件都不在表里」，是那一段 A/B 的对照臂
+const WANTS_PEN = process.env.WANTS_PEN !== undefined
+  ? Number(process.env.WANTS_PEN) : 1.5
+
 // 同号挑哪张（照 foeTwinPick）：挑能触发自己技能的那个花色
 function twinPick(G, side, pool) {
   for (let i = 0; i < pool.length; i++) {
@@ -1468,10 +2107,18 @@ function twinPick(G, side, pool) {
 
 // 【死水】废对方哪张（照 foeDeadPick）。
 //
-// 尺子跟 takePick 同一套，但**挑不了 J**（deadPool 把 J 排掉了 ——
-// 理由见 draw-skills 死水那条：能挑 J 的话这件技能单那一下就超标）。
-// 多一档：落在对方槽上的牌加分 —— 废掉它顺带掐了一件技能，
-// 而「技能不触发」正是这件技能一半的价值
+// 尺子跟 takePick 同一套。多一档：落在对方槽上的牌加分 ——
+// 废掉它顺带掐了一件技能，而「技能不触发」正是这件技能一半的价值。
+//
+// **J 默认挑不了**（`deadPool` 排掉了 —— 理由见 draw-skills 死水那条：
+// 能挑 J 的话这件技能单那一下就超标）。`DEAD_JACK=1` 放开那一档。
+//
+// ⚠⚠ **放开闸还不够，尺子也得改** —— 这正是「加旋钮必须配一个
+//   『它做了几次』的计数」那条规矩要抓的东西（CLAUDE.md 第四节）：
+//   `card.value` 对 J 来说不是 100 分那一档的数，所以光放开池子的话
+//   AI 几乎永远挑别的牌，`PROTO_STAT.dead.jackMine` 会贴着 0，
+//   **而 X 照旧有数** —— 那一档就静默空转了（同色闸那个 bug 的形状）。
+//   所以这儿照 `takePick` 给 J 钉 100：J 通吃整堆，废它恒为最优。
 function deadPick(G, side) {
   const other = side === R.ME ? R.FOE : R.ME
   const theirs = G.hands[other]
@@ -1481,6 +2128,11 @@ function deadPick(G, side) {
   for (let i = 0; i < pool.length; i++) {
     const at = pool[i]
     const card = theirs[at]
+    if (card.rank === R.JACK) {
+      // 池子里有 J 只可能是 DEAD_JACK=1 开着（见上面那段）
+      if (100 > bestScore) { bestScore = 100; best = at }
+      continue
+    }
     let score = card.value
     if (R.canCatch(G, card, other)) score += 50
     if (R.skillsOf(G, other, card).length > 0) score += 30
@@ -1540,7 +2192,7 @@ function surgePick(G, side) {
 }
 
 module.exports = {
-  pickCard, swapPick, pickDeck, tideSink, freezePick, takePick, twinPick,
+  pickCard, boardPick, swapPick, pickDeck, tideSink, freezePick, takePick, twinPick,
   deadPick, surgePick, outsideCount, baitRisk, faceOfValue,
   // 打印用：`sim.js` 那一行要标「已拆 / 没拆」。**从这儿取，别在 sim.js 里
   // 再写一遍 `process.env.HOLD_EV_SPLIT === '1'`** —— 默认值一翻那份副本就说谎了
@@ -1558,6 +2210,15 @@ module.exports = {
   // 同一个说谎形状，而这一个更坏：`-` 读起来像「这一跑没守闸」，
   // 可它实际守着 3 张，于是整段「忍了几手 / 放弃几张」会被归到错的口径
   JACK_HOLD,
+  // 【攒组合】的口径标签〔2026-10-26〕。同上一条规矩：**sim.js 别自己读 env** ——
+  // `COMBO_HOLD` 是「两个技能 key」而不是开关，在 sim.js 那边重新解析一遍
+  // 就是第二份实现，而这个项目栽过的那几次分叉全是这个形状
+  COMBO_HOLD, COMBO_HOLD_BOTH, COMBO_HOLD_IDLE,
+  // 【埋锚】/【够得着才养堆】的口径标签〔2026-10-27〕。同上一条规矩 ——
+  // 这两个现在默认关，所以 `sim.js` 里写一份 `process.env.X === '1'`
+  // **今天跟这儿相等**，而它正是上面那几条墓碑的形状：默认值哪天一翻，
+  // 那份副本当场说谎，而说的谎是「这一跑没开」（最坏的一种，见 JACK_HOLD 那条）
+  HOLD_ANCHOR, HOLD_REACH, HOLD_MIX,
   // 诊断导出〔2026-10-23〕：`scene.js` 要在**手搭的局面**上问「这一手该不该忍」。
   // 导出而不是在那边重写一份，理由同上一条 —— 手写的超几何和手写的
   // 「哪些点数够得着」正是这个项目栽过的那两类分叉（`addFrostAt` / `baitRisk`）

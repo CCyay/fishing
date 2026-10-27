@@ -61,8 +61,13 @@ if (duel && R.RANK_LINK !== '') {
 //
 // ⚠ 这是**复制**的（sim.js 是 CLI、没导出它）。那边改了这儿要跟 ——
 // 不跟的话两个口径的满配装的不是同一套技能，数不能相减
+//
+// 〔2026-10-27 跟了一次：那边按 R5 的 X 重排（旧序
+//   `chain, kindle, swapcard, flow, wild, peak, draft, coldhue`
+//   的前两件在 R5 下是全表最弱的几件，末两件的技能已经删了）。
+//   **所以这个脚本的所有旧满配数一并作废**，整段理由在 sim.js 那张名单上〕
 const KIT_ORDER = [
-  'chain', 'kindle', 'swapcard', 'flow', 'wild', 'peak', 'draft', 'coldhue'
+  'flood', 'swapcard', 'flow', 'gift', 'swapflow', 'wade', 'unhook', 'peak'
 ]
 
 function skillIndexOf(key) {

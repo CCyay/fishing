@@ -3,8 +3,10 @@
     <!-- 状态栏占位：原生导航栏去掉了，见 App.uvue 的 .bj-status-bar -->
     <view class="bj-status-bar"></view>
     <!-- 顶栏：双方积分 + 牌库 / 牌堆各剩几张。
-         ⚠ 积分**不等于**收走的牌数〔R4，2026-10-23 起〕：一次收牌按张数落档，
-         2~3 张 1 分、4~5 张 4 分、6 张以上 12 分（见 draw-skills.uts 的 SCORE_BANDS）。
+         积分 = **收走的牌数**〔R5，2026-10-27 起：张 = 分〕。
+         ~~R4（2026-10-23 ~ 10-27）那一档是按张数落档的（2~3 张 1 分、
+         4~5 张 4 分、6 张以上 12 分），所以那会儿这两个数不相等~~ ——
+         翻回来的理由在 draw-skills.uts 的 SCORE_BANDS 那段（墓碑在同一处）。
          三样数并在这一行，所以下面那两块的标题（「庄家手牌 N 张」、
          「牌堆 N 张」）都去掉了 —— 牌都摆在那儿，标题只是重复一遍 -->
     <!-- 关卡条：第几关（终局报难度）+ 生命。生命只在闯关里有 -->
@@ -68,6 +70,38 @@
              压舱 / 摘钩 / 对换 —— 「挑这一张」。这三件把它的手牌全翻开
              （见 foeOpen 里认 takeSkill 那条），所以你是看着挑的 -->
       <view class="foe-row">
+        <!-- 庄家的两个区，顺序跟你那排一致（堆牌 │ 上牌 │ 手牌）。
+             **堆牌盖着、上牌正面** —— 上牌区是公开信息，而且它是**你要用的**：
+             庄家下一手必定从那几张里出，所以你看得见它就等于提前知道它下一手。
+             这是这条规则在对局里最有意思的那一半，藏起来就白设计了 -->
+        <view v-if="foeHeapZone.length > 0" class="zone-group">
+          <text class="zone-label">堆牌</text>
+          <view
+            v-for="(card, index) in foeHeapZone"
+            :key="'fhz-' + index"
+            class="card card-small card-back">
+            <view class="card-back-art card-back-art-small">
+              <view class="card-back-gem card-back-gem-small"></view>
+            </view>
+          </view>
+          <view class="zone-split"></view>
+        </view>
+        <view v-if="foeBoardZone.length > 0" class="zone-group">
+          <text class="zone-label">上牌</text>
+          <view
+            v-for="(card, index) in foeBoardZone"
+            :key="'fbz-' + index"
+            class="card card-small card-board">
+            <view class="card-head card-head-small">
+              <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+              <text class="card-rank card-rank-small card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
+            </view>
+            <view class="card-tags">
+              <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
+            </view>
+          </view>
+          <view class="zone-split"></view>
+        </view>
         <view
           v-for="(card, index) in foeHand"
           :key="'fh-' + index"
@@ -401,6 +435,24 @@
       </view>
     </view>
 
+    <!-- 【抢牌】〔2026-10-27〕：庄家配上了，问你要不要抢。
+         抢 = 点一张手牌（金边那几张收得比它多），不抢 = 按这颗钮。
+
+         **按钮写「放弃」不写「取消」**：照上面凝水那条判据（看代价付没付）
+         —— 庄家那一手的收牌已经摆在那儿了，放弃就是让它收走，
+         那是一笔实打实的损失，不是「什么也没发生」。
+
+         提示语里把**两个数都印出来**（它收几张、你要收几张才够）：
+         门槛是「严格多于」，差一张都不行，而玩家没法自己数出堆上那一段 -->
+    <view v-if="stealPending" class="tide-box">
+      <text class="tide-text">{{ '抢牌：庄家这一手要收 ' + stealTarget + ' 张。点一张手牌抢过来 —— 收得比它多才行（至少 ' + (stealTarget + 1) + ' 张，金边那几张）' }}</text>
+      <view class="tide-actions">
+        <view id="ap-steal-skip" class="tide-btn tide-btn-plain" @click="onStealSkip">
+          <text class="tide-btn-text tide-btn-text-plain">放弃</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 凝水 / 净水：挑**堆上**一张。两件共用这一块，提示语按技能换。
          凝水不挑就是白丢一张（牌已经丢弃了，代价已经付了）；
          **净水不挑 = 直接打出**（当普通牌落堆、照常匹配，2026-10-24） -->
@@ -466,7 +518,7 @@
     </view>
 
     <!-- 压舱 / 摘钩 / 对换：挑庄家一张手牌。三件共用这一块，
-         提示语按技能换 —— 它那排这会儿**全是明的**（见 foeOpen） -->
+         提示语按技能换（见 takeText）—— 它那排这会儿**全是明的**（见 foeOpen）。 -->
     <view v-if="takeSkill >= 0" class="tide-box">
       <text class="tide-text">{{ takeText }}</text>
       <view class="tide-actions">
@@ -588,6 +640,58 @@
     <view class="hand-area">
       <scroll-view class="hand-scroll" direction="horizontal">
         <view class="hand-row">
+          <!-- ---------- 【堆牌区】·【上牌区】·手牌区，**横着并排** ---------- -->
+          <!--
+            版面是用户定的（2026-10-26）：三个区在同一个位置横排，
+            **没有牌的区整组不渲染** —— 所以「空了就不显示」是 v-if 免费给的，
+            不用再写一套显隐逻辑。
+
+            顺序（左 → 右）：堆牌 │ 上牌 │ 手牌。
+            按「离你的决策有多远」排：堆牌区你碰都碰不着（下回合开头自动落堆），
+            上牌区**强制**要你从里头挑一张，手牌区是平时打的那个。
+
+            ⚠ 堆牌区是**盖着的，双方都看不见**（词条原文：「盖在自己的堆牌区
+            （双方都看不见）」）。所以这儿只画牌背，连 `card` 的点数花色都不取 ——
+            模板里取了的话，真机上一次渲染快照 / 一次调试面板就把它漏出去了。
+            模拟器那边是同一个决定（`heapFlush` 在 `pickCard` 之前跑完，
+            两边 AI 都读不到区里的内容）。
+          -->
+          <view v-if="heapZone.length > 0" class="zone-group">
+            <text class="zone-label">堆牌</text>
+            <view
+              v-for="(card, index) in heapZone"
+              :key="'hz-' + index"
+              class="card card-hand card-back">
+              <!-- `-hand` 那一档是**必须的**：`.card-back-art` 自己不带宽高 -->
+              <view class="card-back-art card-back-art-hand">
+                <view class="card-back-gem card-back-gem-hand"></view>
+              </view>
+            </view>
+            <view class="zone-split"></view>
+          </view>
+          <!-- 【上牌区】：正面，双方都看得见。有牌时这一轮**必须**从这儿出 -->
+          <view v-if="boardZone.length > 0" class="zone-group">
+            <text class="zone-label">上牌</text>
+            <view
+              v-for="(card, index) in boardZone"
+              :key="'bz-' + index"
+              :id="'ap-board-' + index"
+              class="card card-hand card-board"
+              :class="{
+                'card-hint': canPlay && canCatch(card, false),
+                'card-frozen': isFrozen(card)
+              }"
+              @click="onPlayBoard(index)">
+              <view class="card-head card-head-hand">
+                <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+                <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
+              </view>
+              <view class="card-tags">
+                <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
+              </view>
+            </view>
+            <view class="zone-split"></view>
+          </view>
           <view
             v-for="(card, index) in hand"
             :key="'h-' + index"
@@ -596,7 +700,9 @@
             :class="{
               'card-hint': canPlay && canCatch(card, false),
               'card-new': index == newIndex,
-              'card-frozen': isFrozen(card)
+              'card-frozen': isFrozen(card),
+              'card-locked': boardPlayable(false) > 0,
+              'card-steal': stealPending && canStealWith(card)
             }"
             @click="onPlay(index)">
             <view class="card-head card-head-hand">
@@ -641,6 +747,11 @@
                  报的是**涌几张**不是层数 —— 玩家要的是后果，而乘法
                  （层数 × 2）写在 surgeTag 里，他不用自己乘 -->
             <text v-if="surgeTag(card) != ''" class="hand-surge-tag">{{ surgeTag(card) }}</text>
+            <!-- 【堆牌】：跟推牌同一条判据（**报后果不报层数**，乘法写在 heapTag 里）。
+                 跟推牌分开标是因为两件的**时机**完全不同，而时机就是这件的全部内容：
+                 推牌当场上堆、下一个出牌的是对手；堆牌盖进区里，**下回合开头
+                 先交到你自己手上**。玩家要按这个差别决定什么时候打这张 -->
+            <text v-if="heapTag(card) != ''" class="hand-heap-tag">{{ heapTag(card) }}</text>
             <!-- 【沉降】：报**压几点**（照上面那条，报后果不报标签名）。
                  跟推牌并排 —— 同一手牌可能两个标签都带着（两件技能各贴过） -->
             <text v-if="sinkTagText(card) != ''" class="hand-sink-tag">{{ sinkTagText(card) }}</text>
@@ -867,6 +978,10 @@
     SK_SURGE,
     SURGE_PUSH,
     SURGE_LAYERS,
+    // 「堆牌」机制的常量（2026-10-26）：每层从牌库取几张盖进自己的堆牌区。
+    // **跟 SURGE_PUSH 分开**，今天同是 2 是巧合（理由在它的定义那儿）。
+    // 这一轮只搬机制，**还没有任何技能贴这个标签** —— 所以只引常量，不引 SK_
+    HEAP_TAKE,
     // 【薪潮】：自带燃烧 + 盲选一张贴推牌。`FUEL_TAG` 钉死 1（见它那段）
     SK_FUEL,
     FUEL_TAG,
@@ -952,10 +1067,15 @@
     CYCLE_REFILL,
     BAIT_COUNT,
     baitRankOf,
-    // ---------- 阶梯计分（R4，2026-10-23 搬进来）----------
-    // 一次收牌按张数落档：2~3 张 1 分、4~5 张 4 分、6 张以上 12 分。
-    // 档值依据、n≤1 为什么不进档、跟模拟器那份副本的唯一差异，
-    // 全写在 `draw-skills.uts` 的 `SCORE_BANDS` 那段。
+    // ---------- 计分：张 = 分（R5，2026-10-27）----------
+    // 一次收牌**收几张记几分**。口径的唯一实现是 `draw-skills.uts` 的
+    // `SCORE_BANDS`（现在是**空数组** = 不分档，`scoreWith` 第一道闸
+    // 就逐字返回 n），为什么从 R4 翻回来也写在那一段。
+    // ~~R4（10-23 ~ 10-27）：2~3 张 1 分、4~5 张 4 分、6 张以上 12 分~~
+    //
+    // ⚠ **`scoreOf` 这个 import 别因为「现在恒等于张数」就摘掉** ——
+    //   它是那个开关的唯一出口，摘了之后下一次动计分口径要重新接一遍，
+    //   而漏接一处是静默的（少一个计分点读的还是张数，看不出来）
     //
     // **只引 `scoreOf`** —— `SCORE_BANDS` / `scoreWith` / `bandOf` 在这边
     // 还没有调用点，引进来就是死 import（照 `SP_DEEPHOOK` 那次：
@@ -1023,8 +1143,11 @@
   // 摸打钓鱼：一副 52 张。
   // 每回合先从牌库摸 1 张（牌库空了就不摸），再打出 1 张明牌。
   // 打到堆上的牌如果和堆里某张同点数，就把那张、夹在中间的、连同刚打的这张一起收走。
-  // 积分**按收走的张数落档**：2~3 张 1 分、4~5 张 4 分、6 张以上 12 分
-  //〔R4，2026-10-23 起。在那之前是「张数记作积分」—— 旧注释改在这一行〕。
+  // 积分**按收走的张数记**：收几张记几分。
+  //〔R5，2026-10-27 起。~~R4（10-23 ~ 10-27）那一档是落档的：
+  //  2~3 张 1 分、4~5 张 4 分、6 张以上 12 分~~ —— 阶梯的立项理由
+  //  被【抢牌】接走了，而抢牌的门槛比的是**张数**，两套尺子打架。
+  //  口径的唯一实现在 `draw-skills.uts` 的 `SCORE_BANDS`（现在是空数组）〕。
   // J 通吃：堆上有牌时打 J，整堆收走；空堆上打 J 就只是落在堆上。
   // 牌库和双方手牌都空了，比积分。
   //
@@ -1122,6 +1245,33 @@
   const foeHand = ref<PlainCard[]>([])
   // 和 foeHand 下标对齐：这张被你窥视翻开了
   const foeShown = ref<boolean[]>([])
+  // ---------- 手牌区旁边那两个区〔2026-10-26 加〕 ----------
+  //
+  // 规则在 draw-terms 的『手牌区旁边那两个区』那一节，**这儿只记实现上的事**。
+  //
+  // ---- 堆牌区：盖着的暂存，下回合开头落堆 ----
+  //
+  // 【堆牌】标签兑现时往这儿塞（`heapStage`），该方回合开头清空落堆
+  //（`heapFlush`）。**双方都看不见**里头是什么 —— 那不是美术，是**信息规则**：
+  // 对手看不见你下回合要往堆上落什么，也就算不出那几张会不会撞点数置 0。
+  // 所以庄家 AI（`foePickCard` / `pickTopFor`）**一个字都不许读这两个数组**。
+  //
+  // ---- 上牌区：正面朝上的暂存，有牌就强制从里头出 ----
+  //
+  // **现在没有任何东西往上牌区放牌** —— 这一轮只搬规则层，入口留给以后的技能。
+  // 所以默认跑动下这两个数组恒空、那条分支一次也不走。
+  // 模拟器那边有个自检开关 `BOARD_TEST=N`（开局往双方区里各塞 N 张）专门验它。
+  //
+  // ---- 为什么是四个独立的 ref，不是 `[[], []]` ----
+  //
+  // 照这个文件里 `hand`/`foeHand`、`handSeen`/`foeShown` 的成例：
+  // 模板里 `v-if` / `v-for` 直接读得到，不用在每处写 `[side]` 下标。
+  // ⚠ 它们**不是**谁的并行数组 —— 里头的牌从来没进过手牌，
+  //   所以 `handSeen` / `foeShown` 在这两个区上一个字都不该动（见 `takeFromBoard`）
+  const heapZone = ref<PlainCard[]>([])
+  const foeHeapZone = ref<PlainCard[]>([])
+  const boardZone = ref<PlainCard[]>([])
+  const foeBoardZone = ref<PlainCard[]>([])
   const pile = ref<PlainCard[]>([])
   // 和 pile 下标对齐：这张**现在算哪几个点数**。
   //
@@ -1196,13 +1346,16 @@
   // 现在它是一张垫着的实体牌，那个分工没了。
   //
   // ⚠ 这儿原先写的是「**积分 = 收走的张数**精确成立」。〔R4，2026-10-23〕
-  //   积分现在按张数**落档**（2~3 → 1、4~5 → 4、6+ → 12），不再等于张数 ——
+  //   积分那会儿按张数**落档**（2~3 → 1、4~5 → 4、6+ → 12），不再等于张数 ——
   //   **而这段论证不受影响**，它要的是「张数这个账算得清」，不是「张数就是分」。
+  //   〔R5，2026-10-27：翻回张 = 分，那句原始措辞又成立了。**这段注释照旧留着**
+  //     —— 它说明的是「论证只靠张数」，而那一点两个规则档下都对；
+  //     删了的话下一次动计分口径又得把这条推理重走一遍〕
   //
   //   ⚠ 顺带澄清一个容易想反的：**保护不减这一段的张数** —— takeAt 对带盾那格
   //   `return 1`，跟一张没叠东西的普通牌一样，只是离场的换成了垫着那张。
-  //   真会减张数的是**结冰**（takeAt `return 0`）。R4 下这个区别放大了：
-  //   少 1 张可能跨一整个档，而「不减张数」就是真的一分不差
+  //   真会减张数的是**结冰**（takeAt `return 0`）。R4 下这个区别被放大过：
+  //   少 1 张可能跨一整个档；R5 下它退回「少 1 张就是少 1 分」
   type Stacked = {
     // 垫在谁下面 / 被谁盖着。**存引用，不存下标**
     host : PlainCard
@@ -1843,6 +1996,51 @@
   // 打出那张牌带的技能、落没落堆底 —— 技能都结算完之后匹配要用（见 resolveMatch）
   let matchSkills : number[] = []
   let matchSink : boolean = false
+
+  // ---------- 【抢牌】的全部状态〔2026-10-27〕 ----------
+  //
+  // 规则（用户原话）：「一方打出牌实现匹配（点数相同的匹配）后不立即收牌，
+  // 先询问对方是否抢牌。抢牌就是你可以打出 1 张牌，只要收的比对方多，
+  // 你就可以抢先收牌」；「J 也可以被抢，所有能收整堆的都能互相抢」；
+  // 「抢牌成功后，双方补齐手牌，转入对方(未抢到者)回合」；「连续抢要开启」。
+  //
+  // **这是模拟器 `rules.js` 的 `stealTry` 的移植**（那边 8916-8987），
+  // 判据一条不改 —— 两边分叉的话量出来的分值跟玩家体验到的是两件事。
+  // 移植时唯一的结构差别是**源码是异步的**：`startCatch` → `catchFly` →
+  // `finishCatch` 走 setTimeout，而玩家抢牌还要等他点牌。所以模拟器那边
+  // 的同步递归在这儿拆成了「存一笔待办 + 回头接着走」。
+  //
+  // 被抢的一方这一手**不收牌**（牌留在堆上，刚被抢牌方一起收走了），
+  // 但他的 `surgePending` / `heapPending` / 过期护饵 / 补牌还欠着 ——
+  // 模拟器那边是 `playFor` 的局部变量 + `stoleThisPlay` 兜住的，
+  // 这儿只能自己存。连续互抢会**套几层**，所以是一个后进先出的栈
+  //（A 打 → B 抢 → A 再抢 … 每多一层就多一笔待办）。
+  //
+  // uts 没有元组，照这个文件里堆那六条并行数组的成例，拆成四条平行栈 ——
+  // 四条的 length 必须始终相等（只在 pushStealTail / drainStealTails 里动）
+  let stealTailSide : boolean[] = []
+  let stealTailSurge : number[] = []
+  let stealTailHeap : number[] = []
+  // 这一层被抢方打出的那张 —— 只用来摘钥匙，见 drainStealTails。
+  // **类型是非空的 `PlainCard[]`**（不是 `(PlainCard|null)[]`）：
+  // 可空数组在 uts 编到各端的表现不一致，而这儿本来也不需要空值 ——
+  // askSteal 只在 resolveMatch 里「牌还在堆上」那条路上被调到，那张必然非空
+  let stealTailCard : PlainCard[] = [] as PlainCard[]
+
+  // 玩家正被问「要不要抢」。立着的时候**不是你的回合**（庄家刚打完那一手），
+  // 所以 `canPlay` 必然是 false —— 点手牌那条路要抢在 canPlay 那道闸**前面**，
+  // 照 swapPending / siftPending 那几件的成例（见 onPlay 开头那一串分支）
+  const stealPending = ref<boolean>(false)
+  // 庄家这一手收几张（你要抢就得**严格多于**这个数）。模板里要印出来
+  const stealTarget = ref<number>(0)
+  // 放弃抢牌时，把庄家那一手原样接回去要用的三个参数（照 startCatch 的入参）
+  let stealResumeFrom : number = 0
+  let stealResumeTo : number = 0
+  // 庄家那句「钓走 N 张」—— 放弃之后要补上（抢牌这一问打断了它）
+  let stealResumeNote : string = ''
+  // 庄家刚打出的那张（你真抢了的话要存进 stealTailCard）。
+  // 不能到那会儿再读 `lastPlayed` —— 它会被你抢的那一手改写
+  let stealResumeCard : PlainCard | null = null
   // afterPlayTail 的几段。散着收的技能演完特效，从**它后面那一段**接着走：
   //   见底 演完 → TAIL_EBB（洪水、收色……）
   //   洪水 演完 → TAIL_HUE（收色……）
@@ -2287,6 +2485,69 @@
     return gone
   }
 
+  // ---------- 【堆牌】：贴在牌上的标签〔2026-10-26〕 ----------
+  //
+  // 词条在 draw-terms（挨着【推牌】）。它就是**延迟 + 自己先手**的推牌：
+  // 打出 → 这一手结算完从牌库取 `HEAP_TAKE` 张**盖进自己的堆牌区** →
+  // **下一个自己的回合开头**才落到堆上。
+  //
+  // ---- 这张表照 `surgeHand` 写，不照 `sinkHand` 写 ----
+  //
+  // 分野只有一条，而那条是从词条来的：**堆牌可以叠加**（跟推牌同款），
+  // 所以表里**存重复项**、层数 = 出现次数。`sinkHand` 那一套是
+  // 「不可叠加、只记有没有」，抄错了会让第二层静默消失。
+  //
+  // 清理点跟推牌一字不差：**这张牌离开手牌那一刻**（playFor 开头）
+  // 连所有层一起摘掉，存进 `heapPending`，等这一手结算完（endPlay）兑现
+  let heapHand : PlainCard[] = []
+
+  // 这一手要堆几层 —— playFor 开头从 heapHand 摘下来存这儿，endPlay 兑现。
+  // **不是 ref**（没人在模板里读它，角标读的是 `heapLayers`），
+  // 每手在 playFor 开头无条件重写
+  let heapPending : number = 0
+
+  // 这张牌手里带着几层【堆牌】（0 = 没有）
+  function heapLayers(card : PlainCard) : number {
+    let n = 0
+    for (let i = 0; i < heapHand.length; i++) {
+      if (heapHand[i] == card) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  // 贴一层。跟推牌一样**没有「不可叠加」那道闸**，也不设上限
+  function addHeapHand(card : PlainCard) {
+    heapHand = heapHand.concat([card])
+  }
+
+  // 把这张的**所有层**一次摘掉，返回摘掉几层（= 这一手要堆几层）
+  function dropHeapHand(card : PlainCard) : number {
+    const keep : PlainCard[] = []
+    let gone = 0
+    for (let i = 0; i < heapHand.length; i++) {
+      if (heapHand[i] == card) {
+        gone = gone + 1
+      } else {
+        keep.push(heapHand[i])
+      }
+    }
+    heapHand = keep
+    return gone
+  }
+
+  // 手牌角标那个字：报**会盖几张**（层数 × HEAP_TAKE），没有就空串。
+  //
+  // 报后果不报层数 —— 照 `surgeTag` 那条，乘法在这儿做掉。
+  // 用「堆」字而不是「涌」：推牌那个角标已经占了「涌」，
+  // 两个标签可能同时挂在一张牌上，得一眼分得开。
+  // **拼串用 '' + value，不能用 .toString()**（判据在 cards.uts 的 faceOf）
+  function heapTag(card : PlainCard) : string {
+    const n = heapLayers(card)
+    return n == 0 ? '' : ('堆' + (n * HEAP_TAKE))
+  }
+
   // 这一手打出的牌**自带结冰**吗（这一族的共同前缀）。
   //
   // 三件都走同一条：打出时它在手里就带着冰 → 豁免；落堆后变成障碍。
@@ -2371,6 +2632,12 @@
       // 就能抢在那张牌落地之前出牌
       && cutPhase.value == 0
       // 〔保护续层那两个 pending 2026-10-21 从这一行撤了（动作删了）〕
+      // 【抢牌】正问你的时候不许「出牌」—— 这时候点手牌是**抢**，
+      // 走的是 onPlay 开头那条分支（它抢在这道闸前面，见那段）。
+      // 这一项**今天是冗余的**（抢牌只在庄家回合里问，`myTurn` 必然 false），
+      // 列上它是因为「回合里插一手对方的牌」这种形状已经有过先例
+      //（模拟器的【对流】），那时候它就不冗余了
+      && !stealPending.value
       && hand.value.length > 0
   })
 
@@ -2381,6 +2648,11 @@
   const turnText = computed<string>(() : string => {
     if (over.value) {
       return '对局结束'
+    }
+    // 【抢牌】要排在 `myTurn` 那一条**前面** —— 问你抢不抢的时候
+    // 还是庄家回合，报「庄家回合」就等于不告诉你球在你脚下
+    if (stealPending.value) {
+      return '抢牌 · 收得比 ' + stealTarget.value + ' 张多才行'
     }
     if (!myTurn.value) {
       return '庄家回合'
@@ -3094,7 +3366,7 @@
 
   // 打出这张会从堆里第几张开始收，-1 表示钓不到。skills 是这张触发的技能。
   //   J 通吃：堆上有牌就从第 0 张收起，护饵也挡不住；
-  //   同点数（磁钩：或者比它大 1 的点数）：找最靠前的那张，被对方护着的跳过；
+  //   同点数（磁钩：或者跟它相差 1 的点数）：找最靠前的那张，被对方护着的跳过；
   //   顺色：同花色的也算，跟点数那条**并列**；
   //   钩顶：上面都对不上，就钓堆顶那一张。
   //
@@ -3239,8 +3511,19 @@
         best = i
         break
       }
-      // 磁钩：对得上**比它大 1** 的点数。J 不吃这条（它自己就是通吃）
-      if (hook && p.rank != JACK && anyEquals(mine, theirs, 1)) {
+      // 磁钩：对得上跟它**相差 1** 的点数（上下都算）。J 不吃这条
+      //（它自己就是通吃）。
+      //
+      // 〔2026-10-26 改形状（用户定）：原先只有 `gap=1` 那半 ——
+      //   `anyEquals` 算的是 `theirs == mine + gap`，所以
+      //   `+1` = 「堆上有比我大 1 的」、`-1` = 「堆上有比我小 1 的」。
+      //   **新加的那半是真的新匹配面**，不是同一件事写两遍。
+      //   0 点牌的行为**有意不动**：`anyEquals` 只在 `gap == 0` 时跳过
+      //   `mine[a] == 0`，所以 0 点牌本来就钩得上 1、现在也「钩得上 −1」
+      //   （不存在），净效果为零。别给 0 点加特例，那会动到整条压底线。
+      //   模拟器那边同一处开了 `HOOK_DIR` 旋钮隔开新旧两档〕
+      if (hook && p.rank != JACK
+        && (anyEquals(mine, theirs, 1) || anyEquals(mine, theirs, -1))) {
         best = i
         break
       }
@@ -3384,8 +3667,12 @@
       return true
     }
     // 压舱、摘钩、对换正等你挑的时候，它那一手**全明着** ——
-    // 这三件技能的说明就是「看对方全部手牌，挑 1 张」，
+    // 这三件技能的说明都是「看对方手牌，挑 1 张」，
     // 看不见就没法挑。这也是它们跟【冻结】的分界：冻结挑的是位置
+    //
+    // ⚠ 这儿判的是 `takeSkill.value >= 0` 这条**通条件**，不是逐件列举 ——
+    //   加新挑牌技能时这一行一个字都不用改（2026-10-27 加【顶钩】那次验过，
+    //   当天它又删了）。列举式会漏，通条件不会：这正是该接的那个入口
     if (takeSkill.value >= 0) {
       return true
     }
@@ -3436,9 +3723,11 @@
   // 那一手的收成凭空少一张，守恒就破了。
   //
   // ⚠ 原文这儿写的是「**照旧拿 1 分**，『积分 = 收走的张数』精确成立」。
-  //   〔R4，2026-10-23〕积分改成按张数落档了，所以那句话的措辞要分开读：
+  //   〔R4，2026-10-23〕那一档积分按张数落档，所以那句话的措辞要分开读：
   //   **守恒讲的是张数，不是分**。张数照旧，而这一段在分上的后果
   //   由 `scoreOf` 统一决定 —— 保护不减张数，所以也不减档。
+  //   〔R5，2026-10-27 翻回张 = 分，原话又成立了。**分开读那一层照旧有用** ——
+  //     它是这段论证跟计分口径之间的唯一接口，下次再动口径只要看这一句〕
   //
   // 能叠多层、一层扛一次，而 **N 张垫牌 = N 层是免费的**：
   // `wardLayers` 数的就是 STACK_WARD 的条数，不需要另记层数
@@ -4077,8 +4366,9 @@
     //
     // 宿主获得保护。被收走的那一下，**垫着这张代替它走**、保护消失。
     // 于是「收走几张 = 真有几张离场」精确成立 —— 真有一张牌离场了
-    //〔R4，2026-10-23：原文写的是「积分 = 收走的张数」。积分现在按张数落档，
-    //  守恒讲的仍然是**张数**那一层，所以论证一个字没变〕
+    //〔R4，2026-10-23：原文写的是「积分 = 收走的张数」。那一档积分按张数落档，
+    //  守恒讲的仍然是**张数**那一层，所以论证一个字没变。
+    //  R5，2026-10-27：翻回张 = 分，原话又成立了 —— 照旧一个字没变〕
     if (which == SK_CALM) {
       // ---- 保护**能叠多层**，一层扛一次 ----
       //
@@ -4603,7 +4893,8 @@
   }
 
   // mine 里有没有哪个数，加上 gap 之后等于 theirs 里的某个数。
-  // gap = 0 是「点数相等」，gap = 1 是磁钩那条（对得上大 1 的）。
+  // gap = 0 是「点数相等」，gap = ±1 是磁钩那条（对得上相差 1 的，
+  // 2026-10-26 起上下都算 —— 调用处传两次，一次 +1 一次 −1）。
   // **任一边是空的就一定返回 false** —— 那正是顺色落堆后该有的样子。
   //
   // ---- 0 点和 0 点**不算相等** ----
@@ -4806,6 +5097,27 @@
     const card = hand.value[index]
     hand.value = withoutCard(hand.value, index)
     handSeen.value = withoutFlag(handSeen.value, index)
+    return card
+  }
+
+  // 从某一方的**上牌区**拿走一张〔2026-10-26〕
+  //
+  // ⚠ **不碰 `handSeen` / `foeShown`** —— 那两张是**手牌的并行数组**
+  //   （`hand[i]` ↔ `handSeen[i]`），而上牌区的牌从来没进过手牌，
+  //   在那两张表里压根没有对应位。动它们就是经典的并行数组错位：
+  //   下标全体前移一格，之后每一张手牌的「被看过」标记都挂到了别人身上。
+  //   `check.js` 那条并行数组断言盯的正是这类。
+  //
+  // 上牌区**本来就是公开的**（双方都看得见，见词条），所以它也不需要
+  // 「被看过」这类标记 —— 没有对应物可维护，不是「省了一步」。
+  function takeFromBoard(byFoe : boolean, index : number) : PlainCard {
+    if (byFoe) {
+      const card = foeBoardZone.value[index]
+      foeBoardZone.value = withoutCard(foeBoardZone.value, index)
+      return card
+    }
+    const card = boardZone.value[index]
+    boardZone.value = withoutCard(boardZone.value, index)
     return card
   }
 
@@ -5710,12 +6022,20 @@
   // 要么自己已经调过 afterPlay（空堆、庄家挑完）。
   // 〔2026-10-21 修：原先两个调用处无条件接 afterPlay —— 你打凝水还没挑，
   //   这一手就结算完、交了回合，庄家当场出牌；庄家打叠放牌则整手结算两次〕
-  function playFor(byFoe : boolean, index : number) : boolean {
+  //
+  // 第三个参数 `fromBoard`〔2026-10-26 加〕：这张是从**上牌区**挑的，
+  // 不是手牌。**有意做成必填、不给默认值** —— uts 的默认参数在各端编译器上
+  // 表现不一致，而漏传一个默认 `false` 的后果是「从上牌区打牌时去手牌里
+  // 按同一个下标抽了一张」，那是**静默**的串位。宁可多敲四个 `false`。
+  function playFor(byFoe : boolean, index : number, fromBoard : boolean) : boolean {
     // 牌打出去了，「要不要加打」那个问题就有答案了 —— 收旗。
     // 放在这儿而不是玩家点牌那个 handler 里：出牌的路不止一条
     //（你点、庄家打、技能逼着打），这儿是共同的那一条
     againWaiting.value = false
-    const card = takeFromHand(byFoe, index)
+    // 两个区**只有「从哪儿把牌抽出来」这一步不同**，之后整条结算链
+    // （技能、匹配、落堆、计分、交回合）一个字不分叉 —— 规则原文说的是
+    //「选择上牌区的 1 张牌打出**作为自己的本轮出牌**」，它就是一次正常出牌
+    const card = fromBoard ? takeFromBoard(byFoe, index) : takeFromHand(byFoe, index)
     const skills = skillsOf(byFoe, card)
     // 数一下这一方打到第几张了 —— 【稳钩】要「前 N 张」，
     // 而两个数加起来是终局那两手的计数器（见 TAIL_PLAYS）。
@@ -5776,6 +6096,12 @@
     // 中间存一个数而不是在 endPlay 里再查表，理由跟 mergeCard 那条一样：
     // 那会儿牌已经不在手里了，查不到
     surgePending = dropSurgeHand(card)
+    // ---- 【堆牌】：同一条路，同样的两头理由 ----
+    //
+    // 摘要早（这张牌马上离手，而 heapHand 存的是对象引用）、
+    // 兑现要晚（词条写的是「这一手结算完之后」，而它改牌库张数）。
+    // 兑现点在 endPlay，跟上面那件并排
+    heapPending = dropHeapHand(card)
     // ---- 【沉降】：摘掉标签，**当场**把堆压 SINK_TAG_STEP 点 ----
     //
     // 跟上面推牌那一件的时机**正好相反**，而两边都是故意的：
@@ -6106,15 +6432,218 @@
     if (sink) {
       unshiftPile(card!, byFoe, GUARD_NONE, vals)
       keepMarks(0, burn, suit)
-      startCatch(byFoe, 0, at + 1)
       caught = at + 2
+      // 【抢牌】：牌已经落堆、收成也算出来了，**收牌之前**问对方一次。
+      // 位置照模拟器 rules.js:9195（那边是「毒截断之后」—— 比的要是真收成，
+      // 而源码侧没有【中毒】，所以就在这儿）。
+      // 问出结果来就不收牌了：牌留在堆上，它马上会被抢牌方一起收走
+      if (askSteal(byFoe, 0, at + 1, caught, card!)) {
+        return
+      }
+      startCatch(byFoe, 0, at + 1)
     } else {
       pushPile(card!, byFoe, GUARD_NONE, vals)
       keepMarks(pile.value.length - 1, burn, suit)
-      startCatch(byFoe, at, pile.value.length - 1)
       caught = pile.value.length - at
+      // 【抢牌】—— 见沉底那一支里的同一段。**J 通吃也走这儿**（`at = 0`），
+      // 所以用户那句「J 也可以被抢」不用另写一支
+      if (askSteal(byFoe, at, pile.value.length - 1, caught, card!)) {
+        return
+      }
+      startCatch(byFoe, at, pile.value.length - 1)
     }
     message.value = message.value + (byFoe ? ' 庄家钓走 ' + caught + ' 张。' : ' 钓走 ' + caught + ' 张！')
+  }
+
+  // ---------- 【抢牌】〔2026-10-27〕----------
+  //
+  // 整段是模拟器 `tools/md-sim/rules.js` 的 `stealTry`（8916-8987）的移植，
+  // **判据一个字不改** —— 两边分叉的话量出来的分值跟玩家体验到的是两件技能。
+  // 结构上的差别只有一条：那边是同步递归，这儿是异步 + 要等玩家点牌，
+  // 于是「递归返回之后再收尾」在这儿变成了 `stealTail*` 那个栈（见声明处）。
+
+  // 这一方现在打出 `card`，能收几张？0 = 配不上，抢不了。
+  //
+  // ⚠ **`+ 1` 是打出的这张自己** —— 问的时候被抢方那张已经落堆了（堆里有它），
+  // 而抢牌方这张还在手上。模拟器那边是 `catchCountAt` 的
+  // `base = G.pile.length - at + 1`，同一个算法。
+  //
+  // ⚠ `catchStart` 的第四参**写死 false（不沉底）**：跟模拟器的 `stealTry`
+  // 和 `ai.js` 挑牌那头一个口径。于是【寒流】【拢水】的沉底档、【逆流】
+  // 在这儿估偏 —— 这是一笔**已知的、两边一致的**偏差，别单边「修」它
+  function stealGainOf(card : PlainCard, byFoe : boolean) : number {
+    if (isFrozen(card)) {
+      return 0
+    }
+    const skills = skillsOf(byFoe, card)
+    const at = catchStart(card, byFoe, skills, false)
+    if (at < 0) {
+      return 0
+    }
+    return pile.value.length - at + 1
+  }
+
+  // 你手里这张抢得动吗（模板里的金边和 onStealWith 的闸共用这一条）
+  function canStealWith(card : PlainCard) : boolean {
+    return stealGainOf(card, false) > stealTarget.value
+  }
+
+  // 刚打出那张配上了 `caught` 张，问对方要不要抢。
+  //
+  // 返回 **true = 这一手的收牌交出去了**，调用处不能再调 startCatch：
+  // 庄家抢 = 它当场就把那张打出来了；你抢 = 停下来等你点牌（stealPending）。
+  //
+  // 门槛是**严格多于**（`bestN <= caught` 就不许抢）—— 这一条同时是
+  // 连续互抢的终止条件：每抢一次堆上就多一张，收成只能越来越大，
+  // 所以不用另加一道层数闸（模拟器那边同理，见 stealTry 上面那段）
+  function askSteal(byFoe : boolean, from : number, to : number, caught : number,
+    played : PlainCard) : boolean {
+    if (over.value) {
+      return false
+    }
+    // 被问的是**对方** —— byFoe 是刚打牌那一方
+    const thief = !byFoe
+    // ⚠ 只扫**手牌**，不扫上牌区：照模拟器（它只看 `G.hands[foe]`），
+    // 而且上牌区那条规则管的是「本轮出牌」，抢牌不是谁的本轮出牌
+    const mine = thief ? foeHand.value : hand.value
+    let best = -1
+    let bestN = 0
+    for (let i = 0; i < mine.length; i++) {
+      const n = stealGainOf(mine[i], thief)
+      if (n > bestN) {
+        bestN = n
+        best = i
+      }
+    }
+    if (best < 0 || bestN <= caught) {
+      return false
+    }
+    if (thief) {
+      // ---- 庄家抢你 ----
+      // 它自己判（取收得最多的那张），当场打出来。
+      // 尾段跟 foeTurn 逐句同构（预约 lead → playFor → afterPlay）
+      pushStealTail(byFoe, played)
+      const card = foeHand.value[best]
+      const lead = '庄家抢牌，打出 ' + cardName(card) + '（收 ' + bestN
+        + ' 张，比你的 ' + caught + ' 张多）。'
+      logPlay(true, card, lead)
+      const handed = playFor(true, best, false)
+      message.value = message.value + ' ' + lead
+      if (!handed) {
+        afterPlay(true)
+      }
+      return true
+    }
+    // ---- 你抢庄家 ----
+    // 停下来等你点牌。**这时候不是你的回合**（myTurn 是 false），
+    // 所以点手牌那条路要抢在 canPlay 那道闸前面 —— 见 onPlay 开头
+    stealPending.value = true
+    stealTarget.value = caught
+    stealResumeFrom = from
+    stealResumeTo = to
+    stealResumeNote = ' 庄家钓走 ' + caught + ' 张。'
+    stealResumeCard = played
+    message.value = message.value
+      + ' 庄家配上了 ' + caught + ' 张 —— 你可以抢牌：打 1 张收得更多的（金边那几张）。'
+    return true
+  }
+
+  // 被抢那一方这一手还欠的事，存一笔。**必须在抢牌方 playFor 之前调** ——
+  // `surgePending` / `heapPending` 是模块级变量，抢牌方的 playFor 开头
+  // 会无条件重写它们（模拟器那边它们是 playFor 的局部变量，天然隔开）
+  function pushStealTail(byFoe : boolean, played : PlainCard) {
+    stealTailSide.push(byFoe)
+    stealTailSurge.push(surgePending)
+    stealTailHeap.push(heapPending)
+    stealTailCard.push(played)
+    surgePending = 0
+    heapPending = 0
+  }
+
+  // 抢牌那一串全走完了，把欠下的几笔补上（后进先出 —— 连续互抢套了几层
+  // 就补几笔，顺序跟模拟器递归返回的顺序一致）。
+  //
+  // **补的是 endPlay / passTurn 里属于被抢方的那几步**，而且只有这几步：
+  //   摘钥匙、兑现推牌 / 堆牌、过期护饵、补牌。
+  //
+  // ⚠ **【逆涌】故意不补。** 抢牌方的 endPlay 已经点过一次了，
+  //   再点一次既多推一层、方向还反（推完轮到的不是他）——
+  //   判据和实例全写在模拟器 rules.js:8656-8674 那段 ⚠ 里。
+  // ⚠ **不交回合。** 回合已经由抢牌方那一次 passTurn 交到被抢方手上了
+  //   （正是规则第三条「转入对方(未抢到者)回合」），这儿再交一次
+  //   就把它推回抢牌方，于是他连打两手 —— 而症状是静默的：
+  //   手牌数、积分、守恒全对，只有出牌序错了
+  function drainStealTails() {
+    while (stealTailSide.length > 0) {
+      const i = stealTailSide.length - 1
+      const side = stealTailSide[i]
+      const surge = stealTailSurge[i]
+      const heap = stealTailHeap[i]
+      const vcard = stealTailCard[i]
+      stealTailSide.pop()
+      stealTailSurge.pop()
+      stealTailHeap.pop()
+      stealTailCard.pop()
+      // 手里带的【花色匹配】/【递吃】打出那一手用掉 —— 照 endPlay 开头那两句。
+      // 用存下来的那张，不能用 `lastPlayed`：它早被抢牌方那一手改写了
+      dropMatchKey(vcard)
+      dropDraftKey(vcard)
+      if (surge > 0) {
+        surgeFor(side, surge)
+      }
+      if (heap > 0) {
+        heapStage(side, heap)
+      }
+      expireGuards(side)
+      refill(side)
+    }
+  }
+
+  // 放弃抢牌：把庄家那一手原样接回去（三个参数是 askSteal 存下来的）
+  function onStealSkip() {
+    if (!stealPending.value) {
+      return
+    }
+    stealPending.value = false
+    stealTarget.value = 0
+    stealResumeCard = null
+    message.value = message.value + ' 你没抢。' + stealResumeNote
+    startCatch(true, stealResumeFrom, stealResumeTo)
+  }
+
+  // 抢牌：点一张手牌打出去。收得不比庄家多的点不动（弹一句说清差多少）
+  function onStealWith(index : number) {
+    if (!stealPending.value || index < 0 || index >= hand.value.length) {
+      return
+    }
+    const card = hand.value[index]
+    if (isFrozen(card)) {
+      uni.showToast({ title: '这张被冻住了，抢不了', icon: 'none' })
+      return
+    }
+    const n = stealGainOf(card, false)
+    if (n <= stealTarget.value) {
+      // 两种点不动分开说：**配不上**和**收得不够多**是玩家要做的两种不同调整，
+      // 合成一句「抢不了」他就不知道该换哪张（照死水 / 退潮那两条提示语）
+      const why = n > 0
+        ? ('这张只收 ' + n + ' 张，不比庄家的 ' + stealTarget.value + ' 张多')
+        : '这张配不上，抢不了'
+      uni.showToast({ title: why, icon: 'none' })
+      return
+    }
+    stealPending.value = false
+    stealTarget.value = 0
+    // 被抢的是庄家 —— 存他那一手的待办，**必须在 playFor 之前**
+    pushStealTail(true, stealResumeCard!)
+    stealResumeCard = null
+    newIndex.value = -1
+    const lead = '你抢牌，打出 ' + cardName(card) + '（收 ' + n + ' 张）。'
+    logPlay(false, card, lead)
+    const handed = playFor(false, index, false)
+    message.value = lead
+    if (!handed) {
+      afterPlay(false)
+    }
   }
   // resolveMatch 把打出那张放回堆上之后，把它拿下来之前的火和花色写回去
   //（理由见 resolveMatch 里 burn / suit 那两行）。点数已经由 vals 带回去了
@@ -6171,12 +6700,18 @@
   //
   // **守铁律**：牌是真的离场的，所以这两条照旧给分。
   //
-  // ⚠ **但它不进档**〔R4，2026-10-23〕：底下是 `+ got`，**不是 `+ scoreOf(got)`**。
+  // ⚠ **但它不进档**〔R4，2026-10-23 立〕：底下是 `+ got`，**不是 `+ scoreOf(got)`**。
   //
   //   走水 / 过闸不是一次匹配 —— 没有赌、没有养堆，是庄家规矩白拿堆底一格。
   //   给它档值就是凭空送分（堆底叠了 4 张的话一下 4 分 = 一次 4/5 档匹配）。
   //   同形的先例有两条：R4 里「n ≤ 1 不进档，那一段不是一次匹配」（保护的垫牌），
   //   和【易流】手牌那条「一张一张记，所以不进档」。
+  //
+  //   ⚠ **R5（2026-10-27，张=分）之下这两种写法同值了，而这一行别改**。
+  //   `scoreOf(got) == got` 现在恒成立，所以改成 `+ scoreOf(got)` 不会
+  //   变任何行为 —— **可那正是陷阱**：改了之后下一次试档值时这条路会
+  //   悄悄跟着进档，而上面那几句理由说的恰恰是它不该进。
+  //   「两种写法现在同值」要当成**巧合**读，不是当成「可以统一了」。
   //
   //   ⚠ **这是一次选择，不是天然如此** —— `takeAt` 在有叠放时会返回 >1，
   //   所以这条路**不是** band-neutral 的。哪天觉得「堆底叠厚了该多给」，
@@ -6314,13 +6849,18 @@
     // 宿主离场了的叠放跟着清 —— 不然底下那几张永远留在 stacked 里成孤儿。
     // takeAt 已经把该收的那几张摘掉了，这一步兜的是「宿主被别的路拿走」
     expireStacked()
-    // ---------- 匹配线唯一的计分点〔R4，2026-10-23〕----------
+    // ---------- 匹配线唯一的计分点〔R4 2026-10-23 立，R5 2026-10-27 改口径〕----------
     //
-    // **不是 `+ caught` 了，是 `+ scoreOf(caught)`** —— 收 2~3 张 1 分、
-    // 4~5 张 4 分、6 张以上 12 分（档值依据在 `draw-skills.uts` 的 SCORE_BANDS 那段）。
+    // R5（张 = 分）之下 `scoreOf(caught) == caught`，所以这一行**现在跟
+    // `+ caught` 等值**。⚠ **别因此把它改回 `+ caught`** —— 走 `scoreOf`
+    // 是为了让「计分口径」只有一个开关（`draw-skills.uts` 的 `SCORE_BANDS`）。
+    // 改成裸 `caught` 的话，下一次要试档值就得重新找遍所有计分点，
+    // 而那正是 R4 搬进来时花掉的那笔工（「复制一份逻辑，两份必然分叉」）。
     //
-    // `caught` 本身**照旧是原始张数**，别拿它当分用：底下几处提示语
-    // 和统计读的都是张数，两个口径现在真的不一样了
+    // ~~R4 那一档：收 2~3 张 1 分、4~5 张 4 分、6 张以上 12 分~~
+    //
+    // `caught` 照旧是原始张数。R5 下它跟分**碰巧相等**，可底下几处提示语
+    // 和统计读的仍然该是张数 —— 两个口径只是现在同值，不是同一个东西
     const gained = scoreOf(caught)
     if (byFoe) {
       foeScore.value = foeScore.value + gained
@@ -10371,6 +10911,12 @@
   // ---------- 结算 ----------
 
   // 这一方还有牌打得出去吗（被冻住的不算）
+  //
+  // ⚠ **这个函数一个字不动，上牌区不进来**〔2026-10-26〕。
+  //   `refill`（往上找 `playableCount`）拿它判【涨落】/【枯水】那道闸 ——
+  //   往里塞上牌区就等于顺手改了那两件技能的行为。
+  //   要「这一方动不动得了」问下面的 `canAct`。
+  //   模拟器那边是同一个决定（`rules.js` 的 `playableCount` 同样不碰）。
   function playableCount(byFoe : boolean) : number {
     const list = byFoe ? foeHand.value : hand.value
     let n = 0
@@ -10380,6 +10926,53 @@
       }
     }
     return n
+  }
+
+  // 上牌区里打得出去的张数。**所有「上牌区有牌吗」的判断都走这儿，
+  // 别直接读 `.length`** —— 两者在「区里全被冻住」那一格会分叉，
+  // 而那一格正好是死锁：既不让打手牌、上牌区又打不动。
+  //（现行的【冻结】只挑对手手牌，所以今天这两个值恒等 ——
+  //  正因为「今天恰好相等」，才不能接 `.length`，照 CLAUDE.md
+  //  那条「别接一个今天刚好相等的量」。）
+  function boardPlayable(byFoe : boolean) : number {
+    const zone = byFoe ? foeBoardZone.value : boardZone.value
+    let n = 0
+    for (let i = 0; i < zone.length; i++) {
+      if (!isFrozen(zone[i])) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  // 这一方这一回合还做得了事吗 —— `playableCount`（只看手牌）**之外**
+  // 还要认**两个**新区。
+  //
+  // ---- 堆牌区为什么也要算〔2026-10-26 改过一次，记原因〕 ----
+  //
+  // 我先按「区里的牌不是能打的牌，落完局面照旧动不了，收摊是对的」写成了
+  // **不算堆牌区**，而那是错的 —— 对上了「分」却对不上「状态」：
+  //
+  //   剩堆本来就不计分（见 TAIL_PLAYS），所以算不算堆牌区，**比分一模一样**；
+  //   可不算的话这一局会**带着几张盖着的牌收摊** —— 结算画面上那两张
+  //   还杵在堆牌区里，而玩家刚被告知「这一局结束了」。
+  //
+  // 那正是模拟器拿来当有效性检查的那个口（`PROTO_STAT.board.left`，
+  // 四格实测全是 **0 张**）。源码这边没有那个计数口，更不能靠「反正不影响分」
+  // 放过去。算上之后那几张会先落堆，下一次 checkOver 再收摊 —— 多一个回合，
+  // 画面干净。
+  //
+  // 模拟器 `rules.js` 的 `canAct` 是同一个形状（手牌 + 上牌区 + 堆牌区）。
+  //
+  // ⚠ 一处**有意的差异**：这儿上牌区走 `boardPlayable`（数没冻住的），
+  //   模拟器走 `.length`。两边今天**行为完全相同** —— 现行【冻结】只挑对手
+  //   手牌，上牌区的牌冻不上。分开写是因为源码这边多一条模拟器没有的路：
+  //   上牌区有牌时手牌被 toast 按着（onPlay），区里要是全冻住，
+  //   `.length` 会让这一局既出不了牌又判不了死锁，真的卡住。
+  function canAct(byFoe : boolean) : boolean {
+    return playableCount(byFoe) > 0
+      || boardPlayable(byFoe) > 0
+      || (byFoe ? foeHeapZone.value.length : heapZone.value.length) > 0
   }
 
   // 一局结束。两条出口，各管一件事：
@@ -10417,7 +11010,10 @@
     if (justEmptied) {
       tailFrom = myPlayed + foePlayed
     }
-    const dead = playableCount(false) == 0 && playableCount(true) == 0
+    // 〔2026-10-26：从 `playableCount(…)==0 && …` 换成 `canAct` ——
+    //   上牌区里的牌也是「打得出的牌」，不算进来的话「手牌全空 / 全冻住、
+    //   可上牌区还有一张」会被判成死锁、提前收摊，而那一张本来打得出去。〕
+    const dead = !canAct(false) && !canAct(true)
     if (!dead) {
       // 终局那两手还没打够
       if (myPlayed + foePlayed - tailFrom < TAIL_PLAYS) {
@@ -10648,6 +11244,19 @@
       && hasSpecial(!byFoe, SP_JSURGE)) {
       surgeFor(byFoe, JSURGE_LAYERS)
     }
+    // ---- 【堆牌】兑现〔2026-10-26〕：取牌盖进出牌者自己的堆牌区 ----
+    //
+    // 排在推牌 / 逆涌**后面**是有意的：两件都从牌库取牌，而推牌取的那几张
+    // 当场落堆、会改变堆的形状 —— 堆牌下回合才落，所以它读不到也不在乎
+    // 谁先取。真正要紧的是两件都在 `passTurn` **前面**（牌库张数）。
+    //
+    // 「排在后面 = 牌库被推牌先掏过」这一条是**真的影响**：
+    // 牌库剩 3 张时，推牌先拿走 2 张，堆牌那道「够不够一整层」的闸就卡住了。
+    // 那是对的 —— 先发生的先拿，而两件本来就是同一手牌上的两个标签
+    if (heapPending > 0) {
+      heapStage(byFoe, heapPending)
+      heapPending = 0
+    }
     passTurn(byFoe)
   }
 
@@ -10699,6 +11308,34 @@
   //
   // 它不收牌，所以压根没有收牌特效的事；而推上来的牌直接落堆 + 播报，
   // 照见底 / 收色 / 撒网那条路（翻几张不定的一律这么处理）
+  // 落一张到堆上，按「推牌的规矩」。返回**撞没撞点数**。
+  //
+  // ---- 这个函数是抽出来共用的，别把它内联回去〔2026-10-26〕 ----
+  //
+  // 两个调用方：`surgeFor`（推牌 / 逆涌）和 `heapFlush`（堆牌区落堆）。
+  // 【堆牌】的词条写的是「按【推牌】的规矩落到堆上」—— 那句**引用**
+  // 在代码这边就该是一次真正的共用，不是复制一份看起来一样的。
+  //
+  // 判据是 CLAUDE.md 第四节那条「**复制一份逻辑，两份必然分叉**」，
+  // 而这一族已经分叉过一次：**漫流**当年用【推牌】没读「撞点数置 0」
+  // 那条子句，4.18 → 3.00，差 1.18 分。
+  // 模拟器那边是同一个形状（`rules.js` 的 `surgePushOne`），
+  // 两边一致 `fingerprint.js` 比对时少一处假阳性。
+  //
+  // **牌是调用方从牌库取好递进来的** —— 两个调用方取牌的时机不一样
+  //（推牌当场取当场落，堆牌隔一个回合），所以取牌那一步不在这儿
+  function surgePushOne(card : PlainCard, byFoe : boolean) : boolean {
+    // 先判撞，再落堆 —— catchStart 遍历的是 pile，这张还没进去，
+    // 所以不会跟自己比（照已删 floodFor 那条判据）
+    const hit = catchStart(card, byFoe, [] as number[], false) >= 0
+    // 撞上就按 0 点落堆。**不是 landVals** —— 置 0 在这条路上是终态，
+    // 场上挂着的改点数效果也盖不回来（照 valuesOf 里【死水】那条先例：
+    // 「废了就是废了，不该还受别的技能摆布」）
+    pushPile(card, byFoe, GUARD_NONE,
+      hit ? ([0] as number[]) : landVals(card, byFoe, [] as number[], false))
+    return hit
+  }
+
   function surgeFor(byFoe : boolean, layers : number) {
     let pushed = 0
     let zeroed = 0
@@ -10713,17 +11350,9 @@
         const rest = deck.value.slice(0)
         const card = rest.pop()!
         deck.value = rest
-        // 先判撞，再落堆 —— catchStart 遍历的是 pile，这张还没进去，
-        // 所以不会跟自己比（照已删 floodFor 那条判据）
-        const hit = catchStart(card, byFoe, [] as number[], false) >= 0
-        if (hit) {
+        if (surgePushOne(card, byFoe)) {
           zeroed = zeroed + 1
         }
-        // 撞上就按 0 点落堆。**不是 landVals** —— 置 0 在这条路上是终态，
-        // 场上挂着的改点数效果也盖不回来（照 valuesOf 里【死水】那条先例：
-        // 「废了就是废了，不该还受别的技能摆布」）
-        pushPile(card, byFoe, GUARD_NONE,
-          hit ? ([0] as number[]) : landVals(card, byFoe, [] as number[], false))
         pushed = pushed + 1
       }
     }
@@ -10734,6 +11363,91 @@
     }
     message.value = message.value + (byFoe ? ' 庄家推牌：' : ' 推牌：')
       + '从牌库涌上 ' + pushed + ' 张'
+      + (zeroed > 0 ? '，其中 ' + zeroed + ' 张撞了点数、变成 0 点' : '')
+      + '。'
+  }
+
+  // ---------- 【堆牌】兑现（上）：从牌库取牌，盖进出牌者自己的堆牌区 ----------
+  //
+  // 挂点在 `endPlay`，紧跟推牌 / 逆涌后面 —— 跟推牌**同一个位置、同样的两条理由**：
+  //
+  //   在 endPlay = 这一手全部结算完了（词条写的是「这一手结算完之后」），
+  //     而「没牌可打、跳过回合」那几条路直接调 passTurn、不经这儿，
+  //     所以一张打出的牌恰好触发一次；
+  //   `passTurn` **之前** = 它改牌库张数，而 passTurn 里的 refill 和
+  //     checkOver 都要读它（牌库空就收摊）。
+  //
+  // ---- 这一步**不落堆、不试撞** ----
+  //
+  // 取出来就盖着，撞不撞点数要等下回合开头落堆那一下才算 ——
+  // 而那正是这件机制的决策内容：中间隔着对手的一个回合，
+  // 他往堆上落了什么会改变你这几张的命运。
+  //
+  // 牌库那道闸跟推牌同款（「够不够一整层」），理由也同款：
+  // 牌从牌库取走、隔一个回合才落堆，中间它既不在牌库也不在堆上 ——
+  // 取奇数一样会翻牌库奇偶。实测这道闸几乎不咬人
+  //（模拟器 `HEAP_SHORT=1` 关掉它，X 从 +2.21 只动到 +2.24，远在 se 0.13 内）
+  function heapStage(byFoe : boolean, layers : number) {
+    let staged = 0
+    for (let n = 0; n < layers; n++) {
+      if (deck.value.length < HEAP_TAKE) {
+        break
+      }
+      for (let k = 0; k < HEAP_TAKE; k++) {
+        const rest = deck.value.slice(0)
+        const card = rest.pop()!
+        deck.value = rest
+        if (byFoe) {
+          foeHeapZone.value = foeHeapZone.value.concat([card])
+        } else {
+          heapZone.value = heapZone.value.concat([card])
+        }
+        staged = staged + 1
+      }
+    }
+    if (staged == 0) {
+      message.value = message.value + (byFoe ? ' 庄家堆牌：' : ' 堆牌：')
+        + '牌库不够了，没有牌盖下去。'
+      return
+    }
+    // **不报是哪几张** —— 盖牌不可见是这件机制的信息规则，
+    // 播报里漏出来等于白盖（而庄家那头漏出来更糟：那是你算不到的信息）
+    message.value = message.value + (byFoe ? ' 庄家堆牌：' : ' 堆牌：')
+      + '盖了 ' + staged + ' 张在堆牌区，下回合开头落到堆上。'
+  }
+
+  // ---------- 【堆牌】兑现（下）：回合开头，区里的牌按推牌的规矩落堆 ----------
+  //
+  // 挂点在 `startMyTurn` / `foeTurn` 的**最顶上**，而且必须排在各自那条
+  // 「手里没牌就跳过回合」之前 —— 排在后面的话，手牌空而堆牌区有牌的
+  // 那个回合会先被跳过，区里的牌就永远落不下去了。
+  //
+  // 落堆走 `surgePushOne`（跟推牌共用），所以「撞点数按 0 点落」
+  // 那条子句不用在这儿重写一遍。
+  //
+  // **先进先出**（下标 0 那一头先落）：盖进去的顺序就是落下去的顺序，
+  // 跟牌库「后进先出」正好相反 —— 那是有意的，区是个暂存不是另一个牌库。
+  //
+  // 区清空之后**不补**：一层堆牌只兑现一次
+  function heapFlush(byFoe : boolean) {
+    const zone = byFoe ? foeHeapZone.value : heapZone.value
+    if (zone.length == 0) {
+      return
+    }
+    let zeroed = 0
+    for (let i = 0; i < zone.length; i++) {
+      if (surgePushOne(zone[i], byFoe)) {
+        zeroed = zeroed + 1
+      }
+    }
+    const n = zone.length
+    if (byFoe) {
+      foeHeapZone.value = [] as PlainCard[]
+    } else {
+      heapZone.value = [] as PlainCard[]
+    }
+    message.value = (byFoe ? '庄家堆牌：' : '堆牌：')
+      + '堆牌区的 ' + n + ' 张落到堆上'
       + (zeroed > 0 ? '，其中 ' + zeroed + ' 张撞了点数、变成 0 点' : '')
       + '。'
   }
@@ -10905,6 +11619,19 @@
       dropBottomToFoe('走水')
     }
     refill(byFoe)
+    // ---- 【抢牌】：被抢的那几方在这儿补上欠的几笔〔2026-10-27〕 ----
+    //
+    // 排在这儿的三条理由：
+    //   一、**抢牌方先补、被抢方后补** —— 规则第三条「双方补齐手牌」，
+    //       而顺序是 A 打 → B 打 → B 补 → **A 补**。⚠ 这跟正常回合
+    //       （A 打 → A 补 → B 打 → B 补）不一样：手牌数的终态相同，
+    //       摸到的**具体是哪几张**不同。所以同种子的局面流会漂移，
+    //       「逐位相同」那种回归对抢牌无效（模拟器那边同一条，
+    //       判据写在 rules.js 的 passTurn 顶上）；
+    //   二、排在 `checkOver` **前面** —— 补完才算得准「是不是都空了」；
+    //   三、排在交回合**前面**，而且 drainStealTails 自己**不交回合**：
+    //       下面那两句已经把回合交给被抢方了（他正是「未抢到者」）
+    drainStealTails()
     if (checkOver()) {
       return
     }
@@ -10918,8 +11645,17 @@
   // 回合开始**不摸牌** —— 牌是上一回合结束时补好的（见 passTurn 的 refill）
   function startMyTurn() {
     myTurn.value = true
-    if (hand.value.length == 0) {
-      // 牌库空了、手里也没牌：这回合什么也做不了
+    // ---- 【堆牌区】落堆：**排在所有别的事前面**〔2026-10-26〕 ----
+    //
+    // 词条写的是「轮到自己的回合**开始时**」，而「开始时」在这儿有两层意思：
+    //   一、排在**出牌阶段之前** —— 你是看着落完的堆出牌的，那是决策内容；
+    //   二、排在下面那条「手里没牌就跳过」**之前** —— 排在后面的话，
+    //       手牌空而堆牌区有牌的那个回合会先被跳过，区里的牌永远落不下去。
+    // 庄家那头（foeTurn）是同一对理由、同一个位置
+    heapFlush(false)
+    if (hand.value.length == 0 && boardPlayable(false) == 0) {
+      // 牌库空了、手里也没牌：这回合什么也做不了。
+      // **上牌区也要空才算** —— 手牌空但上牌区有牌时你照样出得了一手
       message.value = '你没牌可打，跳过这回合。'
       passTurn(false)
       return
@@ -10930,8 +11666,13 @@
     // 就永远走不到那一步 —— 碰上【枯水】（打不出牌时才补）整局卡死：
     // 剩一张冻着的牌，它在等「打不出牌」，而那正是现在。
     // refill 只数能打的牌（见 playableCount），所以枯水下这儿也补得上。
-    // 牌库空了补不上，才跳过这回合（双方都动不了由 checkOver 收摊）
-    if (playableCount(false) == 0) {
+    // 牌库空了补不上，才跳过这回合（双方都动不了由 checkOver 收摊）。
+    //
+    // **上牌区有牌时整段跳过**〔2026-10-26〕：这一轮你本来就只能从上牌区出，
+    // 手牌冻不冻跟这个回合一点关系都没有 —— 不挡的话会白报一句
+    //「你的牌全被冻住了」，更糟的是上一支会**直接 passTurn**，
+    // 把一个明明出得了牌的回合跳掉
+    if (boardPlayable(false) == 0 && playableCount(false) == 0) {
       const before = hand.value.length
       refill(false)
       if (playableCount(false) == 0) {
@@ -10968,6 +11709,17 @@
   }
 
   function onPlay(index : number) {
+    // ---- 【抢牌】正问你的时候，点手牌是「用这张抢」〔2026-10-27〕 ----
+    //
+    // **必须是这一串分支里的第一条**，而且必须在下面那道 `canPlay` 闸
+    // 前面：抢牌是庄家打完那一手之后问的，所以这会儿 `myTurn` 是 false，
+    // 而 `canPlay` 的第一项就是 `myTurn` —— 挡在后面的话这件规则
+    // 在玩家这头是死的（他点什么都没反应）。
+    // 照 swapPending / siftPending 那几件的成例，只是理由更硬一层
+    if (stealPending.value) {
+      onStealWith(index)
+      return
+    }
     // 换水等着你挑的时候，点手牌是「挑这张塞回去」，不是「打出去」
     if (swapPending.value) {
       onSwap(index)
@@ -11015,6 +11767,21 @@
     if (!canPlay.value || index >= hand.value.length) {
       return
     }
+    // ---- 【上牌区】有牌时，手牌整排锁住〔2026-10-26〕 ----
+    //
+    // 这一道摆在**那一串 pending 分支之后**：换水 / 滤饵 / 冰雷 / 零递 /
+    // 对换 / 退潮 那几件正等你点手牌挑一张，而**那不是出牌** ——
+    // 挡在它们前面会让那几件技能在上牌区有牌的回合里卡死。
+    //
+    // 为什么不用 `v-if` 把手牌藏起来（这个文件里「入口的 v-if 就是第一道
+    // 校验」是条成例）：**手牌还得看得见**，不然你没法判断上牌区那几张
+    // 值不值得出。所以走「灰显 + 点了弹一句」那一档
+    // 用 `boardPlayable` 不用 `.length`：区里的牌**全被冻住**时，
+    // 强制出牌这条规则就不该再按着手牌 —— 否则两边都动不了
+    if (boardPlayable(false) > 0) {
+      uni.showToast({ title: '上牌区有牌，这轮必须从上牌区出', icon: 'none' })
+      return
+    }
     // 被冻住的打不出去
     if (isFrozen(hand.value[index])) {
       uni.showToast({ title: '这张被冻住了，打不出去', icon: 'none' })
@@ -11026,10 +11793,43 @@
     // 两处的 lead 要跟下面那句赋值**一字不差** —— logBody 靠它摘开头
     const lead = '你打出 ' + cardName(card) + '。'
     logPlay(false, card, lead)
-    const handed = playFor(false, index)
+    const handed = playFor(false, index, false)
     message.value = lead
     // 先结算技能，最后匹配（见 resolveMatch）。
     // playFor 已经接管了后续（叠放那三件在等你点堆）就别接 —— 见它那段
+    if (!handed) {
+      afterPlay(false)
+    }
+  }
+
+  // ---------- 点上牌区的一张：打出它〔2026-10-26〕 ----------
+  //
+  // 尾段跟 `onPlay` 逐句同构（预约 lead → playFor → afterPlay），
+  // 唯一的差别是 `fromBoard = true`，牌从上牌区取而不是从手牌取。
+  //
+  // **前面那一串 pending 分支一条都不抄** —— 那几件技能等的全是「点一张**手牌**」，
+  // 上牌区不在它们的选择范围里（`onSwap` / `onSift` / `onBomb` 那几个
+  // 读的都是 `hand.value[index]`，拿上牌区的下标进去就是串台）。
+  //
+  // `lead` 跟 onPlay 那句**一字不差**：logBody 靠它摘开头，
+  // 而出牌记录不该因为「这张是从哪个区出的」而换个说法 —— 对读记录的人来说
+  // 那就是打出了一张牌
+  function onPlayBoard(index : number) {
+    if (!canPlay.value || index >= boardZone.value.length) {
+      return
+    }
+    // 上牌区的牌**也可能被冻住**（【冻结】挑的是位置，而以后真有技能
+    // 往这儿放牌时，那几张照样在场上）。全冻住的死局由 checkOver 收摊
+    if (isFrozen(boardZone.value[index])) {
+      uni.showToast({ title: '这张被冻住了，打不出去', icon: 'none' })
+      return
+    }
+    const card = boardZone.value[index]
+    newIndex.value = -1
+    const lead = '你打出 ' + cardName(card) + '。'
+    logPlay(false, card, lead)
+    const handed = playFor(false, index, true)
+    message.value = lead
     if (!handed) {
       afterPlay(false)
     }
@@ -11044,6 +11844,33 @@
   // 它的牌是上一回合结束时补好的（见 passTurn 的 refill）
   function foeTurn() {
     foeTimer = -1
+    // 【堆牌区】落堆，**排在所有别的事前面** —— 跟 startMyTurn 那条是一对，
+    // 同样的两条理由（出牌阶段之前 / 跳过回合那条之前）
+    heapFlush(true)
+    // ---- 【上牌区】：有牌就必须从里头出，手牌这一轮碰都不碰 ----
+    //
+    // 排在「手里没牌就跳过」**前面**：庄家手牌空而上牌区有牌时，
+    // 它照样出得了一手。
+    //
+    // `foePickBoard` 跟 `foePickCard` **同一个口径**（catchStart 问
+    //「这张现在打出去能钓几张」）—— 两处口径不同的话庄家会在两个区
+    // 用两套标准挑牌，而那在玩家看来就是它忽强忽弱
+    //
+    // 闸用 `boardPlayable` 不用 `.length`：区里全被冻住时这条分支要让路，
+    // 否则 `foePickBoard` 返回 -1 → `foeBoardZone.value[-1]` 是 undefined
+    // → `cardName(undefined)` 当场崩。那正是下面那条 `index < 0` 拦的同一类。
+    if (boardPlayable(true) > 0) {
+      const bi = foePickBoard()
+      const bcard = foeBoardZone.value[bi]
+      const blead = '庄家打出 ' + cardName(bcard) + '。'
+      logPlay(true, bcard, blead)
+      const bhanded = playFor(true, bi, true)
+      message.value = blead
+      if (!bhanded) {
+        afterPlay(true)
+      }
+      return
+    }
     if (foeHand.value.length == 0) {
       message.value = '庄家没牌可打，跳过。'
       passTurn(true)
@@ -11076,7 +11903,7 @@
     // 所以 lead 不在句首 —— logBody 是摘中间那一段，不是摘前缀
     const lead = '庄家打出 ' + cardName(card) + '。'
     logPlay(true, card, lead)
-    const handed = playFor(true, index)
+    const handed = playFor(true, index, false)
     message.value = note + lead
     if (!handed) {
       afterPlay(true)
@@ -11454,6 +12281,286 @@
   }
 
 
+  // ========================================================================
+  // 【养堆】庄家的两条新打法〔2026-10-27 从模拟器搬过来〕
+  // ========================================================================
+  //
+  // 用户两句（原话）：
+  //   「AI要提升，懂得捏J」
+  //   「算出 忍 的概率后，可以用生成随机数的方法，如果随机数落在概率里就忍。」
+  //
+  // 搬的是 `tools/md-sim/ai.js` 里**已经量过**的两件，不是重新设计：
+  //   `JACK_HOLD`（捏 J）  常量在 `ai.js:437`，闸在 `:1483`
+  //   `HOLD_MIX='keep'`    掷骰在 `ai.js:1115-1131`，模型在 `holdEV`（`:885`）
+  //
+  // 实测（模拟器，2000 局，R5 口径，`run-steal-jack.sh`）：这一套对上
+  // 【能吃就吃】那个老 AI → **分差 +6.03、胜率 66.5%**，是四档 `HOLD_MIX`
+  // 里最好的一档。四档的定义在 `ai.js` 那段注释里。
+  //
+  // ---- 这是手写副本，所以有三条规矩 ----
+  //
+  // 甲 **概率模型照抄，一个常数都没改。** 两份必然分叉（CLAUDE.md 第四节），
+  //    而分叉的代价在这儿特别大：模型一偏，庄家的打法就不是量过的那个打法，
+  //    于是全表那些 X 对实机不成立。
+  // 乙 **探针走这边自己的 `catchStart`，不另写一套点数比较。** 手写一份
+  //    必然漏掉 J 通吃、保护挡着的格、结冰、点数卡的多点数、吃水那几条 ——
+  //    而漏掉 J 会让「玩家通吃整堆」这个最大的风险从模型里整个消失。
+  // 丙 **随机数这边用 `Math.random()`**，模拟器那边用 `G.rng()`（种子可复现）。
+  //    **这一处差异是故意的**，别去「统一」—— 把 `Math.random` 搬进模拟器
+  //    会静默废掉它的种子复现。
+  //
+  // ⚠ 源码侧**没有命令行测试覆盖**（`npx jest` 跑不起来，见 CLAUDE.md 第五节），
+  //   所以这一段只能实机验，而要验的是三件**看得见**的事：
+  //     · 堆薄（不到 3 张）的时候庄家不打 J；
+  //     · 同一个局面它**不是每次都收**（掷骰，所以有随机性）；
+  //     · **不会连忍两手** —— 忍过一手之后下一手一定落袋。
+
+  // 堆不够这么厚就先不打 J。模拟器 `JACK_HOLD=3`，理由写在 `ai.js:390-437`：
+  // k=3 ⇔「J 再也不会落进 2/3 张那一档」—— 那是 R4 阶梯计分时代的措辞。
+  // R5（张 = 分）之下没有「档」了，而**这个数没动**：它现在的含义是
+  //「J 至少要收 4 张（3 张堆 + 它自己）才值得打出去」
+  const JACK_HOLD : number = 3
+  // 忍一手期间堆长涨多少：我一张 + 玩家一张
+  const HOLD_GROW : number = 2
+  // 最多连忍几手。**锁死 1**（模拟器 `ai.js:564` 是同一个数，
+  // 用户 2026-10-23 拍的「维持现状」）—— 放开到 2 之后模拟器分差翻倍，
+  // 那是个真人用得、而 AI 不该用的打法。
+  //
+  // ⚠ 锁在这儿 = 锁在 **AI**，不是锁在规则：游戏里根本没有「忍」这个动作
+  //   （它只是「选一张配不上的牌打出去」），所以真人想连忍几手就连忍几手
+  const HOLD_RUN : number = 1
+  // 庄家已经连忍了几手。**不进存档** —— 它是一手之内的打法状态，
+  // 读档之后从 0 起等于「上一手没忍」，而那是安全的默认
+  let foeHoldRun : number = 0
+
+  // 玩家手里**一张危险牌都没有**的概率。超几何，是精确值不是近似。
+  //
+  // 未知牌池 U = 牌库 + 玩家手牌（这两处庄家都看不见），于是「他那 h 张」
+  // 等价于从 U 张里均匀抽出的一个 h-子集，d 张危险牌一张都没落上的概率是
+  //
+  //   C(U−d, h) / C(U, h) = Π_{i=0}^{h−1} (U−d−i) / (U−i)
+  //
+  // 写成连乘式而不是组合数：不溢出，而且 d > U−h（危险牌多到他必然摸到）时
+  // 分子自然走到 ≤ 0，直接返回 0，不用特判。
+  // **牌组厚度就是从这儿进计算的** —— 同样的 d，U 小的时候 p 掉得快得多。
+  //
+  // ⚠ 每一步都 `* 1.0`：uts 编到 Kotlin，整数相除会变整除
+  //   （同一条坑的另一头是 `.toString()`，见 `cards.uts` 的 `faceOf`）
+  function missP(U : number, h : number, d : number) : number {
+    if (d <= 0 || h <= 0 || U <= 0) {
+      return 1.0
+    }
+    let p = 1.0
+    for (let i = 0; i < h; i++) {
+      const top = (U - d - i) * 1.0
+      if (top <= 0) {
+        return 0.0
+      }
+      p = p * (top / ((U - i) * 1.0))
+    }
+    return p
+  }
+
+  // 玩家打一张这个点数的牌，会钓到堆上哪一格（−1 = 钓不着）。
+  //
+  // **走 `catchStart` 这个唯一入口**，理由见上面那条乙。`catchStart` 无副作用
+  //（`canCatch` 每手要调它十几次，所以拿它当探针是现成做法）。
+  //
+  // ⚠ 探针的花色写死 `SUITS[0]`、技能传空数组，而真牌四种花色都可能、
+  //   玩家的配装也可能给那张牌接上花色槽技能 —— 所以这个探针
+  //   **在玩家不带花色槽技能时精确**，带的时候会偏（偏多少没量过）。
+  //   模拟器 `ai.js:861` 同一处、同一个口径、同一条 ⚠
+  function foeReachOf(rank : string) : number {
+    const probe = {
+      suit: SUITS[0],
+      rank: rank,
+      value: valueOfRank(rank),
+      extra: [] as number[]
+    } as PlainCard
+    return catchStart(probe, false, [] as number[], false)
+  }
+
+  // `holdEV` 的返回。`ok = false` = **这个模型罩不住这个局面**
+  //（照模拟器那边返回 `null` 的那两种情况）。
+  //
+  // ⚠ 用 `ok` 字段而不是可空类型：uts 的可空对象在下游每一处都要再判一次，
+  //   而这儿只有一个调用点
+  type HoldEV = {
+    ok : boolean
+    // 忍这一手的期望收益（分口径）
+    ev : number
+    // 现在就收能拿几分
+    now : number
+    // 玩家**钓得到我那张或更深**的概率 = 这一赌输掉的概率
+    pLose : number
+  }
+
+  // 忍这一手的期望收益。三个分支对应玩家下一手的三种结果。
+  //
+  // 我钓的那一格记作 `at`（`bestCaught = L − at + 1`，所以 `at = L − bestCaught + 1`）。
+  // 忍 = 压一张钓不着的饵上去，堆变成 L+1 张，而**我那个目标还在原下标 at**
+  //（饵落在堆顶，不动下面的下标）。
+  //
+  //   输  玩家钓得到 **at 或更深**的格 → 我那张被一起收走，什么也没剩
+  //   平  玩家只钓得到 at 以上（含我压的那张饵）→ 我那张还在，下一手照收
+  //   赢  玩家一格都钓不着，他只能再压一张 → 我下一手收 bestCaught + 2 张
+  //
+  // 「平」拆成两支（模拟器的 `HOLD_EV_SPLIT`，默认开）：**只有饵被吃**赔
+  // `now`（精确），**浅层被端走**赔 `shalPay`（严格更少 —— 他把我目标上面的
+  // 牌一起拿走了，所以我下一手收得比 bestCaught 少）。
+  //
+  // ⚠ 三个出口集互不重叠，所以概率是三次**累加**口径的 `missP` 相减，
+  //   **不能写成 `missP(deep) × missP(shal)` 那样的乘积** —— 超几何是不放回的，
+  //   乘积会高估。
+  function holdEV(bestCaught : number) : HoldEV {
+    const none = { ok: false, ev: 0.0, now: 0.0, pLose: 0.0 } as HoldEV
+    const L = pile.value.length
+    const at = L - bestCaught + 1
+    // 收色 / 撒网那几件收的不是连续一段，`at` 会落到堆外 —— 模型不适用
+    if (at < 0 || at > L) {
+      return none
+    }
+    const h = hand.value.length
+    const U = deck.value.length + h
+    // 牌库和玩家手牌都空了：没有未知牌，这个模型也就无从算起（终局那两手）
+    if (U <= 0 || h <= 0) {
+      return none
+    }
+    // ---- 扫一遍点数：分成「钓得到我那张」和「只钓得到它上面」 ----
+    let deep = 0
+    let shal = 0
+    // 他能切得最深的那一格（输的那一支要用它算他收走多少）
+    let deepest = L
+    // 浅层里他能切得**最深**的那一格。初值 L = 只够得着堆顶那张
+    //（跟 `deepest` 同一个约定：假设他攥着最好的那张）
+    let shalMin = L
+    for (let r = 0; r < RANKS.length; r++) {
+      const rank = RANKS[r]
+      // 「这个点数外面还剩几张」—— 庄家的记牌，正当的公开信息推断，
+      // 不是偷看玩家手牌（`outsideCount` 数的是「我手里 + 堆上 + 已离场」之外的）
+      const out = outsideCount(rank)
+      if (out <= 0) {
+        continue
+      }
+      const j = foeReachOf(rank)
+      if (j < 0) {
+        continue
+      }
+      if (j <= at) {
+        deep = deep + out
+        if (j < deepest) {
+          deepest = j
+        }
+      } else {
+        shal = shal + out
+        if (j < shalMin) {
+          shalMin = j
+        }
+      }
+    }
+    // ---- 压上去那张饵自己也会被钓：这个误差进「赢」那一支的危险张数 ----
+    //
+    // 饵被吃掉的话玩家只收 2 张（饵在堆顶，他那一刀切不到我下面那张），
+    // 我的目标还在，下一手照收 —— 所以它把「赢」挤成「平」，不是第四种情况。
+    //
+    // ⚠ **挑法必须跟真正打出去那张一致**，不然就是在给一个庄家不会做的动作
+    //   估价。下面挑饵那个循环是**两层**（先比「这张自己钓不钓得着」、
+    //   再比分数），所以这儿也先分层：只在「钓不着」那一层里取最小；
+    //   那一层空了（手里全是钓得着的牌，真忍不住）才退回全手牌。
+    //
+    // ⚠ 剩一处对不齐，**方向是乐观**（高估「赢」）：挑饵那边的分数还含
+    //   两处技能折扣（`wants` −1.5、沉底 +0.5×堆长），所以层内选中的未必是
+    //   `baitRisk` 最小那张。没把那段抄过来是因为「复制一份逻辑，两份必然分叉」
+    //   —— 真要对齐得把挑饵循环抽成函数，那是另一件事。模拟器同一处同一条
+    let baitOut = -1
+    let baitFree = -1
+    for (let i = 0; i < foeHand.value.length; i++) {
+      const c = foeHand.value[i]
+      if (c.rank == JACK || isFrozen(c)) {
+        continue
+      }
+      const risk = baitRisk(c)
+      if (baitOut < 0 || risk < baitOut) {
+        baitOut = risk
+      }
+      // 跟挑饵循环同一个判据、同一个 `sink = false` 约定
+      if (catchStart(c, true, skillsOf(true, c), false) >= 0) {
+        continue
+      }
+      if (baitFree < 0 || risk < baitFree) {
+        baitFree = risk
+      }
+    }
+    if (baitFree >= 0) {
+      baitOut = baitFree
+    }
+    if (baitOut < 0) {
+      baitOut = 0
+    }
+    const pNoDeep = missP(U, h, deep)
+    const pNoShal = missP(U, h, deep + shal)
+    const pWin = missP(U, h, deep + shal + baitOut)
+    // 拆开的两支：**浅层被吃** / **只有饵被吃**
+    const pShal = Math.max(0.0, pNoDeep - pNoShal)
+    const pBait = Math.max(0.0, pNoShal - pWin)
+    const pLose = Math.max(0.0, 1.0 - pNoDeep)
+    const now = scoreOf(bestCaught) * 1.0
+    const win = scoreOf(bestCaught + HOLD_GROW) * 1.0
+    // 浅层被端走之后我还剩几张可收：堆被切到只剩 shalMin 张，
+    // 我那个目标还在下标 at，所以收 shalMin − at + 1（含我自己那张）。
+    // **它严格 ≤ bestCaught**
+    const shalPay = scoreOf(Math.max(0, shalMin - at + 1)) * 1.0
+    // 失手时玩家收走的是「他那一刀到堆顶」加他自己那张 = (L+1) − deepest + 1。
+    // 算它是因为这是一场**赌**：输掉不只是「我没收到」，是「他收走了」
+    const foeGain = scoreOf(L + 2 - deepest) * 1.0
+    const ev = pWin * win + pBait * now + pShal * shalPay - pLose * foeGain
+    return { ok: true, ev: ev, now: now, pLose: pLose } as HoldEV
+  }
+
+  // 这一手值不值得忍（= 放掉这次 `bestCaught` 张的收成）。
+  //
+  // 口径照模拟器的 `worthHolding`（`ai.js:996`）**在默认旋钮下**那一条路：
+  //   `HOLD_ONCE` 开、`HOLD_EV` 开、`HOLD_EV_SPLIT` 开、`HOLD_MIX='keep'`、
+  //   `HOLD_GROW=2`、`HOLD_RUN=1`。
+  //
+  // ⚠ 那边另有四道**默认关着**的闸（`HOLD_LEAD` 看比分、`HOLD_MIN` 忍到死、
+  //   `HOLD_BAND_MAX` 档位上限、`HOLD_REACH` 够不着堆底就不忍），
+  //   **这边一行都没搬** —— 搬一条关着的闸过来，下一个人读到的会是
+  //   「这儿有个判据」，而它其实是空操作。要开哪一条，先在模拟器量。
+  //
+  // ⚠ 模拟器那边还多一个 `card` 参数，它只喂诊断口（按「这个点数外面还剩
+  //   几张」分桶统计兑现率），**不进判据** —— 这边没有报表，所以没搬。
+  function worthHolding(bestCaught : number) : boolean {
+    if (bestCaught <= 0) {
+      return false
+    }
+    // 用户 2026-10-23 那条事实：「对局中最多也就忍 1 手，忍 2 手几乎不可能」
+    if (foeHoldRun >= HOLD_RUN) {
+      return false
+    }
+    const now = scoreOf(bestCaught)
+    const later = scoreOf(bestCaught + HOLD_GROW)
+    const ev = holdEV(bestCaught)
+    if (!ev.ok) {
+      // 模型罩不住的局面 —— 退回老判据（忍一手升不升得了分），
+      // 而**不是一律不忍**：一律不忍会把这些手静默吞掉
+      return later > now
+    }
+    // ---------- 【按概率忍】（用户 2026-10-27） ----------
+    //
+    // 原话：「算出 忍 的概率后，可以用生成随机数的方法，如果随机数落在概率里就忍。」
+    //
+    // 「忍的概率」取 **1 − pLose** = 我压上去之后**我那张没被一起收走**的概率
+    //（没亏，含「只有饵被吃」那一支）。模拟器那边叫 `HOLD_MIX='keep'`，
+    // 四档里它实测最好（对【能吃就吃】+6.03 / 66.5%）。
+    //
+    // ⚠ **掷骰不看 EV 的符号** —— 那是 `HOLD_MIX='gate'` 那一档的事。
+    //   所以 EV 为负的局面也会以这个概率忍。`ev.ev` 这边算了**不用**，
+    //   留着是为了这份副本跟模拟器逐行对得上：哪天翻成 `gate`，
+    //   这儿只改下面这一行（加 `ev.ev > ev.now &&`），不用把模型重推一遍
+    return Math.random() < 1.0 - ev.pLose
+  }
+
   // 庄家要打的那张。能钓就挑钓得最多的（J、磁钩、钩顶都算在里面；J 堆上有牌就用，不攒着）。
   // 钓不到时：会记牌的挑外面剩得最少的点数当饵，不拿 J 当饵；
   // 挑饵时触发护饵 / 窥视 / 搅水 / 观潮的牌，只要不比最安全的那张差 1 张以上就优先。
@@ -11469,6 +12576,30 @@
       const card = foeHand.value[i]
       // 被你冻住的，它也打不出去
       if (isFrozen(card)) {
+        continue
+      }
+      // ---- 【捏 J】堆太薄就先不打 J〔2026-10-27〕 ----
+      //
+      // J 通吃整堆，所以它的收成**就是堆长 + 1** —— 空堆打 J 只收 1 张，
+      // 而多等一手堆就厚两张（我一张 + 玩家一张）。实测基线下
+      // **J 占钓牌的 32.4%**，所以这一条管的不是边角情况。
+      //
+      // ⚠ 这是 `continue` 不是扣分：J 在这儿被整个跳过，于是落到下面
+      //   挑饵那个循环 —— 而那个循环**也跳过 J**（`card.rank == JACK` 那一条，
+      //   因为拿 J 当饵是白扔一张通吃牌）。所以手里只剩 J 的时候两边都空，
+      //   最后由 `randomFree()` 兜底把 J 打出去。**那正是「忍不住了」
+      //   该有的样子，不是漏判** —— 一张牌都不打是违规的。
+      //
+      // ⚠ 它**不受连忍上限 `HOLD_RUN` 管**（模拟器那边同样两条独立）：
+      //   捏 J 不是「放掉一次收成」，是「这张牌现在不是最优解」，
+      //   堆薄的时候可以一直捏着。要连带封掉得改这一行，不是改 `HOLD_RUN`
+      //
+      // ⚠ 挂 `smart` 的理由跟下面那个决策点**不一样**，但结论一样：
+      //   跳过 J 之后要是没有别的能钓的牌，低难度关会落到
+      //   `if (!level.value.smart) return randomFree()` ——
+      //   **随手一张**，而那张可能当场把堆送掉。所以低难度关照旧「有 J 就用」
+      if (level.value.smart && card.rank == JACK
+        && pile.value.length < JACK_HOLD) {
         continue
       }
       const skills = skillsOf(true, card)
@@ -11499,14 +12630,36 @@
       // 换成分之后反而会让 `>` 在同档内退化成「取第一张」，丢掉现在这条
       //「同分取张数多」的隐含 tie-break —— 那一张在下一手才见分晓。
       //
-      // ⚠ **真正缺的不是这一行，是「忍 1 手」**：庄家现在永远「能收就收」，
-      //   而 R4 的全部决策性在「忍一手等堆厚一点，从 1 分变 4 分」。
-      //   原型在模拟器的 `ai.js`（`worthHolding` / `holdEV`，带三个旋钮），
-      //   **搬进来是单独一步，没批**。在那之前实机庄家的打法是 R3 的
+      // ⚠ 这一条**只管「钓得最多的是哪张」**。「这一手到底要不要收」
+      //   是下面那个决策点（`worthHolding`）的事 —— 两件别混在一起：
+      //   混起来就得在同一个循环里既比张数又掷骰子，而掷骰子每手只该掷一次
       if (caught > bestCaught) {
         bestCaught = caught
         best = i
       }
+    }
+    // ---- 【忍一手】按概率放掉这次收成〔2026-10-27 从模拟器搬过来〕 ----
+    //
+    // 判据和概率模型在上面的 `worthHolding` / `holdEV`。这儿只做三件事：
+    // 掷一次、记连忍、把 `best` 撤回 −1 让它落到挑饵那条路上去。
+    //
+    // ⚠ **撤成 −1 之后不能直接 `randomFree()`** —— 忍一手的全部价值在于
+    //   「压上去那张钓不着」，随便打一张的话有不小的概率自己把堆送掉。
+    //   所以要走下面那整段挑饵逻辑，而且还得多一层（见 `heldOnce` 那条）
+    //
+    // ⚠ 挂 `level.value.smart` 这道闸是**必须的**，不是顺手加的：低难度关
+    //   底下那条路是 `if (!level.value.smart) return randomFree()`，
+    //   撤了 `best` 之后它会**随手打一张**——那比「能收就收」还糟
+    //  （有不小的概率把堆直接送给玩家）。所以笨庄家不许忍。
+    //   捏 J 那一条同样挂着（理由写在那儿，是另一条）
+    let heldOnce = false
+    if (best >= 0 && level.value.smart && worthHolding(bestCaught)) {
+      heldOnce = true
+      foeHoldRun = foeHoldRun + 1
+      best = -1
+    } else if (best >= 0) {
+      // 落袋了就清零：连忍上限数的是**连续**几手
+      foeHoldRun = 0
     }
     if (best >= 0) {
       return best
@@ -11522,6 +12675,8 @@
     }
     let pick = -1
     let pickScore = 99.0
+    // 选中那张「自己会钓到牌」吗。这是**分层**不是扣分，见下面那条 ⚠
+    let pickPen = false
     for (let i = 0; i < foeHand.value.length; i++) {
       const card = foeHand.value[i]
       if (card.rank == JACK || isFrozen(card)) {
@@ -11529,6 +12684,20 @@
       }
       let score = baitRisk(card) * 1.0
       const skills = skillsOf(true, card)
+      // ---- 忍过一手之后：**钓得到牌的牌一律排在后面**〔2026-10-27〕 ----
+      //
+      // 忍的定义就是「这一手不收」。可挑饵这段打的是另一个分
+      //（`baitRisk` + 技能折扣），它完全不管这张牌自己钓不钓得到 ——
+      // 于是会出现「忍了，然后挑出一张照样把堆收走的牌」，**忍是假的**。
+      //
+      // 模拟器那边量过这个 bug：`HOLD_MIN=3` 那一档本该一次 2 张都不收，
+      // 实测 **1.72 次/局**（46% 的「忍」照旧落袋了）。单看 X 看不出来 ——
+      // 这正是 CLAUDE.md 第四节那条「新机制要配一个『它做了几次』的计数」。
+      //
+      // ⚠ **必须是分层，不能是「加一个惩罚常数」**：下面的分能被折扣压成
+      //   负的（`wants` −1.5），所以任何固定罚分都可能被某张牌的折扣翻过去。
+      //   也不能写成 `continue` 过滤 —— 手里全是钓得到的牌时会一张都不剩
+      const pen = heldOnce && catchStart(card, true, skills, false) >= 0
       // 想当饵顺手发动的那几件。挂效果的几件（冻结、见底、窄口、满篓）
       // 也算 —— 它们正好要求「这张别钓到牌」，跟当饵是一回事
       //
@@ -11594,12 +12763,81 @@
       if (hasTrigger(skills, SK_SINK)) {
         score = score + pile.value.length * 0.5
       }
-      if (score < pickScore) {
+      // ⚠ 这道闸**不能跟下面那条比较换位置**：沉底那一项能把分加到 99 以上，
+      //   而 `pickScore` 初值就是 99.0 —— 下面第一支改成了 `pick < 0`，
+      //   于是没有这道闸的话，一张 99+ 分的牌会因为「还没选中任何牌」被选上
+      if (score >= 99.0) {
+        continue
+      }
+      // 三支，**顺序就是优先级**：
+      //   ① 还没选中任何牌 → 先占上
+      //   ② 选中的那张钓得到、这张钓不着 → 换（**层优先于分**）
+      //   ③ 同一层之内 → 比分
+      if (pick < 0 || (pickPen && !pen) || (pen == pickPen && score < pickScore)) {
         pickScore = score
         pick = i
+        pickPen = pen
       }
     }
     return pick >= 0 ? pick : randomFree()
+  }
+
+  // 庄家要从**上牌区**打的那张。一张都打不出去（空的 / 全冻住）返回 -1。
+  //
+  // ⚠ **口径跟 `foePickCard` 的前半段是同一条**：`catchStart` 问「这张现在
+  //   打出去能钓几张」，收色 / 撒网那两类再过一次 `harvestCount` 兜底。
+  //   两处口径不同的话庄家会在两个区按两套标准挑牌 —— 而上牌区是**强制**出牌区，
+  //   玩家看到的就是「它在这个区突然变笨 / 变聪明了」。
+  //   判据抄 `pickTopFor` 那条注释：**别另写一套估值**。
+  //
+  // 跟 `foePickCard` 的三处差别，每一处都有理由：
+  //   ① **没有挑饵那一整段**（`baitRisk` / `wants` / 沉底躲避）。那一段的前提是
+  //      「手里还有别的选择，所以挑一张最不亏的下饵」；上牌区是强制出牌，
+  //      钓不到也必须打一张，挑无可挑 —— 退到第一张没冻住的就是了。
+  //   ② 新手关（`level.value.random`）照旧完全随机，跟 `randomFree` 同一条规矩。
+  //   ③ 冻结在这儿**理论上碰不到**（现行的【冻结】只挑对手**手牌**），
+  //      留着这道闸是为了以后真有东西冻上牌区时不至于死锁 —— 调用点看见 -1
+  //      会退回手牌那条路。
+  function foePickBoard() : number {
+    const zone = foeBoardZone.value
+    const free : number[] = []
+    for (let i = 0; i < zone.length; i++) {
+      if (!isFrozen(zone[i])) {
+        free.push(i)
+      }
+    }
+    if (free.length == 0) {
+      return -1
+    }
+    if (level.value.random) {
+      return free[Math.floor(Math.random() * free.length)]
+    }
+    let best = -1
+    let bestCaught = 0
+    for (let k = 0; k < free.length; k++) {
+      const i = free[k]
+      const card = zone[i]
+      const skills = skillsOf(true, card)
+      const sink = hasTrigger(skills, SK_SINK)
+      const at = catchStart(card, true, skills, sink)
+      let caught = 0
+      if (at >= 0) {
+        // 收几张：普通是「匹配那张到堆顶」+ 自己，
+        // 沉底是「堆底到匹配那张」+ 自己（方向反的，见 playFor）
+        caught = sink ? at + 2 : pile.value.length - at + 1
+      }
+      const harvest = harvestCount(card, skills, true)
+      if (harvest > caught) {
+        caught = harvest
+      }
+      // 比的是**张数不是分**，理由跟 foePickCard 那条逐字相同
+      //（`scoreOf` 对 n 单调不减 → argmax 一致，换成分反而丢掉同档的 tie-break）
+      if (caught > bestCaught) {
+        bestCaught = caught
+        best = i
+      }
+    }
+    return best >= 0 ? best : free[0]
   }
 
   // 没被冻住的里头随机挑一张。一张都没有就返回 -1（这回合它打不出牌）
@@ -11686,9 +12924,39 @@
     // 「新一局不带着上一局的任何残留」那条（照 burnHand / frostHand）
     surgeHand = [] as PlainCard[]
     surgePending = 0
+    // 【堆牌】那一套：标签表 + 待兑现层数 + 两个区，开局六样全清。
+    // 理由跟上面那条逐字相同（按牌对象认身份，新一局是新一副牌），
+    // 多出来的一条是**两个区会在屏幕上显示** —— 不清的话新开一局
+    // 手牌旁边挂着上一局的残牌，而那几张的牌对象已经不在这副牌里了
+    heapHand = [] as PlainCard[]
+    heapPending = 0
+    heapZone.value = [] as PlainCard[]
+    foeHeapZone.value = [] as PlainCard[]
+    // 【上牌区】两个区同样开局清。现在还没有东西往里放牌，这几行是
+    // **先把地基打对** —— 等哪天有技能往里塞，漏清就是一个静默的跨局残留
+    boardZone.value = [] as PlainCard[]
+    foeBoardZone.value = [] as PlainCard[]
     againPending = false
     againUsed.value = false
     againWaiting.value = false
+    // 【抢牌】那一套八样全清〔2026-10-27〕。
+    // `stealPending` 漏了就是上面那条判据里最坏的那一类（整局点不动手牌，
+    // 而且这一件连提示条都还挂着）；四条并行栈漏了更糟 ——
+    // 新一局第一次 passTurn 就会拿**上一局的牌对象**去摘钥匙、去补牌
+    stealPending.value = false
+    stealTarget.value = 0
+    stealResumeFrom = 0
+    stealResumeTo = 0
+    stealResumeNote = ''
+    stealResumeCard = null
+    stealTailSide = []
+    stealTailSurge = []
+    stealTailHeap = []
+    stealTailCard = [] as PlainCard[]
+    // 庄家连忍了几手〔2026-10-27〕。**清它不是为了正确性，是为了可复现**：
+    // 上一局结束时它可能停在 1 上，于是新一局庄家的第一个忍牌机会会被
+    // `foeHoldRun >= HOLD_RUN` 静默吃掉 —— 一次，而且只在某些局出现
+    foeHoldRun = 0
     // 角色和「打过几张」每局归零 —— 【稳钩】数的是「这一局前 N 张」
     myRole.value = -1
     foeRole.value = -1
@@ -12615,6 +13883,17 @@
     margin-right: 1px;
   }
 
+  /* 【堆牌】：报**盖几张**（层数 × HEAP_TAKE）。紫 —— 跟推牌那个青色分得开，
+     两件虽是同一族（都是从牌库往堆上送牌），可时机相反，颜色撞了就白标了。
+     跟上牌区那圈边框（.card-board）同一个色系：两样都是「区」那条线上的东西 */
+  .hand-heap-tag {
+    color: #9b6fd6;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+
   /* 【沉降】：报压几点。深蓝 —— 推牌往堆上加牌、这件压点数，方向相反，颜色别撞 */
   .hand-sink-tag {
     color: #2b5f9e;
@@ -12684,6 +13963,16 @@
     background-color: #17497a;
   }
 
+  /* ⚠ `.card-back-art` 自己**不带宽高** —— 尺寸全在 `-small` / `-hand`
+     这两个变体里。bare 用它的话整块是 0×0，牌背上那颗菱形就消失了
+     〔2026-10-26 写堆牌区时差点踩上：这个文件里原先只有 `-small` 一个变体，
+       而堆牌区的牌是**手牌尺寸**（46×64），照 `-small` 画会小一圈〕 */
+  /* 手牌尺寸（46×64）的牌背。比例照 `-small`（34×48 → 24×36）等比放大 */
+  .card-back-art-hand {
+    width: 32px;
+    height: 48px;
+  }
+
   .card-back-art-small {
     width: 24px;
     height: 36px;
@@ -12697,6 +13986,12 @@
   .card-back-gem-small {
     width: 11px;
     height: 11px;
+  }
+
+  /* 同上：`.card-back-gem` 也不带宽高，手牌尺寸那一档在这儿 */
+  .card-back-gem-hand {
+    width: 15px;
+    height: 15px;
   }
 
   .card-rank {
@@ -13255,6 +14550,53 @@
     height: 72px;
   }
 
+  /* ---------- 【堆牌区】/【上牌区】：跟手牌区横着并排 ---------- */
+  /* 〔2026-10-26，用户定的版面：「3 个区 横着排列」〕
+     整组塞进 .hand-row / .foe-row 这个**横排**里，所以标签**不能摆在牌上方** ——
+     .hand-row 是写死的 72px（= 牌 64 + 上下余量），上方加一行字就把牌挤掉了。
+     改成摆在**左边**、宽 13px 让两个字竖着折行，吃掉牌旁边那点空白 */
+  .zone-group {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .zone-label {
+    width: 13px;
+    font-size: 11px;
+    line-height: 15px;
+    color: #8a9bb0;
+    margin-right: 3px;
+  }
+
+  /* 竖分隔线：没有它的话三个区连成一排，看着就是「一手特别多的手牌」——
+     而「这几张是强制出的、那几张不是」正是这条规则的全部内容 */
+  .zone-split {
+    width: 1px;
+    height: 46px;
+    background-color: rgba(255, 255, 255, 0.18);
+    margin-right: 6px;
+  }
+
+  /* 上牌区的牌：垫一层淡紫底，提示「这一轮只能从这儿出」。
+     ⚠ **有意不动 border-color** —— 这张牌上还有两圈边要抢：
+     能钓的金边（.card-hint，判断值不值得出的全部依据）和冻住的蓝边
+     （.card-frozen）。`.card-frozen` 在这条规则**前面**定义，
+     动边框的话它会被这一条盖掉，而那正是「看起来合理、实际丢了信息」的那类。
+     底色不跟任何一条抢 */
+  .card-board {
+    background-color: #f3ecff;
+  }
+
+  /* 上牌区有牌时手牌整排压暗 —— 点了会弹一句「必须从上牌区出」（见 onPlay）。
+     为什么不用 v-if 把手牌藏起来（这个文件里「入口的 v-if 就是第一道校验」
+     是条成例）：**手牌还得看得见**，不然你没法判断上牌区那几张值不值得出。
+     所以走「灰显 + 点了弹一句」这一档。
+     不改 border-color —— 能钓的那圈金边（.card-hint）要留着，
+     它正是你判断「这一轮亏不亏」的依据 */
+  .card-locked {
+    opacity: 0.45;
+  }
+
   /* 这回合刚摸到的那张：描绿边。排在 .card-hint 前面 ——
      刚摸到又正好能钓的，金边更要紧 */
   .card-new {
@@ -13265,6 +14607,16 @@
   .card-hint {
     border-color: #e8b23a;
     background-color: #fffbe8;
+  }
+
+  /* 【抢牌】能抢的那几张〔2026-10-27〕：橙红边 + 浅橙底。
+     排在 .card-hint **后面**是有意的 —— 抢牌期间「能钓到」这个信息
+     已经不够用了（能钓到但收不够多的照样抢不了），所以这一条要盖掉金边。
+     顺带也盖掉 .card-new 的绿边，理由同上。
+     不跟 .card-frozen 抢：被冻住的 canStealWith 恒为 false（stealGainOf 第一句） */
+  .card-steal {
+    border-color: #f06a3c;
+    background-color: #fff0e8;
   }
 
   /* 退出。描边不填色 —— 它是条退路，不该比手牌显眼 */

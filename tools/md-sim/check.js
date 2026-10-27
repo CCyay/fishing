@@ -40,7 +40,15 @@ const AI = require('./ai.js')
 //   没人收走、不计分。它是这天 wardice 组那个 −1 的落点，见 rules.js
 //   `stacking` 那一段。在此之前这份清单确实「漏了一个地方」，
 //   而上面那句「漏桶就说该补桶」只在**局首**生效，局中漏的照旧报不守恒〕
-const BUCKETS = ['deck', 'handME', 'handFOE', 'pile', 'stacked', 'gone', 'waste']
+// 〔2026-10-26 第八、九个桶：`heap`（堆牌区）和 `board`（上牌区）。
+//   两个新区的牌**既不在牌库也不在堆上**，而且是**跨回合**待着的
+//   （堆牌区取牌在打出那一刻、落牌在下一个自己的回合）——
+//   不认它们的话第一张牌盖进去就报不守恒。
+//   ⚠ 它们跟 `wildTag` / `heapHand` 那类**标记集合**不是一回事：
+//   标记集合里的牌本人还在 deck / hands / pile，不能重复计数；
+//   这两个区**持有牌本身**，所以必须进桶〕
+const BUCKETS = ['deck', 'handME', 'handFOE', 'pile', 'stacked', 'gone', 'waste',
+  'heap', 'board']
 
 function buckets(G) {
   return {
@@ -50,7 +58,9 @@ function buckets(G) {
     pile: G.pile.length,
     stacked: G.stacked.length,
     gone: G.gone.length,
-    waste: G.waste.length
+    waste: G.waste.length,
+    heap: G.heapZone[R.ME].length + G.heapZone[R.FOE].length,
+    board: G.boardZone[R.ME].length + G.boardZone[R.FOE].length
   }
 }
 
@@ -340,10 +350,11 @@ const BURN_CASES = ['burn', 'fire']
 // 而「只有一组」本身就是那条断言此前永远在报喜的原因
 const WARD_CASES = ['wardice']
 
-// ---------- 九组配置 ----------
+// ---------- 十组配置 ----------
 //
 // 〔这儿原先写着「六组」，而那时表里已经是八组了 —— 数字写在注释里
-//   就会过期。2026-10-22 加 wardice 时一起改成九组〕
+//   就会过期。2026-10-22 加 wardice 时一起改成九组，
+//   2026-10-26 加 zones（两个新区）改成十组〕
 //
 // 顺序是故意的：base 过不了就不用看后面三组 —— 那说明坏的不是新东西
 const CASES = [
@@ -391,7 +402,9 @@ const CASES = [
     // 【凝水】+ 封凌〔2026-10-22 加〕：**全表唯一让保护和冰碰面的配装。**
     //
     // 加它的理由不是覆盖率，是「冰盾不共存」那条断言**没有别的组能验**：
-    // `KIT_ORDER` 前 4（传火 / 引火 / 对换 / 伏流）里没有保护件，
+    // `KIT_ORDER` 前 4 里没有保护件〔2026-10-27 那张名单按 R5 的 X 重排了，
+    //   前 4 从「传火 / 引火 / 对换 / 伏流」变成「洪水 / 对换 / 伏流 / 分饵」——
+    //   **这句话照旧成立，而且更强了**：新前 4 连燃烧件都没有了〕，
     // `campaign.js` 的 `PLAYER_POOL` 里也没有（`calm` / `stow` 一次都不出现），
     // 十二张庄家配装唯一沾冰的那件（第 9 关的冻结）10-21 已经不带冰了。
     // **所以这条断言要么在这儿跑，要么一辈子在报喜。**
@@ -463,6 +476,37 @@ const CASES = [
     key: 'filler', label: '填河工（填塘 —— 它动的是 endPlay）',
     build: function () {
       return { mine: R.emptyLoadout(), foe: R.emptyLoadout(), myRole: roleAt('filler') }
+    }
+  },
+  {
+    // ---------- 第十组〔2026-10-26〕：两个新区**在真效果下**跑一遍 ----------
+    //
+    // 加它的理由跟 wardice 那一组一模一样：**不然那两个新桶永远在报喜。**
+    // `BOARD_TEST=2` 只在开局往上牌区塞一次，它验不到「对局中途往区里放牌」；
+    // 而堆牌区在默认跑里压根不会有牌。这一组让两条路都真跑：
+    //
+    //   〈heapdraft〉 每打一张 → 从牌库取 2 张进堆牌区 → 下回合落堆
+    //                （牌数守恒那条压的就是这段「牌不在牌库也不在堆上」）
+    //
+    // 双方都带，所以堆牌区两边同时有牌 —— 回合循环里那条
+    // 「排在手牌空那道岔之前」的位置要是写反了，这一组会当场炸
+    //
+    // ⚠ **上牌区那一半 2026-10-27 退化成只能靠旋钮**：这一组原先还带
+    //   〈boardgive〉（每打一张 → 把对手一张手牌挪进**他的**上牌区，
+    //   压 `board` 桶 + 手牌并行数组 `seen` 的同步），而那件 10-27
+    //   上架成【顶钩】**当天就删了**（X −1.14）。现在**没有任何技能**
+    //   往上牌区放牌，所以要验那一区得自己开旋钮：
+    //
+    //       BOARD_TEST=2 node tools/md-sim/check.js --only zones
+    //
+    //   （`BOARD_TEST` 只在开局塞，验不到「对局中途往区里放牌」——
+    //     那一半现在**没有覆盖**，下一件往上牌区放牌的技能要把它补回来）
+    key: 'zones', label: '堆牌区（+ 上牌区要 BOARD_TEST=2 才有牌）',
+    build: function () {
+      return {
+        mine: kitOf('lock', ['heapdraft']),
+        foe: kitOf('lock', ['heapdraft']), myRole: -1
+      }
     }
   }
 ]

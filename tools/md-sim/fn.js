@@ -172,8 +172,28 @@ const JMODES = [
 //   `.sh` 那十一个当天钉过了，这个漏了 —— 因为那次是
 //   `sh -n tools/md-sim/run-*.sh` 扫的，**而它是 `.js`，不叫 `run-*`**。
 //   〔同一个洞还盖着 `band.js`：它复用下面这个 `run()`，所以钉在这儿它也好了〕
+//
+// ⚠ **2026-10-27 又翻了三个**（`STEAL_ON` / `SCORE_BANDS` / `HOLD_MIX`），
+//   而这三个只补了一个钉子，另两个是**有意不钉的**，理由各不一样：
+//
+//   `HOLD_MIX`   **钉**。`band.js` 的 `hme`/`hbo` 两档标着「只有你忍 / 双方都忍」，
+//                那两个名字指的是**按 EV 硬阈值忍**（这个脚本整个是在那之前写的）。
+//                不钉的话它们静默变成「按概率掷骰忍」，而输出长得一模一样 ——
+//                跟 2026-10-23 那次 `HOLD_ONCE: ''` 的坑是同一个形状。
+//                〔`ctl`（双方贪心）本来就安全：`HOLD_ONCE='0'` 让
+//                  `worthHolding` 在总门就 return false，压根不掷骰〕
+//   `STEAL_ON`   **不钉**。钉了会连外面 shell 传进来的 `STEAL_ON=1` 一起盖掉
+//                （`ENV_PIN` 排在 `process.env` **之后**，是它覆盖环境不是反过来），
+//                于是「想开抢牌却开不了，而且不报错」。
+//                它的标签有 `band.js` 第一行的 `ruleTag()` 兜着。
+//   `SCORE_BANDS` **不钉**。`band.js` 每一档自己在 `arm.env` 里写死
+//                （`arm.env` 排在 `ENV_PIN` 之后，照旧覆盖），钉了也没用。
+//                ⚠ 但 `duel.js` **不写它**，所以 `duel.js` 现在跑的是张=分
+//                而不是 R4 —— 它是分档期的搜索工具，这次改动之后那张
+//                5×5 矩阵要重跑才作数。
 const ENV_PIN = {
-  HOLD_ONCE: '0', HOLD_EV: '0', HOLD_BOTH: '0', JACK_HOLD: '0'
+  HOLD_ONCE: '0', HOLD_EV: '0', HOLD_BOTH: '0', JACK_HOLD: '0',
+  HOLD_MIX: 'off'
 }
 
 // `n` 不传就用本脚本的 N。**`band.js` 复用这一个** ——
