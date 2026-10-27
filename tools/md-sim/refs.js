@@ -508,7 +508,12 @@ const SIM_ONLY = {
   //   三、**回合数该守在基线 46.00** —— 它按一整个回合算是局长中性的
   //      （我少摸的和他少摸的对平，账记在 `rules.js` SKILLS 表那条），
   //      动了就是这笔账有一处错。
-  dumpbait: '倒饵（原型 · 把 1 张自己的手牌给对方。BAIT_PICK=mine|foe|both / BAIT_N=1。参照：对换 − 摘钩 = +1.47，同批可减）',
+  // ⚠ **代号 〈dumpbait〉,「倒饵」这个中文名还没被正式采用** —— 没进
+  //   `draw-skills.uts`、没进 `ap-fishing.uvue`，游戏里玩不到。
+  //   张数线实测见 `rules.js` 的 `BAIT_N` 注释（R6：1 张 +1.29 / 任意张 +2.75，
+  //   而 **♥ 槽的任意张 +6.86 超目标档位上限 5.5**）。
+  //   `BAIT_HOLD`（默认开）= 「见好就收」，关掉它量的是「强制倒光手牌」（N=3 时 −0.75）。
+  dumpbait: '〈dumpbait〉（原型 · 把自己的手牌给对方。BAIT_PICK=mine|foe|both / BAIT_N=1 / BAIT_HOLD=1。参照：对换 − 摘钩 = +1.47，同批可减）',
   // 【中毒】那一套（2026-10-25 起）：【中毒】拦连续匹配，四个旋钮
   // POISON_LIFE / POISON_FATE / POISON_J / POISON_OWN 见 rules.js。
   // 〔2026-10-26 删了三件 —— 毒果 apple（净 +0.28，纯墙、双输）、
