@@ -2,3 +2,14 @@ node_modules/
 unpackage/
 .DS_Store
 *.log
+
+# ---- 量测输出：`tools/md-sim` 跑出来的，不进仓库 ----
+# 两种命名都在用（`out-<什么>.txt` 和 `<什么>-out.txt`），根目录也落过几个。
+# 一百多个文件，全是某一次跑的 stdout —— 结论该进《摸打钓鱼-实测数据台账.md》，
+# 原始输出留在本地就行。⚠ **量测脚本（`run-*.sh`）照旧要提交** ——
+# 台账和归档里直接给出「`bash tools/md-sim/run-xxx.sh`」当跑法，脚本丢了命令就指空。
+out-*.txt
+*-out.txt
+# 一次性探针（CRLF 那一轮：`^  \{$` 在 ripgrep 下返回 0 的查法）
+tools/md-sim/crlf-probe.txt
+tools/md-sim/crlf-fix.js
