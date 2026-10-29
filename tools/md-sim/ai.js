@@ -1901,10 +1901,15 @@ function pickCardCore(G, side) {
       //   那条是 CLAUDE.md 记着的误读：被动件不需要主动打，
       //   不在这张表里反而说明它不吃那份风险。引潮是**主动件**，所以要在〕
       || R.has(skills, SK.SURGE)
-      // 凝水 / 净水 / 抬水**压根不落堆**（叠到别的牌上去了），所以也
+      // 净水 / 抬水**压根不落堆**（叠到别的牌上去了），所以也
       // 谈不上钓 —— 它们换的是一次精确操作。拿它们当「饵」是唯一的用法，
       // 而且比别的饵更安全：牌出场了，对手连收都收不着
-      || R.has(skills, SK.CALM) || R.has(skills, SK.CLEAN)
+      //〔原先这一行还有 `SK.CALM`（凝水）—— **2026-10-28 删了**
+      //  （【保护】整个撤了），这一族现在只剩净水和抬水两件。
+      //  `SK.CALM` 已钉 `SK_GONE`，留着也恒 false，**可还是拿掉** ——
+      //  这张表是人在读的「值得为它打一张次优牌」的清单，
+      //  留一个死 key 在这儿会让下一个人以为凝水还活着〕
+      || R.has(skills, SK.CLEAN)
       || R.has(skills, SK.RAISE)
     if (wants && score <= fewest + 1) {
       score = score - WANTS_PEN

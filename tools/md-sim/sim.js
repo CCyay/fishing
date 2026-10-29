@@ -1698,6 +1698,88 @@ function cmdOne(args) {
     + ' 次（基线 ' + f1(avg(m.base.catches[R.ME], m.base.games)) + '），每次收 '
     + f2(avg(m.test.caught[R.ME], m.test.catches[R.ME])) + ' 张（基线 '
     + f2(avg(m.base.caught[R.ME], m.base.catches[R.ME])) + '）')
+  // ---- 局长那一行〔2026-10-28 补到 `one` 上〕----
+  //
+  // **为什么每件技能都该看一眼**：局长（双方合计出牌数）是这个玩法的
+  // 全局预算，而 CLAUDE.md 四条陷阱的第一条就是「**牌库张数 = 局长**」。
+  // 一件技能把牌从牌库搬走（堆牌 / 推牌 / 填塘…）或让牌不经手离场，
+  // 就是在花这笔预算 —— 而**光看 X 看不出它花了多少**。
+  //
+  // 这一行原先只长在 `cmdRole` 的「推牌诊断」里（2026-10-20 为逆涌加的），
+  // 10-28 逆涌换成堆牌之后那段整体不印了，局长这一行**跟着丢了** ——
+  // 而堆牌恰恰也动牌库。所以把它挪到这儿：`one` 量的就是单件技能
+  //
+  // **无条件印**（不加闸）：加闸就只有「已知会动局长」的件印得出来，
+  // 而「本来不该动、结果动了」才是要抓的那一类
+  const basePlays = (m.base.plays[R.ME] + m.base.plays[R.FOE]) / m.base.games
+  const testPlays = (m.test.plays[R.ME] + m.test.plays[R.FOE]) / m.test.games
+  console.log('  双方出牌 ' + f2(testPlays) + '（基线 ' + f2(basePlays)
+    + '）→ **局长 ' + (testPlays >= basePlays ? '+' : '')
+    + f2((testPlays / basePlays - 1) * 100) + '%**')
+  // ---- 三个桶：总分池 / 剩堆蒸发 / 手里剩〔2026-10-28 补到 `one` 上〕----
+  //
+  // **这是「张 = 分」专属的一笔账，而原先 `one` 一个字都不印。**
+  //
+  // R6 下「分 = 收走的张数」，所以**双方收走的张数之和就是这一局的总分池**，
+  // 而一副牌是定死的 52 张 —— 于是：
+  //
+  //   52 = 收走（有人得分） + 终局剩堆（**谁都不算分**） + 手里剩（同样不算分）
+  //
+  // 后两个桶是**蒸发**。一件技能可以在完全不改变「我占多少比例」的前提下，
+  // 把总分池做大或做小 —— 而 `cmdBase` 有这条守恒（`:1473`），
+  // **`one` 没有**，于是「这件技能让多少张牌蒸发了」在量单件时取不到。
+  //
+  // 加厚堆的那一族（堆牌 / 推牌）正撞在这儿：它把牌从牌库提前搬上堆，
+  // 而**堆常驻更厚 ⇒ 终局剩堆更厚 ⇒ 蒸发更多**。
+  // 这跟「我先有机会匹配」不矛盾 —— 那是分配，这是总量
+  const baseTook = (m.base.taken[R.ME] + m.base.taken[R.FOE]) / m.base.games
+  const testTook = (m.test.taken[R.ME] + m.test.taken[R.FOE]) / m.test.games
+  const baseLeft = m.base.leftover / m.base.games
+  const testLeft = m.test.leftover / m.test.games
+  const baseHeld = m.base.handLeft / m.base.games
+  const testHeld = m.test.handLeft / m.test.games
+  console.log('  **总分池**（双方收走合计）' + f2(testTook) + ' 张（基线 '
+    + f2(baseTook) + '，' + (testTook >= baseTook ? '+' : '') + f2(testTook - baseTook)
+    + '）　剩堆蒸发 ' + f2(testLeft) + '（基线 ' + f2(baseLeft) + '，'
+    + (testLeft >= baseLeft ? '+' : '') + f2(testLeft - baseLeft)
+    + '）　手里剩 ' + f2(testHeld) + '（基线 ' + f2(baseHeld) + '）')
+  // ---- 【燃烧】闭合归谁〔2026-10-28 补到 `one` 上〕----
+  //
+  // **为什么非补不可**：【燃烧】的实际规则是「**全堆带火 → 整堆归当时的
+  // 出牌方**」（`burnStep`），而火会蔓延 —— 所以堆上有火之后就是一场
+  // 「**谁先凑满全堆带火谁拿整堆**」的竞赛，而**点火的人不一定是收走的人**。
+  //
+  // 于是这一族有一类效果**单看 X 完全读不出来**：往谁的回合开头塞一张
+  // 不带火的新牌，就是**打断谁的燃尽**。【薪潮】「双方各堆 1 张」正是这个
+  // ——「给对方堆」= 用一张脏牌掐掉他这一手的闭合，把火的收成留给自己。
+  //
+  // 实测它值 **1.98 分**（给对方 1 张 X +2.36 对 给自己 1 张 X +0.38，
+  // 20000 局 · se 0.15），而两格的**总量账几乎逐项相同**（局长 −2.67%
+  // 对 −2.66%、总分池 48.45 对 48.49）—— 也就是这 1.98 **全是分配**。
+  // 没有这个计数口的话，那 1.98 分只能靠猜。
+  //
+  // 这张表原先只长在野火那个专用命令的「格 D」里（见下面那段），
+  // 而 `one` 取不到 —— 同一种漏法这个文件记过三次（堆牌诊断的闸、
+  // jsurge 的 fires、中毒那一套）
+  const swT = m.test.wild
+  const swB = m.base.wild
+  if (swT.sweeps[R.ME] + swT.sweeps[R.FOE]
+    + swB.sweeps[R.ME] + swB.sweeps[R.FOE] > 0) {
+    const srow = function (label, sum, s, games) {
+      const n = sum.sweeps[s]
+      if (n === 0) return label + '（没闭合过）'
+      return label + f2(avg(n, games)) + ' 次/局 × '
+        + f2(avg(sum.sweepSum[s], n)) + ' 张 = **'
+        + f2(avg(sum.sweepSum[s], games)) + ' 张/局**'
+    }
+    console.log('  ---- 【燃烧】闭合扫堆（全堆带火 → 整堆归**出牌方**）----')
+    console.log('    带技能这一格：' + srow('我 ', swT, R.ME, m.test.games)
+      + '　｜　' + srow('对手 ', swT, R.FOE, m.test.games))
+    console.log('    基线那一格：　' + srow('我 ', swB, R.ME, m.base.games)
+      + '　｜　' + srow('对手 ', swB, R.FOE, m.base.games))
+    console.log('    👉 **两边差不多 = 这条规则 washed out**（我点的火被对手闭合，'
+      + '净值趋零）；我明显多 = 闭合的归属被这件技能掰过来了。')
+  }
   // ---- 「D 的上限 = 基线优势」那句话 2026-10-15 删了 ----
   //
   // 它是基线 +3.03 时代的判据。终局规则改成「牌库空 + 各打 1 手」之后
@@ -1735,6 +1817,7 @@ function cmdOne(args) {
   //   第三条跟 `base` 只差一个切牌口径，看着最像可比的，**恰恰是最容易栽的**。
   printPoisonDiag()
   printHeapDiag()
+  printDraftTagDiag()
   if (process.env.CATCH_CURVE) {
     console.log('\n  ======== 我带那一格（m.test：ME 带、FOE 空手）========')
     console.log('  ⚠ 下面是**两人合计**，而这一格两侧不对称 ——'
@@ -1754,7 +1837,8 @@ function cmdOne(args) {
 // **读数有顺序**。
 //
 // 这一套的读数顺序：
-//   `staged/fires`（≈ HEAP_N=2 才算取成了）
+//   `staged/fires`（≈ HEAP_N=2 才算取成了 —— 2026-10-28 起这个 2
+//     就是词条里的 N「一次盖几张」，不再是「层 × 每层几张」）
 //     → `flushes/fires`（≈1 才算都落下去了，明显小 = 卡在区里到终局）
 //       → `hits/flushed`（撞点数置 0 的占比 = 这个机制的损耗面）
 //         → **最后才看分**。
@@ -1764,19 +1848,51 @@ function printHeapDiag() {
   if (h.fires === 0 && h.tags === 0 && b.forced === 0) return
   console.log('\n  ---- 诊断：【堆牌】/【上牌区】 ----')
   if (h.fires > 0 || h.tags > 0) {
-    console.log('    贴 ' + h.tags + ' 层 / 发动 ' + h.fires + ' 次 → 盖进堆牌区 '
+    // 「该 ≈ 几」读 `want/fires`，**不读 `R.HEAP_N`**〔2026-10-28 改〕——
+    // 三个载体的 N 不一样（原型 2 / 薪潮 2 / **逆涌 4**），拿旋钮当分母时
+    // 开河工那一行印「3.33 张/次，该 ≈ 2」，看着像少取了一半
+    console.log('    贴 ' + h.tags + ' 张 / 发动 ' + h.fires + ' 次 → 盖进堆牌区 '
       + h.staged + ' 张（' + f2(avg(h.staged, h.fires)) + ' 张/次，**该 ≈ '
-      + R.HEAP_N + '**；牌库不够整层 ' + h.short + ' 次）')
+      + f2(avg(h.want, h.fires)) + '**；牌库凑不满那一笔 ' + h.short + ' 次 → '
+      + '闸咬掉 ' + (h.want > 0 ? pct(1 - h.staged / h.want) : '—') + '）')
+    // 「其中盖给对方的几张」〔2026-10-28 加〕——【薪潮】「双方各堆1张」
+    // 把一件技能拆成了两笔，而两笔走同一个入口、同一份 `fires`/`staged`，
+    // **单看上面那一行分不出第二笔有没有真盖出去**。
+    // `want − staged` 那一截是「闸按每笔各判一次」咬掉的，它 > 0 的那几手
+    // 合计只搬 1 张（奇数）→ **牌库奇偶翻一次**，而单看 X 查不到
+    if (h.toFoeWant > 0) {
+      console.log('    其中**盖进对方区** ' + h.toFoeStaged + ' 张 / 想盖 '
+        + h.toFoeWant + ' 张（占真盖出去的 ' + pct(avg(h.toFoeStaged, h.staged))
+        + '；这一笔被牌库挡掉 ' + (h.toFoeWant - h.toFoeStaged) + ' 张 = '
+        + pct(1 - h.toFoeStaged / h.toFoeWant) + '）')
+    }
     console.log('    落到牌堆 ' + h.flushes + ' 回合 / ' + h.flushed + ' 张 → '
       + '**兑现率 ' + pct(avg(h.flushes, h.fires)) + '**'
       + '（卡在区里没落 ' + (h.staged - h.flushed) + ' 张）')
     console.log('    其中撞点数按 0 点落 ' + h.hits + ' 张 → **损耗面 '
       + pct(avg(h.hits, h.flushed)) + '**（0 点牌只贡献堆深、不贡献钩点）')
+    // ⚠ `depthBefore === 0` 要**单独说一句**〔2026-10-28〕——
+    //   `pct(avg(x, 0))` 印出来是 `0.0%`，而那读起来是「一点都没加厚」，
+    //   真相正好相反：**落在空堆上** = 加厚无穷倍。
+    //   这不是假想的边界，它就是【逆涌】的常态（对方打 J 刚把场清空）
     console.log('    落之前堆平均 ' + f2(avg(h.depthBefore, h.flushes))
-      + ' 张 → 这一下把堆加厚 ' + pct(avg(h.flushed, h.depthBefore)))
+      + ' 张 → 这一下把堆加厚 '
+      + (h.depthBefore > 0 ? pct(h.flushed / h.depthBefore)
+        : '**从空堆起**（堆一直是空的 —— 逆涌那种「对方 J 清场之后才落」就是这样）'))
+    // 【逆涌】自己那一句条件的计数〔2026-10-28 接上〕。
+    //
+    // 它在 `rules.js` 里累加着、**而整个工具一个字都不印** ——
+    // 同一种漏法这个文件为【中毒】那一套记过一次。
+    // 读法写在 `PROTO_STAT.jsurge` 头上：产出固定（堆牌4），
+    // **触发频率是这件技能唯一的变量**，所以这个数就是它的全部机制口
+    const js = R.PROTO_STAT.jsurge
+    if (js.fires > 0) {
+      console.log('    其中【逆涌】「对方打出 J」兑现 ' + js.fires + ' 次（占发动 '
+        + pct(avg(js.fires, h.fires)) + '）')
+    }
     if (h.staged === 0) {
       console.log('    ⚠ **一张都没盖进去** —— 不是幅度问题。'
-        + '查 `heapStage` 有没有被调到（`SK.HEAP` / `heapLayersOf` 两条路）。')
+        + '查 `heapStage` 有没有被调到（`SK.HEAP` / `heapCountOf` 两条路）。')
     }
     // ---- 堆牌 ×【21 匹配】的交互口〔2026-10-26 ·〈heapdraft〉要的那一列〕 ----
     //
@@ -1828,11 +1944,19 @@ function printHeapDiag() {
 function printPoisonDiag() {
   const p = R.PROTO_STAT.poison
   const k = R.PROTO_STAT.matchkey
-  if (p.tags === 0 && k.given === 0) return
+  // ⚠ `k.used` 2026-10-28 加进这道闸：**自带【花色匹配】的件一把钥匙都不发**
+  //（传色 / 传遍 / 雪覆 / 一色 / 〈huetag〉色递 —— 线在载体自己身上）。
+  //   原先只看 `p.tags`/`k.given`，于是量那几件时整张诊断表**一个字都不打**，
+  //   而「成功率」正是判这条线死活的第一列。同一种漏法这个文件记过两次了
+  if (p.tags === 0 && k.given === 0 && k.used === 0) return
   console.log('\n  ---- 诊断：【中毒】/【花色匹配】钥匙 ----')
-  if (k.given > 0 || k.none > 0) {
+  if (k.given > 0 || k.none > 0 || k.used > 0) {
     console.log('    发出钥匙 ' + k.given + ' 把（手里挑不出牌 ' + k.none + ' 次）'
       + '，带钥匙那张真打出去 ' + k.used + ' 次 → **兑现率 ' + pct(avg(k.used, k.given)) + '**')
+    if (k.given === 0) {
+      console.log('    ⚠ 这一跑**没有「发钥匙」那一步** —— 载体自带【花色匹配】，'
+        + '所以上一行的「兑现率」无意义（分母 0），只读下面那个**成功率**。')
+    }
     console.log('    其中匹配成功 ' + k.hits + ' 次 → **成功率 '
       + pct(avg(k.hits, k.used)) + '**，共收 ' + k.got + ' 张（'
       + f2(avg(k.got, k.hits)) + ' 张/次）')
@@ -1861,6 +1985,63 @@ function printPoisonDiag() {
   console.log('    其中拦到自己 ' + p.selfBlocks + ' 次 / ' + p.selfKept + ' 张 → **自伤 '
     + pct(avg(p.selfBlocks, p.blocks)) + '**（这一族的墙不分敌我）')
   if (p.jBlocks > 0) console.log('    其中拦的是 J 通吃 ' + p.jBlocks + ' 次（POISON_J=' + R.POISON_J + '）')
+}
+
+// ---------- 【21 匹配】标签那一族的诊断口〔2026-10-28〕 ----------
+//
+// **为什么非加不可**：`PROTO_STAT.tagdraft` 从 2026-10-21 就在累加，而
+// `sim.js` 唯一印它的地方在 `printHeapDiag` 里面 —— 那一段挂在
+// `h.fires > 0 || h.tags > 0` 下面（堆牌发动过才打）。于是量零递 / 递吃 /
+// 减递 / 多递 / 连递这些**不带堆牌**的件时，「兑现率」整条读不到。
+// 这正是 `PROTO_STAT` 那段注释自己写的病（「计数有了，口没接上」）的第三遍。
+//
+// 照既有三条先例：**问计数器别问旋钮**、**不印「每局」**
+//（`PROTO_STAT` 跨 `measureBoth` 三格累加 —— 绝对数不可读、**比值可读**）。
+//
+// ⚠ 读数有顺序，错了会把两种病混成一种：
+//   `cashed/tagged`（**兑现率** —— 低 = 标签发给了一张我不想打的牌）
+//     → `fired/cashed`（打出去了但这条线没开 = 被 `draftLineOpen` / 沉底闸掉）
+//       → 凑成率那一列（在上面那张 `DRAFT_HEAD` 表里）
+//         → **最后才看分**。
+function printDraftTagDiag() {
+  const td = R.PROTO_STAT.tagdraft
+  const ht = R.PROTO_STAT.holdtag
+  const ct = R.PROTO_STAT.chaintag
+  if (td.tagged === 0 && ht.fires === 0 && ct.cashed === 0) return
+  console.log('\n  ---- 诊断：【21 匹配】的手牌标签 ----')
+  if (td.tagged > 0) {
+    console.log('    贴出标签 ' + td.tagged + ' 张，带它的牌真打出去 ' + td.cashed
+      + ' 张 → **兑现率 ' + pct(avg(td.cashed, td.tagged)) + '**')
+    console.log('    其中这条线真判了 ' + td.fired + ' 次（占兑现 '
+      + pct(avg(td.fired, td.cashed)) + '），平均预算 '
+      + f2(avg(td.budSum, td.fired)) + '、用掉 ' + f2(avg(td.sumSum, td.fired))
+      + '（**' + pct(avg(td.sumSum, td.budSum)) + '**），够着 '
+      + f2(avg(td.gotSum, td.fired)) + ' 张/次')
+    if (td.cashed === 0) {
+      console.log('    ⚠ **标签一次都没打出去** —— 那不是幅度问题。'
+        + '查 `doDraftTag` 挑没挑到牌、以及 AI 看不看得见这条线。')
+    }
+  }
+  // 〈holdtag〉忍递：`empty/fires` **就是它的触发率** ——
+  // 这一件是不是撞『条件太窄·形状错』那条死因，只看这一个数
+  if (ht.fires > 0) {
+    console.log('    ×〈holdtag〉忍递：打出 ' + ht.fires + ' 次，其中**这一手一张都没收到 '
+      + ht.empty + ' 次（' + pct(avg(ht.empty, ht.fires)) + '）** → 真贴成 '
+      + ht.tagged + ' 张（占空手 ' + pct(avg(ht.tagged, ht.empty)) + '）')
+    console.log('      **这个百分比比 X 先看**：它是「忍手」这个条件的宽窄。'
+      + '贴着 0 = 条件撞局面常量；贴着 1 = 这个条件等于没有（退化成零递少一句）。'
+      + '两头之间才有「奖励忍手」可言。')
+  }
+  // 〈chaintag〉连递：`relink/cashed` 是链的存活率 ——
+  // 跟燃烧族那个燃尽率同一个诊断（兑现间隔压到留存之下，数才回得来）
+  if (ct.cashed > 0) {
+    console.log('    ×〈chaintag〉连递：带链标签的牌打出 ' + ct.cashed + ' 张，凑成 '
+      + ct.hits + ' 次（' + pct(avg(ct.hits, ct.cashed)) + '）→ 续上 '
+      + ct.relink + ' 次 → **链存活率 ' + pct(avg(ct.relink, ct.cashed))
+      + '**，一局里最长同时挂着 ' + ct.maxLen + ' 张')
+    console.log('      存活率贴着 0 = 「成功才续」这个形状不成立（自循环点不着）；'
+      + '`relink < hits` = 凑成了却挑不出牌贴（手里全贴过 / 全是 J / 全无点数）。')
+  }
 }
 
 // ---------- all：全表一张定价表 ----------
@@ -2239,6 +2420,11 @@ function cmdRoles(args) {
       name: role.name, sp: role.special,
       cover: R.roleCover(i), slots: role.slots.join('/'),
       nSlots: nSlots,
+      // 双装把「槽数」和「件数」拆开了〔2026-10-28〕。`perSlot` 照旧除槽数
+      //（那一列的定义就是「每槽」），但**两个数不等的卡要标出来** ——
+      // 不标的话 riggertwin 的「每槽」是 3 件的值除以 2 个槽，
+      // 而它跟别的卡那一列**不是同一把尺子**，照旧能横着排、看不出来
+      nKit: R.roleKitCount(i),
       back: m.back, front: m.front, x: m.x, d: m.d, se: m.se,
       full: fullGain,
       perSlot: nSlots > 0 ? (fullGain - m.back) / nSlots : 0,
@@ -2265,7 +2451,10 @@ function cmdRoles(args) {
       + (sign(l.winX) + '点').padStart(9)
       + sign(l.full).padStart(8)
       + sign(l.perSlot).padStart(8)
-      + pct(l.fullWin).padStart(9))
+      + pct(l.fullWin).padStart(9)
+      // 带双装的卡：槽数 ≠ 件数，于是「每槽」那一列跟别的卡不同口径。
+      // **标出来**，别让它看着像可以横比〔2026-10-28〕
+      + (l.nKit !== l.nSlots ? '  ⚠' + l.nKit + ' 件' : ''))
   }
   const noted = lines.filter(function (l) { return l.note !== '' })
   if (noted.length > 0) {
@@ -2361,12 +2550,32 @@ function cmdRoles(args) {
 //     够不着第八位，进来就破了「X 降序」这条唯一依据。
 //   ⚠ **「满配 / 每槽 / 满配胜率」三列又一次全废** —— 上面那一刀的重跑
 //     （如果已经跑了）也作废。要重跑 `sim.js roles -n 8000`。
+//
+// ---- 🔴 2026-10-28：名单**又不按 X 降序了**（这回是数变了，不是件没了）----
+//
+//   【洪水】翻牌数 6 → 4（`FLOOD_CAP` 默认值跟着改了），
+//   X 从 **+6.41 掉到 +3.95**〔R6 · one · A 槽 · 20000 局 · se 0.15〕。
+//   按这张名单自己的唯一依据（X 降序）它该从**第 1 位挪到第 6 位**：
+//     伏流 5.04 / 易流 4.75 / 涉水 4.71 / 分饵 4.67 / 摘钩 4.13 /
+//     **洪水 3.95** / 齐顶 3.65 / 引火 ?
+//
+//   **没有重排** —— 重排一次就把「满配 / 每槽 / 满配胜率」三列再废一轮，
+//   而那三列这个月已经废过两次、一次都还没重跑。排不排是单独一个决定，
+//   要排就连着 `sim.js roles -n 8000` 一起跑。
+//   在那之前：**这张名单的第 1 位不再是最强那件**，所有拿
+//  「♥ 槽排第几」做文章的推论（`rules.js` peachlast / heartslot 那几段）
+//   都要先回来看这一行。
 const KIT_ORDER = [
   'flood', 'flow', 'gift', 'swapflow', 'wade', 'unhook', 'peak', 'kindle'
 ]
 
+// ⚠ 上界走 **`roleKitCount`**，不是 `slots.length`〔2026-10-28 改〕——
+// 带双装槽的卡（`twin` 字段）插得下 **槽数 + 1** 件，而 `kitFromRole` 读的是
+// `slotSkills[slots.length]` 那一格。写 `slots.length` 的后果是
+// **双装那一格永远空着**，而那是静默的：报表照样打三个槽、数照样出，
+// 只是少插一件（这一类坑的实例见 CLAUDE.md 第四节的同色闸传参）
 function kitFor(role) {
-  const n = R.DRAW_ROLES[role].slots.length
+  const n = R.roleKitCount(role)
   const picks = []
   for (let i = 0; i < n; i++) {
     picks.push(skillIndexOf(KIT_ORDER[i % KIT_ORDER.length]))
@@ -2391,6 +2600,27 @@ function cmdRole(args) {
   for (let i = 0; i < r.slots.length; i++) {
     console.log('  槽 ' + (i + 1) + '（' + r.slots[i] + '）：'
       + R.SKILLS[picks[i]].name)
+  }
+  // ---- 双装槽的第 2 件〔2026-10-28 补〕----
+  //
+  // **为什么非补不可**：上面那个循环走的是 `r.slots.length`，而 `kitFor`
+  // 走的是 `R.roleKitCount`（= 槽数 + 双装那一件）。双装把这两个数**拆开**
+  // 之后，带 `twin` 的卡**插了 3 件却只印 2 件** —— 于是那一跑的
+  //「我到底插了什么」在报表里是**残的**，而分值照旧有数、一眼看不出来。
+  //
+  // 这正是 CLAUDE.md 第四节那条的形状（同色闸：bug 下 4.89 / 修好 4.88）。
+  // 实际损失已经发生过一次：`role riggertwin -n 8000` 跑出 +14.68，
+  // 而报表只列了「洪水 / 伏流」，第 3 件（分饵）**查代码才知道**
+  const twin = R.twinSlotOf(role)
+  if (twin >= 0 && picks.length > r.slots.length) {
+    const extra = picks[r.slots.length]
+    console.log('  槽 ' + (twin + 1) + '（' + r.slots[twin]
+      + '）**双装第 2 件**：'
+      + (extra >= 0 ? R.SKILLS[extra].name : '（空）')
+      + '　← 跟上面同一个槽，命中时两件都响')
+    console.log('  〔槽数 ' + r.slots.length + '、**技能件数 '
+      + R.roleKitCount(role) + '** —— 这两个数不再恒等。'
+      + '零点那一档是 `TWIN_SLOT=off`（少这一件）〕')
   }
   console.log('\n  对照「完全不带角色」：' + (gain >= 0 ? '+' : '') + f2(gain)
     + ' 分   标准误 ' + f2(se))
@@ -2417,6 +2647,19 @@ function cmdRole(args) {
     console.log('    双方出牌 ' + f2(myPlays) + '（不带角色 ' + f2(basePlays)
       + '）→ 局长 ' + f2((myPlays / basePlays - 1) * 100) + '%')
   }
+  // ---- 【堆牌】的诊断口〔2026-10-28 补〕----
+  //
+  // **为什么非补不可**：上面那段「推牌诊断」是 2026-10-20 为【逆涌】
+  // （开河工的常驻技）加的，而 10-28 逆涌从【推牌】换成【堆牌】之后
+  // `surge.flipped` 恒为 0 → **那一段静默地不再打印**，于是
+  // 「这张卡的常驻技到底发动了几次」在 `role` 这个命令里取不到了。
+  // 这正是 CLAUDE.md 那条「新机制必须配一个『它做了几次』的计数」的反面：
+  // 计数器一直在累加（`heapStage` 记 `PROTO_STAT.heap`），只是没人印。
+  //
+  // 复用 `cmdOne` / `cmdVs` 用的那一个 `printHeapDiag()`，**不要再写一份**
+  // —— 它自己带闸（`fires`/`tags`/`forced` 全 0 就不印），所以别的角色
+  // 跑这个命令时这一段不会冒出来
+  printHeapDiag()
   // ---- 【点数互通】原型的诊断行〔2026-10-20〕----
   //
   // 照上面「推牌诊断」那个先例：**只在旋钮开着的时候印**。
@@ -3553,6 +3796,10 @@ function cmdVs(args) {
   // 挂在函数末尾、不在 `if (mirror)` 里面：不对称跑（`vs heapdraft press`
   // 那种）同样要这几列，而那恰恰是对称跑答不了的问题
   printHeapDiag()
+  // 同一条理由（2026-10-28）：这一族的量测脚本也是 `vs X X`，
+  // 而「兑现率 / 触发率 / 链存活率」三列在 `vs` 下原先一行都读不到
+  printPoisonDiag()
+  printDraftTagDiag()
 }
 
 // ---------- switch：【换竿】本身值多少 ----------

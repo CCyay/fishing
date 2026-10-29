@@ -8,7 +8,9 @@
 #
 # ---- 这一批的好处：两件**都带同批锚**，而且锚是已上架的件 ----
 #
-# 〈heapdraft〉=【堆牌】1 层 + 1 张手牌带上【21 匹配】
+# 〈heapdraft〉=【堆牌2】+ 1 张手牌带上【21 匹配】
+#   〔原文写的是「【堆牌】1 层」—— 2026-10-28 用户删了层级概念
+#     （「堆牌 一次就是1张」），旧的「1 层」= 现在的「堆牌2」，行为没变〕
 #   后半句跟【零递】（`zerodraft`，已上架 100）**一字不差**，
 #   差的只有前半句（零递是「置 0」）。所以
 #     heapdraft − zerodraft = 「置 0 换成堆牌」值几分
@@ -64,8 +66,8 @@ run "甲① heapdraft · A 槽" \
   node tools/md-sim/sim.js vs heapdraft heapdraft -n "$N" $A
 run "甲② heapdraft · K 槽" \
   node tools/md-sim/sim.js vs heapdraft heapdraft -n "$N" $K
-# 幅度那一维：堆牌 2 层。只在 A 槽跑一格，看它单不单调
-run "甲③ heapdraft · A 槽 · HEAP_N=4（= 一次铺 4 张）" \
+# 幅度那一维：**堆牌4**（旧叫法「2 层」）。只在 A 槽跑一格，看它单不单调
+run "甲③ heapdraft · A 槽 · HEAP_N=4（= 堆牌4，一次铺 4 张）" \
   env HEAP_N=4 node tools/md-sim/sim.js vs heapdraft heapdraft -n "$N" $A
 
 echo ""

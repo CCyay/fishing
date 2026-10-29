@@ -81,9 +81,11 @@ function skillIndexOf(key) {
   return -1
 }
 
+// 上界走 `roleKitCount` 而不是 `slots.length`〔2026-10-28〕——
+// 理由跟 sim.js 的同名函数一字不差（双装槽那一格会静默空着）
 function kitFor(role) {
   const picks = []
-  const n2 = R.DRAW_ROLES[role].slots.length
+  const n2 = R.roleKitCount(role)
   for (let i = 0; i < n2; i++) picks.push(skillIndexOf(KIT_ORDER[i % KIT_ORDER.length]))
   return picks
 }

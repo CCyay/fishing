@@ -1,7 +1,13 @@
 // 漂移检测
 //
 //   node fingerprint.js          对一遍，报哪几个函数变了
-//   node fingerprint.js --save   把现在的状态存成基准（改完模拟器之后跑这个）
+//
+// ⚠ 还有一个 `--save`（把现在的状态存成基准），而**现在不要跑它** ——
+//   用户站着的指示（2026-10-28）。已有 6 个函数在漂移，而旧基准没有副本，
+//   盖掉就永久失去「哪里分叉了」的凭据。漂移要靠**逐条核函数名**消化，
+//   确认过的差异写进 `README.md` 的「有意的差异」那张表，不是收进基准里。
+//   〔同一天在 run-redhook.sh / run-rigger.sh / run-heart.sh 和本文件末尾
+//     各删掉一处「跑 --save」的指示 —— run-rigger 那处是 echo 出来给人照抄的〕
 //
 // ---- 它解决的问题 ----
 //
@@ -219,14 +225,23 @@ const CONSTS = [
   // 引潮贴几层 = 它的强度旋钮（2 层 → X +2.27）。它跟 SURGE_PUSH 不同级：
   // 这个可以调，调了只是这一件重定价
   { file: 'draw-skills.uts', name: 'SURGE_LAYERS' },
-  // 逆涌（开河工）一次推牌几层。同 SURGE_LAYERS —— 技能自己的强度旋钮，
-  // 2 层是量出来的甜点（效率 1 层 0.197 / 2 层 0.260 / 3 层 0.259）。
-  // **模拟器那边是 rules.js 的 JSURGE_LAYERS，两个数必须一样**
-  { file: 'draw-skills.uts', name: 'JSURGE_LAYERS' },
-  // 薪潮给对方几张手牌贴推牌。**钉死 1，而 N=2 量出来 +4.73 超档** ——
-  // 所以改它等于让这件技能出档，而不只是重定价。
-  // 模拟器那边是 rules.js 的 FUEL_TAG
-  { file: 'draw-skills.uts', name: 'FUEL_TAG' },
+  // 逆涌（开河工）一次【堆牌】几张〔2026-10-28 从 JSURGE_LAYERS 改名而来 ——
+  // 推牌换成堆牌，层级概念没了，4 是**张数**〕。
+  // ⚠ 这个数**玩家看得见**（desc 原文「对方打出 J 之后，堆牌4」），
+  //   所以它跟 SURGE_LAYERS 不同级：改它等于改技能文案。
+  // **模拟器那边是 rules.js 的 JSURGE_HEAP，两个数必须一样**
+  { file: 'draw-skills.uts', name: 'JSURGE_HEAP' },
+  // 薪潮自带的【堆牌】给**自己**取几张〔2026-10-28 从 FUEL_TAG 改名而来，
+  // 同日从 2 改成 1〕。同上，这个数也写在 desc 原文里
+  //（现行 desc：「自带【燃烧】；堆牌1，对方堆牌1」）。
+  // 模拟器那边是 rules.js 的 FUEL_HEAP
+  { file: 'draw-skills.uts', name: 'FUEL_HEAP' },
+  // 薪潮自带的【对方堆牌】给**对方**堆几张〔2026-10-28 加〕。
+  // ⚠ **两个数必须分开跟踪** —— 它们相加相等的档位（比如 2+0）
+  //   跟现行档（1+1）实测差 1.64 分，而「和」一样。
+  //   盯住和不盯住两项，正好漏掉这件技能最值钱的那一半。
+  // 模拟器那边是 rules.js 的 FUEL_HEAP_FOE
+  { file: 'draw-skills.uts', name: 'FUEL_HEAP_FOE' },
   // 〔DECK_PLAY 撤掉了（2026-10-15 当天加、当天删）——「一局只进场 52 张」
   //   那道上限随终局规则一起退场。模拟器那边对应的 DECK_SIZE 也删了。
   //   留着只会每次报一条 MISSING〕
@@ -518,7 +533,12 @@ function main() {
     for (let i = 0; i < added.length; i++) console.log('    ' + added[i])
     console.log('')
   }
-  console.log('核对完、模拟器也改好了，再跑：node fingerprint.js --save')
+  console.log('🔴 **不要跑 `--save`** —— 用户站着的指示（2026-10-28）。')
+  console.log('   已经有 6 个函数在漂移（合并那一轮两边各自 save 过），')
+  console.log('   盖掉基准就失去「模拟器跟源码哪里分叉了」的唯一凭据，')
+  console.log('   而那凭据是不可重建的 —— 旧基准没有别的副本。')
+  console.log('   红了要**逐条看函数名**，确认每一条都是有意改的；')
+  console.log('   `README.md` 里「有意的差异」那张表就是放这个的地方。')
   process.exit(2)
 }
 
