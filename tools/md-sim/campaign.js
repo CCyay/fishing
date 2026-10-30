@@ -245,7 +245,7 @@ const PLAYER_POOL = [
   // 〔【死水】2026-10-30 下架 —— 从池子里拿掉〕
   'hue', 'press',
   // 2026-10-29 ~ 30 上架的四件：垫吃 / 顺递 / 浑水 / 缩水〔顺递 2026-10-30 下架，从池子里拿掉〕
-  'stackdraft', 'flowall', 'flowpass', 'murk', 'zerodrop', 'backwater',
+  'stackdraft', 'flowall', 'flowpass', 'murk', 'zerodrop', 'backwater', 'stonehue', 'stoneline',
   // 2026-10-20 上架的两件，同一天藏凌 / 寒流删了
   'lockdraw', 'lockcolor'
 ]

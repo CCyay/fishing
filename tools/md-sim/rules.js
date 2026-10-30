@@ -4291,7 +4291,10 @@ const STONEFULL_N = process.env.STONEFULL_N ? parseInt(process.env.STONEFULL_N, 
 // 满墙手牌那半句的条件（2026-10-30 · 削弱候选）。'all' = 现行（全手）；
 // 'bottom' = **手牌跟堆底同颜色**的牌（用户定的那一版：「它带上【石墙】，手牌跟堆底同颜色的牌带上【石墙】」，堆底取法照传色：匹配之前那张）；
 // 'color' / 'suit' = 跟它同颜色 / 同花色（用户否了这种条件，留作对照）
-const STONEFULL_MATCH = process.env.STONEFULL_MATCH || 'all'
+// ⚠ 默认 2026-10-30 翻成 'bottom' = 游戏里的满墙（用户定削弱）。全手版 = STONEFULL_MATCH=all（复现 +4.87 那批）
+const STONEFULL_MATCH = process.env.STONEFULL_MATCH || 'bottom'
+// 石顺它自己带不带【通配】。⚠ 默认 2026-10-30 翻成**不带** = 游戏里的石顺（用户：「尽量不要有单独的通配出现」）；原案 = STONELINE_WILD=1
+const STONELINE_WILD = process.env.STONELINE_WILD === '1'
 if (['all', 'bottom', 'color', 'suit'].indexOf(STONEFULL_MATCH) < 0) throw new Error('STONEFULL_MATCH 只能是 all / bottom / color / suit')
 // ---- 【石涌】：贴完石再【推牌】N 层〔2026-10-26 第三稿，用户提的③〕----
 //
@@ -12675,7 +12678,8 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.STONELINE)) {
     if (inPile(G, played)) {
       if (!process.env.KEY_NOSTONE) addStone(G, played, side)
-      if (G.wildTag.indexOf(played) < 0) G.wildTag.push(played)
+      // STONELINE_WILD=0：去掉「它带上【通配】」那半句（2026-10-30 · 用户：尽量别单独出现通配）
+      if (STONELINE_WILD && G.wildTag.indexOf(played) < 0) G.wildTag.push(played)
     }
     // 〔2026-10-30 改：钥匙贴进 **`G.flowHand`**（续流 / 传顺 / 流钥那张表），走现行【顺子匹配】的入口 ——
     //   打出时 straightFor(flowKeyOpt)：不当通配、**凑不成它带上【通配】**（10-30 规则）。

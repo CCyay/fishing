@@ -511,7 +511,7 @@
     <!-- 零递：挑一张自己的手牌贴【21 匹配】。借手牌那一排（照冰雷） -->
     <!-- 顺递：挑一张自己的手牌贴【顺子匹配】（照零递那块） -->
     <view v-if="flowDraftPending" class="tide-box">
-      <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动' }}</text>
+      <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
       <view class="tide-actions">
         <view id="ap-flowdraft-skip" class="tide-btn tide-btn-plain" @click="onFlowDraft(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
@@ -563,6 +563,16 @@
       <text class="tide-text">色递（第 1 下）：点一张手牌贴上 21 匹配 · J 和无点数的点不动</text>
       <view class="tide-actions">
         <view id="ap-huedraft-skip" class="tide-btn tide-btn-plain" @click="onHueDraft(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 石影：它已经带上石墙，等你挑一张手牌贴【花色匹配】（照零递那块的形制） -->
+    <view v-if="stoneKeyPending" class="tide-box">
+      <text class="tide-text">石影：它已经带上石墙；点一张手牌贴上花色匹配（打出它时按花色收，不受石墙拦）· J 点不动</text>
+      <view class="tide-actions">
+        <view id="ap-stonekey-skip" class="tide-btn tide-btn-plain" @click="onStoneKey(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
         </view>
       </view>
@@ -1076,6 +1086,9 @@
     SK_HOLDTAG,
     // 满墙〔2026-10-29 上架〕：它和手里的牌都带【石墙】（花色钥匙同日夜撤了）
     SK_STONEFULL,
+    // 石影 / 石顺（2026-10-30）：它带上【石墙】；1 张手牌带上【花色匹配】/【顺子匹配】
+    SK_STONEHUE,
+    SK_STONELINE,
     SK_CAST,
     SK_PRESS,
     SK_UNHOOK,
@@ -2111,6 +2124,12 @@
   // 顺递 / 续流等你挑自己的一张手牌贴【顺子匹配】（两件共用这一块挑牌，flowDraftSk 记是哪件）
   const flowDraftPending = ref<boolean>(false)
   const flowDraftSk = ref<number>(-1)
+  // 石影等你挑自己的一张手牌贴【花色匹配】（石顺走上面 flowDraftPending 那块，flowDraftSk = SK_STONELINE）
+  const stoneKeyPending = ref<boolean>(false)
+  // 满墙「手牌跟堆底同颜色」的堆底：**匹配之前**那张（照传色）。afterPlayTail 入口每手记一次 ——
+  // 满墙那一段在 TAIL_REST，前面的收色 / 收零 / 撒网可能已经把堆改了
+  let stoneBottomCard : PlainCard | null = null
+  let stoneBottomRed : boolean = false
   // 零递这一次还要贴几张〔2026-10-29 改成 2 张〕—— 挑完一张没挑够就接着停着
   const zeroDraftLeft = ref<number>(0)
   // ---------- 21 匹配那条线 2026-10-28 上架的三件，各自的待选位 ----------
@@ -3334,7 +3353,7 @@
   const canPlay = computed<boolean>(() : boolean => {
     return myTurn.value && !over.value && !catching.value && !tidePending.value
       && !swapPending.value && !freezePending.value && !pickPending.value && !murkPending.value && !shrinkPending.value
-      && !bombPending.value && !zeroDraftPending.value && !flowDraftPending.value
+      && !bombPending.value && !zeroDraftPending.value && !flowDraftPending.value && !stoneKeyPending.value
       && !fadeTagPending.value && !backPending.value && !backTagPending.value
       // 21 匹配那三件的五个挑牌位〔2026-10-28〕。
       // ⚠ 后两个（连递续贴 / 忍递）**停在收牌之后**，而那会儿 `myTurn`
@@ -3419,7 +3438,8 @@
       return '你的回合 · 回水'
     }
     if (flowDraftPending.value) {
-      return flowDraftSk.value == SK_FLOWPASS ? '你的回合 · 续流' : '你的回合 · 顺递'
+      return flowDraftSk.value == SK_FLOWPASS ? '你的回合 · 续流'
+        : (flowDraftSk.value == SK_STONELINE ? '你的回合 · 石顺' : '你的回合 · 顺递')
     }
     if (chainDraftPending.value) {
       return '你的回合 · 连递'
@@ -3427,6 +3447,9 @@
     // 色递要点两下，所以抬头里说清是哪一下（照分饵那条）
     if (hueDraftPending.value) {
       return '你的回合 · 色递（挑贴 21 匹配的）'
+    }
+    if (stoneKeyPending.value) {
+      return '你的回合 · 石影'
     }
     if (hueKeyPending.value) {
       return '你的回合 · 色递（挑拿花色匹配的）'
@@ -8653,6 +8676,11 @@
   // 演完（finishSweep）得从这儿接着结算剩下的技能。
   // 不演（没收到牌）的时候 afterPlay 直接调它，跟拆开之前一个顺序
   function afterPlayTail(byFoe : boolean, skills : number[], from : number) {
+    // 满墙的堆底：这一手第一次进来时记（重入不改）—— 匹配之前那张，堆上只有它自己时就是它自己
+    if (lastPlayed != null && stoneBottomCard != lastPlayed) {
+      stoneBottomCard = lastPlayed
+      stoneBottomRed = pile.value.length > 0 ? isRedSuit(pileSuitAt(0)) : isRedSuit(lastPlayed!.suit)
+    }
     // 【褪色】标签（褪递贴的）：这张落堆之后先褪色（它自己的置 0 在 valuesOf）。排在所有收牌段前面 ——
     // 同一张要是还带着【收零】，先褪色再收（照「【褪色】；【收零】」那一版的次序）
     if (lastPlayed != null && fadeKeyOn(lastPlayed!) && fadeDoneCard != lastPlayed) {
@@ -8880,14 +8908,17 @@
       if (inPile(lastPlayed!)) {
         addStone(lastPlayed!)
       }
+      // 〔2026-10-30 削弱：手牌只给**跟堆底同颜色**的（堆底在 afterPlayTail 入口记的 stoneBottomRed）〕
       const mine = byFoe ? foeHand.value : hand.value
+      let walled = 0
       for (let i = 0; i < mine.length; i++) {
-        addStoneHand(mine[i])
+        if (isRedSuit(mine[i].suit) == stoneBottomRed) {
+          addStoneHand(mine[i])
+          walled = walled + 1
+        }
       }
-      if (mine.length > 0) {
-        message.value = message.value + (byFoe ? ' 庄家满墙：' : ' 满墙：')
-          + '手里 ' + mine.length + ' 张带上了石墙。'
-      }
+      message.value = message.value + (byFoe ? ' 庄家满墙：' : ' 满墙：')
+        + (walled > 0 ? '手里 ' + walled + ' 张跟堆底同颜色的牌带上了石墙。' : '它带上了石墙，手里没有跟堆底同颜色的牌。')
     }
     // ---- 停人那一串从这儿起：每件 `askFirst` 只问一次，挑完 askNext 从 TAIL_ASK 重入 ----
     if (!byFoe) {
@@ -9088,6 +9119,44 @@
       }
       if (room > 0 && doSlotTag(true)) {
         message.value = message.value + ' 庄家续流：手里 1 张带上了顺子匹配。'
+      }
+    }
+    // 【石影】〔2026-10-30〕：它带上【石墙】；1 张手牌带上【花色匹配】（matchKey）。你用的时候要挑；庄家照 matchKeyPick
+    if (hasTrigger(skills, SK_STONEHUE) && lastPlayed != null && askFirst(SK_STONEHUE)) {
+      if (inPile(lastPlayed!)) {
+        addStone(lastPlayed!)
+      }
+      if (!byFoe) {
+        if (matchKeyPick(false, false) >= 0) {
+          stoneKeyPending.value = true
+          return
+        }
+      } else {
+        const at = matchKeyPick(true, false)
+        if (at >= 0) {
+          matchKey.value = matchKey.value.concat([foeHand.value[at]])
+          message.value = message.value + ' 庄家石影：手里 1 张带上了花色匹配。'
+        }
+      }
+    }
+    // 【石顺】〔2026-10-30〕：它带上【石墙】；1 张手牌带上【顺子匹配】（flowKey）。挑法共用 flowDraftPending 那块；
+    // 庄家照 stoneLinePick（跟模拟器 straightKeyPick 同一把尺子）
+    if (hasTrigger(skills, SK_STONELINE) && lastPlayed != null && askFirst(SK_STONELINE)) {
+      if (inPile(lastPlayed!)) {
+        addStone(lastPlayed!)
+      }
+      if (!byFoe) {
+        if (flowKeyPick(false) >= 0) {
+          flowDraftSk.value = SK_STONELINE
+          flowDraftPending.value = true
+          return
+        }
+      } else {
+        const at = stoneLinePick(true)
+        if (at >= 0) {
+          flowKey.value = flowKey.value.concat([foeHand.value[at]])
+          message.value = message.value + ' 庄家石顺：手里 1 张带上了顺子匹配。'
+        }
       }
     }
     // 【零递】：给 ZERODRAFT_N（= 1，10-29 改过 2 又改回）张手牌贴【21 匹配】。你用的时候要挑，所以会停下来等（照冰雷），
@@ -9889,8 +9958,10 @@
       return
     }
     flowDraftPending.value = false
-    const pass = flowDraftSk.value == SK_FLOWPASS
-    const name = pass ? '续流' : '顺递'
+    const sk = flowDraftSk.value
+    // 只有顺递挑完还要给堆上贴通配；续流 / 石顺都不贴（石顺：用户定「别单独出现通配」）
+    const pass = sk != SK_FLOWDRAFT
+    const name = sk == SK_FLOWPASS ? '续流' : (sk == SK_STONELINE ? '石顺' : '顺递')
     flowDraftSk.value = -1
     let key : PlainCard | null = null
     if (index >= 0) {
@@ -10160,6 +10231,52 @@
       message.value = message.value + ' 花色匹配那张你没贴。'
     }
     askNext()
+  }
+
+  // 石影：你挑中了自己第 index 张贴【花色匹配】（-1 表示不贴）
+  function onStoneKey(index : number) {
+    if (!stoneKeyPending.value) {
+      return
+    }
+    if (index >= 0 && index < hand.value.length && !matchKeyable(hand.value[index], false)) {
+      return
+    }
+    stoneKeyPending.value = false
+    if (index >= 0) {
+      matchKey.value = matchKey.value.concat([hand.value[index]])
+      message.value = message.value + ' 石影：' + cardName(hand.value[index]) + ' 带上了花色匹配。'
+    } else {
+      message.value = message.value + ' 石影：花色匹配那张你没贴。'
+    }
+    askNext()
+  }
+
+  // 庄家石顺挑哪张贴【顺子匹配】：手里离堆上点数最近（差 ≤ 2）的牌数最多的那张 —— 照模拟器 straightKeyPick
+  function stoneLinePick(byFoe : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let best = -1
+    let most = -1
+    for (let i = 0; i < mine.length; i++) {
+      if (!flowKeyable(mine[i])) {
+        continue
+      }
+      let n = 0
+      for (let k = 0; k < pile.value.length; k++) {
+        const vs = pileValsAt(k)
+        for (let j = 0; j < vs.length; j++) {
+          const d = vs[j] - mine[i].value
+          if (d <= 2 && d >= -2) {
+            n = n + 1
+            break
+          }
+        }
+      }
+      if (n > most) {
+        most = n
+        best = i
+      }
+    }
+    return best
   }
 
   // 「收牌之后」那两件点完之后往哪走。
@@ -14365,6 +14482,10 @@
       onHueDraft(index)
       return
     }
+    if (stoneKeyPending.value) {
+      onStoneKey(index)
+      return
+    }
     if (hueKeyPending.value) {
       onHueKey(index)
       return
@@ -15699,6 +15820,9 @@
     zeroDraftLeft.value = 0
     flowDraftPending.value = false
     flowDraftSk.value = -1
+    stoneKeyPending.value = false
+    stoneBottomCard = null
+    stoneBottomRed = false
     // 21 匹配那三件〔2026-10-28〕：链表、五个挑牌位、三笔按侧的记号。
     // 全按牌对象认身份，而新一局是新一副牌 —— 照上面 frostHand 那条
     chainTag.value = [] as PlainCard[]

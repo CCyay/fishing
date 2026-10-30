@@ -2185,9 +2185,39 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 115：照速查表按 X 找最近的件（伏流 +5.04 = 120 / 涉水 +4.71 = 110）—— 4.87 仍在两者之间，价不动
     // 〔2026-10-29 深夜 · R7 全表重发价（用户定「更新价格」）：115 → 105。按速查 X +4.87 排名套现有价位池〕
     // 〔2026-10-30 · R7 全表重发价（用户定「更新价格」）：105 → 115。按速查 X +4.87 排名套现有价位池〕
-    key: 'stonefull', name: '满墙', unlock: 115,
+    // 🔴 〔2026-10-30 用户定削弱：手牌那半句从「手里的牌都」改成「**手牌跟堆底同颜色的牌**」（用户否了「跟它同颜色」那种条件）。
+    //   堆底取**匹配之前**那张（照传色），堆上只有它自己时就是它自己。
+    //   md-sim（R7 · `STONEFULL_MATCH=bottom`〔现默认〕· `one stonefull -n 20000` · se 0.15 · 台账第三十九·乙节）：
+    //   A 槽 **+3.18** / D +0.14 · K 槽 +3.00 · ♥ 槽 +8.66。价 115 → **85**（用户定调价；照 X 相邻的引火 / 冰雷 / 续流）〕
+    key: 'stonefull', name: '满墙', unlock: 85,
     first: false,
-    desc: '它和你手里的牌都带上【石墙】'
+    desc: '它带上【石墙】；手牌跟堆底同颜色的牌带上【石墙】'
+  },
+  {
+    // ---------- 【石影】〔2026-10-30 上架 · 用户定「石墙要 3 件合格」那一轮〕----------
+    //
+    // 墙挡**连续匹配**，花色钥匙走**间隔匹配**绕过墙 —— 两半装在同一件里（不是两件式）。
+    // 钥匙就是【花色匹配】手牌标签（`matchKey`，跟传色同一张表）；你用的时候要挑，庄家照 matchKeyPick。
+    // 它自己不走花色匹配，照常普通匹配。
+    // md-sim（R7 · 原型 `stonehue` · `one stonehue -n 20000` · se 0.15 · 台账第三十九节）：
+    //   A 槽 **+3.35** / D +0.34 · K 槽 +3.36 · ♥ 槽 +11.45（×3.42）。AI 挑「能用上的那张」
+    // 定价 85（用户定上架；照 X 相邻的引火 / 冰雷 / 续流）
+    key: 'stonehue', name: '石影', unlock: 85,
+    first: false,
+    desc: '它带上【石墙】；1 张手牌带上【花色匹配】'
+  },
+  {
+    // ---------- 【石顺】〔2026-10-30 上架 · 同一轮〕----------
+    //
+    // 石影的顺子版：钥匙是【顺子匹配】手牌标签（`flowKey`，跟续流 / 传顺 / 流钥同一张表），打出时不当通配、
+    // 凑不成它带上【通配】（10-30 词条规则）。〔原案「它带上【石墙】【通配】；…」用户否了 —— 「尽量不要有单独的通配出现」〕
+    // 你用的时候要挑，庄家照 stoneLinePick（手里离堆上点数最近的那张，照模拟器 straightKeyPick）。
+    // md-sim（R7 · 原型 `stoneline` · `STONELINE_WILD=0`〔现默认〕· `one stoneline -n 20000` · se 0.15 · 台账第三十九·乙节）：
+    //   A 槽 **+3.20** / D +0.22 · K 槽 +2.94 · ♥ 槽 +9.57（×2.99）
+    // 定价 85（同上）
+    key: 'stoneline', name: '石顺', unlock: 85,
+    first: false,
+    desc: '它带上【石墙】；1 张手牌带上【顺子匹配】'
   },
   {
     // 撒网：从它自己起**往左连续**比奇偶，同奇偶就收，遇到不同的就停。
@@ -4586,6 +4616,9 @@ export const SK_HUETAG : number = skillIndexOf('huetag')
 export const SK_HOLDTAG : number = skillIndexOf('holdtag')
 // 满墙 `stonefull`：它和手里的牌都带【石墙】（R6 taken · X +4.87；花色钥匙 10-29 夜撤）
 export const SK_STONEFULL : number = skillIndexOf('stonefull')
+// 石影 / 石顺（2026-10-30）：它带上【石墙】；1 张手牌带上【花色匹配】/【顺子匹配】
+export const SK_STONEHUE : number = skillIndexOf('stonehue')
+export const SK_STONELINE : number = skillIndexOf('stoneline')
 export const SK_CAST : number = skillIndexOf('cast')
 export const SK_PRESS : number = skillIndexOf('press')
 export const SK_UNHOOK : number = skillIndexOf('unhook')
