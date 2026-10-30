@@ -70,8 +70,11 @@ if (duel && R.RANK_LINK !== '') {
 // 〔2026-10-27 又跟了一次（同一天的第二刀）：**对换删了**，第 2 位空出来，
 //   照「X 降序的前八件上架件」补上第 9 位的【引火】（R5 +3.31）。
 //   整段理由在 sim.js 那张名单上 —— **满配数再废一次**〕
+// 〔2026-10-29：**洪水删了**，第 1 位换成名单外 X 最高的上架件【满墙】（R6 A 槽 +4.87）。
+//   照 10-27 删对换时那个先例。**满配那几列再废一次**〕
+// 〔2026-10-29：**涉水撤了**，那一位换成名单外 X 最高的上架件【插流】（R7 A 槽 +5.18）。照删对换 / 洪水的先例。满配那几列再废一次〕
 const KIT_ORDER = [
-  'flood', 'flow', 'gift', 'swapflow', 'wade', 'unhook', 'peak', 'kindle'
+  'stonefull', 'flow', 'gift', 'suitify', 'orderins', 'unhook', 'peak', 'kindle'
 ]
 
 function skillIndexOf(key) {
@@ -86,7 +89,9 @@ function skillIndexOf(key) {
 function kitFor(role) {
   const picks = []
   const n2 = R.roleKitCount(role)
-  for (let i = 0; i < n2; i++) picks.push(skillIndexOf(KIT_ORDER[i % KIT_ORDER.length]))
+  // `KIT=a,b,c` 覆写插件序（照 sim.js 的 kitFor，2026-10-29 为〈twinval〉加的）
+  const order = process.env.KIT ? process.env.KIT.split(',') : KIT_ORDER
+  for (let i = 0; i < n2; i++) picks.push(skillIndexOf(order[i % order.length]))
   return picks
 }
 

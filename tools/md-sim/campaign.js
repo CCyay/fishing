@@ -73,17 +73,22 @@ const FOE_ROLES = [
   { name: '滩头老翁', specials: ['hand'], slots: [] },
   { name: '回漩摆渡人', specials: ['silt'], slots: [['hook', 1, false]] },
   // 冻结 → 压舱（2026-10-20，冻结升级成自带结冰之后这一关太陡）
-  { name: '礁石海女', specials: ['pinch'], slots: [['press', 2, false]] },
+  // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
+  { name: '礁石海女', specials: ['pinch'], slots: [['press', 1, false]] },
   { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 2, false], ['hook', 1, false]] },
-  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, true]] },
+  // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
+  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 2, false]] },
   // 〔2026-10-16 照水 ×2 → **死水 ×1**（照水删了）。理由见 draw-levels 那一关的注释。
   //   对这个报表的意义：这一关**第一次有了模拟器量得到的槽技能**（枯水仍然没模），
   //   所以它的数字从「两件白板」变成「一件白板」—— 还是下限，但下限抬高了〕
-  { name: '雾港守灯人', specials: ['dryup'], slots: [['dead', 1, false], ['freeze', 2, false]] },
+  // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
+  // 〔2026-10-30 死水下架，槽 1 换成浑水（照 draw-levels.uts）〕
+  { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['freeze', 1, false]] },
   // 〔见底 2026-10-19 删了，那一格**空出来没补**（用户定「其他不用」）——
   //   所以这一关从三条腿（守滩 / 见底 / 染水）变两条腿，跟着变简单。
   //   它养厚堆的手段（守滩）还在，**把厚堆变现的手段没了**〕
-  { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 1, true]] },
+  // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
+  { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 2, false]] },
   // ---- 11 / 12 关 2026-10-15 改过两轮（曲线倒挂：11 关比关底难 21 个点）----
   //
   // **第一轮改错了**：把关底的结冰两件换成吃水 + 撒网（理由是「各自独立兑现」），
@@ -103,10 +108,20 @@ const FOE_ROLES = [
   //
   // 特殊技那一处（再钩 ↔ 封竿）**两条都没模**，所以它不改变任何数 ——
   // 同步只为别让副本跟源码分叉
-  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, true], ['cast', 2, false]] },
+  // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
+  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false], ['cast', 1, false]] },
+  // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
+  // 〔2026-10-30 关底野火改进花色槽（照 draw-levels.uts）〕
   { name: '深渊君主', specials: ['again'], slots: [['wild', 1, true], ['hook', 1, false], ['suited', 1, false]] }
 ]
 const MODELED_SP = ['hand', 'pinch']
+// 〔2026-10-29 · 调难度用的量测开关〕`FOE_OVERRIDE`：按关号（1 起）覆盖庄家的技能槽，JSON。
+//   例：FOE_OVERRIDE='{"6":[["press",1,false]],"12":[["wild",2,false],["hook",1,false]]}'
+//   只换 slots，特殊技不动。定稿后要回填进上面 FOE_ROLES **和** draw-levels 的 DRAW_FOE_ROLES
+if (process.env.FOE_OVERRIDE) {
+  const ov = JSON.parse(process.env.FOE_OVERRIDE)
+  for (const k in ov) FOE_ROLES[parseInt(k, 10) - 1].slots = ov[k]
+}
 
 // ---------- 难度：照 draw-levels 的 levelForDiff ----------
 //
@@ -121,9 +136,10 @@ const DIFFS = [
   //   所以那几天默认跑出来的是一套不存在的难度。10-15 游戏退回 3/2/1 之后
   //   两边又对上了 —— 但**改难度表的时候要顺手过来对一眼**。
   //   量别的档就加 `--lives 4,3,2`〕
-  { key: 'easy', name: '简单', lives: 3 },
-  { key: 'normal', name: '普通', lives: 2 },
-  { key: 'hard', name: '困难', lives: 1 }
+  // 〔2026-10-29 → 5/4/3，照 draw-levels 的 DIFF_LIVES〕
+  { key: 'easy', name: '简单', lives: 5 },
+  { key: 'normal', name: '普通', lives: 4 },
+  { key: 'hard', name: '困难', lives: 3 }
 ]
 
 // ease = 庄家放水几关：随机关多 ease 关、「开始记牌」推迟 ease 关。
@@ -199,7 +215,9 @@ function foeMode(diff, level, ease) {
 //   三条路（都没定）：①照 X 更新、接受偏强；②按价加权抽；③真加商店模型。
 //   详见《摸打钓鱼-实测数据台账.md》第五节 campaign 那一段。
 const PLAYER_POOL = [
-  'flow', 'chain', 'kindle', 'wild', 'flood',
+  // 〔洪水 2026-10-29 再删，从池子里拿掉〕
+  // 〔传火 2026-10-30 下架，从池子里拿掉〕
+  'flow', 'kindle', 'wild',
   // 〔2026-10-27 一删一补，**两件都走上面那条口径**（「在卖 + X ≥ 1.5」）：
   //   删 `swapcard`（对换，技能删了 —— 留着就是洪水栽过的那个静默空槽）；
   //   补 `dumpbait`（倒饵，同日上架、价 85、R6 X **+2.75**）。
@@ -207,7 +225,16 @@ const PLAYER_POOL = [
   //     模拟出来的玩家永远买不到一件 +2.75 的货，通关率虚低。
   //   ⚠ **池子一动，通关率的绝对数就不可比了**（23.7% 那一批）〕
   'dumpbait',
-  'zerodraft', 'peak', 'wade', 'unhook', 'suitify', 'cast', 'raise', 'suited',
+  // 〔2026-10-29 上架顺序匹配族开枝三件（插流 / 调序 / 换序，各 105），
+  //   同日撤【顺流】—— 别把 `order` 留在池子里（查不到 → 静默空槽）〕
+  'orderins', 'orderpile', 'orderswap',
+  // 〔2026-10-29 上架【满墙】，价 115、R6 taken X +4.99 —— 漏了池子通关率虚低。
+  //   同日夜撤花色钥匙（STONEFULL_KEY 默认 none），X +4.87〕
+  'stonefull',
+  // 〔【零吃】zeroself 2026-10-29 上架、当晚撤下 —— 从池子里拿掉〕
+  // 〔涉水 2026-10-29 撤了，从池子里拿掉〕
+  // 〔【褪递】2026-10-29 深夜上架、2026-10-30 下架 —— 从池子里拿掉〕
+  'zerodraft', 'peak', 'unhook', 'suitify', 'cast', 'raise', 'suited',
   // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。
   //   **留着的后果是静默的**：
   //   ⚠ 写这条注释时**带引号写了那个 key，refs.js 当场误报成真引用** ——
@@ -215,7 +242,10 @@ const PLAYER_POOL = [
   //   所以墓碑注释里**别带引号写已删的 key**。
   //   留着它的后果：`playerKit` 查不到就往槽里塞 −1（空槽），
   //   玩家配装随机少一件，通关率跟着虚低 —— 洪水栽过的正是这一处〕
-  'dead', 'hue', 'press',
+  // 〔【死水】2026-10-30 下架 —— 从池子里拿掉〕
+  'hue', 'press',
+  // 2026-10-29 ~ 30 上架的四件：垫吃 / 顺递 / 浑水 / 缩水〔顺递 2026-10-30 下架，从池子里拿掉〕
+  'stackdraft', 'flowall', 'flowpass', 'murk', 'zerodrop', 'backwater',
   // 2026-10-20 上架的两件，同一天藏凌 / 寒流删了
   'lockdraw', 'lockcolor'
 ]
@@ -254,16 +284,35 @@ const PLAYER_SLOTS = R.DRAW_ROLES[PLAYER_ROLE_AT].slots.length
 // 「打到第 9 关攒下的技能数正好对上技能库上限」，而江口闸官只有 4 个槽，
 // 所以装着的件数在第 7~9 关封顶 4。简单的钱多（×2）、困难的钱少（×0.75）
 // 〔封顶那个 4 2026-10-20 换成 `PLAYER_SLOTS` —— 默认（lock，4 槽）不变〕
+// 〔2026-10-29〕三档每关攒几件改成旋钮 `KIT_RATE=简单,普通,困难`（默认 0.75,0.5,0.4 = 原值）。
+//   它对应游戏里的 `DIFF_REWARD_RATE`（金币倍率）—— 两边是**手拟的折算**，不是公式：
+//   原值 2.0 / 1.2 / 0.75 倍金币 ↔ 0.75 / 0.5 / 0.4 件/关
+//   **2026-10-29 默认改成 1.5,1,0.75**，跟 DIFF_REWARD_RATE 4.0 / 2.4 / 1.4 那一刀同步（同样的倍数放大）
+//   **2026-10-30 普通 1 → 1.5**（用户：「普通档 14.1%，目标 20%」），跟 DIFF_REWARD_RATE 普通 2.4 → 3.6 同步（×1.5）。台账作废公告 10-30
+const KIT_RATE = (process.env.KIT_RATE || '1.5,1.5,0.75').split(',').map(Number)
 function kitSize(diff, level, kshift) {
   const at = level + kshift
   const cap = PLAYER_SLOTS
-  if (diff === 'easy') return Math.max(0, Math.min(cap, Math.ceil(at * 0.75)))
-  if (diff === 'hard') return Math.max(0, Math.min(cap, Math.floor(at * 0.4)))
-  return Math.max(0, Math.min(cap, Math.floor(at * 0.5)))
+  if (diff === 'easy') return Math.max(0, Math.min(cap, Math.ceil(at * KIT_RATE[0])))
+  if (diff === 'hard') return Math.max(0, Math.min(cap, Math.floor(at * KIT_RATE[2])))
+  return Math.max(0, Math.min(cap, Math.floor(at * KIT_RATE[1])))
 }
 
+// `PLAYER_FIXED=key,key`〔2026-10-30 量测开关〕：玩家**每一关都固定带这几件**（依次插第 1、2… 格），不随机抽、
+// 不看 kitSize。量「同一套配装对上每一位庄家」用（用户问浑水 + 缩水会不会对谁都一样强）。默认不设 = 原样
+const PLAYER_FIXED = process.env.PLAYER_FIXED ? process.env.PLAYER_FIXED.split(',').filter(function (k) { return k !== '' }) : null
 function playerKit(rng, size) {
   const role = PLAYER_ROLE_AT
+  if (PLAYER_FIXED) {
+    const picks = []
+    for (let i = 0; i < PLAYER_SLOTS; i++) {
+      if (i >= PLAYER_FIXED.length) { picks.push(-1); continue }
+      const at = R.SKILLS.findIndex(function (sk) { return sk.key === PLAYER_FIXED[i] })
+      if (at < 0) throw new Error('PLAYER_FIXED 里的技能查不到：' + PLAYER_FIXED[i])
+      picks.push(at)
+    }
+    return R.kitFromRole(role, picks)
+  }
   const pool = PLAYER_POOL.slice(0)
   const picks = []
   // 循环上界跟着槽数走（原先写死 4）。`kitFromRole` 本来就会把多出来的
@@ -280,8 +329,12 @@ function playerKit(rng, size) {
 }
 
 // 照 draw-save 的 rollFoeSlots：每个槽摇 count 个标签，花色 / 点数各自不重复
+// 〔2026-10-29 · 量测开关〕`FOE_BARE=1`：庄家技能全清空、模了的两条特殊技也关 ——
+//   量「只靠削庄家配装」最多能把通关率推到哪（天花板），不是任何一档游戏里的样子
+const FOE_BARE = process.env.FOE_BARE === '1'
 function foeKit(rng, level) {
   const lo = R.emptyLoadout()
+  if (FOE_BARE) return lo
   const takenS = []
   const takenR = []
   const role = FOE_ROLES[level]
@@ -311,7 +364,8 @@ function foeKit(rng, level) {
 function levelOdds(diff, level, opt) {
   const mode = foeMode(diff, level, opt.ease)
   const sp = FOE_ROLES[level].specials
-  const adj = [sp.indexOf('pinch') >= 0 ? -1 : 0, sp.indexOf('hand') >= 0 ? 1 : 0]
+  // `FOE_NOSP=1`〔2026-10-29 量测开关〕：只关模了的两条特殊技（添手 / 掐口），技能照旧
+  const adj = (FOE_BARE || process.env.FOE_NOSP === '1') ? [0, 0] : [sp.indexOf('pinch') >= 0 ? -1 : 0, sp.indexOf('hand') >= 0 ? 1 : 0]
   let w = 0
   let l = 0
   let d = 0
@@ -415,7 +469,8 @@ function main() {
     + R.roleCover(PLAYER_ROLE_AT) + ' 张）· 常驻技 '
     + (PLAYER_SP ? '**开**（' + R.DRAW_ROLES[PLAYER_ROLE_AT].special + '）'
       : '关（PLAYER_SP=1 打开）')
-    + (PLAYER_SP || PLAYER_ROLE !== 'lock' ? ' ← 非默认档，别跟基线那三档混着引' : ''))
+    + (PLAYER_SP || PLAYER_ROLE !== 'lock' ? ' ← 非默认档，别跟基线那三档混着引' : '')
+    + (PLAYER_FIXED ? ' · **固定配装 ' + (PLAYER_FIXED.length ? PLAYER_FIXED.join(' + ') : '（空）') + '** ← 非默认档' : ''))
   const missing = []
   for (let lv = 0; lv < FOE_ROLES.length; lv++) {
     const sp = FOE_ROLES[lv].specials.filter(function (s) { return MODELED_SP.indexOf(s) < 0 })
@@ -432,7 +487,7 @@ function main() {
     console.log('\n【' + diff.name + '】生命 ' + lives + ' · 通关率 ' + pct(run.clear)
       + ' · 平均打到第 ' + run.far.toFixed(2) + ' 关')
     if (opt.quiet) continue
-    console.log('  关  庄家        出牌     配装  胜     负     平     分差    走到这关')
+    console.log('  关  庄家        出牌     配装  胜     负     平     分差    走到这关  庄家槽（点数/花色）')
     for (let lv = 0; lv < odds.length; lv++) {
       const o = odds[lv]
       const how = o.mode.random ? '随机' : (o.mode.smart ? '记牌' : '不记牌')
@@ -440,7 +495,9 @@ function main() {
         + '  ' + how.padEnd(4, '　') + '  ' + kitSize(diff.key, lv, opt.kshift) + ' 件  '
         + pct(o.w).padStart(6) + ' ' + pct(o.l).padStart(6) + ' ' + pct(o.d).padStart(6)
         + '  ' + (o.margin >= 0 ? '+' : '') + o.margin.toFixed(2).padStart(5)
-        + '   ' + pct(run.reach[lv]))
+        + '   ' + pct(run.reach[lv])
+        + '   ' + FOE_ROLES[lv].slots.filter(function (x) { return !x[2] }).reduce(function (a, x) { return a + x[1] }, 0)
+        + '/' + FOE_ROLES[lv].slots.filter(function (x) { return x[2] }).reduce(function (a, x) { return a + x[1] }, 0))
     }
   }
   // ---- 诊断口：这件常驻技**到底发动了几次**〔CLAUDE.md 第四节那条〕 ----

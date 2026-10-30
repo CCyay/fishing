@@ -378,17 +378,28 @@ function skillKeys() {
   // 一刀切会把后两张活表一起丢掉（那会报一串假的「少了 11 件」）。
   // 这一下差点就写错了，而**两种写法的区别只看输出看不出来**
   // —— 错的那版会报「技能表变了」，跟修之前的假警报长得一样
-  let live = text
-  const at = text.indexOf('export const DEAD_SKILLS')
-  if (at >= 0) {
-    const end = text.indexOf('\n]', at)
-    live = text.slice(0, at) + (end < 0 ? '' : text.slice(end))
-  }
+  //
+  // 〔2026-10-30 改：三张活表**各自截到自己的 `\n]`**。原先挖掉 DEAD_SKILLS 之后一直扫到文件末尾，
+  //   而 DRAW_ROLES 后面还有函数 —— `roleOf()` 里临时构造的「简易」角色（`key: 'simple'`）
+  //   被当成一张角色卡：报「角色卡 13 件」、表序末尾多一个 simple。
+  //   DEAD_SKILLS 不在这三张里，所以上面那条「挖掉它」的判据自然满足〕
   const out = []
-  const re = /key:\s*'([a-z0-9]+)',\s*name:/g
-  let m
-  while ((m = re.exec(live)) !== null) {
-    out.push(m[1])
+  const names = ['DRAW_SKILLS', 'SPECIAL_SKILLS', 'DRAW_ROLES']
+  const spans = []
+  for (let i = 0; i < names.length; i++) {
+    const at = text.indexOf('export const ' + names[i])
+    if (at < 0) continue
+    const end = text.indexOf('\n]', at)
+    spans.push({ at: at, end: end < 0 ? text.length : end })
+  }
+  spans.sort(function (a, b) { return a.at - b.at })
+  for (let i = 0; i < spans.length; i++) {
+    const seg = text.slice(spans[i].at, spans[i].end)
+    const re = /key:\s*'([a-z0-9]+)',\s*name:/g
+    let m
+    while ((m = re.exec(seg)) !== null) {
+      out.push(m[1])
+    }
   }
   return out
 }
@@ -417,7 +428,10 @@ function tableCounts() {
   const out = []
   for (let i = 0; i < bounds.length; i++) {
     if (bounds[i].at < 0 || bounds[i].label === null) continue
-    const end = i + 1 < bounds.length ? bounds[i + 1].at : text.length
+    const next = i + 1 < bounds.length ? bounds[i + 1].at : text.length
+    // 截到这张表自己的 `\n]` —— 最后一张表后面还有函数（见 skillKeys 那段）
+    const close = text.indexOf('\n]', bounds[i].at)
+    const end = close >= 0 && close < next ? close : next
     const seg = text.slice(bounds[i].at, end)
     const hit = seg.match(/key:\s*'[a-z0-9]+',\s*name:/g)
     out.push(bounds[i].label + ' ' + (hit ? hit.length : 0) + ' 件')

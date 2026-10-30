@@ -207,6 +207,9 @@
                  而那正是结冰的全部内容（照燃烧那个「烧」字的先例）。
                  冰和火互斥（相消），所以两个角标不会同时出现 -->
             <text v-if="frostAt(index) && !murked(index)" class="card-frost-tag">冰</text>
+            <!-- 【石墙】：连续匹配撞停；撞上那张被收走，下面留下。
+                 **非标不可** —— 不标的话「这段能收到哪儿」只能靠记 -->
+            <text v-if="stoneAt(index) && !murked(index)" class="card-stone-tag">墙</text>
             <!-- 【通配】：凑顺子时这张算任意点数。它是**标签**，跟冰 / 烧一样印字 ——
                  光靠紫边认不出来（紫边和护、保护的边色同属一排，一眼分不清），
                  而「哪几张是通配」正是顺子匹配那几件的全部决策。
@@ -448,6 +451,17 @@
          详见 afterPlay 里 `SK_AGAIN` 那一支上面那段。
          留着是因为它是「玩家侧加打」唯一的落点；**但它是死的，别照它推断
          玩家现在能做什么** -->
+    <!-- 【红钩】（桃汛客）/【串钩】（串钩手）：额外响哪一件。出牌前随时能换 ——
+         手牌底下的技能名跟着变，所以打之前就看得见这一张会响什么 -->
+    <view v-if="heartPickShown()" class="tide-box">
+      <text class="tide-text">{{ heartPickLead() + heartPickName() + '】' }}</text>
+      <view class="tide-actions">
+        <view id="ap-heart-pick" class="tide-btn tide-btn-plain" @click="onHeartPick">
+          <text class="tide-btn-text tide-btn-text-plain">换一件</text>
+        </view>
+      </view>
+    </view>
+
     <view v-if="againWaiting" class="tide-box">
       <text class="tide-text">连竿：可以再打一张（点手牌出牌），也可以收手留着下回合</text>
       <view class="tide-actions">
@@ -481,7 +495,8 @@
     <view v-if="pilePick >= 0" class="tide-box">
       <text class="tide-text">{{ pilePickText }}</text>
       <view class="tide-actions">
-        <view id="ap-pile-skip" class="tide-btn tide-btn-plain" @click="onPilePick(-1)">
+        <!-- 垫吃没有「不挑」：堆上有牌就必须垫（用户定） -->
+        <view v-if="pilePick != SK_STACKDRAFT" id="ap-pile-skip" class="tide-btn tide-btn-plain" @click="onPilePick(-1)">
           <text class="tide-btn-text tide-btn-text-plain">{{ pilePick == SK_CLEAN ? '直接打出' : '不挑' }}</text>
         </view>
       </view>
@@ -494,10 +509,40 @@
          保护续层写的是「取消」，因为那时还没有牌离手〕 -->
 
     <!-- 零递：挑一张自己的手牌贴【21 匹配】。借手牌那一排（照冰雷） -->
+    <!-- 顺递：挑一张自己的手牌贴【顺子匹配】（照零递那块） -->
+    <view v-if="flowDraftPending" class="tide-box">
+      <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动' }}</text>
+      <view class="tide-actions">
+        <view id="ap-flowdraft-skip" class="tide-btn tide-btn-plain" @click="onFlowDraft(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
     <view v-if="zeroDraftPending" class="tide-box">
-      <text class="tide-text">零递：点一张手牌贴上 21 匹配（挑小的预算大）· J 和无点数的点不动</text>
+      <text class="tide-text">{{ '零递：点一张手牌贴上 21 匹配（还能贴 ' + zeroDraftLeft + ' 张，挑小的预算大）· J 和无点数的点不动' }}</text>
       <view class="tide-actions">
         <view id="ap-zerodraft-skip" class="tide-btn tide-btn-plain" @click="onZeroDraft(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 褪递：对方那张褪色已经贴完，等你挑一张手牌贴【收零】（照零递那块的形制） -->
+    <view v-if="fadeTagPending" class="tide-box">
+      <text class="tide-text">褪递：庄家手里 1 张已经带上褪色；点一张你的手牌贴上收零（打出时置 0，堆上另有 0 点牌就全收走）· J 和无点数的点不动</text>
+      <view class="tide-actions">
+        <view id="ap-fadetag-skip" class="tide-btn tide-btn-plain" @click="onFadeTag(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 回水：庄家那张已经置 0，等你挑一张手牌贴【收零】（照褪递那块） -->
+    <view v-if="backTagPending" class="tide-box">
+      <text class="tide-text">回水：点一张你的手牌贴上收零（打出时置 0，堆上另有 0 点牌就全收走）· J 和无点数的点不动</text>
+      <view class="tide-actions">
+        <view id="ap-backtag-skip" class="tide-btn tide-btn-plain" @click="onBackTag(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
         </view>
       </view>
@@ -562,6 +607,22 @@
 
     <!-- 冻结：挑庄家一张手牌锁住。借它那排点 —— 盖着的也点得中，
          你挑的是位置不是牌面 -->
+    <!-- 浑水：盲选庄家两张手牌，翻开并置 0（J 也算）。借庄家那排点 —— 盖着的也点得中。
+         没有「不选」：置 0 只对你有利，没有不选的理由 -->
+    <!-- 缩水：盲选庄家一张手牌明置置 0（J 也算），之后他手里每有 1 张 0 点牌全堆 −3（照浑水那块） -->
+    <view v-if="shrinkPending" class="tide-box">
+      <text class="tide-text">缩水：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 之后他手里每有 1 张 0 点牌，全堆 −3</text>
+    </view>
+
+    <!-- 回水：先盲选庄家一张手牌明置置 0（照浑水那块），再贴自己一张收零（下面 backTagPending 那块） -->
+    <view v-if="backPending" class="tide-box">
+      <text class="tide-text">回水：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 之后你挑一张手牌贴上收零</text>
+    </view>
+
+    <view v-if="murkPending" class="tide-box">
+      <text class="tide-text">{{ '浑水：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 还要选 ' + murkLeft + ' 张' }}</text>
+    </view>
+
     <view v-if="freezePending" class="tide-box">
       <text class="tide-text">冻结：点庄家一张手牌锁住它（盖着的也点得中）</text>
       <view class="tide-actions">
@@ -794,10 +855,18 @@
               跟堆上那个角标**用同一个字、同一个色**，因为它是同一个标签
             -->
             <text v-if="frostOnHand(card)" class="card-frost-tag">冰</text>
+            <!-- 手里带【石墙】（满墙贴的）：打出后落堆成墙 —— 跟冰同形（手里预约 → 落堆障碍） -->
+            <text v-if="stoneHandOn(card)" class="card-stone-tag">墙</text>
             <!-- 手里带【花色匹配】（传色贴的）：打出时走花色匹配 -->
             <text v-if="matchKeyOn(card)" class="hand-match-tag">花</text>
             <!-- 手里带【21 匹配】（零递贴的） -->
             <text v-if="draftKeyOn(card)" class="hand-draft-tag">21</text>
+            <!-- 手里带【收零】（褪递贴的） -->
+            <text v-if="zeroKeyOn(card)" class="hand-draft-tag">零</text>
+            <!-- 手里带【褪色】（对方的褪递贴的）—— 打出时置 0 并褪色 -->
+            <text v-if="fadeKeyOn(card)" class="hand-draft-tag">褪</text>
+            <!-- 手里带【顺子匹配】（流钥贴的） -->
+            <text v-if="flowKeyOn(card)" class="hand-flow-tag">顺</text>
         <!-- 【引火】预约的火。紧挨着「冰」—— 两个同时挂上
              （引火 + 藏凌）的时候它们落堆就相消，所以玩家看到两个标签
              本身就是「这张落下去两个都没」的提示 -->
@@ -991,10 +1060,22 @@
     SK_HUE,
     SK_SUITCOLOR,
     SK_ZERODRAFT,
+    // 褪递〔2026-10-29 深夜上架〕：【褪色】；1 张手牌带上【收零】
+    SK_FADETAG,
+    // 顺递：给 1 张手牌贴【顺子匹配】（照零递那套挑牌）
+    SK_FLOWDRAFT,
+    // 传顺：手里的牌都贴【顺子匹配】（不停人）
+    SK_FLOWALL,
+    // 续流：它自己走顺子匹配（不当通配），再给 1 张手牌贴【顺子匹配】（挑法照顺递）
+    SK_FLOWPASS,
+    // 零吃〔2026-10-29 上架、**当晚撤下**〕—— 常量现在是 −1，下面三处 hasTrigger 永不命中（惰性，等攒批清）
+    SK_ZEROSELF,
     // 21 匹配那条线 2026-10-28 一次上架三件（`key` 跟模拟器里的原型一个字母没改）
     SK_CHAINTAG,
     SK_HUETAG,
     SK_HOLDTAG,
+    // 满墙〔2026-10-29 上架〕：它和手里的牌都带【石墙】（花色钥匙同日夜撤了）
+    SK_STONEFULL,
     SK_CAST,
     SK_PRESS,
     SK_UNHOOK,
@@ -1034,8 +1115,16 @@
     SK_STOW,
     SK_CLEAN,
     SK_RAISE,
+    // 垫吃：叠放那一族的第四件（垫下去、以那张为锚判 21 匹配）
+    SK_STACKDRAFT,
     SK_WILD,
     SK_DEAD,
+    // 浑水：死水那一族的盲选版（借冻结那种「点位置」的路，不翻开）
+    SK_MURK,
+    // 缩水：死水挑 1 张 + 按他手里几张 0 全堆减 + 【收零】
+    SK_ZERODROP,
+    // 回水：浑水那种盲选置 0（1 张）+ 自己 1 张手牌贴【收零】（照褪递那一半）
+    SK_BACKWATER,
     // 第四条匹配线：顺子。两件对付「11 那个洞」的办法不同 ——
     // 伏流当通配**填**洞（幅度跟槽标签无关），涉水用差 2 **跨**洞
     SK_FLOW,
@@ -1091,7 +1180,14 @@
     SK_BRIM,
     BRIM_LAYERS,
     // 【易流】：它带上【通配】；换 1 张；【顺子匹配】（2026-10-20，顺子族第四件）
+    // 易流〔2026-10-29 撤下〕—— 常量现在是 −1，下面那几处 hasTrigger 永不命中（惰性，等攒批清）
     SK_SWAPFLOW,
+    // 【顺序匹配】族开枝三件〔2026-10-29〕—— 同日撤【顺流】
+    SK_ORDERINS,
+    SK_ORDERPILE,
+    SK_ORDERSWAP,
+    ORDER_MIN,
+    ORDER_FULL_MIN,
     STRAIGHT_MIN,
     DEAD_COUNT,
     // 〔`FREEZE_CAP` 2026-10-21 撤了 —— 冻结不设上限，理由见 draw-skills.uts 那块墓碑〕
@@ -1111,6 +1207,8 @@
     // 【吃水】的上限和「至少吃到几张」
     DRAFT_CAP,
     DRAFT_MIN,
+    // 零递贴几张
+    ZERODRAFT_N,
     emptyLoadout,
     triggersOf,
     // 【串钩】那一步追加（见 skillsOf）。它跟 triggersOf 分开是因为
@@ -1118,6 +1216,10 @@
     addRankLink,
     // 【红钩】（桃汛客）同一层，只是认花色不认点数
     addHeartWild,
+    // 红钩能点着的那几件 —— 「换一件」钮跟 addHeartWild 读同一份名单
+    heartWildPool,
+    // 【串钩】那份名单（同一颗钮）
+    rankLinkPool,
     hasTrigger,
     equippedSkills,
     coverageText,
@@ -1157,6 +1259,8 @@
     SP_RANKLINK,
     // 【红钩】（桃汛客）：打出红桃 → 所有槽一起响（见 skillsOf）
     SP_HEARTWILD,
+    // 【流钥】（流钥客）：触发技能槽 → 1 张手牌带【顺子匹配】
+    SP_SLOTTAG,
     CYCLE_REFILL,
     BAIT_COUNT,
     baitRankOf,
@@ -1990,10 +2094,25 @@
   const siftDone = ref<number>(0)
   // 冻结等你挑庄家的一张手牌（挑的是位置 —— 那几张多半盖着）
   const freezePending = ref<boolean>(false)
+  // 浑水等你盲选庄家的手牌（挑的是位置 —— 照冻结；**不**走 takeSkill，那条会把整手翻开）
+  const murkPending = ref<boolean>(false)
+  // 浑水还要选几张
+  const murkLeft = ref<number>(0)
   // 冰雷等你挑一张自己的手牌贴冰
   const bombPending = ref<boolean>(false)
-  // 零递等你挑一张自己的手牌贴【21 匹配】
+  // 零递等你挑自己的手牌贴【21 匹配】
   const zeroDraftPending = ref<boolean>(false)
+  // 褪递等你挑自己的一张手牌贴【收零】
+  const fadeTagPending = ref<boolean>(false)
+  // 回水等你盲选庄家一张手牌（照浑水：挑位置、不翻开整手），选完接着等你贴收零
+  const backPending = ref<boolean>(false)
+  // 回水等你挑自己的一张手牌贴【收零】（照褪递）
+  const backTagPending = ref<boolean>(false)
+  // 顺递 / 续流等你挑自己的一张手牌贴【顺子匹配】（两件共用这一块挑牌，flowDraftSk 记是哪件）
+  const flowDraftPending = ref<boolean>(false)
+  const flowDraftSk = ref<number>(-1)
+  // 零递这一次还要贴几张〔2026-10-29 改成 2 张〕—— 挑完一张没挑够就接着停着
+  const zeroDraftLeft = ref<number>(0)
   // ---------- 21 匹配那条线 2026-10-28 上架的三件，各自的待选位 ----------
   //
   // 用户定：**三件都由玩家自己挑**（「全部玩家挑（贴零递）」），
@@ -2240,11 +2359,13 @@
   // afterPlayTail 的几段。散着收的技能演完特效，从**它后面那一段**接着走：
   //   见底 演完 → TAIL_EBB（洪水、收色……）
   //   洪水 演完 → TAIL_HUE（收色……）
-  //   收色 演完 → TAIL_CAST（撒网……）
+  //   收色 演完 → TAIL_ZERO（收零……）
+  //   收零 演完 → TAIL_CAST（撒网……）
   //   撒网 演完 → TAIL_FLOW（伏流……）
   //   伏流 演完 → TAIL_WADE（涉水……）
-  //   涉水 演完 → TAIL_SWAPFLOW（漫流……）
-  //   漫流 演完 → TAIL_WILD（野火……）
+  //   涉水 演完 → TAIL_SWAPFLOW（易流……）
+  //   易流 演完 → TAIL_ORDER（插流 / 调序 / 换序……）
+  //   顺序匹配族演完 → TAIL_WILD（野火……）
   //   野火 演完 → TAIL_REST（动对方手牌那几件往后）
   // 一色演完从 TAIL_HEAD 接着走（afterPlayHead：窥视、照水……见底）
   //
@@ -2271,9 +2392,12 @@
   // **这正是上面那条「插进来就得全套重排」**，别只加不挪
   const TAIL_EBB : number = 0
   const TAIL_HUE : number = 1
-  const TAIL_CAST : number = 2
-  const TAIL_FLOW : number = 3
-  const TAIL_WADE : number = 4
+  // 【收零】〔2026-10-29 深夜〕—— 自己一段，排在收色后、撒网前（跟【花色匹配】同一类：间隔匹配的特殊匹配）。
+  // **插进来就得全套重排**：后面七个全 +1，收色演完改成回 TAIL_ZERO（hueFor 那一处）
+  const TAIL_ZERO : number = 2
+  const TAIL_CAST : number = 3
+  const TAIL_FLOW : number = 4
+  const TAIL_WADE : number = 5
   // 这一段原是【漫流】的（2026-10-16 插进来，后面三个跟着 +1）。
   // **漫流 2026-10-20 删了，而这一段连号没动** —— 换成【易流】接管它。
   // 那正是墓碑里记的那条：这几个 TAIL_* 是**连续的**，删中间一个
@@ -2282,9 +2406,11 @@
   // **插进来就得全套重排** —— 这几个值是「段的先后」，而每一段的进入
   // 条件是 `from <= 它`。所以漏改一个的后果是上面注释里那两种静默错法。
   // 全文只用常量名、没有字面量（grep 确认过），所以改值是安全的
-  const TAIL_SWAPFLOW : number = 5
-  const TAIL_WILD : number = 6
-  const TAIL_REST : number = 7
+  const TAIL_SWAPFLOW : number = 6
+  // 【顺序匹配】族〔2026-10-29〕—— 插流 / 调序 / 换序，自己一段，排在易流后、野火前
+  const TAIL_ORDER : number = 7
+  const TAIL_WILD : number = 8
+  const TAIL_REST : number = 9
   // ---- 【燃尽】那一步的哨兵（2026-10-14）----
   //
   // 它**不是一个技能段**，而是「整条尾段走完之后、匹配之前」那一步
@@ -2294,7 +2420,40 @@
   // 不回 afterPlayTail** —— 因为尾段后半那几件（死水、摘钩、对换、压舱…）
   // **没有 `from <=` 守卫**（它们各自 return，靠的是「一回合只停一次」），
   // 回去就会重跑一遍。那是 TAIL_* 那段注释里警告过的第二种错法
-  const TAIL_BURN : number = 8
+  // 〔2026-10-30 起那几件挂了 askFirst、挑完从 TAIL_ASK 重入（见下面），不会重跑了；
+  //   燃尽扫完直接走匹配照旧是对的 —— 燃烧排在它们后面，走到这儿时它们都问完了〕
+  const TAIL_BURN : number = 10
+  // ---- 停人那一串的重入段号〔2026-10-30〕----
+  //
+  // 原先停人的技能「一个回合只停一次」：玩家侧一停就 return，挑完直接 resolveMatch，
+  // 于是**排在它后面的技能全被跳过**（别的停人技能、流钥、满墙、燃烧那一步）。
+  // 模拟器那边每件都结算，所以源码一直少算。用户 10-30 定改：
+  //   ① 不停人的（流钥、满墙）挪到停人那一串**前面**（守 `from <= TAIL_REST`）；
+  //   ② 停人的每件这一手只问一次（askFirst），挑完 askNext 从这个号重入、接着问下一件；
+  //   ③ 全问完才走燃烧 → 匹配。
+  // 它比所有散收段号都大，所以重入时前面那些 `from <=` 段一概跳过
+  const TAIL_ASK : number = 11
+  // 这一手已经问过（或已经结算过）的停人技能。afterPlay 开头清空 —— 一手一清
+  let askDone : number[] = []
+  // 这一手的技能表，askNext 重入时要用（玩家侧才会停，所以只有玩家侧写它）
+  let askSkills : number[] = []
+  // ---- 播报**不用**在这儿拼〔2026-10-30 试过一版又撤了〕----
+  // 好几个挑牌回调收尾时是整句覆盖 message（换水 / 倒饵 / 滤饵 / 观潮 / 冰雷……），看着像会冲掉前一件的结果。
+  // 其实不会：message 的每次变动都由 logTake 收进出牌记录，**覆盖 = 另开一条、前一条原样留着**
+  //（见 logTake 第三条分支）。曾在 askNext 里把「前一件的结果 + 这一件」拼回 message ——
+  // 那句开头对不上最新那条记录，于是又另开一条：记录里出现重复，还把「你打出 X」挤出 3 条的上限。所以撤了
+  // 第一次见到这件就记下并放行，第二次（重入）就挡掉 —— 停之前做过的事（浑水的抽牌、滤饵的摸牌、冰雷挂雷）不会重做
+  function askFirst(sk : number) : boolean {
+    if (askDone.indexOf(sk) >= 0) {
+      return false
+    }
+    askDone.push(sk)
+    return true
+  }
+  // 停人技能挑完了：接着问下一件（都问完会走到燃烧、匹配）
+  function askNext() {
+    afterPlayTail(false, askSkills, TAIL_ASK)
+  }
 
   function inCatch(index : number) : boolean {
     if (catchSet.value.length > 0) {
@@ -2482,6 +2641,108 @@
   function draftKeyable(card : PlainCard) : boolean {
     return card.rank != JACK && !draftKeyOn(card) && cardVals(card).length > 0
   }
+
+  // ---------- 【收零】：手里带它的牌（褪递贴的）〔2026-10-29 深夜〕----------
+  // 生命周期照 `draftKey`：打出那一手用掉（endPlay 摘）、洗回牌库 / 换主人也摘。
+  // **ref** —— 手牌上要印「零」。模拟器那边是 `G.zeroKey`
+  const zeroKey = ref<PlainCard[]>([] as PlainCard[])
+  function zeroKeyOn(card : PlainCard) : boolean {
+    for (let i = 0; i < zeroKey.value.length; i++) {
+      if (zeroKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropZeroKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < zeroKey.value.length; i++) {
+      if (zeroKey.value[i] != card) {
+        keep.push(zeroKey.value[i])
+      }
+    }
+    zeroKey.value = keep
+  }
+  // 能贴哪张：J 不贴（它只有通吃）、无点数不贴、贴过的不贴（照模拟器 zeroKeyTag）
+  function zeroKeyable(card : PlainCard) : boolean {
+    return card.rank != JACK && !zeroKeyOn(card) && cardVals(card).length > 0
+  }
+
+  // ---------- 【褪色】：手里带它的牌（褪递贴给**对方**的）〔2026-10-29 深夜〕----------
+  // 带它的牌打出时置 0（valuesOf），落堆后褪色（afterPlayTail 开头）。生命周期照 zeroKey：
+  // 打出那一手用掉（endPlay 摘）、洗回牌库 / 换主人也摘。模拟器那边是 `G.fadeKey`
+  const fadeKey = ref<PlainCard[]>([] as PlainCard[])
+  function fadeKeyOn(card : PlainCard) : boolean {
+    for (let i = 0; i < fadeKey.value.length; i++) {
+      if (fadeKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropFadeKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < fadeKey.value.length; i++) {
+      if (fadeKey.value[i] != card) {
+        keep.push(fadeKey.value[i])
+      }
+    }
+    fadeKey.value = keep
+  }
+  // 这一手已经褪过色的那张 —— afterPlayTail 会从后面几段重入，靠它保证只褪一次
+  let fadeDoneCard : PlainCard | null = null
+  // 【缩水】这一手已经结算过「置 0 + 全堆减」的那张 —— 玩家挑完从 afterPlayTail 入口重入，靠它只做一次
+  let shrinkDoneCard : PlainCard | null = null
+  // 缩水停下来等你挑的时候，记下这一手的技能表（重入 afterPlayTail 要用）
+  let shrinkSkills : number[] = []
+  // 缩水等你盲选庄家一张手牌（照浑水：挑位置、不翻开整手 —— 所以不走 takeSkill）
+  const shrinkPending = ref<boolean>(false)
+
+  // ---------- 【流钥】：手里带【顺子匹配】的牌〔2026-10-29〕----------
+  //
+  // 生命周期照 `draftKey`：打出那一手用掉（endPlay 摘）、洗回 / 换主人也摘。
+  // 贴法照模拟器 `doFlowTag`：**从前往后取第一张能贴的**（笨挑 = 量出来的下限；
+  // 这件常驻技一局触发约 7 次，不停下来等人挑）
+  const flowKey = ref<PlainCard[]>([] as PlainCard[])
+  function flowKeyOn(card : PlainCard) : boolean {
+    for (let i = 0; i < flowKey.value.length; i++) {
+      if (flowKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropFlowKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < flowKey.value.length; i++) {
+      if (flowKey.value[i] != card) {
+        keep.push(flowKey.value[i])
+      }
+    }
+    flowKey.value = keep
+  }
+  function flowKeyable(card : PlainCard) : boolean {
+    return card.rank != JACK && !flowKeyOn(card) && cardVals(card).length > 0
+  }
+  function flowKeyPick(byFoe : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    for (let i = 0; i < mine.length; i++) {
+      if (flowKeyable(mine[i])) {
+        return i
+      }
+    }
+    return -1
+  }
+  // 常驻技【流钥】兑现贴标签。返回贴上了没有
+  function doSlotTag(byFoe : boolean) : boolean {
+    const at = flowKeyPick(byFoe)
+    if (at < 0) {
+      return false
+    }
+    const mine = byFoe ? foeHand.value : hand.value
+    flowKey.value = flowKey.value.concat([mine[at]])
+    return true
+  }
   // 手里还有几张贴得上（三件贴标签的技能都先问这一句 —— 一张都挑不出就跳过，
   // 不停下来等人点一个空排）
   function draftRoom(byFoe : boolean) : number {
@@ -2606,6 +2867,147 @@
       }
     }
     frostHand = keep
+  }
+
+  // ---------- 【石墙】〔2026-10-29 · 满墙上架〕 ----------
+  //
+  // 照模拟器 `rules.js` 的 `G.stone` / `G.stoneHand`，词条默认档：
+  //   FATE=taken（撞停 · 石牌收走 · 下面留下）· MODE=cut · J 也被拦 · 不分敌我。
+  //
+  // 堆上存**牌对象引用**（不是按下标的并行数组）—— 收牌会挪下标，
+  // 而引用跟着牌走。手里那张是预约：打出落堆才成墙（`stoneHandOnLand`，
+  // 紧挨着 `frostOnLand`）。
+  let stonePile : PlainCard[] = []
+  let stoneHand : PlainCard[] = []
+
+  function stoneOn(card : PlainCard) : boolean {
+    for (let i = 0; i < stonePile.length; i++) {
+      if (stonePile[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+
+  function stoneAt(index : number) : boolean {
+    if (index < 0 || index >= pile.value.length) {
+      return false
+    }
+    return stoneOn(pile.value[index])
+  }
+
+  // 贴堆上石墙的**唯一入口**。新贴覆盖同牌旧签；顺手清掉已不在堆上的孤儿
+  function addStone(card : PlainCard) {
+    if (card == null) {
+      return
+    }
+    const keep : PlainCard[] = []
+    for (let i = 0; i < stonePile.length; i++) {
+      if (stonePile[i] != card && inPile(stonePile[i])) {
+        keep.push(stonePile[i])
+      }
+    }
+    keep.push(card)
+    stonePile = keep
+  }
+
+  function dropStone(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < stonePile.length; i++) {
+      if (stonePile[i] != card) {
+        keep.push(stonePile[i])
+      }
+    }
+    stonePile = keep
+  }
+
+  function stoneHandOn(card : PlainCard) : boolean {
+    for (let i = 0; i < stoneHand.length; i++) {
+      if (stoneHand[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+
+  function addStoneHand(card : PlainCard) {
+    if (card == null || stoneHandOn(card)) {
+      return
+    }
+    stoneHand = stoneHand.concat([card])
+  }
+
+  function dropStoneHand(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < stoneHand.length; i++) {
+      if (stoneHand[i] != card) {
+        keep.push(stoneHand[i])
+      }
+    }
+    stoneHand = keep
+  }
+
+  // 落堆：手里预约的石墙兑现成堆上墙。**排在 frostOnLand 旁边**
+  function stoneHandOnLand(card : PlainCard) {
+    if (!stoneHandOn(card)) {
+      return
+    }
+    dropStoneHand(card)
+    addStone(card)
+  }
+
+  // 连续匹配受石墙拦吗。间隔线（花色 / 顺子匹配）不走 resolveMatch 截断，
+  // 所以这儿不用另开豁免。J 通吃也拦（词条默认 STONE_J=block）
+  function stoneApplies(_card : PlainCard) : boolean {
+    return true
+  }
+
+  function stoneHighest(lo : number, hi : number) : number {
+    for (let i = hi; i >= lo; i--) {
+      if (stoneOn(pile.value[i])) {
+        return i
+      }
+    }
+    return -1
+  }
+
+  function stoneLowest(lo : number, hi : number) : number {
+    for (let i = lo; i <= hi; i++) {
+      if (stoneOn(pile.value[i])) {
+        return i
+      }
+    }
+    return -1
+  }
+
+  // 撞墙：taken 档石牌被收走（签摘掉），返回 false = 墙不留下。
+  // 调用方据此把收成下沿扩到墙那一格（`from = p` / `count = p + 1`）
+  function stoneHit(p : number) : boolean {
+    dropStone(pile.value[p])
+    return false
+  }
+
+  // 连续匹配预估收成（含打出的这张），墙截断用 taken 口径。
+  // 打出的牌**还不在堆上**（抢牌 / 庄家挑牌）。sink 估的是落堆底那一支
+  function catchCountCut(at : number, sink : boolean, card : PlainCard) : number {
+    if (at < 0) {
+      return 0
+    }
+    if (!stoneApplies(card)) {
+      return sink ? at + 2 : pile.value.length - at + 1
+    }
+    if (sink) {
+      const p = stoneLowest(0, at)
+      if (p < 0) {
+        return at + 2
+      }
+      return p + 2
+    }
+    const p = stoneHighest(at, pile.value.length - 1)
+    if (p < 0) {
+      return pile.value.length - at + 1
+    }
+    return pile.value.length - p + 1
   }
 
   // ---------- 【引火】的手牌火（2026-10-14） ----------
@@ -2931,8 +3333,9 @@
 
   const canPlay = computed<boolean>(() : boolean => {
     return myTurn.value && !over.value && !catching.value && !tidePending.value
-      && !swapPending.value && !freezePending.value && !pickPending.value
-      && !bombPending.value && !zeroDraftPending.value
+      && !swapPending.value && !freezePending.value && !pickPending.value && !murkPending.value && !shrinkPending.value
+      && !bombPending.value && !zeroDraftPending.value && !flowDraftPending.value
+      && !fadeTagPending.value && !backPending.value && !backTagPending.value
       // 21 匹配那三件的五个挑牌位〔2026-10-28〕。
       // ⚠ 后两个（连递续贴 / 忍递）**停在收牌之后**，而那会儿 `myTurn`
       //   可能已经是 true 了（被抢那条路：回合早交回来了，见 drainStealTails），
@@ -2997,11 +3400,26 @@
     if (freezePending.value) {
       return '你的回合 · 冻结'
     }
+    if (murkPending.value) {
+      return '你的回合 · 浑水'
+    }
+    if (shrinkPending.value) {
+      return '你的回合 · 缩水'
+    }
     if (bombPending.value) {
       return '你的回合 · 冰雷'
     }
     if (zeroDraftPending.value) {
       return '你的回合 · 零递'
+    }
+    if (fadeTagPending.value) {
+      return '你的回合 · 褪递'
+    }
+    if (backPending.value || backTagPending.value) {
+      return '你的回合 · 回水'
+    }
+    if (flowDraftPending.value) {
+      return flowDraftSk.value == SK_FLOWPASS ? '你的回合 · 续流' : '你的回合 · 顺递'
     }
     if (chainDraftPending.value) {
       return '你的回合 · 连递'
@@ -3498,32 +3916,94 @@
     wildCards.value = wildCards.value.concat([card])
   }
 
+  // 【红钩】你选的那件（技能下标，−1 = 还没选 → 名单第一件）。
+  //
+  // **做成一颗常驻的「换一件」钮，不做成每出一张红桃就弹一次问**：
+  // 出牌那条链（playFor → afterPlay）是同步往下走的，中途停下来等你点
+  // 要拆成凝水那种「挂起 + 回调」，而那条路栽过（见 playFor 上面 10-21 那条）。
+  // 钮在出牌前随时能按，手牌底下那行技能名（skillTag）当场跟着变 ——
+  // 所以「这一张响哪件」照样是**每一手都在选**，只是选在出牌之前
+  // 声明放在 skillsOf 前面：编到 Kotlin 是局部 val，局部函数不能往后引用
+  const heartPick = ref<number>(-1)
+
   // 打出这张牌会触发哪几件技能。
   //
-  // **死水废掉的牌一件都不触发** —— 这是「废牌」的一半
-  //（另一半是点数算 0，在 valuesOf 里）。
-  // 只写 valuesOf 那一半是不够的：triggersOf 读的是 suit 和 rank，
-  // 跟点数毫无关系，所以一张被置 0 的 7 照旧会触发 7 槽上那件技能
+  // 🔴 **2026-10-30 修：被置 0 的牌按牌面 '0' 查** —— 点数槽查不到 '0'，不触发；**花色槽照旧触发**。
+  // 照【置 0】词条原文：「手里的牌被置 0 时牌面也跟着变 0，所以它不再触发点数槽上的技能；
+  // 花色没变，花色槽照旧触发」。也照模拟器（doDead 把 rank 改成 '0'，2026-10-14 那次有意的改法）。
+  // 〔原先这儿是 `if (isDead(card)) return []`（「废牌一件都不触发」）—— 10-14 之前死水「废牌」那一版的遗留，
+  //  跟词条和模拟器都对不上：**花色槽也被一起掐了**〕
+  // 串钩 / 红钩也读同一个 rank：置 0 的牌串钩不认（不是点数槽的牌），红钩照旧认（它认花色）
   function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
-    if (isDead(card)) {
-      return [] as number[]
-    }
+    const rank = isDead(card) ? '0' : card.rank
     const lo = loadoutOf(byFoe)
-    const list = triggersOf(lo, card.suit, card.rank)
-    // 【串钩】（串钩手）：命中任一个**被占**的点数槽 → 所有点数槽一起响。
+    const list = triggersOf(lo, card.suit, rank)
+    // 【串钩】（串钩手）：命中任一个**被占**的点数槽 → **再响 1 件**（你选的那件，见 heartPick）。
     // 闸和追加顺序都在 addRankLink 里，这儿只问「这一侧带没带」——
-    // 而那正是它不能写进 triggersOf 的原因（那个函数不知道是谁在出牌）
+    // 而那正是它不能写进 triggersOf 的原因（那个函数不知道是谁在出牌）。
+    // 庄家传 −1 = 名单第一件，跟模拟器 `LINK_PICK=add1` 同一个判据
     if (hasSpecial(byFoe, SP_RANKLINK)) {
-      return addRankLink(lo, card.rank, list)
+      return addRankLink(lo, rank, list, byFoe ? -1 : heartPick.value)
     }
-    // 【红钩】（桃汛客）：打出红桃 → 所有槽（点数 + 花色）一起响。
+    // 【红钩】（桃汛客）：打出红桃 → **额外**响 1 件（你选的那件，见 heartPick）。
     // 跟串钩**互斥不用写** —— 一个角色只带一件常驻技，两个 if 永远
     // 只进得去一个。写成两段并列（不是 else if）是为了删掉任一件时
-    // 另一段不用动
+    // 另一段不用动。
+    // 庄家传 −1 = 取名单第一件，跟模拟器 `HEART_PICK=one` 同一个判据
     if (hasSpecial(byFoe, SP_HEARTWILD)) {
-      return addHeartWild(lo, card.suit, card.rank, list)
+      return addHeartWild(lo, card.suit, rank, list, byFoe ? -1 : heartPick.value)
     }
     return list
+  }
+
+  // 「换一件」那颗钮轮的名单 —— 【红钩】和【串钩】共用一颗钮、一个选择
+  //（一个角色只带一件常驻技，两件永远不会同时在你这一侧）。
+  // 名单跟 addHeartWild / addRankLink 读的是同一份
+  function pickPool() : number[] {
+    if (hasSpecial(false, SP_RANKLINK)) {
+      return rankLinkPool(loadoutOf(false))
+    }
+    if (hasSpecial(false, SP_HEARTWILD)) {
+      return heartWildPool(loadoutOf(false))
+    }
+    return [] as number[]
+  }
+
+  // 钮上那一行显示的是哪件：选过而且还在名单里就是它，不然是名单第一件
+  function heartPickNow() : number {
+    const pool = pickPool()
+    if (pool.length == 0) {
+      return -1
+    }
+    if (pool.indexOf(heartPick.value) >= 0) {
+      return heartPick.value
+    }
+    return pool[0]
+  }
+
+  // 钮只在**真有得选**时出现：带着红钩 / 串钩，而且槽上至少两件
+  function heartPickShown() : boolean {
+    return pickPool().length >= 2
+  }
+
+  // 钮上那行字的开头：是哪件常驻技在选
+  function heartPickLead() : string {
+    return hasSpecial(false, SP_RANKLINK) ? '串钩：命中点数槽时再响【' : '红钩：红桃牌额外响【'
+  }
+
+  function heartPickName() : string {
+    const k = heartPickNow()
+    return k >= 0 ? DRAW_SKILLS[k].name : ''
+  }
+
+  // 换到名单里的下一件（轮着换）
+  function onHeartPick() {
+    const pool = pickPool()
+    if (pool.length < 2) {
+      return
+    }
+    const at = pool.indexOf(heartPickNow())
+    heartPick.value = pool[(at + 1) % pool.length]
   }
 
   // 手牌底下那行小字：这张会触发的技能名
@@ -3598,7 +4078,8 @@
   // 得出牌库奇数。原先那道闸漏了这两条，而闯关里它们各占一关、恒偏庄家。
   //
   // **调用点在 baitFor 之后、buildRankTotals 之前**，两头都是硬性的：
-  //   囤饵塞 3 张（奇数），排在它前面的话这道闸被它绕过去；
+  //   囤饵塞 BAIT_COUNT 张（原先 3 张 = 奇数，排在它前面的话这道闸被它绕过去；
+  //   2026-10-30 起 2 张不改奇偶，但张数是常量、哪天改回奇数就又绕过，所以位置不动）；
   //   剔掉的牌这一局不在场，所以要在算 rankTotal 之前剔 ——
   //     不然庄家的记牌（outsideCount）会把剔掉的也算进「外面还剩几张」。
   //
@@ -3730,6 +4211,17 @@
   //
   // 沉底这张落堆底，收「堆底 → 匹配那张」，所以**匹配得越高收得越多**
   // —— 从堆顶往下找，命中最高那张。两条都是「尽量多收」，只是镜像
+  // 【21 匹配】这一手能收的起点（凑不成 = −1）。从 catchStart 里抽出来的〔2026-10-29〕：
+  // resolveMatch 要判「这一手是不是靠 21 匹配收的」—— 是就不许抢（规则：特殊匹配不能被抢）。
+  // 两处共用这一份，不另写判定（照模拟器 rules.js 的 draftCatchAt）
+  function draftCatchAt(card : PlainCard, byFoe : boolean, skills : number[],
+    mine : number[], sink : boolean) : number {
+    if (hasTrigger(skills, SK_DRAFT) || hasTrigger(skills, SK_ZEROSELF) || draftKeyOn(card)) {
+      return draftReach(card, byFoe, mine, sink)
+    }
+    return -1
+  }
+
   function catchStart(card : PlainCard, byFoe : boolean, skills : number[],
     sink : boolean) : number {
     const size = pile.value.length
@@ -3824,12 +4316,11 @@
     //  「**挑这一段从哪头吃**」，而【寒流】【窄口】【满篓】那几件
     //  「无点数 + 落堆底」第一次能跟这条线配 —— 无点数的牌不占预算，
     //  所以它们一落底就是满预算往上吃。**那个组合要量。**〕
-    // 手里带【21 匹配】（零递贴的）的牌也走这条线
-    if (hasTrigger(skills, SK_DRAFT) || draftKeyOn(card)) {
-      const reach = draftReach(card, byFoe, mine, sink)
-      if (reach >= 0) {
-        return reach
-      }
+    // 手里带【21 匹配】（零递贴的）的牌也走这条线；【零吃】是它自己带着这条线
+    // 〔2026-10-29〕判定抽成了 draftCatchAt —— resolveMatch 要问同一个问题（「这一手是不是靠 21 收的」）
+    const reach = draftCatchAt(card, byFoe, skills, mine, sink)
+    if (reach >= 0) {
+      return reach
     }
     // 普通那三条线。**命中就记下来、不再往下找** —— 这个循环的方向
     // 已经保证了命中的是最深那张（收得最多）
@@ -4560,6 +5051,11 @@
       return '抬水：点堆上一张给它加 ' + pickStep.value
         + ' 点 —— 加完它会判一次匹配'
     }
+    // 垫吃：点出那条等价的读法 —— 玩家不用去想「从锚往哪边数」
+    if (pilePick.value == SK_STACKDRAFT) {
+      return '垫吃：点堆上一张垫在它下面，以它进行 21 匹配 —— '
+        + '相当于收走含它的一段连续牌，只要那段点数加起来不超过 21（堆上至少 2 张）'
+    }
     // 野火：提示里**点出那条最优选法**，因为它是这件技能的全部决策，
     // 而玩家第一次玩算不出来（火有两条前沿、蔓延在同一手内结算）
     if (pilePick.value == SK_WILD) {
@@ -4620,6 +5116,10 @@
     // 野火那一档会有这种格子（已烧着 / 带保护 / 带冰）。
     // **不能当成「不挑」**：那会把这一手的点火机会白扔掉
     if (index >= 0 && !canPickAt(index)) {
+      return
+    }
+    // 垫吃必须挑（钮已经藏了，这儿是兜底）
+    if (which == SK_STACKDRAFT && index < 0) {
       return
     }
     const step = pickStep.value
@@ -4785,6 +5285,42 @@
         + '，收走 ' + taken.length + ' 张。'
       return startSweep(byFoe, taken, [] as number[], TAIL_HEAD)
     }
+    // ---------- 【垫吃】：垫在它下面，以它为锚判【21 匹配】 ----------
+    //
+    // 垫的这张走 STACK_BURIED（照净水被盖那张：躺在底下攒分，整叠被收走时跟着走）——
+    // 它**不改**宿主的点数、不参与匹配，只在宿主被收时多算一张。
+    // 凑不成退回普通匹配（词条「凑不成也只是退回普通匹配」），照抬水的 raiseMatch
+    if (which == SK_STACKDRAFT) {
+      stacked.value = stacked.value.concat([{
+        host: pile.value[index], card: card, kind: STACK_BURIED
+      } as Stacked])
+      const reach = stackReach(index, byFoe)
+      let lo = -1
+      let hi = -1
+      if (reach.length == 2) {
+        lo = reach[0]
+        hi = reach[1]
+        message.value = message.value + ' ' + who + '垫吃：垫在 ' + name
+          + ' 底下，21 匹配凑成，'
+      } else {
+        const at = raiseMatch(index, byFoe)
+        if (at < 0) {
+          message.value = message.value + ' ' + who + '垫吃：垫在 ' + name
+            + ' 底下，没凑成也没撞上 —— 谁收走它就连这张一起拿。'
+          return false
+        }
+        lo = at < index ? at : index
+        hi = at < index ? index : at
+        message.value = message.value + ' ' + who + '垫吃：垫在 ' + name
+          + ' 底下，没凑成 21，撞上 ' + cardName(pile.value[at]) + '，'
+      }
+      const taken : number[] = []
+      for (let i = lo; i <= hi; i++) {
+        taken.push(i)
+      }
+      message.value = message.value + '收走 ' + taken.length + ' 张（连垫着的那张）。'
+      return startSweep(byFoe, taken, [] as number[], TAIL_HEAD)
+    }
     // ---------- 【抬水】：加点数，然后那一张判一次匹配 ----------
     //
     // step 是**被丢弃那张的牌面点数**（不是 valuesOf —— 它已经不在场上了，
@@ -4935,7 +5471,107 @@
   //
   // 两条都只看「在场效果挂在谁名下」，不猜点数 —— 跟源码里别的
   // 庄家启发式一个口径：读得到的信息才用
+  // 【垫吃】：以堆上第 index 张为锚的【21 匹配】能收哪一段。返回 [lo, hi]（含锚），凑不成返回 []。
+  //
+  // 判据逐条照 draftReach（**两份必须同一套**，改一处就改两处）：
+  //   预算 = 21 − 锚的点数（多个取最小）；护饵 / 硬壳 / 结冰挡着（guardedAgainst / matchLocked）停；
+  //   无点数断链；0 点不占预算；超预算停；**堆上含锚**够着 DRAFT_MIN 张才算凑成。
+  // 两个方向都数、取收得多的那头 —— 实际上两头等价（「这一段总点数 ≤ 21」），
+  // 留着两头是为了不靠那条恒等成立的前提（点数 ≥ 0）
+  function stackReach(index : number, byFoe : boolean) : number[] {
+    const none : number[] = []
+    if (index < 0 || index >= pile.value.length
+      || guardedAgainst(index, byFoe) || matchLocked(index, byFoe)) {
+      return none
+    }
+    const anchor = pileValsAt(index)
+    if (anchor.length == 0) {
+      return none
+    }
+    let own = 99
+    for (let k = 0; k < anchor.length; k++) {
+      if (anchor[k] < own) {
+        own = anchor[k]
+      }
+    }
+    const budget = DRAFT_CAP - own
+    if (budget < 0) {
+      return none
+    }
+    let bestLo = -1
+    let bestHi = -1
+    for (let d = 0; d < 2; d++) {
+      const step = d == 0 ? 1 : -1
+      let sum = 0
+      let got = 1
+      let end = index
+      for (let i = index + step; i >= 0 && i < pile.value.length; i = i + step) {
+        if (guardedAgainst(i, byFoe) || matchLocked(i, byFoe)) {
+          break
+        }
+        const vals = pileValsAt(i)
+        if (vals.length == 0) {
+          break
+        }
+        let v = 99
+        for (let k = 0; k < vals.length; k++) {
+          if (vals[k] < v) {
+            v = vals[k]
+          }
+        }
+        if (sum + v > budget) {
+          break
+        }
+        sum = sum + v
+        got = got + 1
+        end = i
+      }
+      if (got < DRAFT_MIN) {
+        continue
+      }
+      const lo = end < index ? end : index
+      const hi = end < index ? index : end
+      if (bestLo < 0 || hi - lo > bestHi - bestLo) {
+        bestLo = lo
+        bestHi = hi
+      }
+    }
+    if (bestLo < 0) {
+      return none
+    }
+    return [bestLo, bestHi]
+  }
+
   function foePilePick(which : number, step : number) : number {
+    // ---- 垫吃：挑以它为锚收得最多的那张；都凑不成挑普通匹配那段最长的；
+    //      还没有就垫堆顶那张（**必须垫**，不会返回 −1 —— 调用处已保证堆上有牌）。
+    //      照模拟器 rules.js 的 pilePick 那一支，两边同一个判据
+    if (which == SK_STACKDRAFT) {
+      let pick = -1
+      let most = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        const r = stackReach(i, true)
+        if (r.length == 2 && r[1] - r[0] + 1 > most) {
+          most = r[1] - r[0] + 1
+          pick = i
+        }
+      }
+      if (pick >= 0) {
+        return pick
+      }
+      for (let i = 0; i < pile.value.length; i++) {
+        const at = raiseMatch(i, true)
+        if (at < 0) {
+          continue
+        }
+        const len = (at > i ? at - i : i - at) + 1
+        if (len > most) {
+          most = len
+          pick = i
+        }
+      }
+      return pick >= 0 ? pick : pile.value.length - 1
+    }
     // ---- 抬水：**算得准**，所以它不猜 ----
     //
     // 它试遍每一张：加上 step 之后撞得上谁、那一段有多长，挑最长的。
@@ -5419,6 +6055,15 @@
     return left
   }
 
+  // 第 index 格设成 true（换引用，照 withoutFlag）〔2026-10-30 浑水明置要它〕
+  function withFlag(list : boolean[], index : number) : boolean[] {
+    const out : boolean[] = list.slice(0)
+    if (index >= 0 && index < out.length) {
+      out[index] = true
+    }
+    return out
+  }
+
   function withoutFlag(list : boolean[], index : number) : boolean[] {
     const left : boolean[] = []
     for (let i = 0; i < list.length; i++) {
@@ -5634,6 +6279,8 @@
     pileSuit.value = pileSuit.value.concat([card.suit])
     pileBurn.value = pileBurn.value.concat([burnOnLand()])
     frostOnLand(card, byFoe, pile.value.length - 1)
+    // 【石墙】手里预约 → 堆上成墙。**紧挨 frostOnLand**（照模拟器 pushPile）
+    stoneHandOnLand(card)
     // 【引火】预约的那层火在这儿兑现。**排在 frostOnLand 后面** ——
     // 见 burnHandOnLand 那段：冰先贴、火后到，两个才相消得对
     burnHandOnLand(card, pile.value.length - 1)
@@ -5651,7 +6298,36 @@
     pileSuit.value = ([card.suit] as string[]).concat(pileSuit.value)
     pileBurn.value = ([burnOnLand()] as number[]).concat(pileBurn.value)
     frostOnLand(card, byFoe, 0)
+    stoneHandOnLand(card)
     burnHandOnLand(card, 0)
+  }
+
+  // 插到堆上第 at 格（0 = 堆底，pile.length = 堆顶之后 = push）。
+  // 【插流】的落点。六条并行数组一起 splice —— 少一条就静默错位
+  function insertPile(card : PlainCard, byFoe : boolean, guard : number,
+    vals : number[], at : number) {
+    const i = at < 0 ? 0 : (at > pile.value.length ? pile.value.length : at)
+    const nextP = pile.value.slice(0)
+    const nextF = pileByFoe.value.slice(0)
+    const nextG = pileGuard.value.slice(0)
+    const nextV = pileVals.value.slice(0)
+    const nextS = pileSuit.value.slice(0)
+    const nextB = pileBurn.value.slice(0)
+    nextP.splice(i, 0, card)
+    nextF.splice(i, 0, byFoe)
+    nextG.splice(i, 0, guard)
+    nextV.splice(i, 0, vals)
+    nextS.splice(i, 0, card.suit)
+    nextB.splice(i, 0, burnOnLand())
+    pile.value = nextP
+    pileByFoe.value = nextF
+    pileGuard.value = nextG
+    pileVals.value = nextV
+    pileSuit.value = nextS
+    pileBurn.value = nextB
+    frostOnLand(card, byFoe, i)
+    stoneHandOnLand(card)
+    burnHandOnLand(card, i)
   }
 
   // ---------- 落堆那一下的结冰：**钥匙在这儿变成障碍** ----------
@@ -5811,10 +6487,10 @@
   //
   // 排在量水同一个位置（afterPlay 最前面）：它收整堆，排后面的话
   // 前面那些技能改过的堆就白改了。开演收牌特效了返回 true
-  // 【花色匹配】词条那一句：**打出后堆上的牌（包括它自己）都变成无点数**，成没成都一样。
-  // 收牌特效开演之前就写进 pileVals —— 被收走的那几张反正要走，留下的由 finishSweep
-  // 照 rawVals 重建（rawVals 读的就是这儿写的值），所以先写后收是对的。
+  // 【花色匹配】词条那一句：**打出后先全堆变无点数，再判**〔2026-10-29 钉死次序〕。
+  // 写进 pileVals —— 被收走的那几张反正要走，留下的由 finishSweep 照 rawVals 重建。
   // 〔当天试过「这一手结束时才冻、凑不成退回普通匹配」那一版，用户否了：它自己也冻住，没有退路〕
+  // 〔原先先判再冻，2026-10-29 改成先冻再判 —— 判的是花色不是点数，成不成那一格不变〕
   // 返回一句播报（空堆就是空串），让调用处直接接在 message 后面
   function suitMatchVoid() : string {
     if (pile.value.length == 0) {
@@ -5848,6 +6524,8 @@
       pileSuit.value = next
       message.value = message.value + who + '堆上 ' + card.suit + ' 最多，整堆变成 ' + card.suit + '。'
     }
+    // 先冻再判〔2026-10-29〕—— 跟 hueFor / 词条同一条次序
+    const voided = suitMatchVoid()
     const taken : number[] = []
     let others = 0
     for (let i = 0; i < pile.value.length; i++) {
@@ -5861,11 +6539,12 @@
       }
     }
     if (others < 2) {
-      message.value = message.value + who + '堆上别的 ' + card.suit + ' 不到 2 张，没匹配上。'
-        + suitMatchVoid()
+      message.value = message.value + who + voided
+        + '堆上别的 ' + card.suit + ' 不到 2 张，没匹配上。'
       return false
     }
-    message.value = message.value + who + '花色匹配，收走 ' + taken.length + ' 张。' + suitMatchVoid()
+    message.value = message.value + who + voided
+      + '花色匹配，收走 ' + taken.length + ' 张。'
     return startSweep(byFoe, taken, skills, TAIL_HEAD)
   }
 
@@ -5958,6 +6637,19 @@
     // 0 点钓不到任何牌（0 对 0 不算相等），可它还在点数轴上 ——
     // 21 匹配穿过它不占预算也不断链，那正是这件技能要的垫片
     if (hasTrigger(skills, SK_ZERODRAFT)) {
+      return [0]
+    }
+    // ---- 【零吃】：置 0〔2026-10-29〕----
+    // 跟零递同一句，差别在后半：零吃**它自己**走 21 匹配（catchStart 那一支），
+    // 于是 draftReach 读到的 own = 0 → 预算恒 21，跟槽上印的点数脱钩
+    if (hasTrigger(skills, SK_ZEROSELF)) {
+      return [0]
+    }
+    // ---- 【收零】/【褪色】标签：带它的牌打出时置 0〔2026-10-29 深夜〕----
+    // 0 点钓不到任何牌（0 对 0 不算相等），所以普通匹配那一步自然轮空 —— 收零那一手由 TAIL_ZERO 那一段收，
+    // 褪色那一手在 afterPlayTail 开头褪色。〔褪递 10-29 深夜换效果之后**载体自己不再置 0**，SK_FADETAG 从这一行撤了〕
+    // 【缩水】带着【收零】，所以它自己也照这一句置 0
+    if (zeroKeyOn(card) || fadeKeyOn(card) || hasTrigger(skills, SK_ZERODROP)) {
       return [0]
     }
     // ---- 「收一片的代价是这张不钓」—— 全表的收牌类技能都靠这一条挡 ----
@@ -6586,21 +7278,23 @@
     // 直接 return，所以不用另加闸）。接下来是挑牌：
     // 玩家弹提示条等点，庄家当场自己挑
     const stacking = hasTrigger(skills, SK_CALM) || hasTrigger(skills, SK_CLEAN)
-      || hasTrigger(skills, SK_RAISE)
+      || hasTrigger(skills, SK_RAISE) || hasTrigger(skills, SK_STACKDRAFT)
     // 净水盖上去之后这一手**不再走 resolveMatch**（见 stayPut）—— 每手先清
     stayPut = false
     if (stacking) {
       // 三件撞在同一张牌上的时候按这个顺序取一件 —— 不叠加。
       // 一张牌只叠得到一个地方，而三件各要一次挑牌
       const which = hasTrigger(skills, SK_CALM) ? SK_CALM
-        : (hasTrigger(skills, SK_CLEAN) ? SK_CLEAN : SK_RAISE)
+        : (hasTrigger(skills, SK_CLEAN) ? SK_CLEAN
+          : (hasTrigger(skills, SK_RAISE) ? SK_RAISE : SK_STACKDRAFT))
       // 抬水要加几点：**牌面点数**（card.value），不读 valuesOf ——
       // 它叠上去之后不是当前牌，没有「它算几点」这回事；
       // 而牌面那个数写在牌上、谁都数得出来（跟退潮一个口径）
       const step = card.value
       // 堆是空的：没地方叠 —— 那张牌等于白放了
       // 净水在空堆上没地方盖 → **直接打出**（往下落 landCard）；另外两件照旧白放
-      const cleanDirect = which == SK_CLEAN && pile.value.length == 0
+      // 【垫吃】同理：**只有堆上没牌时才直接打出**（用户定），有牌就必须叠
+      const cleanDirect = (which == SK_CLEAN || which == SK_STACKDRAFT) && pile.value.length == 0
       if (pile.value.length == 0 && !cleanDirect) {
         message.value = message.value + (byFoe ? ' 庄家' : ' ')
           + DRAW_SKILLS[which].name + '：场上没牌可叠，这张白放了。'
@@ -6608,7 +7302,8 @@
         return true
       }
       if (cleanDirect) {
-        message.value = message.value + (byFoe ? ' 庄家' : ' ') + '净水：场上没牌可盖，直接打出。'
+        message.value = message.value + (byFoe ? ' 庄家' : ' ')
+          + (which == SK_STACKDRAFT ? '垫吃：场上没牌可垫，直接打出。' : '净水：场上没牌可盖，直接打出。')
       } else if (byFoe) {
         // 庄家的净水：盖上去收得多就盖，不然**直接打出**（见 foeCleanPick）
         const at = which == SK_CLEAN ? foeCleanPick(card, worth, skills, sink)
@@ -6644,7 +7339,11 @@
   // 【净水】「直接打出」也要走完同一串，复制一份的话两边必然分叉
   function landCard(card : PlainCard, byFoe : boolean, skills : number[],
     sink : boolean, worth : number[]) {
-    if (sink) {
+    // 【插流】：穷举落点取含它的最长有序段（见 pickOrderInsertAt）。
+    // 排在 sink 前面 —— 它是这件技能自己的落点选择，不是逆流/延命那条沉底。
+    if (hasTrigger(skills, SK_ORDERINS)) {
+      insertPile(card, byFoe, GUARD_NONE, worth, pickOrderInsertAt(card, byFoe, skills))
+    } else if (sink) {
       unshiftPile(card, byFoe, GUARD_NONE, worth)
     } else {
       pushPile(card, byFoe, GUARD_NONE, worth)
@@ -6779,6 +7478,9 @@
       return
     }
     const at = catchStart(card!, byFoe, skills, sink)
+    // 【特殊匹配不能被抢】〔2026-10-29 用户定〕：这一手靠【21 匹配】收 → 下面两处都不问抢。
+    // 顺子 / 花色 / 顺序匹配走 afterPlayTail 的 startSweep，本来就不经过 askSteal，所以这儿只管 21
+    const via21 = at >= 0 && draftCatchAt(card!, byFoe, skills, valuesOf(card!, byFoe, skills), sink) == at
     // ---- 【连递】：这张带着链上的标签，而且**真凑成了** → 这一手末尾续贴 ----
     //
     // 位置照模拟器 `rules.js` 那个 probe 块：**在 catchStart 之后、抢牌之前**。
@@ -6814,29 +7516,35 @@
     // 钓到了。收走的那一段往哪边算，由沉底决定：
     //   普通 —— 这张落堆顶，收走「匹配那张 → 堆顶」；
     //   沉底 —— 这张落堆底，收走「堆底 → 匹配那张」（插在 0，原来的 at 往后挪一格）
+    //
+    // 【石墙】截断在**抢牌之前**（照模拟器 resolveMatch）—— 比的要是真收成。
+    // taken：墙那张被收走、下面留下；打出的这张自己不算墙（扫到 length-2 / 从 1 起）
     let caught = 0
     if (sink) {
       unshiftPile(card!, byFoe, GUARD_NONE, vals)
       keepMarks(0, burn, suit)
       caught = at + 2
-      // 【抢牌】：牌已经落堆、收成也算出来了，**收牌之前**问对方一次。
-      // 位置照模拟器 rules.js:9195（那边是「毒截断之后」—— 比的要是真收成，
-      // 而源码侧没有【中毒】，所以就在这儿）。
-      // 问出结果来就不收牌了：牌留在堆上，它马上会被抢牌方一起收走
-      if (askSteal(byFoe, 0, at + 1, caught, card!)) {
+      const p = stoneApplies(card!) ? stoneLowest(1, at + 1) : -1
+      if (p >= 0) {
+        caught = stoneHit(p) ? p : p + 1
+      }
+      if (!via21 && askSteal(byFoe, 0, caught - 1, caught, card!)) {
         return
       }
-      startCatch(byFoe, 0, at + 1)
+      startCatch(byFoe, 0, caught - 1)
     } else {
       pushPile(card!, byFoe, GUARD_NONE, vals)
       keepMarks(pile.value.length - 1, burn, suit)
-      caught = pile.value.length - at
-      // 【抢牌】—— 见沉底那一支里的同一段。**J 通吃也走这儿**（`at = 0`），
-      // 所以用户那句「J 也可以被抢」不用另写一支
-      if (askSteal(byFoe, at, pile.value.length - 1, caught, card!)) {
+      let from = at
+      const p = stoneApplies(card!) ? stoneHighest(at, pile.value.length - 2) : -1
+      if (p >= 0) {
+        from = stoneHit(p) ? p + 1 : p
+      }
+      caught = pile.value.length - from
+      if (!via21 && askSteal(byFoe, from, pile.value.length - 1, caught, card!)) {
         return
       }
-      startCatch(byFoe, at, pile.value.length - 1)
+      startCatch(byFoe, from, pile.value.length - 1)
     }
     message.value = message.value + (byFoe ? ' 庄家钓走 ' + caught + ' 张。' : ' 钓走 ' + caught + ' 张！')
   }
@@ -6852,7 +7560,7 @@
   //
   // ⚠ **`+ 1` 是打出的这张自己** —— 问的时候被抢方那张已经落堆了（堆里有它），
   // 而抢牌方这张还在手上。模拟器那边是 `catchCountAt` 的
-  // `base = G.pile.length - at + 1`，同一个算法。
+  // `base = G.pile.length - at + 1`，同一个算法（含【石墙】截断）。
   //
   // ⚠ `catchStart` 的第四参**写死 false（不沉底）**：跟模拟器的 `stealTry`
   // 和 `ai.js` 挑牌那头一个口径。于是【寒流】【拢水】的沉底档、【逆流】
@@ -6863,10 +7571,11 @@
     }
     const skills = skillsOf(byFoe, card)
     const at = catchStart(card, byFoe, skills, false)
-    if (at < 0) {
-      return 0
-    }
-    return pile.value.length - at + 1
+    // 【可以用特殊匹配抢牌】〔2026-10-29 用户定〕：顺子 / 花色 / 顺序匹配能收的张数也算
+    //（21 匹配已经在 catchStart 里）。harvestCount 的 specialOnly 档不算撒网（它不是特殊匹配）
+    const normal = catchCountCut(at, false, card)
+    const special = harvestCount(card, skills, byFoe, true)
+    return normal > special ? normal : special
   }
 
   // 你手里这张抢得动吗（模板里的金边和 onStealWith 的闸共用这一条）
@@ -6987,7 +7696,10 @@
       if (!stealTailDrop[i]) {
         dropMatchKey(vcard)
         dropDraftKey(vcard)
+        dropZeroKey(vcard)
+        dropFadeKey(vcard)
         dropChainTag(vcard)
+        dropFlowKey(vcard)
         // 这一帧的三笔记号写回数组 —— 中间可能隔了同一侧的好几手，
         // 数组里现在装的是别人的状态（见 stealTailTook 那段）。
         // 跟摘钥匙一样**只做一遍**：endPlayTag 会把 armed 清掉，
@@ -7237,6 +7949,8 @@
         const warded = blockedAt(i)
         caught = caught + takeAt(i, gone)
         if (!warded) {
+          // 宿主离场：石墙签跟着走（taken 截断那一步 stoneHit 已摘过，这儿兜间隔收）
+          dropStone(pile.value[i])
           continue
         }
         // 保护扛住了：宿主留在堆上，那一叠少一层
@@ -7397,6 +8111,8 @@
   function afterPlay(byFoe : boolean) {
     const skills = pendingSkills
     pendingSkills = []
+    // 新的一手：停人技能的记号清掉（见 TAIL_ASK）
+    askDone = [] as number[]
     // ---- 带「优先」那几件的播报摆在最前面 ----
     //
     // 效果本身**早就结算完了**（在 playFor 里，钓牌判定之前 ——
@@ -7660,48 +8376,72 @@
     //
     // 〔也试过【判定】（翻牌库顶 1 张定颜色），用户判废：「增加了不确定性，
     //   失去了决策」。墓碑和判据在上面 `drawFor` 后面那一段〕
+    // ---- 【传火】〔2026-10-30 用户改〕：堆上跟**堆底**同颜色的牌带上【燃烧】 ----
+    //
+    // desc「跟堆底同颜色的牌带上【燃烧】」。读的是堆（desc 没写「你手里」），
+    // 参照是堆底 = pile[0] 现在的颜色（`pileRed` 读改过的花色）。
+    // ⚠ 字面**含它自己**：堆上只有它一张时堆底就是它 → 点着它 → 当场燃尽。
+    //   10-22 那一版特意「不点自己」；**2026-10-30 用户定按字面点**（不跳过它）。
+    //  （模拟器 `CHAIN_BOTTOM_SELF=0` 是跳过那一档，留作对照）。
+    // 上一版（「堆上张数少的那个颜色」，10-22 ~ 10-30）的正文留在下面，注释掉了
     if (hasTrigger(skills, SK_CHAIN) && lastPlayed != null) {
-      const at0 = pileIndexOf(lastPlayed!)
-      // ⚠ 这一段**故意不在 `at0 >= 0` 里面** —— 条件读的是堆的形状而不是
-      // 打出那张，所以它哪怕没落在堆上（被别的效果拿走），堆上剩的牌照点
-      let red = 0
-      let black = 0
-      for (let i = 0; i < pile.value.length; i++) {
-        if (pileRed(i)) {
-          red = red + 1
-        } else {
-          black = black + 1
-        }
-      }
-      // 它自己的颜色：落堆了走 `pileRed`（可能被染过色），
-      // 没落堆就只剩牌面可读
-      const mine = at0 >= 0 ? pileRed(at0) : isRedSuit(lastPlayed!.suit)
-      let wantRed = mine
-      let solo = false
-      if (red > 0 && black > 0 && red != black) {
-        wantRed = red < black
-      } else {
-        // 两色一样多、或者堆上只有一色 → 贴**它自己的颜色**。
-        // 只有一色时它自己必属于那一色（它就在堆上），所以这一支
-        // 等于除它自己以外整堆带火
-        solo = red == 0 || black == 0
-      }
       let spread = 0
+      const wantRed = pile.value.length > 0 ? pileRed(0) : false
       for (let i = 0; i < pile.value.length; i++) {
-        // `lightAt` 自己带三道闸（已着火 / 带保护 / 冰相消），
-        // 所以这儿只管「选哪几格」，点不点得着由它判。
-        // **跳过它自己那一格** —— 定稿不点自己
-        if (i != at0 && pileRed(i) == wantRed && lightAt(i)) {
+        // `lightAt` 自己带三道闸（已着火 / 带保护 / 冰相消），这儿只管选格
+        if (pileRed(i) == wantRed && lightAt(i)) {
           spread = spread + 1
         }
       }
       message.value = message.value + (byFoe ? ' 庄家传火：' : ' 传火：')
-        + '堆上' + (red > 0 && black > 0 && red != black
-          ? '' + (wantRed ? '红' : '黑') + '牌少（' + red + ' 红 / ' + black + ' 黑）'
-          : (solo ? '只有一色' : '两色一样多（各 ' + red + ' 张）')
-            + '，照它自己的颜色（' + (mine ? '红' : '黑') + '）')
-        + (spread > 0 ? '，' + spread + ' 张带上了燃烧。' : '，没有牌可点。')
+        + (pile.value.length > 0
+          ? '堆底是' + (wantRed ? '红' : '黑') + '的'
+            + (spread > 0 ? '，' + spread + ' 张带上了燃烧。' : '，没有牌可点。')
+          : '堆空着，没有牌可点。')
     }
+    // ---- 上一版【传火】（10-22 ~ 10-30），原文 ----
+    //   if (hasTrigger(skills, SK_CHAIN) && lastPlayed != null) {
+    //     const at0 = pileIndexOf(lastPlayed!)
+    //     // ⚠ 这一段**故意不在 `at0 >= 0` 里面** —— 条件读的是堆的形状而不是
+    //     // 打出那张，所以它哪怕没落在堆上（被别的效果拿走），堆上剩的牌照点
+    //     let red = 0
+    //     let black = 0
+    //     for (let i = 0; i < pile.value.length; i++) {
+    //       if (pileRed(i)) {
+    //         red = red + 1
+    //       } else {
+    //         black = black + 1
+    //       }
+    //     }
+    //     // 它自己的颜色：落堆了走 `pileRed`（可能被染过色），
+    //     // 没落堆就只剩牌面可读
+    //     const mine = at0 >= 0 ? pileRed(at0) : isRedSuit(lastPlayed!.suit)
+    //     let wantRed = mine
+    //     let solo = false
+    //     if (red > 0 && black > 0 && red != black) {
+    //       wantRed = red < black
+    //     } else {
+    //       // 两色一样多、或者堆上只有一色 → 贴**它自己的颜色**。
+    //       // 只有一色时它自己必属于那一色（它就在堆上），所以这一支
+    //       // 等于除它自己以外整堆带火
+    //       solo = red == 0 || black == 0
+    //     }
+    //     let spread = 0
+    //     for (let i = 0; i < pile.value.length; i++) {
+    //       // `lightAt` 自己带三道闸（已着火 / 带保护 / 冰相消），
+    //       // 所以这儿只管「选哪几格」，点不点得着由它判。
+    //       // **跳过它自己那一格** —— 定稿不点自己
+    //       if (i != at0 && pileRed(i) == wantRed && lightAt(i)) {
+    //         spread = spread + 1
+    //       }
+    //     }
+    //     message.value = message.value + (byFoe ? ' 庄家传火：' : ' 传火：')
+    //       + '堆上' + (red > 0 && black > 0 && red != black
+    //         ? '' + (wantRed ? '红' : '黑') + '牌少（' + red + ' 红 / ' + black + ' 黑）'
+    //         : (solo ? '只有一色' : '两色一样多（各 ' + red + ' 张）')
+    //           + '，照它自己的颜色（' + (mine ? '红' : '黑') + '）')
+    //       + (spread > 0 ? '，' + spread + ' 张带上了燃烧。' : '，没有牌可点。')
+    //   }
     // ---- 【引火】：自带火 + 给手里**不同颜色**的牌预约火 ----
     //
     // 限幅按颜色是量出来的，不是美感：「最多 N 张」那一档的幅度悬崖
@@ -7719,8 +8459,14 @@
       const lit = inPile(lastPlayed!) && lightAt(pileIndexOf(lastPlayed!))
       const mine = byFoe ? foeHand.value : hand.value
       let fired = 0
+      // 〔2026-10-30 用户改：参照从「它」换成**堆底**，「不同颜色」→「同颜色」。
+      //   desc「【燃烧】；你手里跟堆底同颜色的牌都带上【燃烧】」。
+      //   技能在匹配之前结算，它已落在堆顶 → 堆上只有它一张时堆底就是它自己。
+      //   上面那段「别顺手改回同色」说的是**跟它**同色；跟堆底同色读的是局面、跟槽无关，不撞那条〕
+      const hasBottom = pile.value.length > 0
+      const bottomRed = hasBottom ? pileRed(0) : false
       for (let i = 0; i < mine.length; i++) {
-        if (isRedSuit(mine[i].suit) != isRedSuit(lastPlayed!.suit)
+        if (hasBottom && isRedSuit(mine[i].suit) == bottomRed
           && !burnOnHand(mine[i])) {
           addBurnHand(mine[i])
           fired = fired + 1
@@ -7728,9 +8474,10 @@
       }
       message.value = message.value + (byFoe ? ' 庄家引火：' : ' 引火：')
         + (lit ? '它自带燃烧；' : '它没点着；')
-        + (fired > 0
-          ? '手里 ' + fired + ' 张异色的带上了燃烧 —— 那几张落堆就是火。'
-          : '手里没有异色的牌。')
+        + (!hasBottom ? '堆空着，没有堆底。'
+          : fired > 0
+            ? '堆底是' + (bottomRed ? '红' : '黑') + '的，手里 ' + fired + ' 张同颜色的带上了燃烧。'
+            : '堆底是' + (bottomRed ? '红' : '黑') + '的，手里没有同颜色的牌。')
     }
     // ---------- 【薪潮】：自带【燃烧】；堆牌1，对方堆牌1 ----------
     //
@@ -7807,22 +8554,27 @@
     //（`draw-skills.uts` 文件头第 33 行：「它」不写「这张」「此牌」）。
     // 2026-10-22 我把它改成过「跟打出的这张」，当天撤回来了 ——
     // 理由和【拢水】那个反例记在 `draw-skills.uts` 隔凌那条表项注释里
+    // 〔2026-10-30 用户改：「自带【结冰】；摸 1 张牌，跟摸上来的牌同颜色的手牌都贴上【结冰】」。
+    //   上面那段「比的是 lastPlayed」**作废** —— 现在比的是摸上来那张（`got`），含它自己。
+    //   牌库空没摸到 → 没有参照，一张不贴〕
     if (hasTrigger(skills, SK_LOCKCOLOR) && lastPlayed != null) {
       const got = drawFor(byFoe)
       const mine = byFoe ? foeHand.value : hand.value
       let iced = 0
-      for (let i = 0; i < mine.length; i++) {
-        if (isRedSuit(mine[i].suit) != isRedSuit(lastPlayed!.suit)
-          && !frostOnHand(mine[i])) {
-          addFrostHand(mine[i])
-          iced = iced + 1
+      if (got != null) {
+        for (let i = 0; i < mine.length; i++) {
+          if (isRedSuit(mine[i].suit) == isRedSuit(got!.suit)
+            && !frostOnHand(mine[i])) {
+            addFrostHand(mine[i])
+            iced = iced + 1
+          }
         }
       }
       message.value = message.value + (byFoe ? ' 庄家隔凌：' : ' 隔凌：')
-        + (got != null ? '摸了 1 张；' : '牌库空了，没摸到；')
-        + (iced > 0
-          ? '手里 ' + iced + ' 张异色的带上了结冰。'
-          : '手里没有异色的牌。')
+        + (got != null
+          ? '摸到一张' + (isRedSuit(got!.suit) ? '红' : '黑') + '牌，'
+            + (iced > 0 ? '手里 ' + iced + ' 张同颜色的带上了结冰。' : '手里没有同颜色的牌。')
+          : '牌库空了，没摸到。')
     }
     // 【燎原】原先在这儿挂住在场效果。技能删了 ——
     // 蔓延现在是【燃烧】关键词自带的，不需要任何技能在场（见 spreadFire）
@@ -7901,6 +8653,34 @@
   // 演完（finishSweep）得从这儿接着结算剩下的技能。
   // 不演（没收到牌）的时候 afterPlay 直接调它，跟拆开之前一个顺序
   function afterPlayTail(byFoe : boolean, skills : number[], from : number) {
+    // 【褪色】标签（褪递贴的）：这张落堆之后先褪色（它自己的置 0 在 valuesOf）。排在所有收牌段前面 ——
+    // 同一张要是还带着【收零】，先褪色再收（照「【褪色】；【收零】」那一版的次序）
+    if (lastPlayed != null && fadeKeyOn(lastPlayed!) && fadeDoneCard != lastPlayed) {
+      fadeDoneCard = lastPlayed
+      const n = fadeLand(pileIndexOf(lastPlayed!))
+      message.value = message.value + (byFoe ? ' 庄家这张带着褪色：' : ' 这张带着褪色：')
+        + (n > 0 ? '堆上 ' + n + ' 张跟第一张非 0 牌同颜色的牌置 0 了。' : '它置 0。')
+    }
+    // 【缩水】：挑他 1 张置 0（明置）→ 他手里每有 1 张 0 点牌全堆 −3 —— 排在所有收牌段前面，
+    // 因为【收零】（TAIL_ZERO）要在减完之后的堆上判。你出它时停下来挑，挑完从这儿重入（shrinkDoneCard 挡重复）
+    if (lastPlayed != null && hasTrigger(skills, SK_ZERODROP) && shrinkDoneCard != lastPlayed) {
+      shrinkDoneCard = lastPlayed
+      // 〔2026-10-30 改成盲选（照浑水）：池子 = 他还没置 0 的牌，J 也在里面〕
+      if (!byFoe && murkPool(false).length > 0) {
+        shrinkPending.value = true
+        shrinkSkills = skills
+        return
+      }
+      if (byFoe) {
+        const pool = murkPool(true)
+        if (pool.length > 0) {
+          const at = pool[Math.floor(Math.random() * pool.length)]
+          markDead(true, at, true, '缩水')
+          handSeen.value = withFlag(handSeen.value, at)
+        }
+      }
+      shrinkDrop(byFoe)
+    }
     // 〔**这一段 2026-10-16 清空了两条死分支**：【退潮】（技能 10-14 删）
     //   和【洪水】（10-15 删）。两条的 `hasTrigger` 都恒为 false。
     //
@@ -7937,14 +8717,19 @@
     }
     // 收色：堆上同花色的一起收走（含它自己）。散着收，演收牌特效 ——
     // 开演了就停在这儿，演完从撒网那一段接着走
-    // 【传色】先给手里同颜色的牌贴【花色匹配】（贴在花色匹配之前 —— 后者可能开演收牌特效、return 掉）
-    if (from <= TAIL_HUE && hasTrigger(skills, SK_SUITCOLOR) && lastPlayed != null) {
+    // 【传色】先给手里跟**堆底**同颜色的牌贴【花色匹配】（贴在花色匹配之前 —— 后者可能开演收牌特效、return 掉）。
+    // 〔2026-10-29 用户定：「跟它同颜色」→「跟堆底同颜色」。原先在 ♥ 槽里贴的多半是本来就会响的 ♥，
+    //   ♥ / A 只有 ×1.50；改完 ×2.97、点数槽不变。堆底取的是**匹配之前**那张 ——
+    //   正因为贴在匹配之前，这一句不用拆特效流程，而且玩家出牌时看得见它照的是哪张。
+    //   它自己落在堆底时（堆原先是空的 / 逆流沉底）就照它自己的颜色，跟旧版一样〕
+    if (from <= TAIL_HUE && hasTrigger(skills, SK_SUITCOLOR) && lastPlayed != null && pile.value.length > 0) {
       const mine = byFoe ? foeHand.value : hand.value
+      const bottomRed = isRedSuit(pileSuitAt(0))
       let given = 0
       const next = matchKey.value.slice(0)
       for (let i = 0; i < mine.length; i++) {
         if (mine[i].rank != JACK && !matchKeyOn(mine[i])
-          && isRedSuit(mine[i].suit) == isRedSuit(lastPlayed!.suit)) {
+          && isRedSuit(mine[i].suit) == bottomRed) {
           next.push(mine[i])
           given = given + 1
         }
@@ -7952,17 +8737,26 @@
       matchKey.value = next
       if (given > 0) {
         message.value = message.value + (byFoe ? ' 庄家传色：' : ' 传色：')
-          + '手里 ' + given + ' 张同颜色的牌带上了花色匹配。'
+          + '手里 ' + given + ' 张跟堆底同颜色的牌带上了花色匹配。'
       }
     }
+    // 【收色】〔2026-10-29 用户定〕：它的花色先变成跟堆底那张相同，再走【花色匹配】（只算同花色）。
+    //   原先是「相同颜色视为同花色」那一句 —— 撤了
     if (from <= TAIL_HUE && hasTrigger(skills, SK_HUE) && lastPlayed != null) {
-      if (hueFor(byFoe, lastPlayed!, skills, true, '收色')) {
+      if (hueFor(byFoe, lastPlayed!, skills, suitToBottom(byFoe, lastPlayed!), '收色')) {
         return
       }
     } else if (from <= TAIL_HUE && lastPlayed != null
       && (hasTrigger(skills, SK_SUITCOLOR) || matchKeyOn(lastPlayed!))) {
       // 传色本身 / 手里带着【花色匹配】打出的牌：只算同花色（收色那条「同颜色」不在这儿）
-      if (hueFor(byFoe, lastPlayed!, skills, false, hasTrigger(skills, SK_SUITCOLOR) ? '传色' : '花色匹配')) {
+      if (hueFor(byFoe, lastPlayed!, skills, lastPlayed!.suit, hasTrigger(skills, SK_SUITCOLOR) ? '传色' : '花色匹配')) {
+        return
+      }
+    }
+    // 【收零】（褪递贴的）：特殊匹配 —— 它打出时已经是 0 点（valuesOf），普通匹配钓不到；
+    // 堆上另有 0 点牌就收走所有 0 点牌连它自己。演完从撒网那一段接着走
+    if (from <= TAIL_ZERO && lastPlayed != null && (zeroKeyOn(lastPlayed!) || hasTrigger(skills, SK_ZERODROP))) {
+      if (zeroHarvestFor(byFoe, lastPlayed!, skills)) {
         return
       }
     }
@@ -7977,8 +8771,22 @@
     // **排在收色、撒网后面，野火前面** —— 跟那两件同组（都是「换一条
     // 判定线」的收牌技能），而排在野火前面照的是野火那条注释的同一个理由：
     // 收牌的先收完，点火的最后来
-    if (from <= TAIL_FLOW && hasTrigger(skills, SK_FLOW)) {
+    // 【续流】前半句：它自己走【顺子匹配】，**不当通配**（selfWild=false，跟顺子标签同一支）。
+    // 排在伏流后面、顺子标签前面；凑成了从 TAIL_WADE 接着走（后半句贴标签在停人那一串）
+    if (from <= TAIL_FLOW && !hasTrigger(skills, SK_FLOW) && hasTrigger(skills, SK_FLOWPASS) && lastPlayed != null) {
+      if (straightCore(byFoe, skills, '续流', false, false, false)) {
+        return
+      }
+    } else if (from <= TAIL_FLOW && hasTrigger(skills, SK_FLOW)) {
       if (straightFor(byFoe, skills)) {
+        return
+      }
+    } else if (from <= TAIL_FLOW && lastPlayed != null && flowKeyOn(lastPlayed!)) {
+      // 【流钥】/【顺递】贴过的牌：只走【顺子匹配】—— `tagPick=false` = 不另贴伏流那张通配，
+      // `selfWild=false` = **它自己也不当通配**，按自己的点数参与（desc 只有「带上【顺子匹配】」那半句）。
+      // 〔2026-10-30 改：原先 straightCore 一律给它自己贴通配 = desc↔实现不一致（用户指出）。
+      //   跟模拟器 `FLOW_KEY_SELF=own`（现行默认）同一条路〕
+      if (straightCore(byFoe, skills, '流钥', false, false, false)) {
         return
       }
     }
@@ -8004,6 +8812,21 @@
         return
       }
     }
+    // 插流 / 调序 / 换序：【顺序匹配】—— 连续 ≥ ORDER_MIN 张有序则收走那一段。
+    // **自己一段**（TAIL_ORDER），排在易流后、野火前（同组特殊匹配线）。
+    // 换序 / 调序先改局面再判（跟易流「先换再判顺子」同一条顺序硬规则）。
+    if (from <= TAIL_ORDER && (hasTrigger(skills, SK_ORDERINS)
+      || hasTrigger(skills, SK_ORDERPILE) || hasTrigger(skills, SK_ORDERSWAP))) {
+      if (hasTrigger(skills, SK_ORDERSWAP) && lastPlayed != null) {
+        swapForOrder(byFoe, lastPlayed!)
+      }
+      if (hasTrigger(skills, SK_ORDERPILE) && lastPlayed != null) {
+        swapPileForOrder(byFoe, lastPlayed!)
+      }
+      if (orderFor(byFoe, skills)) {
+        return
+      }
+    }
     // 野火：给堆上所有牌点火，已经着了的收走。
     //
     // **排在收色、撒网后面**：它们先把该收的收掉，野火再给剩下的点火。
@@ -8014,10 +8837,68 @@
         return
       }
     }
+    // ---- 不停人的两件：排在停人那一串**前面**〔2026-10-30 挪过来，见 TAIL_ASK〕----
+    // 【流钥】：打出的牌触发了技能槽 → 1 张手牌带上【顺子匹配】
+    //
+    // 「触发技能槽」= `skills.length > 0`（`skillsOf` 已把串钩 / 红钩扩进去）。
+    // 原先排在零递旁边；2026-10-30 挪到停人那一串前面（见 TAIL_ASK）—— 它不停人。
+    // 自动贴、不停人 —— 一局约触发 7 次，停下来挑会烦
+    if (from <= TAIL_REST && hasSpecial(byFoe, SP_SLOTTAG) && skills.length > 0) {
+      if (doSlotTag(byFoe)) {
+        message.value = message.value + (byFoe ? ' 庄家流钥：' : ' 流钥：')
+          + '手里 1 张带上了顺子匹配。'
+      }
+    }
+    // ---------- 【传顺】：手牌都带上【顺子匹配】〔2026-10-30 上架〕----------
+    // 自动贴、不停人（没有挑的余地）。能贴的照 flowKeyable（J / 无点数 / 已贴过的跳过），
+    // 跟模拟器 flowTagAll（doFlowTag 循环）同一个口径
+    if (from <= TAIL_REST && hasTrigger(skills, SK_FLOWALL)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      let n = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (flowKeyable(mine[i])) {
+          flowKey.value = flowKey.value.concat([mine[i]])
+          n = n + 1
+        }
+      }
+      if (n > 0) {
+        message.value = message.value + (byFoe ? ' 庄家传顺：' : ' 传顺：')
+          + '手里 ' + n + ' 张带上了顺子匹配。'
+      }
+    }
+    // ---------- 【满墙】：它和手里的牌都带【石墙】〔2026-10-29 上架 · 同日夜撤掉花色钥匙〕----------
+    //
+    // 打出的这张：当时已在堆上 → 直接 `addStone`（照模拟器 afterPlay）。
+    // resolveMatch 会临时摘下放回，石签按牌对象引用留着，截断仍然看得见。
+    // 手里剩下的：走 stoneHand，日后打出由 stoneHandOnLand 落堆成墙。
+    // 之后 refill 摸来的**不**自动带墙（desc 没写「之后」）。
+    //
+    // 〔原先还有「再选 1 张带上【花色匹配】」，停下来等人挑（stoneFullPending / onStoneFull）。
+    //   用户 2026-10-29 夜定撤：md-sim 同批量出那半句只值 +0.21（X +5.08 → +4.87，1σ 分不开）——
+    //   墙已经把钥匙的收益占掉了。挑牌位、提示块、点牌分派一起删了〕
+    if (from <= TAIL_REST && hasTrigger(skills, SK_STONEFULL) && lastPlayed != null) {
+      if (inPile(lastPlayed!)) {
+        addStone(lastPlayed!)
+      }
+      const mine = byFoe ? foeHand.value : hand.value
+      for (let i = 0; i < mine.length; i++) {
+        addStoneHand(mine[i])
+      }
+      if (mine.length > 0) {
+        message.value = message.value + (byFoe ? ' 庄家满墙：' : ' 满墙：')
+          + '手里 ' + mine.length + ' 张带上了石墙。'
+      }
+    }
+    // ---- 停人那一串从这儿起：每件 `askFirst` 只问一次，挑完 askNext 从 TAIL_ASK 重入 ----
+    if (!byFoe) {
+      askSkills = skills
+    }
     // ---- 动对方手牌那几件：排在冻结**前面** ----
     //
-    // 停人的技能一个回合只停一次（下面每一件玩家侧都 return），所以
-    // 同一张牌触发两件停人技能时，**只走前面那件**，后面那件作废。
+    // 〔**2026-10-30 起不再「一个回合只停一次」**：同一张牌触发几件停人技能，
+    //   挨个问，一件都不作废（见 TAIL_ASK）。下面这张表现在只管**先问谁**。
+    //   原文：「停人的技能一个回合只停一次（下面每一件玩家侧都 return），所以
+    //   同一张牌触发两件停人技能时，**只走前面那件**，后面那件作废。」〕
     // 排序照「贵的赢」—— 跟择饵赢过观潮是同一条规矩：
     //
     //   对换 160 > 摘钩 150 = 死水 150 > 压舱 80 > 冻结 70 > 换水 60
@@ -8036,7 +8917,7 @@
     // 冻结是一次下注。
     //
     // 死水排在摘钩**后面**（同价 150，但摘钩是原有的，不动它的位置）
-    if (hasTrigger(skills, SK_DEAD)) {
+    if (hasTrigger(skills, SK_DEAD) && askFirst(SK_DEAD)) {
       // 挑得动的那几张（排掉 J 和已经废过的，见 deadPool）
       if (deadPool(byFoe).length > 0) {
         if (!byFoe) {
@@ -8057,8 +8938,31 @@
         }
       }
     }
-    if (hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_UNHOOK)
-      || hasTrigger(skills, SK_PRESS)) {
+    // 【浑水】：对方先抽 1 张（不自动置 0），然后盲选他 2 张明置置 0（J 也算）。
+    // 照模拟器 rules.js 的 drawzero blind 档：池子 = 他还没置 0 的牌，随机挑
+    if (hasTrigger(skills, SK_MURK) && askFirst(SK_MURK)) {
+      drawFor(!byFoe)
+      const room = murkPool(byFoe).length
+      if (room > 0) {
+        if (!byFoe) {
+          murkLeft.value = room < 2 ? room : 2
+          murkPending.value = true
+          return
+        }
+        // 庄家是真的盲选 —— 随机（它看得见你的牌也不许挑，那就不叫盲选了）
+        for (let n = 0; n < 2; n++) {
+          const pool = murkPool(true)
+          if (pool.length == 0) {
+            break
+          }
+          const at = pool[Math.floor(Math.random() * pool.length)]
+          markDead(true, at, true, '浑水')
+          handSeen.value = withFlag(handSeen.value, at)
+        }
+      }
+    }
+    if ((hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_UNHOOK)
+      || hasTrigger(skills, SK_PRESS)) && askFirst(SK_UNHOOK)) {
       const which = hasTrigger(skills, SK_SWAPCARD) ? SK_SWAPCARD
         : (hasTrigger(skills, SK_UNHOOK) ? SK_UNHOOK : SK_PRESS)
       const theirs = byFoe ? hand.value : foeHand.value
@@ -8084,7 +8988,7 @@
     //
     // 只挑 1 张（不是 2 张）—— 同样推 4 张/次，**集中比分散强 33%**，
     // 见 draw-skills 里 SURGE_LAYERS 那段
-    if (hasTrigger(skills, SK_SURGE)) {
+    if (hasTrigger(skills, SK_SURGE) && askFirst(SK_SURGE)) {
       if (surgePool(byFoe).length > 0) {
         if (!byFoe) {
           takeSkill.value = SK_SURGE
@@ -8100,7 +9004,7 @@
     //
     // 庄家侧**一张一张来、每次重算池子** —— 上一张贴过之后它就不在
     // sinkPool 里了（不可叠加），不然两张会挑中同一个（照死水那条）
-    if (hasTrigger(skills, SK_SINKTAG)) {
+    if (hasTrigger(skills, SK_SINKTAG) && askFirst(SK_SINKTAG)) {
       // 发动闸也按**两排合计** —— 玩家侧可以挑自己的，
       // 所以「对手那排全是 J」不该让这件技能整个不发动
       if (sinkPool(byFoe).length + (byFoe ? 0 : sinkPool(true).length) > 0) {
@@ -8124,7 +9028,7 @@
     }
     // 【冰雷】：挂成一条 held（雷牌离场 = 拆雷，expireHeld 自动清），
     // 再给自己 1 张手牌贴冰。你用的时候要挑，所以会停下来等
-    if (hasTrigger(skills, SK_ICEBOMB) && lastPlayed != null) {
+    if (hasTrigger(skills, SK_ICEBOMB) && lastPlayed != null && askFirst(SK_ICEBOMB)) {
       if (inPile(lastPlayed!)) {
         addHeld({
           source: lastPlayed!, skill: SK_ICEBOMB, target: null, byFoe: byFoe
@@ -8143,8 +9047,52 @@
         }
       }
     }
-    // 【零递】：给 1 张手牌贴【21 匹配】。你用的时候要挑，所以会停下来等（照冰雷）
-    if (hasTrigger(skills, SK_ZERODRAFT)) {
+    // 【顺递】「堆上 1 张牌带上【通配】；1 张手牌带上【顺子匹配】」〔2026-10-30 用户定采用方案丙〕
+    // 钥匙：你用的时候要挑（照零递），庄家照流钥那条笨挑（flowKeyPick —— 跟模拟器 doFlowTag 同一个挑法）。
+    // 通配：**程序挑**（flowDraftWild），钥匙定了之后才挑得出（要按那把钥匙估顺子）。
+    // 手里一张都贴不上时照样贴通配（模拟器同：钥匙为空就贴堆顶那张）
+    if (hasTrigger(skills, SK_FLOWDRAFT) && askFirst(SK_FLOWDRAFT)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      let room = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (flowKeyable(mine[i])) {
+          room = room + 1
+        }
+      }
+      if (room > 0 && !byFoe) {
+        flowDraftSk.value = SK_FLOWDRAFT
+        flowDraftPending.value = true
+        return
+      }
+      let key : PlainCard | null = null
+      if (room > 0 && doSlotTag(true)) {
+        key = flowKey.value[flowKey.value.length - 1]
+        message.value = message.value + ' 庄家顺递：手里 1 张带上了顺子匹配。'
+      }
+      flowDraftWild(byFoe, key)
+    }
+    // 【续流】后半句「1 张手牌带上【顺子匹配】」—— 前半句（它自己走顺子）在 TAIL_FLOW 那一段已经判过了。
+    // 挑法照顺递（共用 flowDraftPending 那块），只是挑完不贴通配
+    if (hasTrigger(skills, SK_FLOWPASS) && askFirst(SK_FLOWPASS)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      let room = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (flowKeyable(mine[i])) {
+          room = room + 1
+        }
+      }
+      if (room > 0 && !byFoe) {
+        flowDraftSk.value = SK_FLOWPASS
+        flowDraftPending.value = true
+        return
+      }
+      if (room > 0 && doSlotTag(true)) {
+        message.value = message.value + ' 庄家续流：手里 1 张带上了顺子匹配。'
+      }
+    }
+    // 【零递】：给 ZERODRAFT_N（= 1，10-29 改过 2 又改回）张手牌贴【21 匹配】。你用的时候要挑，所以会停下来等（照冰雷），
+    // 一张一张挑；手里能贴的不够就贴到没有为止
+    if (hasTrigger(skills, SK_ZERODRAFT) && askFirst(SK_ZERODRAFT)) {
       const mine = byFoe ? foeHand.value : hand.value
       let room = 0
       for (let i = 0; i < mine.length; i++) {
@@ -8154,13 +9102,83 @@
       }
       if (room > 0) {
         if (!byFoe) {
+          zeroDraftLeft.value = room < ZERODRAFT_N ? room : ZERODRAFT_N
           zeroDraftPending.value = true
           return
         }
-        const at = foeDraftKeyPick()
-        if (at >= 0) {
+        let got = 0
+        for (let t = 0; t < ZERODRAFT_N; t++) {
+          const at = foeDraftKeyPick()
+          if (at < 0) {
+            break
+          }
           draftKey.value = draftKey.value.concat([foeHand.value[at]])
-          message.value = message.value + ' 庄家零递：手里 1 张带上了 21 匹配。'
+          got = got + 1
+        }
+        if (got > 0) {
+          message.value = message.value + ' 庄家零递：手里 ' + got + ' 张带上了 21 匹配。'
+        }
+      }
+    }
+    // 【褪递】〔2026-10-29 深夜，同晚换效果〕：对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】。
+    // 对方那张**随机**（desc 没写「翻开」，看不到他的牌 —— 照模拟器 FS_PICK=rand）；J / 贴过的不贴。
+    // 它自己照常匹配、不置 0。收零那张你用的时候要挑，所以会停下来等（照零递）
+    if (hasTrigger(skills, SK_FADETAG) && lastPlayed != null && askFirst(SK_FADETAG)) {
+      const theirs = byFoe ? hand.value : foeHand.value
+      const cands : number[] = []
+      for (let i = 0; i < theirs.length; i++) {
+        if (theirs[i].rank != JACK && !fadeKeyOn(theirs[i])) {
+          cands.push(i)
+        }
+      }
+      if (cands.length > 0) {
+        const at = cands[Math.floor(Math.random() * cands.length)]
+        fadeKey.value = fadeKey.value.concat([theirs[at]])
+        message.value = message.value + (byFoe ? ' 庄家褪递：你手里 1 张带上了褪色。' : ' 褪递：庄家手里 1 张带上了褪色。')
+      }
+      const mine = byFoe ? foeHand.value : hand.value
+      let room = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (zeroKeyable(mine[i])) {
+          room = room + 1
+        }
+      }
+      if (room > 0) {
+        if (!byFoe) {
+          fadeTagPending.value = true
+          return
+        }
+        const at = foeZeroKeyPick()
+        if (at >= 0) {
+          zeroKey.value = zeroKey.value.concat([foeHand.value[at]])
+          message.value = message.value + ' 庄家褪递：手里 1 张带上了收零。'
+        }
+      }
+    }
+    // 【回水】〔2026-10-30〕：盲选对方 1 张手牌明置置 0（J 也算，照浑水），再给自己 1 张手牌贴【收零】（照褪递）。
+    // 它自己照常匹配、不置 0。你出它时停两下：先点庄家那排，再点自己的手牌（onBackwater → onBackTag → resolveMatch）
+    if (hasTrigger(skills, SK_BACKWATER) && lastPlayed != null && askFirst(SK_BACKWATER)) {
+      if (!byFoe) {
+        if (murkPool(false).length > 0) {
+          backPending.value = true
+          return
+        }
+        if (backTagRoom(false)) {
+          backTagPending.value = true
+          return
+        }
+      } else {
+        // 庄家是真的盲选 —— 随机（照浑水）
+        const pool = murkPool(true)
+        if (pool.length > 0) {
+          const at = pool[Math.floor(Math.random() * pool.length)]
+          markDead(true, at, true, '回水')
+          handSeen.value = withFlag(handSeen.value, at)
+        }
+        const mine = foeZeroKeyPick()
+        if (mine >= 0) {
+          zeroKey.value = zeroKey.value.concat([foeHand.value[mine]])
+          message.value = message.value + ' 庄家回水：手里 1 张带上了收零。'
         }
       }
     }
@@ -8169,7 +9187,7 @@
     // 这儿只贴第一张，**续贴在 endPlayTag 里**（要等匹配演完才知道凑没凑成）。
     // 进 `chainTag` 这一步不能省：少了它，续贴的条件就变成「任何带 21 匹配的
     // 牌凑成」，于是零递 / 色递 / 递吃贴的标签也会把链点着 —— 静默的虚高
-    if (hasTrigger(skills, SK_CHAINTAG)) {
+    if (hasTrigger(skills, SK_CHAINTAG) && askFirst(SK_CHAINTAG)) {
       if (draftRoom(byFoe) > 0) {
         if (!byFoe) {
           chainDraftPending.value = true
@@ -8192,7 +9210,7 @@
     //   `matchKeyPick` 的 `skipDraft` 是配套的那道闸。
     //
     // 载体自己**两条线都不带**，所以它落堆之后不会把整堆变成无点数
-    if (hasTrigger(skills, SK_HUETAG)) {
+    if (hasTrigger(skills, SK_HUETAG) && askFirst(SK_HUETAG)) {
       if (!byFoe) {
         // 你得点两下：先点贴 21 的那张，再点拿花色钥匙的那张（见 onHueDraft）
         if (draftRoom(false) > 0) {
@@ -8221,7 +9239,7 @@
       }
     }
     // 冻结：锁对方一张手牌。你用的时候要挑位置，所以会停下来等
-    if (hasTrigger(skills, SK_FREEZE) && lastPlayed != null && inPile(lastPlayed!)) {
+    if (hasTrigger(skills, SK_FREEZE) && lastPlayed != null && inPile(lastPlayed!) && askFirst(SK_FREEZE)) {
       const theirs = byFoe ? hand.value : foeHand.value
       // 〔2026-10-21 撤了上限：原先这儿先判 `frozenCount(theirs) >= FREEZE_CAP`，
       //   满了就只发一句「这次没冻」不停下来等人挑。撤的理由在 draw-skills.uts
@@ -8238,8 +9256,9 @@
     // 换水：挑**任意张**自己的手牌塞回牌库洗掉。
     //
     // 排在观潮**前面**：两件都可能停下来等你选，而一个回合里只停一次说得清。
+    // 〔2026-10-30 起停人技能挨个问（见 TAIL_ASK），排序只管先问谁〕
     // 手里没牌了就跳过 —— 没得挑
-    if (hasTrigger(skills, SK_SWAP)) {
+    if (hasTrigger(skills, SK_SWAP) && askFirst(SK_SWAP)) {
       const mine = byFoe ? foeHand.value : hand.value
       if (mine.length > 0) {
         if (!byFoe) {
@@ -8275,12 +9294,13 @@
     // 排在换水后面：两件都只动自己手牌、都不碰堆，位置在这一串之内就行；
     // 而两件撞在同一张牌上时走换水（它先 return），这一次作废 ——
     // **一个回合只停一次**，跟换水/滤饵那一对一个规矩。
+    // 〔2026-10-30 起不再作废：两件挨个问（见 TAIL_ASK）〕
     //
     // ⚠ 它给对方塞牌，可局长是中性的（按一整个回合算）：我少一张 →
     //   回合末补 2 张（牌库 −2）；他手里 5 张 > 下限 4 → **回合末不补**。
     //   一个回合下来双方各少摸一次，账对平。所以这件真正花掉的是
     //   **他的一次随机摸牌**，不是他的一张牌。
-    if (hasTrigger(skills, SK_DUMPBAIT)) {
+    if (hasTrigger(skills, SK_DUMPBAIT) && askFirst(SK_DUMPBAIT)) {
       const mine = byFoe ? foeHand.value : hand.value
       if (mine.length > 0) {
         if (!byFoe) {
@@ -8317,6 +9337,7 @@
     // 排在换水后面：两件都只动自己手牌、都不碰堆，所以位置只要在这一串之内就行。
     // 两件撞在同一张牌上时走换水（它先 return），滤饵那次作废 ——
     // 跟择饵/观潮那对一个规矩：**一个回合只停一次**。
+    // 〔2026-10-30 起不再作废：两件挨个问（见 TAIL_ASK）〕
     //
     // ⚠ **摸牌要全部摸完再挑，不能「摸一张挑一张」** ——
     // 「先看后退」是这件技能的全部机制，而一张一张地来是另一件技能
@@ -8324,7 +9345,7 @@
     //
     // 这儿没有「手里有没有牌」那道闸（换水有）—— 摸牌不看手牌，
     // 摸完手里必然有牌可退，除非牌库和手牌同时空
-    if (hasTrigger(skills, SK_SIFT)) {
+    if (hasTrigger(skills, SK_SIFT) && askFirst(SK_SIFT)) {
       let drew = 0
       for (let n = 0; n < SIFT_DRAW; n++) {
         // 牌库见底就少摸几张（drawFor 返回 null）
@@ -8373,7 +9394,7 @@
     // 所以同一张牌上两件都触发的时候，走的是择饵、观潮那次作废。
     // 这是有意的取舍：择饵看得多、挑得准、还贵（100 对 60），
     // 那它就该是赢的那一件。两件撞在同一个点数上本身就是一次失算
-    if (hasTrigger(skills, SK_PICK) && deck.value.length > 1) {
+    if (hasTrigger(skills, SK_PICK) && deck.value.length > 1 && askFirst(SK_PICK)) {
       const tops = topCards(PICK_LOOK)
       if (!byFoe) {
         pickTops.value = tops
@@ -8391,12 +9412,13 @@
     //
     // 排在择饵**后面**：两件都停人，而「一个回合只停一次」——
     // 所以同一张牌上两件都触发时走的是择饵，这一次作废。
+    // 〔2026-10-30 起不再作废：两件挨个问（见 TAIL_ASK）〕
     // 那是照择饵赢过观潮的同一条规矩（**贵的赢**）：择饵 100 > 分饵 85。
     //
     // ⚠ 它必须排在**所有停人技能之后**吗？不 —— 它跟择饵、同号是同一组
     //（都是「看牌库」那一类），而动对方手牌那几件在更后面、各自 return。
     // 关键只有一条：**停人的技能之间的先后 = 谁赢**，而那按价排
-    if (hasTrigger(skills, SK_GIFT) && deck.value.length > 0) {
+    if (hasTrigger(skills, SK_GIFT) && deck.value.length > 0 && askFirst(SK_GIFT)) {
       const tops = topCards(GIFT_LOOK)
       if (tops.length > 0) {
         if (!byFoe) {
@@ -8411,7 +9433,7 @@
     // 同号：牌库里同点数的那几张（最多 3 张）摊开让你挑。停人，
     // 排在择饵后面 —— 两件同价（100），但择饵是原有的，不改它的位置。
     // 牌库里一张同点数的都没有就跳过
-    if (hasTrigger(skills, SK_TWIN) && lastPlayed != null) {
+    if (hasTrigger(skills, SK_TWIN) && lastPlayed != null && askFirst(SK_TWIN)) {
       const pool = twinPool(lastPlayed!)
       if (pool.length > 0) {
         if (!byFoe) {
@@ -8438,9 +9460,10 @@
     //
     // 带 `!hasTrigger(SK_PICK)` 这个闸是为了**让庄家和你受同一条规矩**：
     // 你那边两件都触发时只走择饵（停人的那一刻就 return 了），
+    // 〔2026-10-30 起停人技能挨个问（TAIL_ASK），这道闸就成了规则本身 —— 模拟器 rules.js 同一道闸，照留〕
     // 庄家不停人、不加闸就会两件都吃，同一套配装它比你强 —— 那不行
     if (hasTrigger(skills, SK_TIDE) && !hasTrigger(skills, SK_PICK)
-      && deck.value.length > 1) {
+      && deck.value.length > 1 && askFirst(SK_TIDE)) {
       const tops = tideTops()
       if (!byFoe) {
         tideCards.value = tops
@@ -8594,7 +9617,7 @@
       sinkMarked(marks)
       message.value = '你把 ' + tideNames(sunk) + ' 沉到了牌库底。'
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 择饵落地：顶上那 n 张里留第 keep 张，其余沉到底。
@@ -8626,7 +9649,7 @@
     pickPending.value = false
     pickTops.value = [] as PlainCard[]
     doPickDeck(false, index)
-    resolveMatch(false)
+    askNext()
   }
 
   // ---------- 【分饵】点牌：**第一下给自己、第二下给对方** ----------
@@ -8670,7 +9693,7 @@
       picks.push(-1)
     }
     doGift(false, tops, picks)
-    resolveMatch(false)
+    askNext()
   }
 
   // 庄家从那几张里挑哪一张。
@@ -8853,7 +9876,74 @@
     } else {
       message.value = '冰雷：你没贴。雷还埋着。'
     }
-    resolveMatch(false)
+    askNext()
+  }
+
+  // 顺递：你挑中了自己第 index 张（-1 表示不贴）
+  function onFlowDraft(index : number) {
+    if (!flowDraftPending.value) {
+      return
+    }
+    if (index >= 0 && index < hand.value.length && !flowKeyable(hand.value[index])) {
+      // J / 无点数 / 贴过的点了不算，接着等
+      return
+    }
+    flowDraftPending.value = false
+    const pass = flowDraftSk.value == SK_FLOWPASS
+    const name = pass ? '续流' : '顺递'
+    flowDraftSk.value = -1
+    let key : PlainCard | null = null
+    if (index >= 0) {
+      key = hand.value[index]
+      flowKey.value = flowKey.value.concat([key!])
+      message.value = name + '：' + cardName(key!) + ' 带上了顺子匹配。'
+    } else {
+      message.value = name + '：你没贴。'
+    }
+    // 只有顺递有「堆上 1 张牌带上【通配】」那半句
+    if (!pass) {
+      flowDraftWild(false, key)
+    }
+    askNext()
+  }
+
+  // 【顺递】那半句「堆上 1 张牌带上【通配】」：挑哪张。照模拟器 `wildKeyPile` ——
+  // 每张（不是刚打出的、还没带通配的）临时贴一下，用**钥匙牌**估顺子能收几张（flowKeyCount，
+  // 跟庄家估带标签手牌同一个函数），取最多的；一样多（含全是 0）或没钥匙就贴堆顶那张。
+  // 程序挑、不让玩家点 —— 堆是明的、钥匙是自己的，照易流 / 抬水「它算得准，所以它不猜」。
+  // ⚠ 兑现在下一手、中间对手要打一张，这个估法假设堆不变（模拟器同）
+  function flowDraftWild(byFoe : boolean, key : PlainCard | null) {
+    const at0 = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
+    let best = -1
+    let most = 0
+    if (key != null) {
+      for (let i = 0; i < pile.value.length; i++) {
+        if (i == at0 || isWildAt(i)) {
+          continue
+        }
+        const save = wildCards.value
+        wildCards.value = save.concat([pile.value[i]])
+        const n = flowKeyCount(key!, byFoe)
+        wildCards.value = save
+        if (n > most) {
+          most = n
+          best = i
+        }
+      }
+    }
+    if (best < 0) {
+      for (let i = pile.value.length - 1; i >= 0; i--) {
+        if (i != at0 && !isWildAt(i)) {
+          best = i
+          break
+        }
+      }
+    }
+    if (best < 0) {
+      return
+    }
+    addWild(pile.value[best])
+    message.value = message.value + (byFoe ? ' 庄家顺递' : ' 顺递') + '：给堆上第 ' + (best + 1) + ' 张贴上【通配】。'
   }
 
   // 零递：你挑中了自己第 index 张（-1 表示不贴）
@@ -8865,14 +9955,140 @@
       // J / 无点数 / 贴过的点了不算，接着等
       return
     }
-    zeroDraftPending.value = false
     if (index >= 0) {
       draftKey.value = draftKey.value.concat([hand.value[index]])
       message.value = '零递：' + cardName(hand.value[index]) + ' 带上了 21 匹配。'
+      zeroDraftLeft.value = zeroDraftLeft.value - 1
+      // 还能贴、手里也还有能贴的 → 接着停着等下一张
+      let room = 0
+      for (let i = 0; i < hand.value.length; i++) {
+        if (draftKeyable(hand.value[i])) {
+          room = room + 1
+        }
+      }
+      if (zeroDraftLeft.value > 0 && room > 0) {
+        return
+      }
     } else {
-      message.value = '零递：你没贴。'
+      message.value = message.value.indexOf('零递：') == 0 ? message.value + ' 剩下的不贴了。' : '零递：你没贴。'
     }
-    resolveMatch(false)
+    zeroDraftPending.value = false
+    zeroDraftLeft.value = 0
+    askNext()
+  }
+
+  // 褪递：你挑中了自己第 index 张贴【收零】（-1 表示不贴）
+  function onFadeTag(index : number) {
+    if (!fadeTagPending.value) {
+      return
+    }
+    if (index >= 0 && index < hand.value.length && !zeroKeyable(hand.value[index])) {
+      // J / 无点数 / 贴过的点了不算，接着等
+      return
+    }
+    if (index >= 0) {
+      zeroKey.value = zeroKey.value.concat([hand.value[index]])
+      message.value = '褪递：' + cardName(hand.value[index]) + ' 带上了收零。'
+    } else {
+      message.value = '褪递：你没贴。'
+    }
+    fadeTagPending.value = false
+    askNext()
+  }
+
+  // 庄家挑哪张贴【收零】：手里点数最小的那张（照模拟器 zeroKeyTag）
+  function foeZeroKeyPick() : number {
+    const mine = foeHand.value
+    let best = -1
+    let bestVal = 99
+    for (let i = 0; i < mine.length; i++) {
+      if (!zeroKeyable(mine[i])) {
+        continue
+      }
+      const vals = cardVals(mine[i])
+      let own = 99
+      for (let k = 0; k < vals.length; k++) {
+        if (vals[k] < own) {
+          own = vals[k]
+        }
+      }
+      if (own < bestVal) {
+        bestVal = own
+        best = i
+      }
+    }
+    return best
+  }
+
+  // 堆上第 i 张现在是不是 0 点：有点数、而且一个非零的都不剩（照模拟器 isZeroAt）
+  function zeroAt(i : number) : boolean {
+    const v = pileValsAt(i)
+    if (v.length == 0) {
+      return false
+    }
+    for (let k = 0; k < v.length; k++) {
+      if (v[k] != 0) {
+        return false
+      }
+    }
+    return true
+  }
+
+  // 【褪色】的后半句（词条在 draw-terms.uts）：从堆底往上数第一张不是 0 点的牌（at0 = 它自己，跳过；
+  // 无点数算「非 0」），堆上跟那张同颜色的牌都置 0（无点数的也置 0）。返回新变 0 几张；没有参照返回 −1。
+  // 模拟器那边是 `fadeLand`，两边一字一句对着写
+  function fadeLand(at0 : number) : number {
+    let ref = -1
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i != at0 && !zeroAt(i)) {
+        ref = i
+        break
+      }
+    }
+    if (ref < 0) {
+      return -1
+    }
+    const red = isRedSuit(pileSuitAt(ref))
+    const next : number[][] = []
+    let n = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i != at0 && isRedSuit(pileSuitAt(i)) == red) {
+        if (!zeroAt(i)) {
+          n = n + 1
+        }
+        next.push([0] as number[])
+      } else {
+        next.push(rawVals(i))
+      }
+    }
+    pileVals.value = next
+    return n
+  }
+
+  // 【收零】：堆上另有 0 点牌 → 收走所有 0 点牌连它自己（间隔匹配，夹在中间的不收）。
+  // 开演收牌特效了返回 true（afterPlayTail 停下，演完从撒网那一段接着走）。照 hueFor 的形制
+  function zeroHarvestFor(byFoe : boolean, card : PlainCard, skills : number[]) : boolean {
+    const at0 = pileIndexOf(card)
+    if (at0 < 0) {
+      return false
+    }
+    const wanted : boolean[] = []
+    let others = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      const hit = i == at0 || zeroAt(i)
+      if (hit && i != at0) {
+        others = others + 1
+      }
+      wanted.push(hit)
+    }
+    const who = byFoe ? ' 庄家收零：' : ' 收零：'
+    if (others == 0) {
+      message.value = message.value + who + '堆上没有别的 0 点牌，没收到。'
+      return false
+    }
+    const taken = harvestIndices(wanted)
+    message.value = message.value + who + '收走 ' + taken.length + ' 张 0 点牌。'
+    return startSweep(byFoe, taken, skills, TAIL_CAST)
   }
 
   // ---------- 21 匹配那三件的挑牌回调〔2026-10-28 上架〕----------
@@ -8899,7 +10115,7 @@
     } else {
       message.value = '连递：你没贴。'
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 色递第一下：挑贴【21 匹配】的那张（-1 表示不贴）。
@@ -8924,7 +10140,7 @@
       hueKeyPending.value = true
       return
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 色递第二下：挑拿【花色匹配】的那张（-1 表示不给）
@@ -8943,7 +10159,7 @@
     } else {
       message.value = message.value + ' 花色匹配那张你没贴。'
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 「收牌之后」那两件点完之后往哪走。
@@ -9016,7 +10232,7 @@
     } else {
       message.value = '你没冻。'
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 点庄家手牌那一排：按现在在等哪件技能分路。
@@ -9024,6 +10240,19 @@
   // 一个入口而不是在模板里写两个 @click —— 同一排牌同时只会在等一件事，
   // 分路放在这儿，模板那边就只有一个 onFoeCard
   function onFoeCard(index : number) {
+    // 浑水排最前：它不走 takeSkill（那条会翻开整手），挑的是位置
+    if (murkPending.value) {
+      onMurk(index)
+      return
+    }
+    if (shrinkPending.value) {
+      onShrink(index)
+      return
+    }
+    if (backPending.value) {
+      onBackwater(index)
+      return
+    }
     if (takeSkill.value >= 0) {
       // 【死水】挑不动的那几张（J、已经废过的）点了不该有反应 ——
       // 不拦的话 doDead 里那道闸会静静地吃掉这一下，而 deadLeft 已经减了，
@@ -9054,6 +10283,10 @@
   function canPickFoe(index : number) : boolean {
     if (freezePending.value) {
       return true
+    }
+    // 浑水：盖着的都点得中，只有已经置 0（明置着）的点不动
+    if (murkPending.value || shrinkPending.value || backPending.value) {
+      return index >= 0 && index < foeHand.value.length && !isDead(foeHand.value[index])
     }
     // 〔【薪潮】那一支 2026-10-28 撤了（换成堆牌，没有目标）。
     //   判据留着：**盲选再加一条排除就会漏信息** —— 它当时排 J
@@ -9110,7 +10343,7 @@
         takeSkill.value = -1
         deadLeft.value = 0
         message.value = message.value + ' 你放过了。'
-        resolveMatch(false)
+        askNext()
         return
       }
       doDead(false, index)
@@ -9121,7 +10354,7 @@
       }
       takeSkill.value = -1
       deadLeft.value = 0
-      resolveMatch(false)
+      askNext()
       return
     }
     // ---- 【退潮】挑 SINK_TAG_N 张，所以它跟死水一样自己管状态 ----
@@ -9137,7 +10370,7 @@
         takeSkill.value = -1
         sinkLeft.value = 0
         message.value = message.value + ' 你放过了。'
-        resolveMatch(false)
+        askNext()
         return
       }
       doSink(false, index, false)
@@ -9148,7 +10381,7 @@
       }
       takeSkill.value = -1
       sinkLeft.value = 0
-      resolveMatch(false)
+      askNext()
       return
     }
     // ---- 【引潮】只挑一张，所以走最简那条（挑完就清、就交匹配）----
@@ -9164,13 +10397,13 @@
       } else {
         doSurge(false, index)
       }
-      resolveMatch(false)
+      askNext()
       return
     }
     takeSkill.value = -1
     if (index < 0) {
       message.value = '你放过了。'
-      resolveMatch(false)
+      askNext()
       return
     }
     doTakeFrom(false, which, index)
@@ -9178,7 +10411,7 @@
     if (giveBack.value >= 0) {
       return
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 对换第二步：你点了自己第 index 张还给庄家（-1 = 不还，那就是白拿一张）。
@@ -9200,7 +10433,7 @@
       doGiveBack(false, index)
       message.value = message.value + ' 你把 ' + name + ' 还给了庄家。'
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 同号：你从那几张同点数的里点了第 index 张（-1 = 不要）
@@ -9216,7 +10449,7 @@
     } else {
       message.value = message.value + ' 同号：你一张都没要。'
     }
-    resolveMatch(false)
+    askNext()
   }
 
   // 庄家冻你哪张：**看得见的里头挑点数最大的，一张都看不见就随机**。
@@ -9449,6 +10682,7 @@
         const warded = blockedAt(i)
         taken = taken + takeAt(i, gone)
         if (!warded) {
+          dropStone(pile.value[i])
           continue
         }
         saved = saved + 1
@@ -9523,8 +10757,9 @@
       afterPlayHead(sweepActor, skills)
     } else if (sweepNext == TAIL_BURN) {
       // 【燃尽】扫完 → **直接走匹配**，不回 afterPlayTail。
-      // 回去的话尾段后半那几件（死水、摘钩、对换、压舱…）会重跑 ——
-      // 它们没有 `from <=` 守卫（见 TAIL_BURN 那段）。
+      // 燃烧排在停人那一串**后面**，走到这儿时它们都已经问完了（见 TAIL_ASK）。
+      // 〔原注释：回去的话尾段后半那几件（死水、摘钩、对换、压舱…）会重跑 ——
+      //   它们没有 `from <=` 守卫。2026-10-30 起它们有 askFirst 挡着了，可直接走匹配仍是对的〕
       //
       // 而匹配这时候基本是空走：燃尽扫走了整堆，刚打那张也在里面，
       // 所以 resolveMatch 里 pileIndexOf 找不着它、直接 endPlay
@@ -9764,16 +10999,22 @@
   // 跟顺色的区别：顺色收「最深那张 → 堆顶」一整段连续的牌，
   // 收色只收同花色那几张，中间的不动
   // 开演收牌特效了返回 true（afterPlayTail 停下，演完从撒网那一段接着走）
-  // color：相同颜色视为同花色（收色那一句）；不带就只算同花色（传色 / 手牌带的【花色匹配】）。
+  // suit：按哪个花色判（只算同花色）。传色 / 手牌带的【花色匹配】传牌面花色；
+  //   收色传 `suitToBottom` 改完之后的花色。
+  //   〔2026-10-29 之前这儿是 `color : boolean`（收色那句「相同颜色视为同花色」），收色改掉之后没人用了〕
   // label：播报里叫它什么
   function hueFor(byFoe : boolean, card : PlainCard, skills : number[],
-    color : boolean, label : string) : boolean {
+    suit : string, label : string) : boolean {
+    // ---- 先全堆无点数，再判〔2026-10-29 · 词条钉死的次序〕----
+    //
+    // 判的是花色（pileSuit），不是点数 —— 所以先冻后判，成不成那一格跟
+    // 旧的「先判后冻」逐位相同。变的是时序：留下的牌在收牌特效开演前
+    // 就已经是无点数，播报也先说冻、再说成不成。
+    const voided = suitMatchVoid()
     const wanted : boolean[] = []
     let hits = 0
     for (let i = 0; i < pile.value.length; i++) {
-      // 相同颜色视为同花色（收色，2026-10-25）；传色只算同花色
-      const hit = color ? isRedSuit(pileSuitAt(i)) == isRedSuit(card.suit)
-        : sameSuit(pileSuitAt(i), card.suit, byFoe)
+      const hit = sameSuit(pileSuitAt(i), suit, byFoe)
       if (hit) {
         hits = hits + 1
       }
@@ -9785,19 +11026,37 @@
     // 至少收走它自己 = 稳赚 1 分、零风险 —— 那它「失去点数」那份代价
     // 就不存在了。
     //
-    // 收不着的时候它留在堆上，而且**没有点数**（见 valuesOf）：
+    // 收不着的时候它留在堆上，而且**已经无点数**（上面先冻了）：
     // 钓不上任何人、也没人按点数钓得上它。那才是代价该有的样子
     // 【花色匹配】门槛：**另外**至少 2 张同花色（hits 含它自己，所以 ≥ 3）〔2026-10-25，原先 1 张〕
+    const who = byFoe ? ' 庄家' + label + '：' : ' ' + label + '：'
     if (hits <= 2) {
-      message.value = message.value + (byFoe ? ' 庄家' + label + '：' : ' ' + label + '：')
-        + '堆上别的' + (color ? (isRedSuit(card.suit) ? '红色牌' : '黑色牌') : ' ' + card.suit + ' ') + '不到 2 张，没匹配上。'
-        + suitMatchVoid()
+      message.value = message.value + who + voided
+        + '堆上别的 ' + suit + ' 不到 2 张，没匹配上。'
       return false
     }
     const taken = harvestIndices(wanted)
-    message.value = message.value + (byFoe ? ' 庄家' + label + '：' : ' ' + label + '：')
-      + '花色匹配，收走 ' + taken.length + ' 张。' + suitMatchVoid()
-    return startSweep(byFoe, taken, skills, TAIL_CAST)
+    message.value = message.value + who + voided
+      + '花色匹配，收走 ' + taken.length + ' 张。'
+    return startSweep(byFoe, taken, skills, TAIL_ZERO)
+  }
+
+  // 【收色】的前半句：它在堆上的花色变成跟堆底那张相同，返回改完的花色。
+  // 它自己就是堆底（堆原先是空的 / 逆流沉底）时不变。
+  // 改的是 pileSuit（「现在」算什么花色），不是牌面 —— 照染水 / 一色的写法
+  function suitToBottom(byFoe : boolean, card : PlainCard) : string {
+    const at = pileIndexOf(card)
+    if (at <= 0) {
+      return card.suit
+    }
+    const target = pileSuitAt(0)
+    if (target != pileSuitAt(at)) {
+      const next = pileSuit.value.slice(0)
+      next[at] = target
+      pileSuit.value = next
+      message.value = message.value + (byFoe ? ' 庄家收色：' : ' 收色：') + '变成跟堆底相同的 ' + target + '。'
+    }
+    return target
   }
 
   // 撒网：从它自己起**往左连续**比奇偶，同奇偶就收，遇到不同的就停。
@@ -10040,6 +11299,14 @@
   // 会默默地总选点数小的那条（系统性偏向堆的一头）
   function bestChainAt(deepest : number[], wildRoom : number,
     selfWild : boolean, step : number) : number[] {
+    return bestChainCore(deepest, wildRoom, selfWild, step, -1)
+  }
+
+  // `mustAt` ≥ 0：链上**必须有** deepest 里等于它的那一格 —— 不当通配的顺子标签（顺递 / 流钥）用：
+  // 词条「你刚打的这张必须是【顺子】里的一员」，它按自己的点数参与。−1 = 不要求（当通配那几件，
+  // 它本来就占着 selfWild 那一格）〔2026-10-30〕
+  function bestChainCore(deepest : number[], wildRoom : number,
+    selfWild : boolean, step : number, mustAt : number) : number[] {
     let bestFrom = -1
     let bestTo = -1
     let bestCount = 0
@@ -10057,10 +11324,14 @@
         let room = wildRoom
         let selfLeft = selfWild ? 1 : 0
         let broken = false
+        let hasMust = mustAt < 0
         for (let v = a; v <= b; v++) {
           if (deepest[v] >= 0) {
             gap = 0
             count = count + 1
+            if (deepest[v] == mustAt) {
+              hasMust = true
+            }
             if (lo < 0 || deepest[v] < lo) {
               lo = deepest[v]
             }
@@ -10099,7 +11370,7 @@
             break
           }
         }
-        if (broken || count < STRAIGHT_MIN) {
+        if (broken || !hasMust || count < STRAIGHT_MIN) {
           continue
         }
         if (count > bestCount || (count == bestCount && lo >= 0 && lo < bestLo)) {
@@ -10373,22 +11644,31 @@
   //   tagPick  要不要**暂停让玩家挑一张通配**（伏流的「另选 1 张」）。
   //            易流只有它自己那一张通配，所以传 false、不暂停
   //   doSwap   要不要**换 1 张**（易流）
+  // 〔2026-10-29 伏流去掉「另选 1 张」（用户定）：tagPick true → **false**，
+  //   跟易流 / 流钥同一条「只有它自己带通配」的路。
+  //   tagPick 那一支（玩家挑一张 / 庄家 pickWildAt）和 pilePick == SK_FLOW 那几处
+  //   **留着当死代码** —— 现在没有任何调用传 true〕
   function straightFor(byFoe : boolean, skills : number[]) : boolean {
-    return straightCore(byFoe, skills, '伏流', true, false)
+    return straightCore(byFoe, skills, '伏流', false, false, true)
   }
 
   // 【易流】：它带上【通配】；换 1 张；【顺子匹配】〔2026-10-20〕
   function swapFlowFor(byFoe : boolean, skills : number[]) : boolean {
-    return straightCore(byFoe, skills, '易流', false, true)
+    return straightCore(byFoe, skills, '易流', false, true, true)
   }
 
+  //   selfWild 它自己**当不当通配**〔2026-10-30 加〕。伏流 / 易流 = true（desc 写着「它带上【通配】」）；
+  //            顺子标签（流钥 / 顺递）= false —— 只按自己的点数参与，链上必须有它那一格（bestChainCore 的 mustAt）
   function straightCore(byFoe : boolean, skills : number[], name : string,
-    tagPick : boolean, doSwap : boolean) : boolean {
+    tagPick : boolean, doSwap : boolean, selfWild : boolean) : boolean {
     const who = (byFoe ? ' 庄家' : ' ') + name + '：'
     const at0 = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
     if (at0 < 0) {
       return false
     }
+    // 不当通配那一档：它要是**本来就带着**【通配】（别处贴的），照当通配那条路走 ——
+    // deepestByVal 不收带通配的牌，钉不进点数格（模拟器 bestChain 同一个例外）
+    const free = selfWild || isWildAt(at0)
     // ---- 先贴标签，再判顺子。顺序是硬的 ----
     //
     // 标签改变点数表（带通配的牌不进表、变成填格额度），所以贴完才判。
@@ -10399,7 +11679,9 @@
     // 这样玩家挑那一张时界面上已经看得见自己这张带了通配
     //（而 canPickAt 的 `!isWildAt` 顺手就把它挡掉了，不用再比 at0）。
     // 重入时会再走一遍这儿，`addWild` 自带去重
-    addWild(pile.value[at0])
+    if (selfWild) {
+      addWild(pile.value[at0])
+    }
     // 玩家侧要**暂停挑牌**，而暂停点跟凝水那三件不一样：
     // 那三件在落堆**之前**丢弃牌、挑完直接 afterPlay；
     // 伏流**已经落堆了**，挑完还得判顺子、走燃烧那一步、再匹配。
@@ -10456,12 +11738,20 @@
     //   实测（`vs flow flow -n 20000`）：**1.81 → 3.85**，凑成率 40.3% → 62.6%。
     //   而伏流现价 105 对应 X=3.81 —— **这个价本来就是按自带通配定的**，
     //   是 desc 和旋钮默认值在某一刻分叉了，不是它超价。详见实测数据台账〕
-    const deepest = withHighAce(deepestByVal(at0, byFoe))
+    const deepest = withHighAce(free ? deepestByVal(at0, byFoe)
+      : pinVals(deepestByVal(-1, byFoe), pileValsAt(at0), at0))
     const wildAts = wildAtsOf(at0, byFoe)
-    const span = bestChainAt(deepest, wildAts.length, true, 1)
+    const span = bestChainCore(deepest, wildAts.length, free, 1, free ? -1 : at0)
     if (span[0] < 0) {
       message.value = message.value + who
         + '凑不出顺子（要连着 ' + STRAIGHT_MIN + ' 个点数）。'
+      // 【顺子匹配】规则〔2026-10-30 用户定〕：匹配失败则带上【通配】。
+      // 当通配那几件（伏流 / 易流）上面已经贴过了，所以只管不当通配的（顺子标签）。
+      // 跟模拟器 straightFor 失败那一支同一条（STRAIGHT_FAIL_WILD）
+      if (!free) {
+        addWild(pile.value[at0])
+        message.value = message.value + '它带上了【通配】。'
+      }
       return false
     }
     const wanted : boolean[] = []
@@ -10479,16 +11769,365 @@
       //  （收的那一段含自己），跟吃水同一种〕
       wanted.push(i == at0)
     }
-    markChain(wanted, deepest, span, wildAts, true)
+    markChain(wanted, deepest, span, wildAts, free)
     const taken = harvestIndices(wanted)
     message.value = message.value + who + '凑成 '
       + valueFace(span[0]) + '–' + valueFace(span[1]) + ' 的顺子，收走 '
       + taken.length + ' 张。'
-    // 伏流演完接涉水那一段；**易流自己是 TAIL_SWAPFLOW**，所以它接下一段
-    //（野火）—— 不然它会把自己那一段重演一遍
-    return startSweep(byFoe, taken, skills, doSwap ? TAIL_WILD : TAIL_WADE)
+    // 易流演完接顺序匹配族那一段（TAIL_ORDER）；伏流接涉水
+    return startSweep(byFoe, taken, skills, doSwap ? TAIL_ORDER : TAIL_WADE)
   }
 
+  // ---------- 【顺序匹配】族：插流 / 调序 / 换序〔2026-10-29〕 ----------
+  //
+  // 含打出那张的一段连续牌，按大小顺序排列（升降都算、相等也算）且
+  // 至少 ORDER_MIN 张 → 收走这一段。凑不成退回普通匹配。
+  //
+  // 跟【21 匹配】同一类收法（整段连续），不是【顺子匹配】那种间隔收。
+  // 看位置次序 ≠ 看值连号 —— 所以不吃「10–Q 断口」。
+  function orderKeyAt(index : number) : number {
+    const vals = pileValsAt(index)
+    if (vals.length == 0) {
+      return 14
+    }
+    let hi = vals[0]
+    for (let k = 1; k < vals.length; k++) {
+      if (vals[k] > hi) {
+        hi = vals[k]
+      }
+    }
+    return hi
+  }
+
+  function orderCardKey(card : PlainCard, byFoe : boolean, skills : number[]) : number {
+    const vals = landVals(card, byFoe, skills, false)
+    if (vals.length == 0) {
+      return 14
+    }
+    let hi = vals[0]
+    for (let k = 1; k < vals.length; k++) {
+      if (vals[k] > hi) {
+        hi = vals[k]
+      }
+    }
+    return hi
+  }
+
+  function orderStepOk(a : number, b : number, dir : number) : boolean {
+    return (b - a) * dir >= 0
+  }
+
+  // 整列单调吗（升或降其一，相等也算）〔2026-10-30 整堆档〕
+  function orderWhole(keys : number[]) : boolean {
+    for (let d = 0; d < 2; d++) {
+      const dir = d == 0 ? 1 : -1
+      let ok = true
+      for (let i = 0; i + 1 < keys.length; i++) {
+        if (!orderStepOk(keys[i], keys[i + 1], dir)) {
+          ok = false
+          break
+        }
+      }
+      if (ok) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 在 keys 上含 at0 的最长单调段长度；minLen 默认 ORDER_MIN，
+  // 挑落点 / 换位试算传 1（不够收也要看见最长那一格）
+  function orderBestOnKeys(keys : number[], at0 : number, minLen : number) : number {
+    const need = minLen
+    const size = keys.length
+    let bestLen = 0
+    for (let d = 0; d < 2; d++) {
+      const dir = d == 0 ? 1 : -1
+      let lo = at0
+      let hi = at0
+      while (lo > 0) {
+        if (!orderStepOk(keys[lo - 1], keys[lo], dir)) {
+          break
+        }
+        lo = lo - 1
+      }
+      while (hi < size - 1) {
+        if (!orderStepOk(keys[hi], keys[hi + 1], dir)) {
+          break
+        }
+        hi = hi + 1
+      }
+      const len = hi - lo + 1
+      if (len >= need && len > bestLen) {
+        bestLen = len
+      }
+    }
+    return bestLen
+  }
+
+  // 返回 [from, to]；凑不成返回 [-1, -1]
+  function orderBestAt(at0 : number) : number[] {
+    const size = pile.value.length
+    let bestFrom = -1
+    let bestTo = -1
+    let bestLen = 0
+    for (let d = 0; d < 2; d++) {
+      const dir = d == 0 ? 1 : -1
+      let lo = at0
+      let hi = at0
+      while (lo > 0) {
+        if (!orderStepOk(orderKeyAt(lo - 1), orderKeyAt(lo), dir)) {
+          break
+        }
+        lo = lo - 1
+      }
+      while (hi < size - 1) {
+        if (!orderStepOk(orderKeyAt(hi), orderKeyAt(hi + 1), dir)) {
+          break
+        }
+        hi = hi + 1
+      }
+      const len = hi - lo + 1
+      if (len >= ORDER_MIN && len > bestLen) {
+        bestLen = len
+        bestFrom = lo
+        bestTo = hi
+      }
+    }
+    return [bestFrom, bestTo]
+  }
+
+  // 含 at0 的有序段长（不够 MIN 也报真实长度，给「换了不如不换」比大小用）
+  function orderLenAt(at0 : number) : number {
+    if (at0 < 0 || at0 >= pile.value.length) {
+      return 0
+    }
+    const keys : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      keys.push(orderKeyAt(i))
+    }
+    const len = orderBestOnKeys(keys, at0, 1)
+    return len > 0 ? len : 1
+  }
+
+  // 【插流】穷举落点〔2026-10-30 改〕：先找「插进去整堆有序」的那一格（够 ORDER_FULL_MIN 张，靠堆顶优先）；
+  // 找不到再照旧挑「含它的最长单调段最长」那一格（给下一手铺料），平手取更靠堆顶的。
+  // 跟模拟器 rules.js 的 pickOrderFullAt 同一个挑法
+  function pickOrderInsertAt(card : PlainCard, byFoe : boolean, skills : number[]) : number {
+    const size = pile.value.length
+    const baseKeys : number[] = []
+    for (let i = 0; i < size; i++) {
+      baseKeys.push(orderKeyAt(i))
+    }
+    const myKey = orderCardKey(card, byFoe, skills)
+    if (size + 1 >= ORDER_FULL_MIN) {
+      for (let at = size; at >= 0; at--) {
+        const whole = baseKeys.slice(0)
+        whole.splice(at, 0, myKey)
+        if (orderWhole(whole)) {
+          return at
+        }
+      }
+    }
+    let bestAt = size
+    let bestLen = -1
+    for (let at = 0; at <= size; at++) {
+      const keys = baseKeys.slice(0)
+      keys.splice(at, 0, myKey)
+      const len = orderBestOnKeys(keys, at, 1)
+      if (len > bestLen || (len == bestLen && at > bestAt)) {
+        bestLen = len
+        bestAt = at
+      }
+    }
+    return bestAt
+  }
+
+  // 六条并行数组互换两格
+  function swapPileSlots(a : number, b : number) {
+    if (a == b) {
+      return
+    }
+    const p = pile.value.slice(0)
+    const f = pileByFoe.value.slice(0)
+    const g = pileGuard.value.slice(0)
+    const v = pileVals.value.slice(0)
+    const s = pileSuit.value.slice(0)
+    const br = pileBurn.value.slice(0)
+    const tp = p[a]; p[a] = p[b]; p[b] = tp
+    const tf = f[a]; f[a] = f[b]; f[b] = tf
+    const tg = g[a]; g[a] = g[b]; g[b] = tg
+    const tv = v[a]; v[a] = v[b]; v[b] = tv
+    const ts = s[a]; s[a] = s[b]; s[b] = ts
+    const tb = br[a]; br[a] = br[b]; br[b] = tb
+    pile.value = p
+    pileByFoe.value = f
+    pileGuard.value = g
+    pileVals.value = v
+    pileSuit.value = s
+    pileBurn.value = br
+  }
+
+  // 【换序】：1 张手牌 ↔ 堆上 1 张（不含打出那张），取有序段最长；
+  // 换了不如不换就不换。口径照 swapForStraight。
+  function swapForOrder(byFoe : boolean, card : PlainCard) {
+    const at0 = pileIndexOf(card)
+    if (at0 < 0) {
+      return
+    }
+    const mine = byFoe ? foeHand.value : hand.value
+    if (mine.length == 0 || pile.value.length < 2) {
+      return
+    }
+    const nowLen = orderLenAt(at0)
+    let bestLen = nowLen
+    let bestHand = -1
+    let bestAt = -1
+    for (let h = 0; h < mine.length; h++) {
+      const hc = mine[h]
+      if (isFrozen(hc)) {
+        continue
+      }
+      for (let i = 0; i < pile.value.length; i++) {
+        if (i == at0 || wardAt(i)) {
+          continue
+        }
+        const keepCard = pile.value[i]
+        const keepVals = pileVals.value[i]
+        const keepSuit = pileSuit.value[i]
+        const keepFoe = pileByFoe.value[i]
+        const keepGuard = pileGuard.value[i]
+        const keepBurn = pileBurn.value[i]
+        pile.value[i] = hc
+        pileVals.value[i] = landVals(hc, byFoe, [] as number[], false)
+        pileSuit.value[i] = hc.suit
+        pileByFoe.value[i] = byFoe
+        pileGuard.value[i] = GUARD_NONE
+        pileBurn.value[i] = 0
+        const len = orderLenAt(at0)
+        pile.value[i] = keepCard
+        pileVals.value[i] = keepVals
+        pileSuit.value[i] = keepSuit
+        pileByFoe.value[i] = keepFoe
+        pileGuard.value[i] = keepGuard
+        pileBurn.value[i] = keepBurn
+        if (len > bestLen) {
+          bestLen = len
+          bestHand = h
+          bestAt = i
+        }
+      }
+    }
+    if (bestHand < 0) {
+      return
+    }
+    const hc = mine[bestHand]
+    const pc = pile.value[bestAt]
+    pile.value[bestAt] = hc
+    pileVals.value[bestAt] = landVals(hc, byFoe, [] as number[], false)
+    pileSuit.value[bestAt] = hc.suit
+    pileByFoe.value[bestAt] = byFoe
+    pileGuard.value[bestAt] = GUARD_NONE
+    pileBurn.value[bestAt] = 0
+    if (byFoe) {
+      const next = foeHand.value.slice(0)
+      next[bestHand] = pc
+      foeHand.value = next
+    } else {
+      const next = hand.value.slice(0)
+      next[bestHand] = pc
+      hand.value = next
+    }
+    message.value = message.value + (byFoe ? ' 庄家换序：' : ' 换序：')
+      + '换了一张手牌和堆上的牌。'
+  }
+
+  // 【调序】：选堆上 2 张互换位置，取含打出那张的有序段最长；
+  // 换了不如不换就不换。
+  function swapPileForOrder(byFoe : boolean, card : PlainCard) {
+    if (pile.value.length < 2) {
+      return
+    }
+    const at0 = pileIndexOf(card)
+    if (at0 < 0) {
+      return
+    }
+    const nowLen = orderLenAt(at0)
+    let bestLen = nowLen
+    let bestA = -1
+    let bestB = -1
+    for (let a = 0; a < pile.value.length; a++) {
+      for (let b = a + 1; b < pile.value.length; b++) {
+        swapPileSlots(a, b)
+        const at = pileIndexOf(card)
+        const len = orderLenAt(at)
+        swapPileSlots(a, b)
+        if (len > bestLen) {
+          bestLen = len
+          bestA = a
+          bestB = b
+        }
+      }
+    }
+    if (bestA < 0) {
+      return
+    }
+    swapPileSlots(bestA, bestB)
+    message.value = message.value + (byFoe ? ' 庄家调序：' : ' 调序：')
+      + '交换了堆上两张牌的位置。'
+  }
+
+  function orderLineName(skills : number[]) : string {
+    if (hasTrigger(skills, SK_ORDERINS)) {
+      return '插流'
+    }
+    if (hasTrigger(skills, SK_ORDERPILE)) {
+      return '调序'
+    }
+    if (hasTrigger(skills, SK_ORDERSWAP)) {
+      return '换序'
+    }
+    return '顺序匹配'
+  }
+
+  function orderFor(byFoe : boolean, skills : number[]) : boolean {
+    const name = orderLineName(skills)
+    const who = byFoe ? ' 庄家' + name + '：' : ' ' + name + '：'
+    if (lastPlayed == null) {
+      return false
+    }
+    const at0 = pileIndexOf(lastPlayed!)
+    if (at0 < 0) {
+      return false
+    }
+    // 〔2026-10-30 整堆档〕堆上全部的牌按大小顺序排列（升降都算）→ 整堆收走
+    const keys : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      keys.push(orderKeyAt(i))
+    }
+    if (keys.length < ORDER_FULL_MIN || !orderWhole(keys)) {
+      message.value = message.value + who + '整堆没按大小顺序排，没匹配上。'
+      return false
+    }
+    // 〔2026-10-30 用户定：**顺序匹配受【石墙】拦**〕—— 它是从堆顶往下整段收，属于词条里的「连续匹配」
+    //（词条只豁免了顺子 / 花色两条间隔匹配）。照普通匹配的截断：从堆顶收到最上面那堵墙为止，
+    // 墙收走（stoneHit 摘签）、它下面的留下。打出的这张自己带的墙不算（普通匹配那边也是先把它摘下堆再判）
+    let lo = 0
+    for (let i = pile.value.length - 1; i >= 0; i--) {
+      if (i != at0 && stoneOn(pile.value[i])) {
+        lo = i
+        stoneHit(i)
+        break
+      }
+    }
+    const taken : number[] = []
+    for (let i = lo; i < pile.value.length; i++) {
+      taken.push(i)
+    }
+    message.value = message.value + who + '顺序匹配，收走 ' + taken.length + ' 张'
+      + (lo > 0 ? '（撞上石墙，下面 ' + lo + ' 张留下）。' : '。')
+    return startSweep(byFoe, taken, skills, TAIL_WILD)
+  }
 
   // ---------- 【野火】：给堆上所有牌点火，已经着了的收走 ----------
   //
@@ -10549,6 +12188,9 @@
     // **这儿不消耗保护** —— 保护的代价是「垫着的牌代替宿主**被收走**」，
     // 而这一下挡的是点火，不是收牌。点不着就是点不着，盾不掉。
     //（老版野火会掀盾，因为那时它收牌。）
+    //
+    // 〔2026-10-30 一度改成「【燃烧】；堆上 1 张牌带上【燃烧】」（自带火 + 另挑 1 张，
+    //   R7 A +5.15 / ♥ +14.26），同日用户定**改回**这一版。模拟器 `WILD_SELF=1` 是那一档〕
     const free : number[] = []
     for (let i = 0; i < pile.value.length; i++) {
       if (pileBurnAt(i) == 0 && !wardAt(i) && !frostAt(i)) {
@@ -10650,10 +12292,14 @@
     }
     if (skill == SK_UNHOOK) {
       const card = takeFromHand(victimIsFoe, index)
-      // 钥匙是私有的：换了主人就不带冰（见 dropFrostHand）
+      // 钥匙是私有的：换了主人就不带冰 / 不带石墙预约（见 dropFrostHand）
       dropFrostHand(card)
+      dropStoneHand(card)
       dropMatchKey(card)
       dropDraftKey(card)
+      dropZeroKey(card)
+      dropFadeKey(card)
+      dropFlowKey(card)
       // 摘钩拿过来的牌进自己手里。**手牌可能因此超过上限** ——
       // 那没关系，回合末 refill 只负责「补到」上限，不负责弃牌
       if (byFoe) {
@@ -10673,8 +12319,12 @@
     // 你那边要停下来挑，庄家自己挑（见 foeGivePick）
     const card = takeFromHand(victimIsFoe, index)
     dropFrostHand(card)
+    dropStoneHand(card)
     dropMatchKey(card)
     dropDraftKey(card)
+    dropZeroKey(card)
+    dropFadeKey(card)
+    dropFlowKey(card)
     if (byFoe) {
       foeHand.value = foeHand.value.concat([card])
       foeShown.value = foeShown.value.concat([false])
@@ -10712,8 +12362,12 @@
     }
     const card = takeFromHand(byFoe, index)
     dropFrostHand(card)
+    dropStoneHand(card)
     dropMatchKey(card)
     dropDraftKey(card)
+    dropZeroKey(card)
+    dropFadeKey(card)
+    dropFlowKey(card)
     if (byFoe) {
       hand.value = hand.value.concat([card])
       // 庄家还过来的牌，它自己当然知道是什么
@@ -10760,21 +12414,149 @@
 
   // 废掉对方第 index 张手牌。byFoe = 发动方
   function doDead(byFoe : boolean, index : number) {
+    markDead(byFoe, index, false, '死水')
+  }
+
+  // 置 0 的唯一入口（死水 / 浑水两条来路共用）〔2026-10-30 从 doDead 抽出来〕。
+  // `jackOk`：浑水要「J 也算」。**不用默认参数**（uts 各端编译器表现不一致，见 playFor 那条）
+  function markDead(byFoe : boolean, index : number, jackOk : boolean, name : string) {
     const theirs = byFoe ? hand.value : foeHand.value
     if (index < 0 || index >= theirs.length) {
       return
     }
     const card = theirs[index]
-    // J 和已经废过的都挡在这儿 —— 界面那边也拦了（card-pickable），
+    // J（死水）和已经废过的都挡在这儿 —— 界面那边也拦了（card-pickable），
     // 可庄家走的是 foeDeadPick，两条路都得过这道闸
-    if (card.rank == JACK || isDead(card)) {
+    if ((card.rank == JACK && !jackOk) || isDead(card)) {
       return
+    }
+    // ---- J 被置 0：**牌面改成 0** ----
+    // deadCards 只管「0 点、不触发技能」，可全文件 24 处按 `rank == JACK` 走通吃 ——
+    // 只记进 deadCards 的话它照旧通吃。照模拟器 doDead 的做法改牌面
+    //（这副牌是每局从存档重新造的副本，改它不碰存档）
+    if (card.rank == JACK) {
+      card.rank = '0'
+      card.value = 0
+      card.extra = [] as number[]
     }
     // **换引用而不是 push** —— deadCards 是 ref，照 addHeld 那条理由
     deadCards.value = deadCards.value.concat([card])
     message.value = message.value + (byFoe
-      ? ' 庄家死水：你的 ' + cardName(card) + ' 废了（0 点、不触发技能）。'
-      : ' 死水：庄家的 ' + cardName(card) + ' 废了（0 点、不触发技能）。')
+      ? ' 庄家' + name + '：你的 ' + cardName(card) + ' 废了（0 点、不触发技能）。'
+      : ' ' + name + '：庄家的 ' + cardName(card) + ' 废了（0 点、不触发技能）。')
+  }
+
+  // 【缩水】的「对方手里每有 1 张 0 点牌，全堆 −3」。dropPile 是见底那一份（减到 0 为止，含它自己）
+  function shrinkDrop(byFoe : boolean) {
+    const theirs = byFoe ? hand.value : foeHand.value
+    let z = 0
+    for (let i = 0; i < theirs.length; i++) {
+      if (isDead(theirs[i])) {
+        z = z + 1
+      }
+    }
+    if (z == 0) {
+      return
+    }
+    dropPile(3 * z)
+    message.value = message.value + (byFoe ? ' 庄家缩水：' : ' 缩水：')
+      + (byFoe ? '你' : '庄家') + '手里 ' + z + ' 张 0 点牌，全堆 −' + (3 * z) + '。'
+  }
+
+  // 浑水能选的位置：对方还没置 0 的那几张（置 0 的明置着，看得见，不选 —— 不漏信息）
+  function murkPool(byFoe : boolean) : number[] {
+    const theirs = byFoe ? hand.value : foeHand.value
+    const out : number[] = []
+    for (let i = 0; i < theirs.length; i++) {
+      if (!isDead(theirs[i])) {
+        out.push(i)
+      }
+    }
+    return out
+  }
+
+  // 缩水：你盲选了庄家第 index 张 → 置 0（明置）→ 全堆减 → 从 afterPlayTail 入口接着走（收零在后面那段）
+  function onShrink(index : number) {
+    if (!shrinkPending.value) {
+      return
+    }
+    if (index < 0 || index >= foeHand.value.length || isDead(foeHand.value[index])) {
+      return
+    }
+    shrinkPending.value = false
+    markDead(false, index, true, '缩水')
+    foeShown.value = withFlag(foeShown.value, index)
+    shrinkDrop(false)
+    const skills = shrinkSkills
+    shrinkSkills = [] as number[]
+    afterPlayTail(false, skills, TAIL_EBB)
+  }
+
+  // 浑水：你盲选了庄家第 index 张
+  function onMurk(index : number) {
+    if (!murkPending.value) {
+      return
+    }
+    if (index < 0 || index >= foeHand.value.length || isDead(foeHand.value[index])) {
+      return
+    }
+    markDead(false, index, true, '浑水')
+    // 明置：翻开这一张（foeOpen 读 foeShown）
+    foeShown.value = withFlag(foeShown.value, index)
+    murkLeft.value = murkLeft.value - 1
+    if (murkLeft.value > 0 && murkPool(false).length > 0) {
+      return
+    }
+    murkPending.value = false
+    murkLeft.value = 0
+    askNext()
+  }
+
+  // 回水：手里还有能贴收零的牌吗（J / 无点数 / 贴过的不算）
+  function backTagRoom(byFoe : boolean) : boolean {
+    const mine = byFoe ? foeHand.value : hand.value
+    for (let i = 0; i < mine.length; i++) {
+      if (zeroKeyable(mine[i])) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // 回水第一下：你盲选了庄家第 index 张 → 置 0（明置）→ 接着等你贴收零
+  function onBackwater(index : number) {
+    if (!backPending.value) {
+      return
+    }
+    if (index < 0 || index >= foeHand.value.length || isDead(foeHand.value[index])) {
+      return
+    }
+    backPending.value = false
+    markDead(false, index, true, '回水')
+    foeShown.value = withFlag(foeShown.value, index)
+    if (backTagRoom(false)) {
+      backTagPending.value = true
+      return
+    }
+    askNext()
+  }
+
+  // 回水第二下：你挑中了自己第 index 张贴【收零】（-1 表示不贴）
+  function onBackTag(index : number) {
+    if (!backTagPending.value) {
+      return
+    }
+    if (index >= 0 && index < hand.value.length && !zeroKeyable(hand.value[index])) {
+      return
+    }
+    if (index >= 0) {
+      zeroKey.value = zeroKey.value.concat([hand.value[index]])
+      message.value = message.value + ' 回水：' + cardName(hand.value[index]) + ' 带上了收零。'
+    } else {
+      message.value = message.value + ' 回水：收零没贴。'
+    }
+    backTagPending.value = false
+    askNext()
   }
 
   // 庄家挑哪几张废。尺子跟 foeTakePick 同一套（**J 除外** —— 它挑不了 J）：
@@ -10930,7 +12712,7 @@
     }
     takeSkill.value = -1
     sinkLeft.value = 0
-    resolveMatch(false)
+    askNext()
   }
 
   // 庄家给你哪张贴【沉降】：**他马上会打的那张**。
@@ -11173,7 +12955,7 @@
     message.value = n > 0
       ? ('换水：你塞回 ' + n + ' 张重洗，回合末会补新的。')
       : '你没换牌。'
-    resolveMatch(false)
+    askNext()
   }
 
   // 倒饵：你挑中了第 index 张要塞给庄家（-1 表示「给完了 / 不给」）。
@@ -11208,7 +12990,7 @@
     message.value = n > 0
       ? ('倒饵：你塞给庄家 ' + n + ' 张，回合末你会补新的。')
       : '你没给牌。'
-    resolveMatch(false)
+    askNext()
   }
 
   // 滤饵：你挑中了第 index 张要退回牌库。
@@ -11247,7 +13029,7 @@
     siftDrew.value = 0
     siftDone.value = 0
     message.value = '滤饵：你摸了 ' + drew + ' 张、退回 ' + back + ' 张重洗。'
-    resolveMatch(false)
+    askNext()
   }
 
   // 把一张牌塞回牌库并**真洗进去**。
@@ -11258,8 +13040,12 @@
   function shuffleBack(card : PlainCard) {
     // 回了牌库就不再是谁的钥匙（见 dropFrostHand）
     dropFrostHand(card)
+    dropStoneHand(card)
     dropMatchKey(card)
     dropDraftKey(card)
+    dropZeroKey(card)
+    dropFadeKey(card)
+    dropFlowKey(card)
     const next = deck.value.concat([card])
     for (let i = next.length - 1; i > 0; i--) {
       const k = Math.floor(Math.random() * (i + 1))
@@ -11881,8 +13667,11 @@
     if (lastPlayed != null) {
       dropMatchKey(lastPlayed!)
       dropDraftKey(lastPlayed!)
+      dropZeroKey(lastPlayed!)
+      dropFadeKey(lastPlayed!)
       // 【连递】的链是 `draftKey` 的子集，**两张表一起摘**
       dropChainTag(lastPlayed!)
+      dropFlowKey(lastPlayed!)
     }
     // 收牌演完了才知道「凑没凑成」「拿没拿到牌」—— 这两件要等到这儿。
     // 停下来等玩家点牌的话就先不交回合了，onChainLink / onHoldTag 会接上
@@ -12353,7 +14142,7 @@
       if (catchStart(card, byFoe, skills, false) >= 0) {
         return true
       }
-      if (harvestCount(card, skills, byFoe) > 0) {
+      if (harvestCount(card, skills, byFoe, false) > 0) {
         return true
       }
     }
@@ -12547,6 +14336,21 @@
     // 零递同理：点手牌是「给这张贴 21 匹配」
     if (zeroDraftPending.value) {
       onZeroDraft(index)
+      return
+    }
+    // 褪递同理：点手牌是「给这张贴收零」
+    if (fadeTagPending.value) {
+      onFadeTag(index)
+      return
+    }
+    // 回水同理（第二下）
+    if (backTagPending.value) {
+      onBackTag(index)
+      return
+    }
+    // 顺递同理：点手牌是「给这张贴顺子匹配」
+    if (flowDraftPending.value) {
+      onFlowDraft(index)
       return
     }
     // ---- 21 匹配那三件的挑牌，五条分路〔2026-10-28〕----
@@ -12891,8 +14695,41 @@
   // byFoe 是为了【两色】才加的参数（照 sameSuit 的要求）。调用点只有
   // foePickCard 一个、恒传 true，可**写死 true 就正是上面那条走偏**：
   // 哪天玩家侧要预览收成，这个函数会按庄家的眼睛算花色
-  function harvestCount(card : PlainCard, skills : number[], byFoe : boolean) : number {
-    // 传色 / 手牌带【花色匹配】：只算同花色，另外至少 2 张（照 hueFor 的 color = false）
+  // specialOnly〔2026-10-29〕：只算**特殊匹配**（抢牌判定用）—— 撒网不是特殊匹配，那一支关掉
+  function harvestCount(card : PlainCard, skills : number[], byFoe : boolean, specialOnly : boolean) : number {
+    // 【收零】（褪递贴的）：堆上有 0 点牌就收走所有 0 点牌 + 它自己（估在落堆之前）。它是特殊匹配，
+    // 所以 specialOnly（抢牌判定）也算 —— 照模拟器 harvestCount 里 zeroKey 那一支
+    // 【缩水】：估「置 0 他一张之后他手里几张 0 → 全堆减多少 → 堆上会有几张 0」（照模拟器 harvestCount 那一支）
+    if (hasTrigger(skills, SK_ZERODROP)) {
+      const theirs = byFoe ? hand.value : foeHand.value
+      let dead = 0
+      for (let i = 0; i < theirs.length; i++) {
+        if (isDead(theirs[i])) {
+          dead = dead + 1
+        }
+      }
+      if (murkPool(byFoe).length > 0) {
+        dead = dead + 1
+      }
+      let n = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        const v = dropVals(rawVals(i), 3 * dead)
+        if (v.length > 0 && !anyLive(v)) {
+          n = n + 1
+        }
+      }
+      return n > 0 ? n + 1 : 0
+    }
+    if (zeroKeyOn(card)) {
+      let z = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (zeroAt(i)) {
+          z = z + 1
+        }
+      }
+      return z > 0 ? z + 1 : 0
+    }
+    // 传色 / 手牌带【花色匹配】：只算同花色，另外至少 2 张（照 hueFor，suit 传牌面花色）
     if (!hasTrigger(skills, SK_HUE) && (hasTrigger(skills, SK_SUITCOLOR) || matchKeyOn(card))) {
       let same = 0
       for (let i = 0; i < pile.value.length; i++) {
@@ -12903,7 +14740,7 @@
       return same >= 2 ? same + 1 : 0
     }
     const hue = hasTrigger(skills, SK_HUE)
-    const cast = hasTrigger(skills, SK_CAST)
+    const cast = !specialOnly && hasTrigger(skills, SK_CAST)
     // ---- 【伏流】也要在这儿估，否则庄家永远不会主动打它 ----
     //
     // 这个函数是庄家挑牌时唯一能看见「不走点数判定的收牌技能」的地方
@@ -12913,6 +14750,15 @@
     // 整件作废** —— 而那会让模拟器量出来的两侧严重失衡
     if (hasTrigger(skills, SK_FLOW)) {
       return straightCount(card, byFoe)
+    }
+    // 【流钥】/【顺递】贴过的牌 —— 漏这一行 = AI 看不见这条线 = 整件作废（照 flowTagOn）。
+    // 它不当通配（见 straightCore 的 selfWild），所以估法跟伏流不同：flowKeyCount
+    if (flowKeyOn(card)) {
+      return flowKeyCount(card, byFoe)
+    }
+    // 【续流】：它自己走顺子、不当通配 —— 估法跟顺子标签那张一样
+    if (hasTrigger(skills, SK_FLOWPASS)) {
+      return flowKeyCount(card, byFoe)
     }
     // 【易流】走的是 straightCore 同一条路，所以预估也共用 straightCount。
     //
@@ -12928,6 +14774,12 @@
     // 涉水同理 —— 它也是第四条匹配线上的，catchStart 看不见它
     if (hasTrigger(skills, SK_WADE)) {
       return wadeCount(card, byFoe)
+    }
+    // 插流 / 调序 / 换序同理 —— catchStart 对顺序匹配一概返回 −1
+    // （换序 / 调序的 count **不含**换牌试算，是下限 —— 照易流）
+    if (hasTrigger(skills, SK_ORDERINS) || hasTrigger(skills, SK_ORDERPILE)
+      || hasTrigger(skills, SK_ORDERSWAP)) {
+      return orderCount(card, byFoe, skills)
     }
     // 一色：它的花色最多 → 整堆 + 它自己（估在落堆之前，堆里还没有它）
     // 一色（2026-10-25）：严格最多 → 整堆染色后花色匹配收整堆（另外至少 2 张）；
@@ -12962,9 +14814,11 @@
     }
     if (hue) {
       let hueHits = 0
+      // 【收色】〔2026-10-29〕：它会先变成堆底那张的花色（照 suitToBottom）。
+      // 这儿是打出之前、它还没落堆，所以堆底就是现在的第 0 张；堆空时它自己就是堆底
+      const target = size > 0 ? pileSuitAt(0) : card.suit
       for (let i = 0; i < size; i++) {
-        // 相同颜色视为同花色（照 hueFor）
-        if (isRedSuit(pileSuitAt(i)) == isRedSuit(card.suit)) {
+        if (sameSuit(pileSuitAt(i), target, byFoe)) {
           marked[i] = true
           hueHits = hueHits + 1
         }
@@ -13050,6 +14904,46 @@
   }
 
 
+  // 顺子标签那张（流钥 / 顺递）能凑出几张 —— **不当通配**，按自己的点数参与。
+  // 落堆之前估的：它还不在堆上，所以把它的点数钉到「它将落的那一格」（堆顶外一格），
+  // 链上必须有那一格（跟 straightCore 的 mustAt 同口径；模拟器 bestChain 的 'own' 钉法同一条）
+  function flowKeyCount(card : PlainCard, byFoe : boolean) : number {
+    const at = pile.value.length
+    const deepest = withHighAce(pinVals(deepestByVal(-1, byFoe), cardVals(card), at))
+    const span = bestChainCore(deepest, wildAtsOf(-1, byFoe).length, false, 1, at)
+    if (span[0] < 0) {
+      return 0
+    }
+    let n = 0
+    for (let v = span[0]; v <= span[1]; v++) {
+      if (deepest[v] >= 0) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  // 把 vals 那几个点数格**钉成** at（不当通配的那张按自己的点数占格）。
+  // 不钉的话 deepestByVal 取「同点数里最深那张」—— 堆上另有同点数的牌时
+  // 顺子收走的是那张、打出那张留在堆上接着普通匹配 = 双收（词条挡的正是这个）
+  function pinVals(deepest : number[], vals : number[], at : number) : number[] {
+    const out : number[] = []
+    for (let i = 0; i < deepest.length; i++) {
+      out.push(deepest[i])
+    }
+    for (let k = 0; k < vals.length; k++) {
+      const v = vals[k]
+      if (v < 0) {
+        continue
+      }
+      while (out.length <= v + 1) {
+        out.push(-1)
+      }
+      out[v] = at
+    }
+    return out
+  }
+
   // 【涉水】能凑出几张（庄家挑牌的预估）。
   //
   // 庄家估算涉水能收几张。
@@ -13076,6 +14970,38 @@
       }
     }
     return n
+  }
+
+  // ---------- 【顺序匹配】能收几张（庄家挑牌的预估） ----------
+  //
+  // 落堆之前估。插流穷举每一格；其余假设落在堆顶（换序 / 调序不含换牌试算）。
+  function orderCount(card : PlainCard, byFoe : boolean, skills : number[]) : number {
+    const size = pile.value.length
+    const baseKeys : number[] = []
+    for (let i = 0; i < size; i++) {
+      baseKeys.push(orderKeyAt(i))
+    }
+    const myKey = orderCardKey(card, byFoe, skills)
+    // 〔2026-10-30 整堆档〕整堆有序才收、收就是整堆。插流能挑落点，其余只落堆顶
+    if (size + 1 < ORDER_FULL_MIN) {
+      return 0
+    }
+    const lowest = hasTrigger(skills, SK_ORDERINS) ? 0 : size
+    // 〔2026-10-30〕顺序匹配受【石墙】拦（见 orderFor）：估值也截到最上面那堵墙。
+    // 插在墙下面（at ≤ wall）的话，墙往上挪一格，而它自己留在墙下、不算进收成
+    const wall = stoneHighest(0, size - 1)
+    let best = 0
+    for (let at = size; at >= lowest; at--) {
+      const keys = baseKeys.slice(0)
+      keys.splice(at, 0, myKey)
+      if (orderWhole(keys)) {
+        const n = wall < 0 ? size + 1 : (at > wall ? size + 1 - wall : size - wall)
+        if (n > best) {
+          best = n
+        }
+      }
+    }
+    return best
   }
 
   // ---- 顺子里 A 可以接在 K 后面（Q-K-A） ----
@@ -13437,12 +15363,8 @@
       const skills = skillsOf(true, card)
       const sink = hasTrigger(skills, SK_SINK)
       const at = catchStart(card, true, skills, sink)
-      let caught = 0
-      if (at >= 0) {
-        // 收几张：普通是「匹配那张到堆顶」+ 自己，
-        // 沉底是「堆底到匹配那张」+ 自己（方向反的，见 playFor）
-        caught = sink ? at + 2 : pile.value.length - at + 1
-      }
+      // 收几张：含【石墙】截断（照 catchCountCut / 模拟器 catchCountAt）
+      let caught = catchCountCut(at, sink, card)
       // ---- 收色、撒网的收成得单独估 ----
       //
       // 它们不走点数判定（收色连点数都没有，见 valuesOf），所以上面那个
@@ -13451,7 +15373,7 @@
       //
       // 估的是**实际收成**（照 hueFor / castFor 的口径），不是近似值：
       // 两件都是遍历堆、数命中几张，算一遍不比猜便宜
-      const harvest = harvestCount(card, skills, true)
+      const harvest = harvestCount(card, skills, true, false)
       if (harvest > caught) {
         caught = harvest
       }
@@ -13559,6 +15481,8 @@
         // 而且比别的饵更安全：牌出场了，对手连收都收不着
         || hasTrigger(skills, SK_CALM) || hasTrigger(skills, SK_CLEAN)
         || hasTrigger(skills, SK_RAISE)
+        // 垫吃同一族（照 ai.js 的 wants，两边一起加）
+        || hasTrigger(skills, SK_STACKDRAFT)
         // ⚠ **【滤饵】有意**不在这个列表里〔2026-10-22〕。
         //
         // 它结构上该在（跟换水一样「钓不钓到都照样发动」），而且模拟器那边
@@ -13662,13 +15586,8 @@
       const skills = skillsOf(true, card)
       const sink = hasTrigger(skills, SK_SINK)
       const at = catchStart(card, true, skills, sink)
-      let caught = 0
-      if (at >= 0) {
-        // 收几张：普通是「匹配那张到堆顶」+ 自己，
-        // 沉底是「堆底到匹配那张」+ 自己（方向反的，见 playFor）
-        caught = sink ? at + 2 : pile.value.length - at + 1
-      }
-      const harvest = harvestCount(card, skills, true)
+      let caught = catchCountCut(at, sink, card)
+      const harvest = harvestCount(card, skills, true, false)
       if (harvest > caught) {
         caught = harvest
       }
@@ -13721,6 +15640,8 @@
     siftDrew.value = 0
     siftDone.value = 0
     freezePending.value = false
+    murkPending.value = false
+    murkLeft.value = 0
     bombPending.value = false
     bombFire = -1
     // 〔【薪潮】那两个 2026-10-28 从这儿撤了（`fuelPending` / `fuelLeft` 删了）。
@@ -13757,9 +15678,27 @@
     // 结冰那一族：豁免（playFor 每手也重设）和手冰表，开局都清
     iceBlindNow = false
     frostHand = [] as PlainCard[]
+    // 【石墙】堆上签 + 手里预约，开局都清
+    stonePile = [] as PlainCard[]
+    stoneHand = [] as PlainCard[]
     matchKey.value = [] as PlainCard[]
     draftKey.value = [] as PlainCard[]
+    zeroKey.value = [] as PlainCard[]
+    fadeKey.value = [] as PlainCard[]
+    fadeDoneCard = null
+    shrinkDoneCard = null
+    shrinkSkills = [] as number[]
+    shrinkPending.value = false
+    flowKey.value = [] as PlainCard[]
     zeroDraftPending.value = false
+    fadeTagPending.value = false
+    backPending.value = false
+    backTagPending.value = false
+    askDone = [] as number[]
+    askSkills = [] as number[]
+    zeroDraftLeft.value = 0
+    flowDraftPending.value = false
+    flowDraftSk.value = -1
     // 21 匹配那三件〔2026-10-28〕：链表、五个挑牌位、三笔按侧的记号。
     // 全按牌对象认身份，而新一局是新一副牌 —— 照上面 frostHand 那条
     chainTag.value = [] as PlainCard[]
@@ -14705,6 +16644,15 @@
     margin-right: 1px;
   }
 
+  /* 【石墙】：堆上障碍 / 手里预约同一个字。石色，跟冰蓝、火橙、通配紫都分得开 */
+  .card-stone-tag {
+    color: #6d4c41;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+
   /* 【通配】：紫色，跟 .card-wild 那条紫边同色 */
   .card-wild-tag {
     color: #7c4ddb;
@@ -14726,6 +16674,15 @@
   /* 手里带【21 匹配】（零递贴的）：墨绿，跟花色匹配的玫红分得开 */
   .hand-draft-tag {
     color: #2e7d32;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+
+  /* 手里带【顺子匹配】（流钥贴的）：靛蓝，跟 21 的绿、花的玫红分得开 */
+  .hand-flow-tag {
+    color: #1565c0;
     font-size: 9px;
     font-weight: bold;
     margin-left: 1px;

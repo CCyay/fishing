@@ -18,7 +18,11 @@ node tools/md-sim/check.js 2>&1 | tail -3
 echo "---- 齐顶 · 修完（台账旧数 3.57 作废） ----"
 node tools/md-sim/sim.js vs peak peak -n "$N" | sed -n '1,12p'
 echo "---- 齐顶 · 花色槽（幅度跟槽型有关，两种都要量） ----"
-node tools/md-sim/sim.js one peak --role night --slot 0 -n "$N" | sed -n '1,8p'
+# 〔2026-10-30 改：原来是 `--role night --slot 0` —— **从写下那天起就标错了**：
+#   当时夜钓客是 A / 5 / 9，slot 0 是 **A 点数槽**，这一格一直量的是 A 槽、不是花色槽。
+#   夜钓客 10-30 改成 ♠ / 5 之后那条命令碰巧变成花色槽，可全表的花色槽口径是镜湖 ♥ 槽，
+#   所以换成标准量法。台账没记过这一格的数，没有旧数要更正。复现原来那一跑：`--role nightold --slot 0`〕
+node tools/md-sim/sim.js one peak --role mirror --slot 0 -n "$N" | sed -n '1,8p'
 
 echo
 echo "################ 1. 这条思路的核心一格：抬水 × 齐顶 ################"
@@ -33,10 +37,11 @@ node tools/md-sim/sim.js pair raise peak -n "$N"
 
 echo
 echo "################ 2. 对照：另两件能改点数的 ################"
-echo "---- 归深 × 齐顶（它追加 11 点 —— 堆上没有 11，所以它是「造一个新 top」） ----"
-node tools/md-sim/sim.js pair deep peak -n "$N"
-echo "---- 软点 × 齐顶（追加 1 点，方向相反：它**降低**不了 top，应该近 0） ----"
-node tools/md-sim/sim.js pair soft peak -n "$N"
+# 〔2026-10-30 停用：归深（deep）/ 软点（soft）2026-10-26 一起删了（墓碑在 DEAD_SKILLS），
+#   这两条从那天起就跑不动（sim.js 报「没有这个技能」）。原命令留着当记录〕
+echo "（这一节停用：归深 / 软点 2026-10-26 已删）"
+# node tools/md-sim/sim.js pair deep peak -n "$N"
+# node tools/md-sim/sim.js pair soft peak -n "$N"
 
 echo
 echo "################ 3. 齐顶的落点到底在哪（决定这条路的天花板） ################"

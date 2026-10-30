@@ -83,11 +83,12 @@ const AI = require('./ai.js')
 const DEFAULT_ROLE = 'lock'
 
 function parseArgs(argv) {
-  const out = { _: [], n: 20000, seed: 1, role: DEFAULT_ROLE, slot: 0, special: false, proto: false }
+  const out = { _: [], n: 20000, seed: 1, role: DEFAULT_ROLE, slot: 0, special: false, proto: false, full: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '-n') { out.n = parseInt(argv[++i], 10) }
     else if (a === '--seed') { out.seed = parseInt(argv[++i], 10) }
+    else if (a === '--full') { out.full = true }
     else if (a === '--role') { out.role = argv[++i] }
     else if (a === '--slot') { out.slot = parseInt(argv[++i], 10) }
     else if (a === '--special') { out.special = true }
@@ -239,7 +240,7 @@ function run(n, seed, mine, foe, opts) {
     // 这三列单独累加
     straight: {
       fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
-      failFires: [0, 0], tagged: [0, 0], wildUsed: [0, 0]
+      failFires: [0, 0], tagged: [0, 0], wildUsed: [0, 0], failWild: [0, 0]
     },
     wade: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
     // 打出那张自己贴【通配】那次改动的诊断口（见 rules.js 的
@@ -266,7 +267,8 @@ function run(n, seed, mine, foe, opts) {
       pushed: [0, 0]
     },
     // 顺流（按排序收牌）—— 跟上面两件同一组列，所以下面共用同一个循环和同一张表
-    order: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0] },
+    // swapped：换序 / 调序真换了几次（顺流 / 插流恒 0）
+    order: { fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0], swapped: [0, 0] },
     // 【易流】—— 跟顺子那几件同组列，外加 swapped（真换了几次）
     swapflow: {
       fires: [0, 0], hits: [0, 0], lenSum: [0, 0], gotSum: [0, 0],
@@ -442,6 +444,7 @@ function run(n, seed, mine, foe, opts) {
         sum.swapflow[keys[k]][s] += G.stat.swapflow[keys[k]][s]
         sum.cast[keys[k]][s] += G.stat.cast[keys[k]][s]
       }
+      sum.order.swapped[s] += G.stat.order.swapped[s]
       sum.cast.oddPick[s] += G.stat.cast.oddPick[s]
       sum.cast.alone[s] += G.stat.cast.alone[s]
       sum.cast.nextSame[s] += G.stat.cast.nextSame[s]
@@ -464,7 +467,7 @@ function run(n, seed, mine, foe, opts) {
         sum.draft[dk[k]][s] += G.stat.draft[dk[k]][s]
       }
       // 失败补偿那三列只有 straight 有
-      const fk = ['failFires', 'tagged', 'wildUsed']
+      const fk = ['failFires', 'tagged', 'wildUsed', 'failWild']
       for (let k = 0; k < fk.length; k++) {
         sum.straight[fk[k]][s] += G.stat.straight[fk[k]][s]
       }
@@ -1693,6 +1696,11 @@ function cmdOne(args) {
   console.log('\n  胜率：' + pct(avg(m.test.wins[R.ME], m.test.games))
     + '（基线 ' + pct(avg(m.base.wins[R.ME], m.base.games)) + '，'
     + (m.winGain >= 0 ? '+' : '') + pct(m.winGain) + '）')
+  // 〔2026-10-29〕两侧平均的 Δ胜率 —— 公式跟 cmdAll 的 winX **逐字一致**，所以这个数能直接填进全表那一列。
+  // 上面那行只是后手一侧（D 格），跟全表那列不同口径
+  const baseWin = avg(m.base.wins[R.ME], m.base.games)
+  const winX = ((avg(m.test.wins[R.ME], m.test.games) - baseWin) + (baseWin - avg(m.foeTest.wins[R.ME], m.foeTest.games))) / 2 * 100
+  console.log('  Δ胜率（两侧平均，跟 all 那列同口径）：' + (winX >= 0 ? '+' : '') + winX.toFixed(2) + ' 点')
   console.log('  带技能那方（后手格）：每局钓到 '
     + f1(avg(m.test.catches[R.ME], m.test.games))
     + ' 次（基线 ' + f1(avg(m.base.catches[R.ME], m.base.games)) + '），每次收 '
@@ -1760,7 +1768,7 @@ function cmdOne(args) {
   //
   // 这张表原先只长在野火那个专用命令的「格 D」里（见下面那段），
   // 而 `one` 取不到 —— 同一种漏法这个文件记过三次（堆牌诊断的闸、
-  // jsurge 的 fires、中毒那一套）
+  // jsurge 的 fires、石化那一套）
   const swT = m.test.wild
   const swB = m.base.wild
   if (swT.sweeps[R.ME] + swT.sweeps[R.FOE]
@@ -1815,7 +1823,7 @@ function cmdOne(args) {
   //   · 这儿的「我带」 —— 固定庄家先手、ME 带 FOE 空手（**不对称**）
   //   · 这儿的「基线」 —— 固定庄家先手、双方空手
   //   第三条跟 `base` 只差一个切牌口径，看着最像可比的，**恰恰是最容易栽的**。
-  printPoisonDiag()
+  printStoneDiag()
   printHeapDiag()
   printDraftTagDiag()
   if (process.env.CATCH_CURVE) {
@@ -1832,7 +1840,7 @@ function cmdOne(args) {
 
 // ---------- 【堆牌】/【上牌区】的诊断口〔2026-10-26〕 ----------
 //
-// 照 `printPoisonDiag` 那三条先例：**问计数器别问旋钮**、**不印「每局」**
+// 照 `printStoneDiag` 那三条先例：**问计数器别问旋钮**、**不印「每局」**
 //（`PROTO_STAT` 跨 `measureBoth` 的三格累加，绝对数不可读、比值可读）、
 // **读数有顺序**。
 //
@@ -1882,7 +1890,7 @@ function printHeapDiag() {
     // 【逆涌】自己那一句条件的计数〔2026-10-28 接上〕。
     //
     // 它在 `rules.js` 里累加着、**而整个工具一个字都不印** ——
-    // 同一种漏法这个文件为【中毒】那一套记过一次。
+    // 同一种漏法这个文件为【石化】那一套记过一次。
     // 读法写在 `PROTO_STAT.jsurge` 头上：产出固定（堆牌4），
     // **触发频率是这件技能唯一的变量**，所以这个数就是它的全部机制口
     const js = R.PROTO_STAT.jsurge
@@ -1927,7 +1935,7 @@ function printHeapDiag() {
   //   现在往那一区放牌的只有 `BOARD_TEST`〕
 }
 
-// ---------- 【中毒】/【花色匹配】钥匙的诊断口〔2026-10-26 接上〕 ----------
+// ---------- 【石化】/【花色匹配】钥匙的诊断口〔2026-10-26 接上〕 ----------
 //
 // **为什么非加不可**：这两组计数在 `rules.js` 里累加了一整季，而
 // `sim.js` 一个字都不印 —— 唯一读它们的是 `proto-diag.js`，那是**单侧口径**。
@@ -1941,15 +1949,24 @@ function printHeapDiag() {
 //     所以**绝对数不可读、比值可读**，而比值正是要看的那几个。
 //
 // ⚠ 读数顺序是硬规矩：`used` → `hits/used` → `selfBlocks/blocks` → **最后才看分**。
-function printPoisonDiag() {
-  const p = R.PROTO_STAT.poison
+function printStoneDiag() {
+  const p = R.PROTO_STAT.stone
   const k = R.PROTO_STAT.matchkey
   // ⚠ `k.used` 2026-10-28 加进这道闸：**自带【花色匹配】的件一把钥匙都不发**
   //（传色 / 传遍 / 雪覆 / 一色 / 〈huetag〉色递 —— 线在载体自己身上）。
   //   原先只看 `p.tags`/`k.given`，于是量那几件时整张诊断表**一个字都不打**，
   //   而「成功率」正是判这条线死活的第一列。同一种漏法这个文件记过两次了
-  if (p.tags === 0 && k.given === 0 && k.used === 0) return
-  console.log('\n  ---- 诊断：【中毒】/【花色匹配】钥匙 ----')
+  if (p.tags === 0 && k.given === 0 && k.used === 0
+    && p.handTags === 0 && p.deckTags === 0) return
+  console.log('\n  ---- 诊断：【石墙】/【花色匹配】钥匙 · FATE=' + R.STONE_FATE + ' ----')
+  if (p.handTags > 0 || p.handLands > 0 || p.handNone > 0) {
+    console.log('    手牌贴墙 ' + p.handTags + '（贴不上 ' + p.handNone
+      + '）→ 落堆成墙 ' + p.handLands + '（SHAND_MODE=' + R.SHAND_MODE + '）')
+  }
+  if (p.deckTags > 0 || p.deckLands > 0 || p.deckNone > 0) {
+    console.log('    库顶贴墙 ' + p.deckTags + '（贴不上 ' + p.deckNone
+      + '）→ 落堆成墙 ' + p.deckLands)
+  }
   if (k.given > 0 || k.none > 0 || k.used > 0) {
     console.log('    发出钥匙 ' + k.given + ' 把（手里挑不出牌 ' + k.none + ' 次）'
       + '，带钥匙那张真打出去 ' + k.used + ' 次 → **兑现率 ' + pct(avg(k.used, k.given)) + '**')
@@ -1970,11 +1987,16 @@ function printPoisonDiag() {
   }
   if (p.suitKeys > 0) {
     console.log('    ⚠ **旧的连续花色线也在跑**（suitKeys ' + p.suitKeys
-      + ' / suitHits ' + p.suitHits + '）—— 毒影默认档下这两个该是 0。'
+      + ' / suitHits ' + p.suitHits + '）—— 石影默认档下这两个该是 0。'
       + '两条路同时接着的话这一格的数是脏的（HUE_KEY=' + R.HUE_KEY + '）。')
   }
+  if (p.passGiven > 0 || p.passUsed > 0) {
+    console.log('    破墙钥匙 ' + p.passGiven + ' 把 → 带它那张打出 ' + p.passUsed + ' 次（兑现率 '
+      + pct(avg(p.passUsed, p.passGiven)) + '），其中**真穿过墙 ' + p.pierced + ' 次**（'
+      + pct(avg(p.pierced, p.passUsed)) + '）')
+  }
   if (p.tags === 0) return
-  console.log('    贴出毒 ' + p.tags + ' 张，拦下连续匹配 ' + p.blocks + ' 次（'
+  console.log('    堆上贴墙 ' + p.tags + ' 张，拦下连续匹配 ' + p.blocks + ' 次（'
     + f2(avg(p.blocks, p.tags)) + ' 次/张），墙平均在堆上活 '
     + f2(avg(p.liveSum, p.tags)) + ' 手')
   console.log('    拦下 ' + p.kept + ' 张 → **' + f2(p.keptScore) + ' 分**（'
@@ -1984,7 +2006,7 @@ function printPoisonDiag() {
     + '「6 张截成 2 张」掉 11 分，「5 张截成 4 张」掉 0 分，两者都记 1 次 block。')
   console.log('    其中拦到自己 ' + p.selfBlocks + ' 次 / ' + p.selfKept + ' 张 → **自伤 '
     + pct(avg(p.selfBlocks, p.blocks)) + '**（这一族的墙不分敌我）')
-  if (p.jBlocks > 0) console.log('    其中拦的是 J 通吃 ' + p.jBlocks + ' 次（POISON_J=' + R.POISON_J + '）')
+  if (p.jBlocks > 0) console.log('    其中拦的是 J 通吃 ' + p.jBlocks + ' 次（STONE_J=' + R.STONE_J + '）')
 }
 
 // ---------- 【21 匹配】标签那一族的诊断口〔2026-10-28〕 ----------
@@ -2007,8 +2029,101 @@ function printDraftTagDiag() {
   const td = R.PROTO_STAT.tagdraft
   const ht = R.PROTO_STAT.holdtag
   const ct = R.PROTO_STAT.chaintag
+  // 【隔凌】〔2026-10-30〕
+  const lc = R.PROTO_STAT.lockcolor
+  if (lc && lc.fires > 0) {
+    console.log('\n  ---- 诊断：【隔凌】（LOCKCOLOR_REF=' + R.LOCKCOLOR_REF + '）----')
+    console.log('    发动 ' + lc.fires + ' 次：贴冰 ' + f2(lc.iced / lc.fires) + ' 张/次 · 牌库空没摸到 ' + pct(lc.nodraw / lc.fires)
+      + ' · 摸上来那张跟打出那张同颜色 ' + pct(lc.sameAsPlayed / Math.max(1, lc.fires - lc.nodraw)))
+  }
+  // 【引火】〔2026-10-30〕
+  const kd = R.PROTO_STAT.kindle
+  if (kd && kd.fires > 0) {
+    console.log('\n  ---- 诊断：【引火】（KINDLE_HUE=' + R.KINDLE_HUE + '）----')
+    console.log('    发动 ' + kd.fires + ' 次：贴火 ' + f2(kd.tagged / kd.fires) + ' 张/次 · 堆底就是它自己 ' + pct(kd.bottomSelf / kd.fires)
+      + ' · 堆底跟它同颜色 ' + pct(kd.sameAsPlayed / kd.fires) + ' · 堆空 ' + pct(kd.noPile / kd.fires))
+  }
+  // 【传火】bottom 档〔2026-10-30〕
+  const cb = R.PROTO_STAT.chainbottom
+  if (cb && cb.fires > 0) {
+    console.log('\n  ---- 诊断：【传火】（CHAIN_HUE=' + R.CHAIN_HUE + ' · CHAIN_BOTTOM_SELF=' + (R.CHAIN_BOTTOM_SELF ? 1 : 0) + '）----')
+    console.log('    发动 ' + cb.fires + ' 次：点着别的 ' + f2(cb.lit / cb.fires) + ' 张/次 · 点着它自己 ' + pct(cb.selfLit / cb.fires)
+      + ' · 堆上只有它一张 ' + pct(cb.solo / cb.fires) + ' · 堆空 ' + pct(cb.noPile / cb.fires))
+  }
+  const csx = R.PROTO_STAT.chainseat
+  if (csx && csx.front.fires + csx.back.fires > 0) {
+    console.log('  ---- 【传火】按持有方座位拆（只算 bottom 档）----')
+    for (const k of ['front', 'back']) {
+      const v = csx[k]
+      if (v.fires === 0) continue
+      console.log('    ' + (k === 'front' ? '持有方先手' : '持有方后手') + '：发动 ' + v.fires + ' 次 · 堆厚 ' + f2(v.pileSum / v.fires)
+        + ' · 堆上只有它 ' + pct(v.solo / v.fires) + '（第一手 ' + pct(v.opening / v.fires) + ' / 局中 ' + pct(v.soloMid / v.fires) + '）' + ' · 堆 ≥2 张时堆底是持有方自己打的 ' + pct(v.bottomMine / Math.max(1, v.multi)) + ' · 堆底跟它同色 ' + pct(v.selfSame / v.fires)
+        + ' · 当手燃尽 ' + pct(v.instant / v.fires) + '（' + f2(v.instantCards / Math.max(1, v.instant)) + ' 张）'
+        + ' · 持有方扫堆 ' + v.mySweeps + ' 次 / ' + v.myCards + ' 张 · 对手扫堆 ' + v.foeSweeps + ' 次 / ' + v.foeCards + ' 张')
+    }
+  }
+  // 【野火】新版〔2026-10-30〕
+  const ws = R.PROTO_STAT.wildself
+  if (ws && ws.fires > 0) {
+    console.log('\n  ---- 诊断：【野火】（WILD_SELF=' + (R.WILD_SELF ? 1 : 0) + '）----')
+    console.log('    发动 ' + ws.fires + ' 次：它自己点着 ' + pct(ws.lit / ws.fires) + ' · 另挑 1 张点着 ' + pct(ws.picked / ws.fires))
+  }
+  // 〈zerodrop〉〔2026-10-30〕
+  const zd = R.PROTO_STAT.zerodrop
+  if (zd && zd.fires > 0) {
+    console.log('\n  ---- 诊断：〈zerodrop〉（ZD_WHO=' + R.ZD_WHO + '）----')
+    console.log('    发动 ' + zd.fires + ' 次：置 0 他 ' + f2(zd.killed / zd.fires) + ' 张/次，「手里几张 0」平均 ' + f2(zd.zSum / zd.fires)
+      + '，全堆减出新 0 ' + f2(zd.newZero / zd.fires) + ' 张/次 · 收零判 ' + zd.cashed + ' 次、收成 ' + pct(zd.hits / Math.max(1, zd.cashed))
+      + '、每次收 ' + f2(zd.got / Math.max(1, zd.hits)) + ' 张')
+  }
+  // 〈foeflow〉〔2026-10-30〕
+  const ff = R.PROTO_STAT.foeflow
+  if (ff && ff.fires > 0) {
+    console.log('\n  ---- 诊断：〈foeflow〉（FF_HAND=' + R.FF_HAND + ' · FF_HEAP=' + R.FF_HEAP + '）----')
+    console.log('    发动 ' + ff.fires + ' 次：手牌补进顺子 ' + f2(ff.handUsed / ff.fires) + ' 张/次')
+  }
+  // 【回水】〔2026-10-30〕
+  const zs = R.PROTO_STAT.backwater
+  if (zs && zs.fires > 0) {
+    const at = R.PROTO_STAT.atag
+    console.log('\n  ---- 诊断：【回水】----')
+    console.log('    发动 ' + zs.fires + ' 次：置 0 他 ' + f2(zs.killed / zs.fires) + ' 张/次（J ' + f2(zs.jack / zs.fires) + '）'
+      + '，贴收零 ' + pct(zs.tagged / zs.fires) + ' · 收零打出 ' + at.cashed + ' 次、收成 ' + pct(at.hits / Math.max(1, at.cashed))
+      + '、每次收 ' + f2(at.got / Math.max(1, at.hits)) + ' 张')
+  }
+  // 〈drawzero〉〔2026-10-30〕
+  const dz = R.PROTO_STAT.drawzero
+  if (dz && dz.fires > 0) {
+    console.log('\n  ---- 诊断：〈drawzero〉（DZ_MODE=' + R.DZ_MODE + '）----')
+    console.log('    发动 ' + dz.fires + ' 次：对方抽 ' + f2(dz.drawn / dz.fires) + ' 张/次（J ' + dz.drawnJack + '，牌库不够 ' + dz.deckShort + ' 次）'
+      + '，置 0 ' + f2(dz.zeroed / dz.fires) + ' 张/次（其中挑的 ' + f2(dz.picked / dz.fires) + '）'
+      + (dz.blindJack > 0 ? '，盲选中 J ' + f2(dz.blindJack / dz.fires) + ' 张/次' : ''))
+  }
+  // 〈wildkey〉〔2026-10-29〕：贴了几次 + 钥匙兑现（flowHand 那条线记在 chaingift）
+  const wk = R.PROTO_STAT.wildkey
+  if (wk && wk.fires > 0) {
+    const cg = R.PROTO_STAT.chaingift
+    console.log('\n  ---- 诊断：〈wildkey〉（WILDKEY=' + R.WILDKEY + '）----')
+    console.log('    发动 ' + wk.fires + ' 次：贴成钥匙 ' + pct(wk.keyed / wk.fires) + '、贴成通配 ' + pct(wk.wild / wk.fires)
+      + ' · 钥匙牌打出 ' + cg.fired + ' 次，靠它收 ' + f2(cg.gotSum / Math.max(1, cg.fired)) + ' 张/次')
+  }
+  // 〈stackdraft〉〔2026-10-29〕：它不贴标签，所以排在下面那道早退前面
+  const sk = R.PROTO_STAT.stackdraft
+  if (sk && sk.fires > 0) {
+    console.log('\n  ---- 诊断：〈stackdraft〉（STACK21_DIR=' + R.STACK21_DIR + '）----')
+    console.log('    叠了 ' + sk.fires + ' 次：21 匹配凑成 ' + pct(sk.drafted / sk.fires)
+      + '（每次收 ' + f2(sk.got / Math.max(1, sk.drafted)) + ' 张，含锚、不含垫的那张）'
+      + ' · 退回普通匹配 ' + pct(sk.normal / sk.fires) + ' · 什么都没收 ' + pct(sk.none / sk.fires))
+  }
   if (td.tagged === 0 && ht.fires === 0 && ct.cashed === 0) return
   console.log('\n  ---- 诊断：【21 匹配】的手牌标签 ----')
+  // 〈sortdraft〉〔2026-10-29〕：排序真动了没有 —— 「挪了几步 / 次」是 0 就是排序没接上
+  const sd = R.PROTO_STAT.sortdraft
+  if (sd && sd.fires > 0) {
+    console.log('    〈sortdraft〉SORT_ZERO=' + R.SORT_ZERO + '：发动 ' + sd.fires + ' 次，发动时堆厚 '
+      + f2(sd.depth / sd.fires) + ' 张，排序挪了 ' + f2(sd.moved / sd.fires) + ' 步/次，贴成 '
+      + sd.tagged + ' 张（' + pct(sd.tagged / sd.fires) + '）')
+  }
   if (td.tagged > 0) {
     console.log('    贴出标签 ' + td.tagged + ' 张，带它的牌真打出去 ' + td.cashed
       + ' 张 → **兑现率 ' + pct(avg(td.cashed, td.tagged)) + '**')
@@ -2166,7 +2281,7 @@ function cmdAll(args) {
     // ⚠ **这个闸 2026-10-27 从「`SCORE_BANDS !== null`」改成下面这样。**
     //   原先的闸只认 R4：R5 把 `SCORE_BANDS` 翻回 `null`（张=分），
     //   于是这一列**又开始印 R3 的锚算出来的价** —— 实测小样本印出
-    //   「〈poisonsurge〉220 / 洪水 170」，而现行最高价是 120。
+    //   「〈stonesurge〉220 / 洪水 170」，而现行最高价是 120。
     //   那正是上面那段注释预先警告过的错法（「印一列用旧锚算的价，
     //   比不印坏得多」），只是它防的是 R4，没防住 R5。
     //
@@ -2565,8 +2680,14 @@ function cmdRoles(args) {
 //   在那之前：**这张名单的第 1 位不再是最强那件**，所有拿
 //  「♥ 槽排第几」做文章的推论（`rules.js` peachlast / heartslot 那几段）
 //   都要先回来看这一行。
+// 〔2026-10-29：**洪水删了**，第 1 位换成名单外 X 最高的上架件【满墙】（R6 A 槽 +4.87）。
+//   照 10-27 删对换时那个先例。**满配那几列再废一次**〕
+// 〔2026-10-29：**涉水撤了**，那一位换成名单外 X 最高的上架件【插流】（R7 A 槽 +5.18）。照删对换 / 洪水的先例。满配那几列再废一次〕
+// 〔2026-10-30：**易流（swapflow）10-29 就下架了，这一位一直没换**（fingerprint 审计顺带查出）——
+//   江口闸官 / 流钥客的满配因此带着一件不存在的技能。照删对换 / 洪水 / 涉水的先例，换成名单外 X 最高的上架件【一色】
+//  （R7 A 槽 +4.62）。只有插满 4 槽的卡用得到第 4 位。名单其余位置没动（**仍不是严格 X 降序**，见上面 10-28 那段）〕
 const KIT_ORDER = [
-  'flood', 'flow', 'gift', 'swapflow', 'wade', 'unhook', 'peak', 'kindle'
+  'stonefull', 'flow', 'gift', 'suitify', 'orderins', 'unhook', 'peak', 'kindle'
 ]
 
 // ⚠ 上界走 **`roleKitCount`**，不是 `slots.length`〔2026-10-28 改〕——
@@ -2578,7 +2699,10 @@ function kitFor(role) {
   const n = R.roleKitCount(role)
   const picks = []
   for (let i = 0; i < n; i++) {
-    picks.push(skillIndexOf(KIT_ORDER[i % KIT_ORDER.length]))
+    // `KIT=a,b,c` 覆写插件序（第 i 件插第 i 格，双装第 2 件在末尾）〔2026-10-29，量〈twinval〉加的：
+    // 默认序把洪水 / 伏流插进双装槽，而两件都清空点数 ⇒ 互通永远用不上〕
+    const order = process.env.KIT ? process.env.KIT.split(',') : KIT_ORDER
+    picks.push(skillIndexOf(order[i % order.length]))
   }
   return picks
 }
@@ -2692,6 +2816,15 @@ function cmdRole(args) {
     console.log('    技能触发件次：不带这件 ' + f2(lst.base / args.n)
       + ' → 带上 ' + f2((lst.base + lst.extra) / args.n)
       + ' → **实际倍率 ×' + f2(mult) + '**')
+  }
+  // ---- 〈twinval〉的诊断行〔2026-10-29〕：它到底做了几次 ----
+  const tvs = R.PROTO_STAT.twinval
+  if (tvs && tvs.plays > 0) {
+    console.log('')
+    console.log('  ---- 〈twinval〉诊断（TWINVAL=' + R.TWINVAL + '）----')
+    console.log('    双装槽点数的牌打出 ' + f2(tvs.plays / args.n) + ' 张/局，'
+      + '其中**只靠互通才钓到** ' + f2(tvs.gained / args.n) + ' 张/局（'
+      + pct(avg(tvs.gained, tvs.plays)) + '），互通让起点更深 ' + f2(tvs.deeper / args.n) + ' 张/局')
   }
   // ---- 【红钩】的诊断行〔2026-10-20，当天上架，原名【红心万用】〕----
   //
@@ -3280,6 +3413,19 @@ function cmdVs(args) {
       console.log('  「每次收成」低 → 瓶颈在**收法**；')
       console.log('  两样都不低而分差仍低 → 收的那几张**本来也钓得到**')
       console.log('  （洪水那场查出来的那个机制，见 rules.js 的 stat.flood）。')
+      // 【顺子匹配】失败带通配〔2026-10-30〕：这一手凑不成、它带上了【通配】的次数
+      if (D.straight.failWild[R.ME] > 0 || A.straight.failWild[R.FOE] > 0) {
+        console.log('  顺子失败带上【通配】：后手 ' + f2(avg(D.straight.failWild[R.ME], args.n))
+          + ' 次/局 / 先手 ' + f2(avg(A.straight.failWild[R.FOE], args.n)) + ' 次/局'
+          + '（≤ 打出 × (1 − 凑成率)：已带通配的不重贴）')
+      }
+      // 换序 / 调序多一个数：**真换了几次**（可选，换了不如不换就不换）
+      if (D.order.swapped && D.order.swapped[R.ME] > 0) {
+        console.log('  真换位置 ' + f2(avg(D.order.swapped[R.ME], args.n))
+          + ' 次/局（后手）/ '
+          + f2(avg(A.order.swapped[R.FOE], args.n)) + ' 次/局（先手）'
+          + ' —— ÷打出次数 = 有几成手在动堆')
+      }
       // 易流多一个数：**真换了几次**（换了不如不换就不换，所以它低于打出次数）
       if (D.swapflow.fires[R.ME] > 0) {
         console.log('\n  易流**真换了**：后手 '
@@ -3798,7 +3944,7 @@ function cmdVs(args) {
   printHeapDiag()
   // 同一条理由（2026-10-28）：这一族的量测脚本也是 `vs X X`，
   // 而「兑现率 / 触发率 / 链存活率」三列在 `vs` 下原先一行都读不到
-  printPoisonDiag()
+  printStoneDiag()
   printDraftTagDiag()
 }
 
@@ -3844,6 +3990,105 @@ function cmdSwitch(args) {
   console.log('  AI 当饵时不拨开关，所以这是换竿的下限。')
 }
 
+// ---------- slottag：〈槽钥〉四档（顺子/顺序/21/花色）----------
+//
+// 口径：
+//   空槽  = measureSpecial（常驻技本身；预期 ≈ 0，因为触发不了「触发技能槽」）
+//   满配  = measureBothLo（KIT_ORDER 前 4 件，两侧都量）—— **真数在这儿**
+//   边际  = 满配 X(KIND) − 满配 X(off)（同槽同装，只差贴不贴）
+//
+// KIND 走 env `SLOTTAG_KIND`（rules 加载时读）。一次进程只能量一档，
+// 四档 + off 对照要五个进程（见跑法注释）
+function cmdSlottag(args) {
+  const role = R.roleIndexOf('flowkey')
+  if (role < 0) {
+    console.log('找不到角色 flowkey —— rules.js 的 DRAW_ROLES 里没有')
+    return
+  }
+  const r = R.DRAW_ROLES[role]
+  // 强制带常驻技 —— 这一命令量的就是它；rolesFor 默认关掉
+  args.special = true
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
+  const kind = R.SLOTTAG_KIND
+  const skipEmpty = !!args.full
+  console.log('【流钥客】flowkey · KIND=' + kind
+    + ' · 槽 ' + r.slots.join('/')
+    + '（' + R.roleCover(role) + ' 张）· ' + args.n + ' 局'
+    + (skipEmpty ? ' · 只跑满配' : ''))
+  console.log('口径：空槽 = measureSpecial；满配 = measureBothLo（两侧，可跟全表减）')
+  console.log('满配插 KIT_ORDER 前 ' + R.roleKitCount(role) + ' 件\n')
+
+  if (!skipEmpty) {
+    const emptyM = measureSpecial(args, role)
+    console.log('  空槽常驻  后手 ' + sign(emptyM.back)
+      + '  先手 ' + sign(emptyM.front)
+      + '  X ' + sign(emptyM.x)
+      + '  D ' + sign(emptyM.d)
+      + '  se ' + f2(emptyM.se))
+  } else {
+    console.log('  空槽常驻  （本跑跳过；smoke 已确认 X=+0.00）')
+  }
+
+  const picks = kitFor(role)
+  for (let i = 0; i < picks.length; i++) {
+    console.log('  满配槽 ' + (i + 1) + '（' + r.slots[i] + '）：'
+      + R.SKILLS[picks[i]].name)
+  }
+  // 诊断口清零 —— 只要满配这一段的比值（空槽段 fires 恒 0，混进去只稀释分母）
+  const st = R.PROTO_STAT.slottag
+  st.fires = 0
+  st.tagged = 0
+  st.cashed = 0
+  st.orderFired = 0
+  st.orderGot = 0
+  R.PROTO_STAT.tagdraft.tagged = 0
+  R.PROTO_STAT.tagdraft.cashed = 0
+  R.PROTO_STAT.chaingift.tagged = 0
+  R.PROTO_STAT.chaingift.cashed = 0
+  R.PROTO_STAT.chaingift.fired = 0
+  R.PROTO_STAT.matchkey.given = 0
+  R.PROTO_STAT.matchkey.used = 0
+  R.PROTO_STAT.matchkey.hits = 0
+
+  const full = measureBothLo(args, role, R.kitFromRole(role, picks))
+  console.log('\n  满配      后手 ' + sign(full.back)
+    + '  先手 ' + sign(full.front)
+    + '  X ' + sign(full.x)
+    + '  D ' + sign(full.d)
+    + '  se ' + f2(full.se))
+
+  console.log('\n  ---- 诊断：【流钥】----')
+  console.log('    KIND=' + kind
+    + '  触发贴标 ' + st.fires + ' 次，真贴成 ' + st.tagged
+    + '（' + pct(avg(st.tagged, st.fires)) + '）'
+    + '，带标签打出 ' + st.cashed
+    + ' → 兑现率 ' + pct(avg(st.cashed, st.tagged)))
+  if (kind === 'off' && st.fires === 0) {
+    console.log('    off 档 fires=0 —— 对照格干净（没走进贴标签）')
+  }
+  if (kind === 'straight') {
+    const cg = R.PROTO_STAT.chaingift
+    console.log('    顺子线：贴 ' + cg.tagged + ' / 兑现 ' + cg.cashed
+      + ' / 真跑 ' + cg.fired)
+  }
+  if (kind === 'order') {
+    console.log('    顺序线：真跑 ' + st.orderFired + ' 次，收 '
+      + f2(avg(st.orderGot, st.orderFired)) + ' 张/次')
+  }
+  if (kind === 'draft') {
+    const td = R.PROTO_STAT.tagdraft
+    console.log('    21 线：贴 ' + td.tagged + ' / 兑现 ' + td.cashed)
+  }
+  if (kind === 'suit') {
+    const mk = R.PROTO_STAT.matchkey
+    console.log('    花色线：发钥匙 ' + mk.given + ' / 用掉 ' + mk.used
+      + ' / 凑成 ' + mk.hits)
+  }
+  if (kind !== 'off' && st.fires === 0) {
+    console.log('    ⚠ fires=0 —— 满配下「触发技能槽」一次都没成立，接线没接上')
+  }
+}
+
 // ---------- 入口 ----------
 
 function main() {
@@ -3859,6 +4104,7 @@ function main() {
   if (cmd === 'role') return cmdRole(args)
   if (cmd === 'switch') return cmdSwitch(args)
   if (cmd === 'cards') return cmdCards(args)
+  if (cmd === 'slottag') return cmdSlottag(args)
   console.log('不认识的命令：' + cmd + '\n看文件头的注释，或者 README.md')
 }
 
