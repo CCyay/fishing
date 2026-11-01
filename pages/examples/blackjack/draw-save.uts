@@ -62,7 +62,10 @@ import {
   // 存档里技能和角色都存 key，这两个负责 key ↔ 下标
   //（见下面 ownerToText / textToOwner 那一段）
   skillIndexOf,
-  skillKeyAt
+  skillKeyAt,
+  // 角色专属技能（布饵人的空钩）：商店不上；固定槽不许换（见 equipSkill / embedSkill）
+  isRoleOnlySkill,
+  roleFixedSkill
   // 原先还引着一串旧模型的东西（rollPlace / rollKitFor / rankCapOf /
   // emptyLoadout / isEquipped / coverageText / SUIT_COUNT /
   // RANK_CAPACITY / DrawLoadout）。存档不再存 loadout 了 ——
@@ -1011,7 +1014,8 @@ export function rollShelf(data : DrawSave, keepFix : boolean) {
   // 清不了数组，只能换引用）
   let freeSkills : number[] = []
   for (let k = 0; k < DRAW_SKILLS.length; k++) {
-    if (!hasSkill(data, k)) {
+    // 角色专属的不卖
+    if (!hasSkill(data, k) && !isRoleOnlySkill(k)) {
       freeSkills.push(k)
     }
   }
@@ -1414,6 +1418,10 @@ export function equipSkill(data : DrawSave, skill : number, at : number) : strin
   if (at < 0 || at >= data.slotSkills.length || !hasSkill(data, skill)) {
     return ''
   }
+  // 固定槽（专属技能）不许换；专属技能也不许装去别的槽
+  if (roleFixedSkill(data.role, at) >= 0 || isRoleOnlySkill(skill)) {
+    return ''
+  }
   const from = slotOfSkill(data, skill)
   const next = data.slotSkills.slice(0)
   if (from >= 0) {
@@ -1432,7 +1440,7 @@ export function equipSkill(data : DrawSave, skill : number, at : number) : strin
 
 // 卸下第 at 个槽里那件（回技能库）。返回卸下的是哪件，空槽返回 -1
 export function unequipAt(data : DrawSave, at : number) : number {
-  if (at < 0 || at >= data.slotSkills.length) {
+  if (at < 0 || at >= data.slotSkills.length || roleFixedSkill(data.role, at) >= 0) {
     return -1
   }
   const was = data.slotSkills[at]
@@ -1489,7 +1497,8 @@ export function settleLoss(data : DrawSave) : boolean {
 export function filledSlots(data : DrawSave) : number {
   let n = 0
   for (let i = 0; i < data.slotSkills.length; i++) {
-    if (data.slotSkills[i] >= 0) {
+    // 固定槽存档里可能是 -1（kitFromRole 开局盖上），照「嵌了」算
+    if (data.slotSkills[i] >= 0 || roleFixedSkill(data.role, i) >= 0) {
       n = n + 1
     }
   }
@@ -1517,6 +1526,10 @@ export function embedSkill(data : DrawSave, skill : number, at : number) : strin
   if (at < 0 || at >= data.slotSkills.length) {
     return ''
   }
+  // 固定槽（专属技能）不许换；专属技能也不许嵌去别的槽
+  if (roleFixedSkill(data.role, at) >= 0 || isRoleOnlySkill(skill)) {
+    return ''
+  }
   const was = data.slotSkills[at]
   data.slotSkills[at] = skill
   const label = slotLabelAt(data, at)
@@ -1529,7 +1542,7 @@ export function embedSkill(data : DrawSave, skill : number, at : number) : strin
 
 // 把一个槽清空（卖技能走这条）。返回被取下来的那件，-1 = 本来就空着
 export function clearSlotAt(data : DrawSave, at : number) : number {
-  if (at < 0 || at >= data.slotSkills.length) {
+  if (at < 0 || at >= data.slotSkills.length || roleFixedSkill(data.role, at) >= 0) {
     return -1
   }
   const was = data.slotSkills[at]

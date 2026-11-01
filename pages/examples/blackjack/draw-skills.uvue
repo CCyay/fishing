@@ -160,8 +160,8 @@
           :id="'md-slot-' + mi"
           class="slot-chip"
           :class="{ 'skill-empty': one.now < 0 }">
-          <text class="slot-label">{{ one.label }}</text>
-          <text class="slot-row-name">{{ one.now < 0 ? '空着' : DRAW_SKILLS[one.now].name }}</text>
+          <text class="slot-label">{{ slotLabelText(one.label) }}</text>
+          <text class="slot-row-name">{{ one.now < 0 ? '空着' : DRAW_SKILLS[one.now].name + (one.fixed ? ' · 专属' : '') }}</text>
         </view>
       </view>
 
@@ -331,9 +331,9 @@
             :class="{ 'my-skill-on': one.now < 0, 'my-skill-swap': one.now >= 0 }"
             @click="onPickSlot(one.at)">
             <view class="my-skill-head">
-              <text class="my-skill-cover">{{ one.label }}</text>
+              <text class="my-skill-cover">{{ slotLabelText(one.label) }}</text>
               <text class="my-skill-name">{{ one.now < 0 ? '空着' : DRAW_SKILLS[one.now].name }}</text>
-              <text class="my-skill-level">盖 {{ one.cover }} 张</text>
+              <text class="my-skill-level">{{ one.fixed ? '专属' : slotCoverText(one.label) }}</text>
             </view>
             <text class="my-skill-desc">{{ slotNote(one) }}</text>
           </view>
@@ -453,7 +453,10 @@
     slotCover,
     // 抬头那行「角色 · 特殊技」要报特殊技的名字
     SPECIAL_SKILLS,
-    specialIndexOf
+    specialIndexOf,
+    // 角色专属技能（布饵人的空钩）：技能包不摇、货架不卖；固定槽不许换
+    isRoleOnlySkill,
+    roleFixedSkill
     // 原先这儿还引着一片旧模型的东西（rankCapOf / isEquipped / hasRankRoom /
     // rollExpand / washSkill / canUpgrade / removeSkill / levelText /
     // rankSizeOf）。槽上印死标签之后那套全删了 —— 没有位置可摇、
@@ -985,7 +988,9 @@
     }
     const one = DRAW_SKILLS[k]
     let block = ''
-    if (noSlots.value) {
+    if (isRoleOnlySkill(k)) {
+      block = '角色专属 · 不出售'
+    } else if (noSlots.value) {
       block = '还没选角色 —— 没有槽可嵌'
     } else if (save.value.gold < one.unlock) {
       block = '金币不够'
@@ -1167,7 +1172,7 @@
   // 名额那道闸没了（槽满照样买得动，只是会换掉里头那件）。
   // 唯一还拦的是「一个槽都没有」—— 那说明这一轮还没选角色
   function buySkill(at : number, k : number) {
-    if (isNaN(k) || k >= DRAW_SKILLS.length) {
+    if (isNaN(k) || k >= DRAW_SKILLS.length || isRoleOnlySkill(k)) {
       return
     }
     if (noSlots.value) {
@@ -1314,6 +1319,8 @@
     cover : number
     // 现在嵌着哪件，-1 = 空着
     now : number
+    // 固定放着角色专属技能（布饵人的空钩）：不许换，now 就是那件
+    fixed : boolean
   }
 
   const slotViews = computed<SlotView[]>(() : SlotView[] => {
@@ -1324,15 +1331,28 @@
     }
     const slots = DRAW_ROLES[r].slots
     for (let i = 0; i < slots.length; i++) {
+      // 固定槽存档里可能是 -1（kitFromRole 开局才盖上），这儿照专属技能报
+      const fix = roleFixedSkill(r, i)
       out.push({
         at: i,
         label: slots[i],
         cover: slotCover(slots[i]),
-        now: i < save.value.slotSkills.length ? save.value.slotSkills[i] : -1
+        now: fix >= 0 ? fix : (i < save.value.slotSkills.length ? save.value.slotSkills[i] : -1),
+        fixed: fix >= 0
       } as SlotView)
     }
     return out
   })
+
+  // 槽上印的标签怎么念：'0' 是 0 点槽（布饵人），单写一个 0 看着像「没有」
+  function slotLabelText(label : string) : string {
+    return label == '0' ? '0 点' : label
+  }
+
+  // 盖几张：0 点槽没有固定张数（slotCover 记 0），报「0 点牌」免得读成「0 张」
+  function slotCoverText(label : string) : string {
+    return label == '0' ? '0 点牌' : '盖 ' + slotCover(label) + ' 张'
+  }
 
   const pickTip = computed<string>(() : string => {
     if (pickMode.value == 'same') {
@@ -1371,8 +1391,13 @@
 
   // 槽那一行底下写什么：空着就报它能管什么，嵌着就报换掉谁、退多少
   function slotNote(one : SlotView) : string {
+    if (one.fixed) {
+      return '专属技能，固定在这个槽，换不了'
+    }
     if (one.now < 0) {
-      return '空着 · 装上就管 ' + one.label + '（' + one.cover + ' 张）'
+      return one.label == '0'
+        ? '空着 · 装上就管被置 0 的牌（打出时触发）'
+        : '空着 · 装上就管 ' + one.label + '（' + one.cover + ' 张）'
     }
     if (one.now == pickStep.value) {
       return '它现在就装在这儿'
@@ -1395,6 +1420,12 @@
     const k = pickStep.value
     if (k < 0 || k >= DRAW_SKILLS.length) {
       clearPick()
+      return
+    }
+    // 固定槽：弹层不关，换一个槽点
+    const fix = roleFixedSkill(save.value.role, at)
+    if (fix >= 0) {
+      uni.showToast({ title: '这个槽固定是专属技能【' + DRAW_SKILLS[fix].name + '】', icon: 'none' })
       return
     }
     const data = loadDrawSave()
@@ -1756,7 +1787,8 @@
     // 只摇**槽里还没有的** —— 同一件嵌两个槽毫无意义（触发只算一次）
     const free : number[] = []
     for (let k = 0; k < DRAW_SKILLS.length; k++) {
-      if (!hasSkill(save.value, k)) {
+      // 角色专属的不进包
+      if (!hasSkill(save.value, k) && !isRoleOnlySkill(k)) {
         free.push(k)
       }
     }

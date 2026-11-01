@@ -51,8 +51,8 @@
         :key="'dsl-' + si + '-' + k"
         :id="'md-duel-sheet-' + si + '-' + k"
         class="slot-line">
-        <text class="slot-tag">{{ label }}</text>
-        <text class="slot-num">{{ slotCover(label) }}张</text>
+        <text class="slot-tag">{{ slotLabelText(label) }}</text>
+        <text class="slot-num">{{ slotCoverText(label) }}</text>
         <text
           class="slot-skill"
           :class="{ 'slot-blank': skillAt(si, k) < 0 }">{{ skillAt(si, k) >= 0 ? DRAW_SKILLS[skillAt(si, k)].name : '空着' }}</text>
@@ -107,7 +107,7 @@
               :key="'dsd-' + si + '-' + k"
               class="my-skill">
               <view class="my-skill-head">
-                <text class="my-skill-cover">{{ label }}</text>
+                <text class="my-skill-cover">{{ slotLabelText(label) }}</text>
                 <text class="my-skill-name">{{ skillAt(si, k) >= 0 ? DRAW_SKILLS[skillAt(si, k)].name : '空着' }}</text>
                 <text v-if="skillAt(si, k) >= 0 && DRAW_SKILLS[skillAt(si, k)].first" class="my-skill-pick">优先</text>
               </view>
@@ -215,7 +215,9 @@
     isSuitSlot,
     roleCover,
     slotLabels,
-    slotCover
+    slotCover,
+    // 布饵人那种固定槽：URL 里那格是 -1，这儿按角色补上专属技能
+    roleFixedSkill
   } from '@/pages/examples/blackjack/draw-skills.uts'
   import {
     Term,
@@ -282,12 +284,12 @@
     const rA = optInt(options, 'rA')
     if (validRole(rA)) {
       nextRoles.push(rA)
-      nextSlots.push(optSlots(options, 'sA', roleOf(rA).slots.length))
+      nextSlots.push(optSlots(options, 'sA', roleOf(rA).slots.length, rA))
     }
     const rB = optInt(options, 'rB')
     if (validRole(rB)) {
       nextRoles.push(rB)
-      nextSlots.push(optSlots(options, 'sB', roleOf(rB).slots.length))
+      nextSlots.push(optSlots(options, 'sB', roleOf(rB).slots.length, rB))
     }
     roles.value = nextRoles
     slots.value = nextSlots
@@ -314,11 +316,19 @@
   // **按 count 定长**，不信 URL 里有几段 —— 少了补 -1、多了截掉。
   // 空槽传的是 '-1' 而不是空串，所以 split(',') 够用
   //（空串那种切法会丢段，见 draw-save.uts 的 textToOwner 那条教训）
-  function optSlots(options : OnLoadOptions, key : string, count : number) : number[] {
+  //
+  // role 用来补固定槽：那格不管 URL 写了什么，一律是这张卡的专属技能
+  //（配装页那格留 -1；补在这儿，技能说明和名词收集就都看得见它）
+  function optSlots(options : OnLoadOptions, key : string, count : number, role : number) : number[] {
     const out : number[] = []
     const raw = options[key]
     const parts = (raw == null ? '' : ('' + raw)).split(',')
     for (let i = 0; i < count; i++) {
+      const fix = roleFixedSkill(role, i)
+      if (fix >= 0) {
+        out.push(fix)
+        continue
+      }
       if (i >= parts.length) {
         out.push(-1)
         continue
@@ -400,10 +410,20 @@
     let text = ''
     for (let s = 0; s < suits.length; s++) {
       for (let r = 0; r < ranks.length; r++) {
-        text = text + (text == '' ? '' : '、') + suits[s] + ranks[r]
+        text = text + (text == '' ? '' : '、') + suits[s] + slotLabelText(ranks[r])
       }
     }
     return '双触发：' + text + ' —— 这几张会同时触发两件技能。'
+  }
+
+  // 槽上印的标签怎么念：'0' 是 0 点槽（布饵人），单写一个 0 看着像「没有」
+  function slotLabelText(label : string) : string {
+    return label == '0' ? '0 点' : label
+  }
+
+  // 管几张：0 点槽没有固定张数（slotCover 记 0），报「0 点牌」免得读成「0张」
+  function slotCoverText(label : string) : string {
+    return label == '0' ? '0 点牌' : '' + slotCover(label) + '张'
   }
 
   // 这一页可能被直接打开（栈底），那时 navigateBack 没得退 ——

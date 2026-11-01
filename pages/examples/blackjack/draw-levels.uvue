@@ -263,15 +263,15 @@
             :key="'sl-' + si"
             :id="'md-slot-' + si"
             class="my-skill"
-            :class="{ 'my-skill-on': slotSkills[si] >= 0 }"
-            @click="slotPick = si">
+            :class="{ 'my-skill-on': finalSlotSkill(si) >= 0 }"
+            @click="tapSlot(si)">
             <view class="my-skill-head">
-              <text class="my-skill-cover">{{ slotCover(label) }} 张</text>
-              <text class="my-skill-name">{{ label }}</text>
+              <text class="my-skill-cover">{{ slotCoverText(label) }}</text>
+              <text class="my-skill-name">{{ slotLabelText(label) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-pick">{{ slotSkills[si] >= 0 ? DRAW_SKILLS[slotSkills[si]].name : '空着，点一下嵌技能' }}</text>
+              <text class="my-skill-pick">{{ finalSlotSkill(si) >= 0 ? DRAW_SKILLS[finalSlotSkill(si)].name + (roleFixedSkill(roleAt, si) >= 0 ? ' · 专属' : '') : '空着，点一下嵌技能' }}</text>
             </view>
-            <text v-if="slotSkills[si] >= 0" class="my-skill-desc">{{ DRAW_SKILLS[slotSkills[si]].desc }}</text>
+            <text v-if="finalSlotSkill(si) >= 0" class="my-skill-desc">{{ DRAW_SKILLS[finalSlotSkill(si)].desc }}</text>
             <text v-else class="my-skill-desc">{{ slotHint(label) }}</text>
           </view>
           <text class="skill-box-empty">{{ doubleTextOf(roleAt) }}</text>
@@ -279,21 +279,22 @@
 
         <!-- 第三步：给这个槽挑技能 -->
         <scroll-view v-else class="skill-box-body sv-out" direction="vertical">
-          <text class="skill-box-empty">嵌进 {{ roleOf(roleAt).slots[slotPick] }} 槽（已嵌的会被换掉）</text>
+          <text class="skill-box-empty">嵌进 {{ slotLabelText(roleOf(roleAt).slots[slotPick]) }} 槽（已嵌的会被换掉）</text>
+          <!-- 列的是 PICK_SKILLS（排掉角色专属技能），id / key 照旧用技能下标 -->
           <view
-            v-for="(skill, k) in DRAW_SKILLS"
+            v-for="k in PICK_SKILLS"
             :key="'ps-' + k"
             :id="'md-pickskill-' + k"
             class="my-skill"
             :class="{ 'my-skill-on': slotSkills[slotPick] == k, 'my-skill-off': usedElsewhere(k) }"
             @click="embed(k)">
             <view class="my-skill-head">
-              <text class="my-skill-name">{{ skill.name }}</text>
-              <text v-if="skill.first" class="my-skill-key">{{ KEYWORD_FIRST }}</text>
+              <text class="my-skill-name">{{ DRAW_SKILLS[k].name }}</text>
+              <text v-if="DRAW_SKILLS[k].first" class="my-skill-key">{{ KEYWORD_FIRST }}</text>
               <view class="my-skill-gap"></view>
               <text class="my-skill-cover">{{ usedElsewhere(k) ? '已嵌在别的槽' : '' }}</text>
             </view>
-            <text class="my-skill-desc">{{ skill.desc }}</text>
+            <text class="my-skill-desc">{{ DRAW_SKILLS[k].desc }}</text>
           </view>
         </scroll-view>
 
@@ -348,22 +349,22 @@
             :key="'dsl-' + si"
             :id="'md-duel-slot-' + si"
             class="my-skill"
-            :class="{ 'my-skill-on': duelSlotsNow()[si] >= 0 }"
-            @click="duelPick = si">
+            :class="{ 'my-skill-on': duelSlotSkill(si) >= 0 }"
+            @click="tapDuelSlot(si)">
             <view class="my-skill-head">
-              <text class="my-skill-cover">{{ slotCover(label) }} 张</text>
-              <text class="my-skill-name">{{ label }}</text>
+              <text class="my-skill-cover">{{ slotCoverText(label) }}</text>
+              <text class="my-skill-name">{{ slotLabelText(label) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-pick">{{ duelSlotsNow()[si] >= 0 ? DRAW_SKILLS[duelSlotsNow()[si]].name : '空着，点一下嵌技能' }}</text>
+              <text class="my-skill-pick">{{ duelSlotSkill(si) >= 0 ? DRAW_SKILLS[duelSlotSkill(si)].name + (roleFixedSkill(duelRoleNow(), si) >= 0 ? ' · 专属' : '') : '空着，点一下嵌技能' }}</text>
             </view>
-            <text v-if="duelSlotsNow()[si] >= 0" class="my-skill-desc">{{ DRAW_SKILLS[duelSlotsNow()[si]].desc }}</text>
+            <text v-if="duelSlotSkill(si) >= 0" class="my-skill-desc">{{ DRAW_SKILLS[duelSlotSkill(si)].desc }}</text>
             <text v-else class="my-skill-desc">{{ slotHint(label) }}</text>
           </view>
         </scroll-view>
 
         <!-- ===== 挑技能屏：只有发给这个人的那 8 件 ===== -->
         <scroll-view v-else class="duel-body sv-out" direction="vertical">
-          <text class="skill-box-empty">嵌进 {{ roleOf(duelRoleNow()).slots[duelPick] }} 槽（发给{{ DUEL_NAMES[duelSide] }}的 {{ duelPoolNow().length }} 件，配不上的留着不用）</text>
+          <text class="skill-box-empty">嵌进 {{ slotLabelText(roleOf(duelRoleNow()).slots[duelPick]) }} 槽（发给{{ DUEL_NAMES[duelSide] }}的 {{ duelPoolNow().length }} 件，配不上的留着不用）</text>
           <view
             v-for="(k, pi) in duelPoolNow()"
             :key="'dsk-' + pi"
@@ -654,7 +655,10 @@
     ROLE_UNLOCK,
     ROLE_UNLOCK_CLEAR,
     // 实战对决摇技能池用（48 件里取 8 件不重复）
-    rollSpots
+    rollSpots,
+    // 角色专属技能（布饵人的空钩）：挑技能列表 / 实战技能池排掉它；固定槽不许换
+    isRoleOnlySkill,
+    roleFixedSkill
   } from '@/pages/examples/blackjack/draw-skills.uts'
   // 名词解释。**这张表从本文件搬出去了**（2026-10-14）——
   // 规则面板和实战手册（draw-duel.uvue）现在读同一份。
@@ -882,20 +886,38 @@
         //   真正的原因是 `draw-skills.uts` 的 DRAW_SKILLS 表里漏下了一个
         //   孤立的 `{`（删霜降时留的），数组因此多出一个空对象项。
         //   见那儿的墓碑注释。这一行按惯例写成这样，但别拿它解释那个 bug〕
-        cover: '' + DRAW_SKILLS[k].unlock + ' 金币',
+        // 角色专属的不标价（商店不卖），改标归谁
+        cover: isRoleOnlySkill(k) ? '专属' : '' + DRAW_SKILLS[k].unlock + ' 金币',
         name: DRAW_SKILLS[k].name,
-        level: '',
+        level: isRoleOnlySkill(k) ? roleOnlyTag(k) : '',
         desc: DRAW_SKILLS[k].desc,
         first: DRAW_SKILLS[k].first
       } as MySkill)
     }
-    // 按价格从低到高；同价的照技能表的先后
+    // 按价格从低到高；同价的照技能表的先后。角色专属的（价 0、不卖）排最后
     out.sort((x : MySkill, y : MySkill) : number => {
+      const ox = isRoleOnlySkill(x.skill) ? 1 : 0
+      const oy = isRoleOnlySkill(y.skill) ? 1 : 0
+      if (ox != oy) {
+        return ox - oy
+      }
       const d = DRAW_SKILLS[x.skill].unlock - DRAW_SKILLS[y.skill].unlock
       return d != 0 ? d : x.skill - y.skill
     })
     return out
   })
+
+  // 专属技能在图鉴里那行小字：「布饵人专属 · 不出售」。角色名从固定槽反查，不写死
+  function roleOnlyTag(k : number) : string {
+    for (let r = 0; r < DRAW_ROLES.length; r++) {
+      for (let i = 0; i < DRAW_ROLES[r].slots.length; i++) {
+        if (roleFixedSkill(r, i) == k) {
+          return DRAW_ROLES[r].name + '专属 · 不出售'
+        }
+      }
+    }
+    return '角色专属 · 不出售'
+  }
 
 
   // 这一轮的角色有几个槽、嵌了几件（弹层抬头报「槽 N/M」）
@@ -1118,8 +1140,44 @@
     return false
   }
 
+  // 能拿来嵌的技能：全表排掉角色专属的（它们只在固定槽里出现）。技能表是静态的，算一次
+  function pickableSkills() : number[] {
+    const out : number[] = []
+    for (let k = 0; k < DRAW_SKILLS.length; k++) {
+      if (!isRoleOnlySkill(k)) {
+        out.push(k)
+      }
+    }
+    return out
+  }
+  const PICK_SKILLS : number[] = pickableSkills()
+
+  // 第 si 个槽现在显示哪件：固定槽报专属技能（slotSkills 那格留 -1，
+  // 开局由 kitFromRole 盖上），别的槽照 slotSkills
+  function finalSlotSkill(si : number) : number {
+    const fix = roleFixedSkill(roleAt.value, si)
+    if (fix >= 0) {
+      return fix
+    }
+    return si < slotSkills.value.length ? slotSkills.value[si] : -1
+  }
+
+  // 点一个槽：固定槽不开挑技能那一屏
+  function tapSlot(si : number) {
+    const fix = roleFixedSkill(roleAt.value, si)
+    if (fix >= 0) {
+      uni.showToast({ title: '这个槽固定是专属技能【' + DRAW_SKILLS[fix].name + '】', icon: 'none' })
+      return
+    }
+    slotPick.value = si
+  }
+
   function embed(k : number) {
     if (slotPick.value < 0) {
+      return
+    }
+    // 固定槽 / 专属技能都不许动（列表里本来就不列，这儿再挡一道）
+    if (roleFixedSkill(roleAt.value, slotPick.value) >= 0 || isRoleOnlySkill(k)) {
       return
     }
     if (usedElsewhere(k)) {
@@ -1133,7 +1191,7 @@
   }
 
   function clearSlot() {
-    if (slotPick.value < 0) {
+    if (slotPick.value < 0 || roleFixedSkill(roleAt.value, slotPick.value) >= 0) {
       return
     }
     const next = slotSkills.value.slice(0)
@@ -1145,7 +1203,8 @@
   const embedCount = computed<number>(() : number => {
     let n = 0
     for (let i = 0; i < slotSkills.value.length; i++) {
-      if (slotSkills.value[i] >= 0) {
+      // 固定槽照「嵌了」算
+      if (finalSlotSkill(i) >= 0) {
         n = n + 1
       }
     }
@@ -1235,7 +1294,9 @@
     const slots = roleOf(ri).slots
     let text = ''
     for (let i = 0; i < slots.length; i++) {
-      text = text + (text == '' ? '' : ' / ') + slots[i] + '（' + slotCover(slots[i]) + ' 张）'
+      text = text + (text == '' ? '' : ' / ') + (slots[i] == '0'
+        ? '0 点（被置 0 的牌）'
+        : slots[i] + '（' + slotCover(slots[i]) + ' 张）')
     }
     return text
   }
@@ -1268,6 +1329,10 @@
 
   // 空槽上那行说明：这个槽嵌进来的技能会管什么
   function slotHint(slot : string) : string {
+    // 0 点槽（布饵人）：没有固定的牌，管的是局里被置 0 的那些
+    if (slot == '0') {
+      return '被置 0 的牌打出时触发嵌进来的技能'
+    }
     const labels = slotLabels(slot)
     let suits = 0
     let ranks = 0
@@ -1287,6 +1352,16 @@
     return ranks > 1
       ? '这 ' + ranks + ' 个点数（共 ' + slotCover(slot) + ' 张）都会触发嵌进来的技能'
       : '这个点数的 4 张牌会触发嵌进来的技能'
+  }
+
+  // 槽上印的标签怎么念：'0' 是 0 点槽，单写一个 0 看着像「没有」
+  function slotLabelText(label : string) : string {
+    return label == '0' ? '0 点' : label
+  }
+
+  // 槽那一行左上角的张数：0 点槽没有固定张数（slotCover 记 0），报「0 点牌」免得读成「0 张」
+  function slotCoverText(label : string) : string {
+    return label == '0' ? '0 点牌' : '' + slotCover(label) + ' 张'
   }
 
   function specialNameOf(ri : number) : string {
@@ -1332,7 +1407,7 @@
     let text = ''
     for (let s = 0; s < suits.length; s++) {
       for (let r = 0; r < ranks.length; r++) {
-        text = text + (text == '' ? '' : '、') + suits[s] + ranks[r]
+        text = text + (text == '' ? '' : '、') + suits[s] + slotLabelText(ranks[r])
       }
     }
     return '双触发：' + text + ' —— 这几张会同时触发两件技能。'
@@ -1513,7 +1588,13 @@
       const pools : number[][] = []
       const slots : number[][] = []
       for (let s = 0; s < DUEL_SIDES; s++) {
-        pools.push(rollSpots(DRAW_SKILLS.length, DUEL_POOL))
+        // 摇的是 PICK_SKILLS 里的位置再换回技能下标 —— 角色专属的摇不到
+        const spots = rollSpots(PICK_SKILLS.length, DUEL_POOL)
+        const pool : number[] = []
+        for (let j = 0; j < spots.length; j++) {
+          pool.push(PICK_SKILLS[spots[j]])
+        }
+        pools.push(pool)
         const blank : number[] = []
         for (let i = 0; i < roleOf(roles[s]).slots.length; i++) {
           blank.push(-1)
@@ -1537,10 +1618,8 @@
     const roles : number[] = []
     const pools : number[][] = []
     const slots : number[][] = []
-    const all : number[] = []
-    for (let k = 0; k < DRAW_SKILLS.length; k++) {
-      all.push(k)
-    }
+    // 全部技能 = 排掉角色专属的那些
+    const all : number[] = PICK_SKILLS.slice(0)
     for (let s = 0; s < DUEL_SIDES; s++) {
       roles.push(rollSimpleRole())
       pools.push(all)
@@ -1574,9 +1653,11 @@
       return 0
     }
     const row = duelSlots.value[side]
+    const role = side < duelRoles.value.length ? duelRoles.value[side] : -1
     let n = 0
     for (let i = 0; i < row.length; i++) {
-      if (row[i] >= 0) {
+      // 固定槽照「配了」算
+      if (row[i] >= 0 || roleFixedSkill(role, i) >= 0) {
         n = n + 1
       }
     }
@@ -1620,8 +1701,28 @@
     duelPick.value = -1
   }
 
+  // 第 si 个槽显示哪件：固定槽报专属技能，别的照 duelSlots（固定槽那格留 -1，手册页同样反查）
+  function duelSlotSkill(si : number) : number {
+    const fix = roleFixedSkill(duelRoleNow(), si)
+    if (fix >= 0) {
+      return fix
+    }
+    const row = duelSlotsNow()
+    return si < row.length ? row[si] : -1
+  }
+
+  // 点一个槽：固定槽不开挑技能那一屏
+  function tapDuelSlot(si : number) {
+    const fix = roleFixedSkill(duelRoleNow(), si)
+    if (fix >= 0) {
+      uni.showToast({ title: '这个槽固定是专属技能【' + DRAW_SKILLS[fix].name + '】', icon: 'none' })
+      return
+    }
+    duelPick.value = si
+  }
+
   function duelEmbed(skill : number) {
-    if (duelPick.value < 0) {
+    if (duelPick.value < 0 || roleFixedSkill(duelRoleNow(), duelPick.value) >= 0) {
       return
     }
     if (duelUsedElsewhere(skill)) {
@@ -1632,7 +1733,7 @@
   }
 
   function duelClear() {
-    if (duelPick.value < 0) {
+    if (duelPick.value < 0 || roleFixedSkill(duelRoleNow(), duelPick.value) >= 0) {
       return
     }
     duelSetSlot(-1)

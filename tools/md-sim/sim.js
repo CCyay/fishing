@@ -2070,6 +2070,50 @@ function printDraftTagDiag() {
     console.log('\n  ---- 诊断：【野火】（WILD_SELF=' + (R.WILD_SELF ? 1 : 0) + '）----')
     console.log('    发动 ' + ws.fires + ' 次：它自己点着 ' + pct(ws.lit / ws.fires) + ' · 另挑 1 张点着 ' + pct(ws.picked / ws.fires))
   }
+  // 〈rangematch〉〔2026-11-01〕
+  const rm = R.PROTO_STAT.rangematch
+  if (rm && rm.fires > 0) {
+    console.log('\n  ---- 诊断：〈rangematch〉（RANGE_MIN=' + R.RANGE_MIN + ' · RANGE_BLANK=' + (R.RANGE_BLANK ? 1 : 0) + '）----')
+    console.log('    发动 ' + rm.fires + ' 次：成立 ' + pct(rm.hits / rm.fires) + ' · 每次收 ' + (rm.gotSum / Math.max(1, rm.hits)).toFixed(2) + ' 张（含它）· 范围平均宽 ' + (rm.widthSum / Math.max(1, rm.hits)).toFixed(2) + ' 点')
+  }
+  // 【冰雷】〔2026-11-01〕
+  const ib = R.PROTO_STAT.icebomb
+  if (ib && ib.fired > 0) {
+    console.log('\n  ---- 诊断：【冰雷】（BOMB_TAKER=' + R.BOMB_TAKER + '）----')
+    console.log('    引爆 ' + ib.fired + ' 次：埋雷的一方自己收 ' + ib.byOwner + ' · 被对方贴冰收走 ' + ib.byOther)
+  }
+  // 2026-11-01 三件
+  const ext = R.PROTO_STAT.extraturn
+  if (ext && ext.fires > 0) {
+    console.log('\n  ---- 诊断：〈extraturn〉----')
+    console.log('    发动 ' + ext.fires + ' 次 · 真加打了 ' + ext.used + ' 回合（' + (ext.used / ext.fires).toFixed(2) + ' / 次）· 叠到最多 ' + ext.maxBank)
+  }
+  const jt = R.PROTO_STAT.jointag
+  if (jt && jt.fires > 0) {
+    console.log('\n  ---- 诊断：〈jointag〉----')
+    console.log('    发动 ' + jt.fires + ' 次 · 贴上 ' + jt.tagged + ' · 跟着别人那次收牌被带走 ' + jt.joined + '（贴的一方收 ' + jt.joinedMine + ' / 对方收 ' + jt.joinedFoe + '）')
+  }
+  const so = R.PROTO_STAT.solotag
+  if (so && so.fires > 0) {
+    console.log('\n  ---- 诊断：〈solotag〉----')
+    console.log('    发动 ' + so.fires + ' 次 · 贴上 ' + so.tagged + ' · 被钓中只收 1 张 ' + so.hits + ' 次（挡下的牌 ' + (so.saved / Math.max(1, so.hits)).toFixed(2) + ' 张 / 次）· 被挡的是贴的一方 ' + so.hitsMine + ' / 对方 ' + so.hitsFoe)
+  }
+  // 〈handreflect〉〔2026-10-30〕
+  const hrs = R.PROTO_STAT.handreflect
+  if (hrs && hrs.fires > 0) {
+    console.log('\n  ---- 诊断：〈handreflect〉（HR_RANK=' + (R.HR_RANK ? 1 : 0) + '）----')
+    console.log('    发动 ' + hrs.fires + ' 次：变了 ' + pct(hrs.changed / hrs.fires) + ' · 没得变 ' + pct(hrs.noTarget / hrs.fires)
+      + ' · 那张堆上的牌被谁收走：自己 ' + hrs.mineTook + ' / 对手 ' + hrs.foeTook)
+  }
+  // 〈pilereflect〉〔2026-10-30〕
+  const prs = R.PROTO_STAT.pilereflect
+  if (prs && prs.fires > 0) {
+    console.log('\n  ---- 诊断：〈pilereflect〉（PR_AI=' + R.PR_AI + '）----')
+    console.log('    发动 ' + prs.fires + ' 次：堆上没别的牌 ' + pct(prs.noPile / prs.fires) + ' · 没变 ' + pct(prs.kept / prs.fires)
+      + ' · 变了 ' + pct(prs.changed / prs.fires) + '（当场对子 ' + prs.pair + ' / 铺垫 ' + prs.setup + '）')
+    console.log('    变过的牌被谁收走：自己 ' + prs.mineTook + '（其中当场 ' + prs.pairTook + '）· 对手 ' + prs.foeTook + ' · 没被收走 ' + (prs.changed - prs.mineTook - prs.foeTook))
+    console.log('    对子当手漏收 ' + prs.pairMissed + ' / ' + prs.pair + ' · 目标是已经变过的牌 ' + prs.remark + ' · 复制 J ' + prs.jUsed + '（PR_COLOR=' + (R.PR_COLOR || 0) + ' · PR_J=' + (R.PR_J ? 1 : 0) + '）')
+  }
   // 〈zerodrop〉〔2026-10-30〕
   const zd = R.PROTO_STAT.zerodrop
   if (zd && zd.fires > 0) {
@@ -2077,6 +2121,39 @@ function printDraftTagDiag() {
     console.log('    发动 ' + zd.fires + ' 次：置 0 他 ' + f2(zd.killed / zd.fires) + ' 张/次，「手里几张 0」平均 ' + f2(zd.zSum / zd.fires)
       + '，全堆减出新 0 ' + f2(zd.newZero / zd.fires) + ' 张/次 · 收零判 ' + zd.cashed + ' 次、收成 ' + pct(zd.hits / Math.max(1, zd.cashed))
       + '、每次收 ' + f2(zd.got / Math.max(1, zd.hits)) + ' 张')
+  }
+  // 〈reflectx〉〔2026-11-01〕映照真改了几成 / 为这一手的匹配线改的 / 退回镜水打法（或 deck 档的「对堆底」）
+  const rxs = R.PROTO_STAT.reflectx
+  if (rxs && rxs.fires > 0) {
+    console.log('\n  ---- 诊断：〈reflectx〉（RX_MODE=' + (process.env.RX_MODE || 'pilestraight') + '）----')
+    console.log('    发动 ' + rxs.fires + ' 次：映照真改了 ' + pct(rxs.changed / rxs.fires)
+      + '（为这一手的匹配线 ' + pct(rxs.forLine / rxs.fires) + ' · 退回镜水打法 / 对堆底 ' + pct(rxs.fallback / rxs.fires)
+      + '）· 没改 ' + pct(rxs.none / rxs.fires))
+  }
+  // 〈reflecttag〉〔2026-10-30〕贴了几张 / 带标签打出几次 / 打出时真变了几次、多收几张（后两样记在 PROTO_STAT.reflect，
+  //   这件原型单带时 reflect 那份只来自标签，所以能直接读）
+  const rt = R.PROTO_STAT.reflecttag
+  if (rt && rt.fires > 0) {
+    const rf = R.PROTO_STAT.reflect
+    console.log('\n  ---- 诊断：〈reflecttag〉（RT_N=' + (process.env.RT_N || '1') + '）----')
+    console.log('    发动 ' + rt.fires + ' 次：贴上 ' + f2(rt.tagged / rt.fires) + ' 张/次 · 带标签打出 ' + rt.cashed
+      + '（兑现率 ' + pct(rt.cashed / Math.max(1, rt.tagged)) + '）')
+    console.log('    打出时：真变了 ' + pct(rf.changed / Math.max(1, rf.fires)) + ' · 没变（不如不变）' + pct(rf.kept / Math.max(1, rf.fires))
+      + ' · 变了的那几次每次多收 ' + f2(rf.gainSum / Math.max(1, rf.changed)) + ' 张')
+  }
+  // 〈trapzero〉〔2026-11-01〕
+  const tz = R.PROTO_STAT.trapzero
+  if (tz && tz.armed > 0) {
+    console.log('\n  ---- 诊断：〈trapzero〉----')
+    console.log('    落堆成陷阱 ' + tz.armed + ' 次，被收走 ' + tz.sprung + ' 次（其中收走的是带它那一方 ' + tz.selfSprung + ' 次 = '
+      + pct(tz.selfSprung / Math.max(1, tz.sprung)) + '）· 置 0 ' + tz.zeroed + ' 张（' + f2(tz.zeroed / Math.max(1, tz.sprung)) + ' 张/次）')
+  }
+  // 〈夹层〉〔2026-11-01〕
+  const ns = R.PROTO_STAT.nest
+  if (ns && ns.tagged > 0) {
+    console.log('\n  ---- 诊断：〈夹层〉----')
+    console.log('    贴了 ' + ns.tagged + ' 张，被对子夹住保下来 ' + ns.kept + ' 次（' + f2(ns.kept / ns.tagged) + ' 次/张；其中贴标签那一方自己的对子 ' + ns.keptSelf + ' 次 = 自伤 ' + pct(ns.keptSelf / Math.max(1, ns.kept)) + '）'
+      + ' · 保住过的牌后来被收走：贴标签那一方 ' + ns.takenMine + ' 次 / 对手 ' + ns.takenFoe + ' 次')
   }
   // 〈foeflow〉〔2026-10-30〕
   const ff = R.PROTO_STAT.foeflow
@@ -2705,7 +2782,9 @@ function kitFor(role) {
     // `KIT=a,b,c` 覆写插件序（第 i 件插第 i 格，双装第 2 件在末尾）〔2026-10-29，量〈twinval〉加的：
     // 默认序把洪水 / 伏流插进双装槽，而两件都清空点数 ⇒ 互通永远用不上〕
     const order = process.env.KIT ? process.env.KIT.split(',') : KIT_ORDER
-    picks.push(skillIndexOf(order[i % order.length]))
+    // 〔2026-11-01〕`KIT` 里写 `-` = 这一格空着（量「只插一个槽」的对照用）
+    const k = order[i % order.length]
+    picks.push(k === '-' ? -1 : skillIndexOf(k))
   }
   return picks
 }
@@ -2726,7 +2805,9 @@ function cmdRole(args) {
     + args.n + ' 局\n')
   for (let i = 0; i < r.slots.length; i++) {
     console.log('  槽 ' + (i + 1) + '（' + r.slots[i] + '）：'
-      + R.SKILLS[picks[i]].name)
+      // 布饵人 ♠ 槽固定是空钩（kitFromRole 盖掉了这一格），照实印
+      + ((r.key === 'zerotrap' && i === 0) ? '空钩（专属，固定）'
+        : (picks[i] < 0 ? "（空）" : R.SKILLS[picks[i]].name)))
   }
   // ---- 双装槽的第 2 件〔2026-10-28 补〕----
   //
@@ -2876,6 +2957,17 @@ function cmdRole(args) {
   console.log('\n  槽里插的是 KIT_ORDER 的前 ' + r.slots.length
     + ' 件（按 X 降序，跟 campaign 的池子同源）——'
     + '所以这个数**可以跟别的角色横着比**。')
+  // 【0 点槽】〔2026-11-01 · 〈zerotrap〉〕：出牌那一刻真响了几次（只有带 0 点槽的卡才有）
+  if (R.PROTO_STAT.zeroslot && R.PROTO_STAT.zeroslot.played > 0) {
+    const zs = R.PROTO_STAT.zeroslot
+    console.log('  0 点槽真响了 ' + zs.played + ' 次（' + f2(zs.played / args.n) + ' 次/局）'
+      + (zs.swept ? ' · 零收多收 ' + f2(zs.swept / args.n) + ' 张/局' : '')
+      + (zs.drawn ? ' · 零补摸 ' + f2(zs.drawn / args.n) + ' 张/局' : ''))
+  }
+  if (R.PROTO_STAT.trapzero && R.PROTO_STAT.trapzero.sprung > 0) {
+    const tz = R.PROTO_STAT.trapzero
+    console.log('  陷阱：被收走 ' + f2(tz.sprung / args.n) + ' 次/局，其中带它那一方自己 ' + pct(tz.selfSprung / tz.sprung) + '，置 0 ' + f2(tz.zeroed / args.n) + ' 张/局')
+  }
 }
 
 // ---------- pair：两件装一起（组合技要用的底数） ----------
@@ -3035,8 +3127,12 @@ function cmdPair(args) {
     + '那一批旧数要换算 `back = X − D` 才能比。〕\n')
   const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
   const row = function (label, m) {
+    // 〔2026-11-01 加局长那一列（照 cmdOne 的算法：双方出牌，我带那一侧对基线）—— 量改手牌上限的常驻技要看它〕
+    const bp = (m.base.plays[R.ME] + m.base.plays[R.FOE]) / m.base.games
+    const tp = (m.test.plays[R.ME] + m.test.plays[R.FOE]) / m.test.games
     console.log('  ' + label.padEnd(18) + 'X ' + sign(m.x)
-      + '   D ' + sign(m.d) + '   back ' + sign(m.back))
+      + '   D ' + sign(m.d) + '   back ' + sign(m.back)
+      + '   局长 ' + (tp >= bp ? '+' : '') + f2((tp - bp) / bp * 100) + '%')
   }
   row('只带' + nameA, onlyA)
   row('只带' + nameB, onlyB)

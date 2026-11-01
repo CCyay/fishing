@@ -1558,7 +1558,8 @@ function pickCardCore(G, side) {
     //     第一个出问题的是这一行，不是 rules 那边〕
     // ⚠ 调 `R.reflectOn` 而不是 `R.has(skills, R.SK.REFLECT)`：
     //   `REFLECT_WITH` 那个旋钮会把映照挂到别的技能上，而判定只有一份
-    if (R.reflectOn(skills)) {
+    // 〔2026-10-30〕带 G / card：〈reflecttag〉贴了【映照】的手牌也认（跟 playFor 同一个函数、同一组参数）
+    if (R.reflectOn(skills, G, card)) {
       const pick = R.reflectPick(G, side, card, skills, false)
       // ⚠ **不取 max，照抄 `pick.at`**：可选档（定稿）下 `pick.at >= 0`
       //   意味着严格更好，取不取 max 一样；而强制档（`REFLECT_OPT=0`，
@@ -1578,6 +1579,8 @@ function pickCardCore(G, side) {
       caught = harvest
       spend = harvest
     }
+    // 〈trapzero〉这一手会收到陷阱（它自己就是陷阱、或者那一段里压着一张）→ 折成负收成（TRAP_AI=0 关掉）
+    caught = caught - R.trapPenalty(G, side, card, skills, at, caught)
     // ⚠ **比的是分数，不是张数**〔2026-10-22〕。`SCORE_BANDS` 关着时
     //   `scoreOf` 逐字返回 n，所以这一行等价于原来的 `caught > bestCaught`；
     //   开着时 f(2)=f(3) 会打平，而**平手取张数多的那张** ——
@@ -1936,6 +1939,12 @@ function pickCardCore(G, side) {
     // 受害方「知道它、尽量不拿它当饵」的折扣（0 = 无视标签，量上限用）
     if (SURGE_AVOID > 0 && R.surgeOnHand(G, card)) {
       score = score + SURGE_AVOID
+    }
+    // 〈trapzero〉垫牌也会自动收（对得上就收走那一段）—— 打出去会收到陷阱的牌往后排，除非没别的可打。
+    // 不加这一条的话主循环那道惩罚会被这儿绕过去（TRAP_AI=0 时 trapPenalty 恒 0，这一行不起作用）
+    {
+      const tAt = R.catchStart(G, card, side, skills, false)
+      if (tAt >= 0 && R.trapPenalty(G, side, card, skills, tAt, 1) > 0) score = score + 50
     }
     // 【养堆】这张饵**自己也钓得着**吗。`sink` 传 false，照这个文件
     // 既有的约定（挑牌阶段一律按正常落堆算，见上面那个主循环）

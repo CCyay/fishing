@@ -2083,6 +2083,21 @@ export const DRAW_SKILLS : DrawSkill[] = [
     first: false,
     desc: '把它垫在堆上 1 张牌下面，以那张牌进行【21 匹配】；堆上没牌时直接打出'
   },
+  {
+    // ---------- 【镜水】〔2026-10-30 上架 · 用户定〕----------
+    //
+    // 用户提案「对堆上 1 张牌使用映照」，定读法甲；【映照】同日定稿成「可以展示 1 张**同花色**手牌，
+    // 带【映照】的牌点数变成跟它相同；不能复制 J」（词条在 draw-terms.uts）。名字 / desc 写法 / 定价都是用户选的。
+    //
+    // 实测（R7 · `PR_AI=setup PR_COLOR=suit one pilereflect -n 20000` · SE 0.15 · 台账第三十九节 ~ 四十二·甲）：
+    //   A 槽 **+3.47** / 7 +3.55 / K +3.53 / ♥ +9.85，D ≤ +0.18。同颜色那一档 4.6~4.7 贴着上限 4.8，用户选了同花色。
+    //   价值主要来自「铺垫」：把最深那张变成手里一张牌，下一手自己去钓 = 预订一次整堆收走。
+    //   ⚠ 两条方向相反的偏差：对手 AI 不读展示出来的牌（偏高）；铺垫挑法粗（偏低）。
+    // 定价 90：X 3.47 最近的是顺色（3.43，90）—— 照「X 最近的同档价」那条先例，其余件不动
+    key: 'pilereflect', name: '镜水', unlock: 90,
+    first: false,
+    desc: '堆上 1 张牌带上【映照】'
+  },
   // 〔【顺递】2026-10-30 下架（用户定）—— 表项已删、墓碑在 DEAD_SKILLS，定档注释整段搬进那儿〕
   {
     // ---------- 【传顺】〔2026-10-30 上架 · 用户定「手牌都带上顺子匹配 加入游戏」〕----------
@@ -2390,52 +2405,6 @@ export const DRAW_SKILLS : DrawSkill[] = [
   //  而**它正是因为这个形状死的**：挂牌型吃「那张牌活 3.3 回合」的折扣，
   //  同一个效果的常驻版（清水）值它 8 倍以上。
   //  所以下面这两件的定价**不能照常驻版的尺子来**，见各自的注释〕
-  {
-    // 窄口：对方每回合只补到 3 张。
-    //
-    // 手牌 4 张是这个玩法做决定的全部素材（见 HAND_SIZE 那段），
-    // 砍掉一张等于把他的选择面削掉四分之一 —— 而且是**持续**的，
-    // 直到他舍得花一次钓牌去把这张挖走。
-    //
-    // 照钓鱼的【窄口】抄，那边是「只补到 4 张」（它手牌上限 5）
-    // 45：新口径 X=+0.90、D=+0.67。原先 70。
-    // 注意它既是槽技能、也是江口闸官的常驻技 —— 量表那一列量的是**槽技能**
-    // 45 → 40〔2026-10-15 重定价〕：X=+0.74。
-    //
-    // ⚠ **挂牌版和常驻版差了 7 倍**：这件（槽技能）+0.74，
-    // 而江口闸官的常驻【窄口】是 **+5.35**。差别全在「要不要那张效果牌
-    // 留在堆上」—— 常驻版整局都在。满篓那一对同理（+0.40 vs +4.52）。
-    // 要修的是**挂牌这个形状**，不是手牌上限这条轴（见设计文档『角色表』那节）
-    //
-    // ==========================================================
-    // ---- 2026-10-16 加「**无点数 + 落堆底**」（用户定）----
-    // ==========================================================
-    //
-    // 那是【寒流】捅破驻场天花板用的同一对子句，而**这两件在适用范围内**：
-    // 判据是「延长一个**对称**效果的寿命 = 延长你自己付的税」，
-    // 而窄口是**私有**的（对方少补牌、你受益），不像霜降那种双方同被拦的。
-    //
-    // 实测（`vs narrow narrow -n 20000`）：
-    //
-    //   现状          **0.67**
-    //   只加无点数     0.95
-    //   **只加落堆底** **0.21** ← **负的**（−0.47）
-    //   **两句都加**  **1.72** ← 定稿，D +0.42
-    //
-    // **交互 +1.24**（满篓 +1.22、寒流 +1.12 —— 三件几乎相同）。
-    // 所以这是个**成套的模块**，值 ≈ +1.2，**拆开用其中一句是亏的**。
-    //
-    // 1/7 折扣因此收窄到 ~1/3（1.72 对常驻 5.35），但**没治好** ——
-    // 它仍在目标档（2.7~4.5）下沿之外。
-    //
-    // ⚠ **代价：D 从 +0.23 涨到 +0.42**，近两倍阈值（|D|<0.23 才算分不开）。
-    // 成因是延命 → 堆变厚（+0.8 张）→ 堆上的牌是可钓资源、先手先钓。
-    // R3 的「剩堆不算分」堵了剩堆那条路，**没堵这一条**。
-    // 40 → **60**〔2026-10-16〕：X=1.72（25 + 1.72×21 = 61）
-    key: 'narrow', name: '窄口', unlock: 65,
-    first: false,
-    desc: '在场时，对方每回合只补到 3 张手牌；它无点数，而且打到堆底'
-  },
   // 〔**槽技能【满篓】2026-10-26 删了**（用户定）。它是「在场时，你每回合
   //   补到 5 张手牌；它无点数，而且打到堆底」，价 55、`key: 'creel'`。
   //
@@ -3278,7 +3247,9 @@ export const DRAW_SKILLS : DrawSkill[] = [
     // 〔2026-10-29 深夜 · R7 全表重发价（用户定「更新价格」）：100 → 85。按速查 X +3.40 排名套现有价位池〕
     key: 'icebomb', name: '冰雷', unlock: 85,
     first: false,
-    desc: '你手里 1 张牌贴上【结冰】；这张牌之后被贴上【结冰】时，你收走所有牌'
+    // 〔2026-11-01 用户改：「你收走所有牌」→「贴冰的一方收走所有牌」—— 照「堆上的牌不认出处」那道闸。
+    //   源码 / 模拟器同日改（模拟器 `BOMB_TAKER=owner` 复现旧档）〕
+    desc: '你手里 1 张牌贴上【结冰】；这张牌之后被贴上【结冰】时，贴冰的一方收走所有牌'
   },
   {
     // ---------- 封凌：铺冰 + 摸 1 张钥匙〔2026-10-20〕----------
@@ -3780,6 +3751,19 @@ export const DRAW_SKILLS : DrawSkill[] = [
     key: 'orderswap', name: '换序', unlock: 100,
     first: false,
     desc: '可以把 1 张手牌跟堆上 1 张替换；【顺序匹配】'
+  },
+  {
+    // ---------- 【空钩】〔2026-11-01 上架 · **布饵人专属**，不进技能池（用户定）〕----------
+    //
+    // 布饵人的 ♠ 槽固定放它（见 roleFixedSkill），商店 / 技能池 / 插槽弹层都不出现（见 isRoleOnlySkill）。
+    // 它落堆就成陷阱：之后**谁把它收走**（普通匹配 / 21 / J / 散收 / 特殊匹配都算，**它自己打出当场钓中也算**），
+    // 谁的手牌全部明置置 0（J 也算，照浑水）。陷阱触发一次就没了（牌离堆）。用户定的两条：置 0 收走它那个人、当场钓中也算。
+    // 单带没有方向（模拟器〈trapzero〉A +0.26，踩中的 58% 是自己）—— 配布饵人的 0 点槽才成立：
+    // 自己踩中之后，被置 0 的牌打出去全响 0 点槽（台账第四十三 / 四十四节）。
+    // unlock 0：不卖。
+    key: 'trapzero', name: '空钩', unlock: 0,
+    first: false,
+    desc: '被收走时，收走它的人手牌全部明置置 0'
   }
 ]
 
@@ -3977,7 +3961,54 @@ export const DEAD_SKILLS : DeadSkill[] = [
   //   **会在这一行上报一次**，而那不是错 —— 它是这张表第一次出现
   //   「同 key 一死一活」。查出来之后看这一段，别把活的那件删掉。
   { key: 'creel', name: '满篓', gone: '2026-10-26',
-    why: '**槽技能那件**（价 55）X +1.22、D +0.33，压在新区间下沿。它身上那条「挂牌版 vs 常驻版差 7~8 倍」（0.47 对 4.52）的判据留在【窄口】那条注释里。⚠ 同名同 key 的**常驻技【满篓】没删**，在 `SPECIAL_SKILLS` 里' } as DeadSkill,
+    why: '**槽技能那件**（价 55）X +1.22、D +0.33，压在新区间下沿。它身上那条「挂牌版 vs 常驻版差 7~8 倍」（0.47 对 4.52）的判据留在【窄口】（槽技能那件，2026-11-01 也删了）的墓碑里。⚠ 同名同 key 的**常驻技【满篓】没删**，在 `SPECIAL_SKILLS` 里' } as DeadSkill,
+  // ---- 【窄口】（槽技能那件）2026-11-01 删（用户定「去掉技能窄口」）----
+  // 同名同 key 的**常驻技【窄口】没删**（江口闸官带着），同日 desc 改成「对方的手牌上限 −1」。
+  // 「这件技能挡着谁」查过：设计文档 / 技能表里提到它的都是历史数据和例子，没有哪件的参数是靠它定的。
+  // 下面是原表项的注释，原文搬过来（现在时读成过去时）：
+  // 窄口：对方每回合只补到 3 张。
+  //
+  // 手牌 4 张是这个玩法做决定的全部素材（见 HAND_SIZE 那段），
+  // 砍掉一张等于把他的选择面削掉四分之一 —— 而且是**持续**的，
+  // 直到他舍得花一次钓牌去把这张挖走。
+  //
+  // 照钓鱼的【窄口】抄，那边是「只补到 4 张」（它手牌上限 5）
+  // 45：新口径 X=+0.90、D=+0.67。原先 70。
+  // 注意它既是槽技能、也是江口闸官的常驻技 —— 量表那一列量的是**槽技能**
+  // 45 → 40〔2026-10-15 重定价〕：X=+0.74。
+  //
+  // ⚠ **挂牌版和常驻版差了 7 倍**：这件（槽技能）+0.74，
+  // 而江口闸官的常驻【窄口】是 **+5.35**。差别全在「要不要那张效果牌
+  // 留在堆上」—— 常驻版整局都在。满篓那一对同理（+0.40 vs +4.52）。
+  // 要修的是**挂牌这个形状**，不是手牌上限这条轴（见设计文档『角色表』那节）
+  //
+  // ==========================================================
+  // ---- 2026-10-16 加「**无点数 + 落堆底**」（用户定）----
+  // ==========================================================
+  //
+  // 那是【寒流】捅破驻场天花板用的同一对子句，而**这两件在适用范围内**：
+  // 判据是「延长一个**对称**效果的寿命 = 延长你自己付的税」，
+  // 而窄口是**私有**的（对方少补牌、你受益），不像霜降那种双方同被拦的。
+  //
+  // 实测（`vs narrow narrow -n 20000`）：
+  //
+  //   现状          **0.67**
+  //   只加无点数     0.95
+  //   **只加落堆底** **0.21** ← **负的**（−0.47）
+  //   **两句都加**  **1.72** ← 定稿，D +0.42
+  //
+  // **交互 +1.24**（满篓 +1.22、寒流 +1.12 —— 三件几乎相同）。
+  // 所以这是个**成套的模块**，值 ≈ +1.2，**拆开用其中一句是亏的**。
+  //
+  // 1/7 折扣因此收窄到 ~1/3（1.72 对常驻 5.35），但**没治好** ——
+  // 它仍在目标档（2.7~4.5）下沿之外。
+  //
+  // ⚠ **代价：D 从 +0.23 涨到 +0.42**，近两倍阈值（|D|<0.23 才算分不开）。
+  // 成因是延命 → 堆变厚（+0.8 张）→ 堆上的牌是可钓资源、先手先钓。
+  // R3 的「剩堆不算分」堵了剩堆那条路，**没堵这一条**。
+  // 40 → **60**〔2026-10-16〕：X=1.72（25 + 1.72×21 = 61）
+  { key: 'narrow', name: '窄口', gone: '2026-11-01',
+    why: '**槽技能那件**（价 65）R6 A 槽 X +1.36 / ♥ 槽 +0.17，用户定删。它身上两条判据留在这块墓碑里：「挂牌版 vs 常驻版差 7 倍」（+0.74 对江口闸官常驻 +5.35），「无点数 + 落堆底」是成套的延命模块（交互 +1.24，拆开用亏）。⚠ 同名同 key 的**常驻技【窄口】没删**，在 `SPECIAL_SKILLS` 里' } as DeadSkill,
   { key: 'twin', name: '同号', gone: '2026-10-26',
     why: 'X +1.31、D +0.22（干净），压在新区间下沿。连带「从牌库检索」整条线空了（另一件【同花】2026-10-14 已删）—— 它治的病（手里四张跟堆上一个都对不上）现在只剩【换水】守着' } as DeadSkill,
   { key: 'soft', name: '软点', gone: '2026-10-26',
@@ -4595,6 +4626,7 @@ export const SK_ZERODRAFT : number = skillIndexOf('zerodraft')
 export const SK_FADETAG : number = skillIndexOf('fadetag')
 // 垫吃（2026-10-29）：垫在堆上 1 张牌下面，以那张牌进行【21 匹配】；空堆直接打出
 export const SK_STACKDRAFT : number = skillIndexOf('stackdraft')
+export const SK_PILEREFLECT : number = skillIndexOf('pilereflect')
 // 顺递（2026-10-29）：1 张手牌带上【顺子匹配】（流钥那种标签的槽技能来路）
 export const SK_FLOWDRAFT : number = skillIndexOf('flowdraft')
 export const SK_FLOWALL : number = skillIndexOf('flowall')
@@ -4616,6 +4648,28 @@ export const SK_HUETAG : number = skillIndexOf('huetag')
 export const SK_HOLDTAG : number = skillIndexOf('holdtag')
 // 满墙 `stonefull`：它和手里的牌都带【石墙】（R6 taken · X +4.87；花色钥匙 10-29 夜撤）
 export const SK_STONEFULL : number = skillIndexOf('stonefull')
+// 空钩（2026-11-01）：布饵人专属，不进技能池
+export const SK_TRAPZERO : number = skillIndexOf('trapzero')
+// ---- 角色专属技能〔2026-11-01 · 布饵人〕----
+// 这几件只在某张角色卡的固定槽里出现：商店不卖、技能池不抽、插槽弹层不列（各处调 isRoleOnlySkill 过滤）
+export const ROLE_ONLY_SKILLS : string[] = ['trapzero']
+export function isRoleOnlySkill(k : number) : boolean {
+  if (k < 0 || k >= DRAW_SKILLS.length) {
+    return false
+  }
+  return ROLE_ONLY_SKILLS.indexOf(DRAW_SKILLS[k].key) >= 0
+}
+// 这张卡第 slot 个槽是不是固定放着专属技能：是的话返回那件技能的下标，否则 −1。
+// 固定槽玩家插不进别的（插槽界面读它），kitFromRole 也用它盖掉存档里那一格
+export function roleFixedSkill(role : number, slot : number) : number {
+  if (!validRole(role)) {
+    return -1
+  }
+  if (roleOf(role).key == 'zerotrap' && slot == 0) {
+    return SK_TRAPZERO
+  }
+  return -1
+}
 // 石影 / 石顺（2026-10-30）：它带上【石墙】；1 张手牌带上【花色匹配】/【顺子匹配】
 export const SK_STONEHUE : number = skillIndexOf('stonehue')
 export const SK_STONELINE : number = skillIndexOf('stoneline')
@@ -4632,6 +4686,8 @@ export const SK_DUMPBAIT : number = skillIndexOf('dumpbait')
 // 要清的话顺序是「**先删 .uvue 的实现、再撤这里的导出**」，反过来编译不过
 //（这一季在 `DUMP_COUNT` 上栽过一次，见上面 4468 行）。
 export const SK_SWAPCARD : number = skillIndexOf('swapcard')
+// 【窄口】槽技能 2026-11-01 删了 —— 表项已删，这个常量现在是 −1（`.uvue` 还有五处引用：import、两处 wants、落堆挂 held、handLimit 的 heldOn，惰性）。
+// ⚠ 别跟 SP_NARROW（常驻技【窄口】，还活着）弄混
 export const SK_NARROW : number = skillIndexOf('narrow')
 export const SK_CREEL : number = skillIndexOf('creel')
 export const SK_TWIN : number = skillIndexOf('twin')
@@ -4849,6 +4905,8 @@ export const SKILL_RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '
 export type DrawLoadout = {
   rankOwner : number[]
   suitOwner : number[]
+  // 【0 点槽】〔2026-11-01 · 布饵人〕：被置 0 的牌（skillsOf 按 '0' 报的那几张）打出时触发哪件技能，−1 = 没有
+  zeroOwner : number
 }
 
 // 原先这儿还有个 rankCap 字段（这一轮点数槽有几格，【加权】能抬一格）
@@ -4904,12 +4962,14 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
   {
     // 取最低档（+1）。手牌 4 张是做决定的全部素材，+2 就直接改了这个玩法
     key: 'creel', name: '满篓',
-    desc: '你的手牌上限 5 张'
+    // 〔2026-11-01 desc「你的手牌上限 5 张」→「+1」（用户定）：实现一直是 HAND_SIZE + 1，跟对方窄口 / 庄家规矩叠加时「5 张」那种写法不对〕
+    desc: '你的手牌上限 +1'
   },
   {
     // 取最低档。再狠一档（对方只剩 2 张）就不是削选择面，是处刑
     key: 'narrow', name: '窄口',
-    desc: '对方的手牌上限 3 张'
+    // 〔2026-11-01 desc「对方的手牌上限 3 张」→「−1」（用户定）：实现一直是 HAND_SIZE − 1，理由同满篓〕
+    desc: '对方的手牌上限 −1'
   },
   {
     key: 'clear', name: '清水',
@@ -5488,6 +5548,12 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
   {
     key: 'slottag', name: '流钥',
     desc: '你打出的牌触发技能槽后，1 张手牌带上【顺子匹配】'
+  },
+  // 【零空】〔2026-11-01 · 布饵人，用户定〕：回合末补牌时只数**不是 0 点**的牌。
+  // 模拟器 `zerofree`：0 槽放回水 / 分饵时比不带高 +1.7（单侧），**局长缩 4~8%**（手牌上限那一类，设计文档第一节 ①）。台账第四十四·丙节
+  {
+    key: 'zerofree', name: '零空',
+    desc: '你点数为 0 的牌不占手牌数量'
   }
 ]
 
@@ -5526,6 +5592,8 @@ export const SP_BEACH : number = specialIndexOf('beach')
 // 「对手清光整堆之后你白打一手」那 +0.94 —— 净滩救后半（不白送钩点），
 // 逆涌救前半（给你东西可打）。两张卡因此是一对
 export const SP_JSURGE : number = specialIndexOf('jsurge')
+// 【零空】（2026-11-01 · 布饵人）
+export const SP_ZEROFREE : number = specialIndexOf('zerofree')
 // 【稳钩】删了（2026-10-13，连带「护饵」那一类效果）。
 // 常量留着是因为 specialIndexOf 查不到会返回 **-1**，而 hasSpecial 拿 -1
 // 比任何角色的 special 都不会相等 —— 所以读它的那几处自动失效、不用改。
@@ -6138,6 +6206,16 @@ export const DRAW_ROLES : DrawRole[] = [
   {
     key: 'flowkey', name: '流钥客', special: 'slottag', slots: ['A', '2', '3', '4'],
     desc: '四个小槽 —— 打出触发技能的牌，手里就会多一张带着【顺子匹配】的牌'
+  },
+  {
+    // ---------- 【布饵人】〔2026-11-01 上架 · 用户设计〕----------
+    // ♠ 槽**固定**放专属技能【空钩】（roleFixedSkill），玩家只插得了 0 点槽。
+    // 0 点槽 = 被置 0 的牌打出时触发（DrawLoadout.zeroOwner）。常驻技【零空】：0 点牌不占手牌数量。
+    // 打法：空钩谁收走谁的手牌全置 0 —— 对手踩中他吃亏，你自己踩中，那些 0 点牌反而全成了 0 点槽的扳机，而且零空让你照样补满活牌。
+    // 模拟器（R7 · `role zerotrap` · 单侧 · 8000 局 · SE 0.25）：0 槽放回水 **+18.01** / 零递 +15.54 / 分饵 +10.71（台账第四十四·丙节）。
+    // ⚠ 两侧量时这张卡偏先手（D +0.6~+0.9），原因没查。⚠ 0 槽插什么差很多（满墙几乎是 0）
+    key: 'zerotrap', name: '布饵人', special: 'zerofree', slots: ['♠', '0'],
+    desc: '♠ 槽固定是专属的【空钩】—— 谁收走它谁的手牌全置 0。你自己踩中也不亏：0 点牌打出去会响 0 点槽，而且不占手牌数量'
   }
 ]
 
@@ -6189,7 +6267,8 @@ export function slotCover(slot : string) : number {
   const labels = slotLabels(slot)
   let n = 0
   for (let i = 0; i < labels.length; i++) {
-    n = n + (isSuitSlot(labels[i]) ? 12 : 4)
+    // 0 点槽（布饵人）：管的是局里被置 0 的牌，没有固定张数，覆盖面记 0
+    n = n + (isSuitSlot(labels[i]) ? 12 : (labels[i] == '0' ? 0 : 4))
   }
   return n
 }
@@ -6286,7 +6365,9 @@ export function kitFromRole(role : number, slotSkills : number[]) : DrawKit {
   for (let i = 0; i < slots.length && i < slotSkills.length; i++) {
     // **一个槽可能印着好几样**（'2 3'、'5 6 7'），那就每一样都落一格 ——
     // 嵌进这个槽的那件技能因此同时管那几个点数
-    out.push({ skill: slotSkills[i], labels: slotLabels(slots[i]) } as KitSlot)
+    // 固定槽（布饵人 ♠ 槽 = 空钩）盖掉存档里那一格
+    const fixed = roleFixedSkill(role, i)
+    out.push({ skill: fixed >= 0 ? fixed : slotSkills[i], labels: slotLabels(slots[i]) } as KitSlot)
   }
   // 真正翻成 loadout 的活儿在 kitFromSlots 里，**跟庄家角色卡共用那一段** ——
   // 两边到了「哪件技能占哪几个标签」这一层就长得一样了
@@ -6487,14 +6568,16 @@ function filled(count : number, value : number) : number[] {
 export function emptyLoadout() : DrawLoadout {
   return {
     rankOwner: filled(SKILL_RANKS.length, -1),
-    suitOwner: filled(SUIT_COUNT, -1)
+    suitOwner: filled(SUIT_COUNT, -1),
+    zeroOwner: -1
   }
 }
 
 export function cloneLoadout(lo : DrawLoadout) : DrawLoadout {
   return {
     rankOwner: lo.rankOwner.slice(0),
-    suitOwner: lo.suitOwner.slice(0)
+    suitOwner: lo.suitOwner.slice(0),
+    zeroOwner: lo.zeroOwner
   }
 }
 
@@ -6667,6 +6750,10 @@ export function triggersOf(lo : DrawLoadout, suit : string, rank : string) : num
   // 同一个技能插了花色槽又插了点数槽的话只算一次
   if (r >= 0 && lo.rankOwner[r] >= 0 && list.indexOf(lo.rankOwner[r]) < 0) {
     list.push(lo.rankOwner[r])
+  }
+  // 【0 点槽】：被置 0 的牌 skillsOf 按 '0' 报（ap-fishing 的 skillsOf），这儿接住
+  if (rank == '0' && lo.zeroOwner >= 0 && list.indexOf(lo.zeroOwner) < 0) {
+    list.push(lo.zeroOwner)
   }
   return list
 }
@@ -6986,6 +7073,9 @@ export function kitFromSlots(slots : KitSlot[], role : number) : DrawKit {
         if (s >= 0) {
           lo.suitOwner[s] = k
         }
+      } else if (labels[j] == '0') {
+        // 【0 点槽】（布饵人）
+        lo.zeroOwner = k
       } else {
         const at = SKILL_RANKS.indexOf(labels[j])
         if (at >= 0) {

@@ -498,6 +498,11 @@ const SIM_ONLY = {
   drawzero: '〈drawzero〉（原型 · ①对方抽 1 张 + 挑他 1 张，两张明置置 0 / ②对方抽 2 张明置置 0。DZ_MODE=pick|draw）',
   // 〔零吃 zeroself 2026-10-29 上架、当晚撤下（DEAD_SKILLS）—— 回到模拟器专属〕
   zeroself: '〈zeroself〉（原型 · 置 0；【21 匹配】。2026-10-29 上架当晚撤下，墓碑在 DEAD_SKILLS）',
+  rangematch: '〈rangematch〉（原型 · 2026-11-01【区间匹配】：收走堆上点数在它和堆顶那张之间的牌，另外至少 1 张才算成功。RANGE_MIN）',
+  extraturn: '〈extraturn〉（原型 · 2026-11-01 用户要评价：自己再进行 2 回合。EXTRA_N）',
+  jointag: '〈jointag〉（原型 · 2026-11-01 机制一：堆上有匹配则一起被收走，载体＝对方 1 张手牌带上）',
+  solotag: '〈solotag〉（原型 · 2026-11-01 机制二：被收走时只收走此牌，载体＝堆上 1 张牌带上）',
+  handreflect: '〈handreflect〉（原型 · 2026-10-30 用户要评价：选择堆上一张牌，手牌 1 张跟它相同花色的牌变成它的点数。HR_RANK）',
   chain: '〈chain〉（原型 · 2026-10-30 从游戏撤下的【传火】：跟堆底同颜色的牌带上【燃烧】。CHAIN_HUE / CHAIN_BOTTOM_SELF / CHAIN_PHASE / CHAIN_WINDOW / CHAIN_SKIP_OPEN。墓碑在 DEAD_SKILLS）',
   flowdraft: '〈flowdraft〉（原型 · 2026-10-30 从游戏撤下的【顺递】：堆上 1 张牌带上【通配】；1 张手牌带上【顺子匹配】。墓碑在 DEAD_SKILLS）',
   swapflow: '〈swapflow〉（原型 · 2026-10-29 从游戏撤下的【易流】：它带上【通配】；可以把 1 张手牌跟堆上 1 张替换；【顺子匹配】。SWAPFLOW_SELF / SWAPFLOW_N）',
@@ -593,10 +598,19 @@ const SIM_ONLY = {
   heapdraft: '〈heapdraft〉（原型 ·【堆牌2】+ 1 张手牌带上【21 匹配】。= 零递的「置 0」换成「堆牌」。新诊断口 tagdraft.freshSum）',
   // 2026-10-30 用户要评价、评完定「不要了」—— 原型留着（数在台账第三十六节）
   foeflow: '〈foeflow〉（原型 · 对方堆牌1，【顺子匹配】（不当通配），1 张手牌可参与顺子匹配。FF_HAND / FF_HEAP。用户定不要）',
+  reflecttag: '〈reflecttag〉（原型 · 2026-10-30 用户要评价「手牌 N 张带上【映照】」：带标签的牌打出时可以展示 1 张手牌、变成跟它相同。RT_N=1|2|all）',
+  reflectx: '〈reflectx〉（原型 · 2026-11-01 【映照】的四个新载体：堆上 1 张 + 顺子 / 堆上 1 张 + 顺序 / 手牌 1 张 / 牌库顶 1 张。RX_MODE=pilestraight|pileorder|hand|deck）',
   // 2026-10-30 石墙重新设计那一轮〔同日【石影】stonehue /【石顺】stoneline 上架，从这张表撤掉 —— 理由同上面【引潮】那条〕
   wallorder: '〈wallorder〉（原型 · 它带上【石墙】；1 张手牌带上【顺序匹配】）',
   wallzero: '〈wallzero〉（原型 · 它置 0 并带上【石墙】；1 张手牌带上【收零】）',
-  walltop: '〈walltop〉（原型 · 这一手结算完之后，堆顶那张带上【石墙】）'
+  walltop: '〈walltop〉（原型 · 这一手结算完之后，堆顶那张带上【石墙】）',
+  // 2026-11-01〈夹层〉机制评价的四个载体
+  nestself: '〈nestself〉（原型 · 它带上【夹层】）',
+  nesthand: '〈nesthand〉（原型 · 1 张手牌带上【夹层】）',
+  nestall: '〈nestall〉（原型 · 它和你手里的牌都带上【夹层】）',
+  nestfoe: '〈nestfoe〉（原型 · 对方 1 张手牌带上【夹层】）',
+  nestman: '〈nestman〉（量具角色 · ♥ / 7，常驻〈nestproof〉「你的普通匹配不受【夹层】影响」）',
+  // 〔trapzero / zerotrap 2026-11-01 上架为【空钩】/【布饵人】，从这张表撤掉〕
 }
 
 // 〔【薪潮】（`fuel`）2026-10-16 **搬进游戏了**，所以从上面那张表里撤掉。
