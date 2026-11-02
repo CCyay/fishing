@@ -6,7 +6,7 @@
 cd "$(dirname "$0")" || exit 1
 N=${N:-20000}
 mkdir -p out-bothdraft
-for slot in "A lock 0" "K pond 2" "H mirror 0"; do
+for slot in "A lockold 0" "K pond 2" "H mirror 0"; do
   set -- $slot
   for v in "1 bothdraft" "2 bothdraft" "- zerodraft" "- heapdraft"; do
     set -- $slot $v

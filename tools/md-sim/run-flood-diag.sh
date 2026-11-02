@@ -25,7 +25,7 @@ cell() {
   local f="$1"; shift
   local label="$1"; shift
   ( env "$@" node tools/md-sim/sim.js vs flood flood -n "$N" \
-      --role lock --slot 0 >"$TMP/$f" 2>&1
+      --role lockold --slot 0 >"$TMP/$f" 2>&1
     echo "$label" >"$TMP/$f.label" ) &
 }
 

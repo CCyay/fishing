@@ -971,6 +971,23 @@
          这一块是把那份信息**对称地给你**（设计文档『信息要给够』那条判据）。
          牌库和它手里的分不开，于是推不出它那四张是什么，
          可「我这张 7 外面还剩几张」这类问题全答得上。 -->
+    <!-- 庄家**第一次**用某件技能：把它要打的那张放大、印上技能说明，
+         **等你点一下才接着走**（用户定 2026-11-02）。每件技能每局只弹一次 -->
+    <view v-if="showcaseOn" id="ap-showcase" class="mask" @click="onShowcase">
+      <view class="sc-box">
+        <text class="sc-title">庄家第一次用这件技能</text>
+        <view class="sc-card">
+          <text class="sc-suit" :class="{ 'sc-red': showcaseRed }">{{ showcaseSuit }}</text>
+          <text class="sc-rank" :class="{ 'sc-red': showcaseRed }">{{ showcaseRank }}</text>
+        </view>
+        <view v-for="(name, si) in showcaseNames" :key="'sc-' + si" class="sc-skill">
+          <text class="sc-name">{{ name }}</text>
+          <text class="sc-desc">{{ showcaseDescs[si] }}</text>
+        </view>
+        <text class="sc-hint">点一下继续</text>
+      </view>
+    </view>
+
     <view v-if="showLeft" class="mask" @click="showLeft = false">
       <view class="left-box" @click.stop="noop">
         <view class="left-head">
@@ -2379,6 +2396,18 @@
   //（那几张多半盖着），这三件一发动就把对方全部手牌翻开给你挑 ——
   // 所以 foeOpen 要认这个状态
   const takeSkill = ref<number>(-1)
+  // 正在挑的是不是这件技能。**必须先判 skill >= 0**〔2026-11-02 栽的〕：
+  // 删掉的技能 `skillIndexOf` 返回 −1，而 takeSkill 闲着时也是 −1 ——
+  // 直接写 `takeSkill.value == SK_SINKTAG`（退潮 10-28 删了）在闲着时恒为真，
+  // onPlay 里那条分路把每一次点手牌都拐进了贴沉降，于是**一张牌都出不了**，
+  // 提示语也印成了「退潮：点两排任意手牌给它贴沉降」
+  function taking(skill : number) : boolean {
+    return skill >= 0 && takeSkill.value == skill
+  }
+  // 同理，堆上挑牌那一格（凝水 / 净水 删了，SK_CALM / SK_CLEAN 是 −1，而 pilePick 闲着也是 −1）
+  function pickingPile(skill : number) : boolean {
+    return skill >= 0 && pilePick.value == skill
+  }
   // 【死水】这一手还要挑几张。压舱 / 摘钩 / 对换都只挑一张，
   // 所以那三件走到 onTakeFrom 就结束了；死水要挑 DEAD_COUNT 张，
   // 挑够之前 takeSkill 不清
@@ -3630,29 +3659,29 @@
 
   // 压舱 / 摘钩 / 对换共用一块提示，这儿按技能出话
   const takeText = computed<string>(() : string => {
-    if (takeSkill.value == SK_PRESS) {
+    if (taking(SK_PRESS)) {
       return '压舱：点庄家一张手牌，塞回牌库洗掉'
     }
-    if (takeSkill.value == SK_UNHOOK) {
+    if (taking(SK_UNHOOK)) {
       return '摘钩：点庄家一张手牌，拿到你手上'
     }
-    if (takeSkill.value == SK_SWAPCARD) {
+    if (taking(SK_SWAPCARD)) {
       return '对换：点庄家一张手牌拿过来，然后挑一张自己的还他'
     }
-    if (takeSkill.value == SK_DEAD) {
+    if (taking(SK_DEAD)) {
       // 报**还剩几张**，因为这一件要挑好几张 —— 不报的话点完第一张
       // 界面没变化，看着像点空了
       return '死水：点庄家手牌废掉它（还剩 ' + deadLeft.value
         + ' 张）· J 和已经废了的点不动'
     }
-    if (takeSkill.value == SK_SINKTAG) {
+    if (taking(SK_SINKTAG)) {
       // 报**还剩几张** + **压几点** —— 两个数玩家都要（照死水报剩几张、
       // 照引潮把后果算给他看）
       return '退潮：点两排任意手牌给它贴沉降（还剩 ' + sinkLeft.value
         + ' 张）· 打出时堆上所有牌 −' + SINK_TAG_STEP
         + ' 点 · J 和已经贴过的点不动'
     }
-    if (takeSkill.value == SK_SURGE) {
+    if (taking(SK_SURGE)) {
       // **把「打出后涌几张」算给他看** —— 那是这件技能的全部内容，
       // 而他要自己乘一遍（层数 × 2）。乘法写在这儿，他就只用挑牌。
       //
@@ -5216,35 +5245,35 @@
 
   // 凝水 / 净水等着的时候那条提示
   const pilePickText = computed<string>(() : string => {
-    if (pilePick.value == SK_CALM) {
+    if (pickingPile(SK_CALM)) {
       return '凝水：点堆上一张给它贴保护 —— 那张被收走时不走一次'
     }
-    if (pilePick.value == SK_CLEAN) {
+    if (pickingPile(SK_CLEAN)) {
       // 〔2026-10-24 改：原先这句还是净水旧版的效果（去掉在场效果、不还原点数），
       //   而它早就改成「盖上去代替那一张」了 —— 照 desc 原文写〕
       return '净水：点堆上一张盖上去（停在那一格、从那里判一次匹配），或者直接打出'
     }
-    if (pilePick.value == SK_RAISE) {
+    if (pickingPile(SK_RAISE)) {
       return '抬水：点堆上一张给它加 ' + pickStep.value
         + ' 点 —— 加完它会判一次匹配'
     }
-    if (pilePick.value == SK_PILEREFLECT) {
+    if (pickingPile(SK_PILEREFLECT)) {
       return '镜水：点堆上一张给它带上【映照】（你手里要有跟它同花色的牌）—— 下一步点那张手牌展示'
     }
     // 垫吃：点出那条等价的读法 —— 玩家不用去想「从锚往哪边数」
-    if (pilePick.value == SK_STACKDRAFT) {
+    if (pickingPile(SK_STACKDRAFT)) {
       return '垫吃：点堆上一张垫在它下面，以它进行 21 匹配 —— '
         + '相当于收走含它的一段连续牌，只要那段点数加起来不超过 21（堆上至少 2 张）'
     }
     // 野火：提示里**点出那条最优选法**，因为它是这件技能的全部决策，
     // 而玩家第一次玩算不出来（火有两条前沿、蔓延在同一手内结算）
-    if (pilePick.value == SK_WILD) {
+    if (pickingPile(SK_WILD)) {
       return '野火：点堆上一张给它贴【燃烧】—— 点在没烧着那一段的中间，'
         + '火往两边各爬一格，全场烧着就整堆收走'
     }
     // 伏流：同理点出选法 —— 通配是**填缺口**用的，而「哪儿是缺口」
     // 要在堆上心算点数，第一次玩算不出来
-    if (pilePick.value == SK_FLOW) {
+    if (pickingPile(SK_FLOW)) {
       return '伏流：点堆上一张给它贴【通配】—— 你刚打的那张已经带上【通配】，'
         + '所以这一张是**第二个**任意点数，点在能补上缺口的那张；贴完当场判顺子'
     }
@@ -5264,11 +5293,11 @@
     if (pilePick.value < 0) {
       return false
     }
-    if (pilePick.value == SK_WILD) {
+    if (pickingPile(SK_WILD)) {
       return pileBurnAt(index) == 0 && !wardAt(index) && !frostAt(index)
     }
     // 镜水：不能点它自己；手里要有跟那张同花色的（非 J）牌
-    if (pilePick.value == SK_PILEREFLECT) {
+    if (pickingPile(SK_PILEREFLECT)) {
       return reflectCanTarget(index, false)
     }
     // 伏流：已经带通配的那张再贴一次是空操作，所以点不着。
@@ -5278,7 +5307,7 @@
     // 不挡的话玩家会点它、然后发现什么都没变 —— 而规则上它确实已经是通配了，
     // 所以这是「界面要把规则说清楚」那一类，不是手感问题。
     // `index != self` 现在是冗余的（isWildAt 已经挡住了），留着当双保险
-    if (pilePick.value == SK_FLOW) {
+    if (pickingPile(SK_FLOW)) {
       const self = pickCard.value == null ? -1 : pileIndexOf(pickCard.value!)
       return index != self && !isWildAt(index)
     }
@@ -10447,17 +10476,17 @@
   // 无点数算「非 0」），堆上跟那张同颜色的牌都置 0（无点数的也置 0）。返回新变 0 几张；没有参照返回 −1。
   // 模拟器那边是 `fadeLand`，两边一字一句对着写
   function fadeLand(at0 : number) : number {
-    let ref = -1
+    let refAt = -1
     for (let i = 0; i < pile.value.length; i++) {
       if (i != at0 && !zeroAt(i)) {
-        ref = i
+        refAt = i
         break
       }
     }
-    if (ref < 0) {
+    if (refAt < 0) {
       return -1
     }
-    const refSuit = pileSuitAt(ref)
+    const refSuit = pileSuitAt(refAt)
     const next : number[][] = []
     let n = 0
     for (let i = 0; i < pile.value.length; i++) {
@@ -10717,8 +10746,8 @@
       // 【退潮】也要走这道闸，而它**比那两件更需要** ——
       // 它排两条（J + 已经贴过的），所以点错的机会最多，
       // 而白丢一张名额的后果一模一样（sinkLeft 已经减了）
-      if ((takeSkill.value == SK_DEAD || takeSkill.value == SK_SURGE
-        || takeSkill.value == SK_SINKTAG)
+      if ((taking(SK_DEAD) || taking(SK_SURGE)
+        || taking(SK_SINKTAG))
         && !canPickFoe(index)) {
         return
       }
@@ -10753,7 +10782,7 @@
     }
     // 【引潮】跟死水一样**看得见、而且有排除**（J 挑不了），所以也要单独判。
     // 它比死水少一条：**已经带标签的照旧能挑**（叠加不设上限）
-    if (takeSkill.value == SK_SURGE) {
+    if (taking(SK_SURGE)) {
       if (index < 0 || index >= foeHand.value.length) {
         return false
       }
@@ -10762,14 +10791,14 @@
     // 【退潮】比引潮多一条：**已经带【沉降】的挑不了**（不可叠加）。
     // 漏了这一条的后果是静默的 —— 玩家点第二次同一张，doSink 那道闸
     // 会把它吃掉，而 sinkLeft 已经减了一格（照 6716 那处死水的教训）
-    if (takeSkill.value == SK_SINKTAG) {
+    if (taking(SK_SINKTAG)) {
       if (index < 0 || index >= foeHand.value.length) {
         return false
       }
       const card = foeHand.value[index]
       return card.rank != JACK && !sinkTagOn(card)
     }
-    if (takeSkill.value != SK_DEAD) {
+    if (!taking(SK_DEAD)) {
       return true
     }
     if (index < 0 || index >= foeHand.value.length) {
@@ -14896,7 +14925,7 @@
     // 代价也在那儿：压堆**先搅乱我自己这一手的匹配**，所以通常还是
     // 全挑对手划算（实测差 0.25 分，约 2σ —— 两个选项接近分不出高下，
     // 那正是 N=3 这个值选出来的东西）。见 draw-skills 的 SINK_TAG_N 那段
-    if (takeSkill.value == SK_SINKTAG) {
+    if (taking(SK_SINKTAG)) {
       onSinkMine(index)
       return
     }
@@ -14997,14 +15026,11 @@
     // → `cardName(undefined)` 当场崩。那正是下面那条 `index < 0` 拦的同一类。
     if (boardPlayable(true) > 0) {
       const bi = foePickBoard()
-      const bcard = foeBoardZone.value[bi]
-      const blead = '庄家打出 ' + cardName(bcard) + '。'
-      logPlay(true, bcard, blead)
-      const bhanded = playFor(true, bi, true)
-      message.value = blead
-      if (!bhanded) {
-        afterPlay(true)
+      // 第一次用某件技能：先停下来给你看（见 foeShowcase），点了才打
+      if (foeShowcase(foeBoardZone.value[bi], SHOW_BOARD, bi, '')) {
+        return
       }
+      foePlayBoard(bi)
       return
     }
     if (foeHand.value.length == 0) {
@@ -15033,6 +15059,26 @@
       }
       note = '庄家的牌全被冻住了，补了 ' + (foeHand.value.length - before) + ' 张。'
     }
+    if (foeShowcase(foeHand.value[index], SHOW_HAND, index, note)) {
+      return
+    }
+    foePlayHand(index, note)
+  }
+
+  // 庄家从上牌区打出第 bi 张（foeTurn 那一支原样搬出来，好让「先给你看」那道闸接回来）
+  function foePlayBoard(bi : number) {
+    const bcard = foeBoardZone.value[bi]
+    const blead = '庄家打出 ' + cardName(bcard) + '。'
+    logPlay(true, bcard, blead)
+    const bhanded = playFor(true, bi, true)
+    message.value = blead
+    if (!bhanded) {
+      afterPlay(true)
+    }
+  }
+
+  // 庄家从手里打出第 index 张（同上）
+  function foePlayHand(index : number, note : string) {
     const card = foeHand.value[index]
     // 照 onPlay 那头：先预约、再 playFor。
     // **庄家这头 message 前面可能挂个前言**（note，手牌全冻住补了几张），
@@ -15043,6 +15089,72 @@
     message.value = note + lead
     if (!handed) {
       afterPlay(true)
+    }
+  }
+
+  // ---------- 庄家第一次用某件技能：放大那张牌、印上说明，等你点〔2026-11-02 用户定〕----------
+  //
+  // 「第一次」按**技能**算、每局清一次（foeSkillShown）：同一件技能第二次就不弹了。
+  // 一张牌同时响两件（双触发）时，没弹过的那几件一起印在这一张上。
+  // 只管 foeTurn 那两处正常出牌；【抢牌】那一手是插在你回合里的，不在这儿停
+  //（那条路的尾段跟回合交接绑着，停下来会把顺序打乱）。
+  //
+  // 停住的方式是**不往下走**：foeTurn 直接 return，庄家的计时链断在这儿，
+  // 你那边 myTurn 是 false 出不了牌；点一下 onShowcase 把那一手接回去
+  const SHOW_BOARD : number = 1
+  const SHOW_HAND : number = 2
+  const showcaseOn = ref<boolean>(false)
+  const showcaseSuit = ref<string>('')
+  const showcaseRank = ref<string>('')
+  const showcaseRed = ref<boolean>(false)
+  const showcaseNames = ref<string[]>([] as string[])
+  const showcaseDescs = ref<string[]>([] as string[])
+  let foeSkillShown : number[] = []
+  let showcaseKind : number = 0
+  let showcaseIndex : number = -1
+  let showcaseNote : string = ''
+
+  // 这张牌响的技能里有没弹过的 → 弹出来、记下这一手怎么接，返回真（调用处就此停住）
+  function foeShowcase(card : PlainCard, kind : number, index : number, note : string) : boolean {
+    const list = skillsOf(true, card)
+    const names : string[] = []
+    const descs : string[] = []
+    for (let i = 0; i < list.length; i++) {
+      const sk = list[i]
+      if (sk < 0 || sk >= DRAW_SKILLS.length || foeSkillShown.indexOf(sk) >= 0) {
+        continue
+      }
+      foeSkillShown.push(sk)
+      names.push(DRAW_SKILLS[sk].name)
+      descs.push(DRAW_SKILLS[sk].desc)
+    }
+    if (names.length == 0) {
+      return false
+    }
+    showcaseSuit.value = suitFace(card.suit)
+    showcaseRank.value = handFace(card)
+    showcaseRed.value = isRedSuit(card.suit)
+    showcaseNames.value = names
+    showcaseDescs.value = descs
+    showcaseKind = kind
+    showcaseIndex = index
+    showcaseNote = note
+    message.value = '庄家要打出 ' + cardName(card) + '，第一次用' + names.join('、') + '。点一下继续。'
+    showcaseOn.value = true
+    return true
+  }
+
+  function onShowcase() {
+    if (!showcaseOn.value) {
+      return
+    }
+    showcaseOn.value = false
+    const kind = showcaseKind
+    showcaseKind = 0
+    if (kind == SHOW_BOARD) {
+      foePlayBoard(showcaseIndex)
+    } else if (kind == SHOW_HAND) {
+      foePlayHand(showcaseIndex, showcaseNote)
     }
   }
 
@@ -16123,6 +16235,9 @@
 
   function newGame() {
     clearTimers()
+    showcaseOn.value = false
+    showcaseKind = 0
+    foeSkillShown = [] as number[]
     catching.value = false
     catchFrom.value = -1
     catchTo.value = -1
@@ -17985,6 +18100,68 @@
     color: #e8b23a;
     font-size: 14px;
     font-weight: bold;
+  }
+
+  /* ---------- 庄家第一次用技能：放大那张牌 + 技能说明 ---------- */
+  .sc-box {
+    width: 270px;
+    padding: 16px;
+    border-radius: 12px;
+    background-color: #fffaf0;
+    align-items: center;
+  }
+  .sc-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #8a5a00;
+    margin-bottom: 12px;
+  }
+  /* 牌的尺寸是牌堆那张（54x76）的两倍上下，一眼看清是哪一张 */
+  .sc-card {
+    width: 104px;
+    height: 146px;
+    border-radius: 10px;
+    border-width: 2px;
+    border-style: solid;
+    border-color: #d4a017;
+    background-color: #ffffff;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+  }
+  .sc-suit {
+    font-size: 56px;
+    color: #263238;
+  }
+  .sc-rank {
+    font-size: 36px;
+    font-weight: bold;
+    color: #263238;
+  }
+  .sc-red {
+    color: #c62828;
+  }
+  .sc-skill {
+    width: 238px;
+    padding: 8px;
+    margin-top: 6px;
+    border-radius: 8px;
+    background-color: #fff1d0;
+  }
+  .sc-name {
+    font-size: 15px;
+    font-weight: bold;
+    color: #b85c00;
+  }
+  .sc-desc {
+    font-size: 13px;
+    color: #333333;
+    margin-top: 4px;
+  }
+  .sc-hint {
+    font-size: 12px;
+    color: #999999;
+    margin-top: 12px;
   }
 
   .mask {

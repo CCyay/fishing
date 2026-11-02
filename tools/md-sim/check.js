@@ -382,7 +382,7 @@ const CASES = [
     //   它压的是「技能里途摸牌（手牌临时超上限）」+「钥匙打出 → 全场贴冰」那条规则〕
     key: 'lockdraw', label: '封凌单件（摸牌 + 钥匙铺冰）',
     build: function () {
-      return { mine: kitOf('lock', ['lockdraw']), foe: R.emptyLoadout(), myRole: -1 }
+      return { mine: kitOf('lockold', ['lockdraw']), foe: R.emptyLoadout(), myRole: -1 }
     }
   },
   {
@@ -391,7 +391,7 @@ const CASES = [
     key: 'frost', label: '结冰族全上（我方三件）',
     build: function () {
       return {
-        mine: kitOf('lock', ['lockdraw', 'lockcolor', 'icebomb']),
+        mine: kitOf('lockold', ['lockdraw', 'lockcolor', 'icebomb']),
         foe: R.emptyLoadout(), myRole: -1
       }
     }
@@ -402,9 +402,9 @@ const CASES = [
     key: 'lockice', label: '封凌 / 隔凌（铺冰 + 摸牌钥匙）',
     build: function () {
       return {
-        mine: kitOf('lock', ['lockdraw', 'lockcolor']),
+        mine: kitOf('lockold', ['lockdraw', 'lockcolor']),
         // 庄家也带冰雷：双方的钥匙互相引爆对方的雷那条路在这儿跑
-        foe: kitOf('lock', ['lockdraw', 'lockcolor', 'icebomb']), myRole: -1
+        foe: kitOf('lockold', ['lockdraw', 'lockcolor', 'icebomb']), myRole: -1
       }
     }
   },
@@ -435,7 +435,7 @@ const CASES = [
     key: 'burn', label: '燃烧两件（传火 / 引火）',
     build: function () {
       return {
-        mine: kitOf('lock', ['chain', 'kindle']),
+        mine: kitOf('lockold', ['chain', 'kindle']),
         foe: R.emptyLoadout(), myRole: -1
       }
     }
@@ -452,8 +452,8 @@ const CASES = [
         //   **撞击密度因此掉了一档** —— 霜降是唯一「落堆就贴冰」的，
         //   它一走，冰的产出只剩「自带」和「贴手牌」两条路。
         //   要是哪天这组压不出问题了，先怀疑是密度不够、不是 bug 没了〕
-        mine: kitOf('lock', ['lockdraw', 'lockcolor']),
-        foe: kitOf('lock', ['chain', 'kindle']), myRole: -1
+        mine: kitOf('lockold', ['lockdraw', 'lockcolor']),
+        foe: kitOf('lockold', ['chain', 'kindle']), myRole: -1
       }
     }
   },
@@ -478,10 +478,10 @@ const CASES = [
     key: 'surge', label: '薪潮 / 推牌（洗回牌库，绕开了 takeAt）',
     build: function () {
       return {
-        mine: kitOf('lock', ['fuel', 'lockdraw', 'lockcolor']),
+        mine: kitOf('lockold', ['fuel', 'lockdraw', 'lockcolor']),
         // 〔对手那边原先是 ['surge', 'frostfall'] —— 霜降删了，换寒流。
         //   这一组要的是「对手也在产冰」，寒流同样满足〕
-        foe: kitOf('lock', ['fuel', 'lockdraw']), myRole: -1
+        foe: kitOf('lockold', ['fuel', 'lockdraw']), myRole: -1
       }
     }
   },
@@ -517,8 +517,8 @@ const CASES = [
     key: 'zones', label: '堆牌区（+ 上牌区要 BOARD_TEST=2 才有牌）',
     build: function () {
       return {
-        mine: kitOf('lock', ['heapdraft']),
-        foe: kitOf('lock', ['heapdraft']), myRole: -1
+        mine: kitOf('lockold', ['heapdraft']),
+        foe: kitOf('lockold', ['heapdraft']), myRole: -1
       }
     }
   }

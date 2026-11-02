@@ -7,7 +7,7 @@
 # 口径：`one`（两侧都量 = X / D）
 cd "$(dirname "$0")" || exit 1
 N=${N:-20000}
-for slot in "lock 0" "lock 3" "mirror 0"; do
+for slot in "lockold 0" "lockold 3" "mirror 0"; do
   set -- $slot
   echo "######## $1 slot $2"
   node sim.js one cmark -n $N --role $1 --slot $2 | sed -n 3p
@@ -23,7 +23,7 @@ for slot in "3 lock" "0 mirror"; do
 done
 # 层数上限（CMARK_CAP）两档
 for cap in 4 6; do
-  for slot in "lock 3" "mirror 0"; do
+  for slot in "lockold 3" "mirror 0"; do
     set -- $slot
     CMARK_CAP=$cap node sim.js one cmark -n $N --role $1 --slot $2 | sed -n 3p | sed "s/^/[CAP=$cap $1 $2] /"
   done

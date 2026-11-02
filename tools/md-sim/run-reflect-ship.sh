@@ -27,7 +27,7 @@ if [ $rc_refs -ne 0 ] || [ $rc_check -ne 0 ]; then
   echo; echo "!!!! 结构没过（refs=$rc_refs check=$rc_check）—— 停。"; exit 1
 fi
 
-A="--role lock --slot 0"        # A 槽 = 定价锚槽（全表 68 件都按它定价）
+A="--role lockold --slot 0"        # A 槽 = 定价锚槽（全表 68 件都按它定价）
 C="--role deepline --slot 0"    # ♣ 槽 = 13 张，实际强度的上沿
 
 ( X=1 REFLECT_NATIVE= node tools/md-sim/sim.js all -n $NA $A >"$TMP/a_off" 2>&1 ) &

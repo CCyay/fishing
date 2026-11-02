@@ -13,4 +13,4 @@ for sp in $slots; do n=${sp%%:*}; r=${sp#*:}; r=${r%%:*}; sl=${sp##*:}
   KW_SELF=order REFLECT_WITH=kwself REFLECT_SPECIAL=1 REFLECT_COLOR=suit node sim.js one kwself --role $r --slot $sl -n $N > $o/selforder-$n.txt 2>&1 &
   wait
 done
-node sim.js one pilereflect --role lock --slot 0 -n $N > $o/jingshui-A.txt 2>&1
+node sim.js one pilereflect --role lockold --slot 0 -n $N > $o/jingshui-A.txt 2>&1

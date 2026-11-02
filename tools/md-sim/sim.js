@@ -82,7 +82,8 @@ const X_CAP = 4.8
 
 // 量单件技能时默认装在谁身上。江口闸官 = ['A','2','3','4']，
 // 四个等大的小槽，所以「这件技能管 4 张牌」在各件之间是可比的
-const DEFAULT_ROLE = 'lock'
+// 2026-11-02：江口闸官改成 ♠ / A，标准口径（A/2/3/4 那张的第 1 槽 = A 槽）挪到〈lockold〉
+const DEFAULT_ROLE = 'lockold'
 
 function parseArgs(argv) {
   const out = { _: [], n: 20000, seed: 1, role: DEFAULT_ROLE, slot: 0, special: false, proto: false, full: false }

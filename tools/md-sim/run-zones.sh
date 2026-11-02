@@ -27,7 +27,7 @@
 # 口径：`vs X X` / `one X` 走 `measureBoth` —— 双方同角色、各插同一个槽、
 #   两侧都量，报 **X**（两侧平均）+ **D**（两侧之差的一半）。
 #   **这一批可以直接跟全表（`all`）相减**；跟 `proto-diag` 那批单侧 `back` 不能。
-#   默认槽 = 江口闸官 A 槽（`--role lock --slot 0`），不带常驻技。
+#   默认槽 = 江口闸官 A 槽（`--role lockold --slot 0`），不带常驻技。
 #
 # ⚠ **读数顺序是硬规矩**（诊断口先于分）：
 #   〈heapdraft〉 `staged/fires`（该 ≈ 2）→ `flushes/fires`（该 ≈ 1）
@@ -36,7 +36,7 @@
 cd "$(dirname "$0")/../.." || exit 1
 N=${N:-20000}
 
-A="--role lock --slot 0"   # 江口闸官 A 槽（零递 2.88 / 压舱 1.97 那一格）
+A="--role lockold --slot 0"   # 江口闸官 A 槽（零递 2.88 / 压舱 1.97 那一格）
 K="--role pond --slot 2"   # 鱼塘老板 K 槽（零递 3.02 那一格）
 
 run() {                       # run <标题> <命令…>

@@ -24,7 +24,7 @@ N=${N:-8000}
 cd "$(dirname "$0")/../.."
 
 # 十张卡 + 各自的点数槽数（理论倍率）。花色槽不算 —— 它吃不到互通
-ROLES="basket:2 lock:4 upstream:2 mirror:1 deepline:1 pond:3 night:3 reckon:3 filler:4 surgeman:2"
+ROLES="basket:2 lockold:4 upstream:2 mirror:1 deepline:1 pond:3 night:3 reckon:3 filler:4 surgeman:2"
 
 echo "################ -1. triggersOf 本身对不对（三张牌，手算得出来）################"
 # 江口闸官（A/2/3/4 四个单点数槽）插满四件 → rankOwner 的 A,2,3,4 四格
@@ -42,7 +42,7 @@ for F in "" 1 me; do
   echo "---- RANK_LINK='$F' ----"
   RANK_LINK=$F node -e '
 const R = require("./tools/md-sim/rules.js")
-const lo = R.kitFromRole(R.roleIndexOf("lock"), [0, 1, 2, 3])
+const lo = R.kitFromRole(R.roleIndexOf("lockold"), [0, 1, 2, 3])
 // `roles` 这一项 2026-10-20 变成**必填** —— `linkOn` 现在先问 `hasSpecial`，
 // 而它读 `G.roles[side]`。缺了就是 TypeError（不是悄悄返回 false）
 const G = { loadouts: [lo, lo], roles: [-1, -1] }

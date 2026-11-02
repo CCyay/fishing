@@ -63,7 +63,7 @@ else
 fi
 
 V="node tools/md-sim/sim.js vs"
-A="--role lock --slot 0"        # A 槽：点数、4 张（窄）
+A="--role lockold --slot 0"        # A 槽：点数、4 张（窄）
 K="--role deepline --slot 1"    # K 槽：点数、4 张（窄，另一头的点数）
 C="--role deepline --slot 0"    # ♣ 槽：花色、13 张（宽）
 

@@ -34,7 +34,7 @@
 set -u
 N=${N:-20000}
 cd "$(dirname "$0")/../.."
-A="--role lock --slot 0"
+A="--role lockold --slot 0"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 # 跑一格。$1 = 文件名 · $2 = 标签（打印用）· 其余 = 环境变量赋值

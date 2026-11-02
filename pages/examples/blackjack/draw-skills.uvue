@@ -2698,14 +2698,17 @@
 
   .goods-list {
     flex-direction: row;
+    flex-wrap: wrap;
     margin-top: 6px;
   }
 
   /* 一行：左边名字 + 说明，右边价钱。
      **左边那条竖杠**（border-left）是稀有度的位置 —— 四格宽，
      在一列里扫下来对得齐，比整圈描边好认 */
+  /* **定宽**〔2026-11-02 用户定〕：原先 flex: 1 平分一行，货少的时候一件撑得老宽、
+     货多的时候又挤 —— 宽度跟着件数变。现在固定 80px，放不下就换行 */
   .goods {
-    flex: 1;
+    width: 80px;
     align-items: center;
     padding: 7px 4px;
     margin-right: 6px;

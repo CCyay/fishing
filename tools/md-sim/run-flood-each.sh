@@ -46,9 +46,9 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 for n in 2 3 4 5 6; do
   ( FLOOD_STOP=each FLOOD_CAP=$n node tools/md-sim/sim.js one flood \
-      -n "$N" --role lock --slot 0 >"$TMP/e$n" 2>&1 ) &
+      -n "$N" --role lockold --slot 0 >"$TMP/e$n" 2>&1 ) &
   ( FLOOD_STOP=full FLOOD_CAP=$n node tools/md-sim/sim.js one flood \
-      -n "$N" --role lock --slot 0 >"$TMP/f$n" 2>&1 ) &
+      -n "$N" --role lockold --slot 0 >"$TMP/f$n" 2>&1 ) &
   # ---- 诊断口要另跑一条 `vs`〔2026-10-21 查出来的〕 ----
   #
   # **洪水那张诊断表挂在 `cmdVs` 里，`cmdOne` 不印它**（sim.js:1515 那段
@@ -60,11 +60,11 @@ for n in 2 3 4 5 6; do
   # `one X Y` 和 `vs X X` 双方同角色同槽、两侧都量，**逐位相同**。
   # 所以 X/D 继续从 `one` 取，这条只拿它的诊断表
   ( FLOOD_STOP=each FLOOD_CAP=$n node tools/md-sim/sim.js vs flood flood \
-      -n "$N" --role lock --slot 0 >"$TMP/d$n" 2>&1 ) &
+      -n "$N" --role lockold --slot 0 >"$TMP/d$n" 2>&1 ) &
   # full 侧的诊断是**对照组**，不是附赠的 —— 见 §③ 抬头那段：
   # 「收几次」没有绝对阈值，只能同 N 对比
   ( FLOOD_STOP=full FLOOD_CAP=$n node tools/md-sim/sim.js vs flood flood \
-      -n "$N" --role lock --slot 0 >"$TMP/g$n" 2>&1 ) &
+      -n "$N" --role lockold --slot 0 >"$TMP/g$n" 2>&1 ) &
 done
 wait
 

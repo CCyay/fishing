@@ -11,6 +11,6 @@ N=${N:-20000}
 mkdir -p out-wallx
 for v in "wallsuit-suit wallsuit WALLSUIT_MATCH=suit" "wallsuit-color wallsuit WALLSUIT_MATCH=color" \
          "wallseal wallseal X=1" "foewall heapwall HW_SELF=0,HW_FOE=2,HW_WALL=heap" "stonebase stonebase X=1"; do
-  for s in "A lock 0" "K pond 2" "H mirror 0"; do echo "$v $s"; done
+  for s in "A lockold 0" "K pond 2" "H mirror 0"; do echo "$v $s"; done
 done | xargs -P 6 -L 1 sh -c 'env $(echo $2 | tr , " ") node sim.js one $1 -n '"$N"' --role $4 --slot $5 | grep -E "X |两侧|局长" > out-wallx/$0-$3.txt'
 for f in out-wallx/*.txt; do b=$(basename $f .txt); echo "$b | $(grep -o 'X [+-][0-9.]*' $f) | $(grep -o 'D [+-][0-9.]*' $f) | $(grep -o '：[+-][0-9.]* 点' $f) | $(grep -o '局长 [+-][0-9.]*%' $f)"; done

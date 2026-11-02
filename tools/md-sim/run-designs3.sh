@@ -68,7 +68,7 @@ else
 fi
 
 V="node tools/md-sim/sim.js vs"
-A="--role lock --slot 0"
+A="--role lockold --slot 0"
 K="--role deepline --slot 1"
 W="GIFT_WILD=0"
 

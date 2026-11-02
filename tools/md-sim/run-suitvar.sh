@@ -8,6 +8,6 @@ N=${N:-20000}
 mkdir -p out-suitvar
 for v in "SUITCOLOR_MODE color suitcolor" "SUITCOLOR_MODE two suitcolor" "SUITCOLOR_MODE bottom suitcolor" \
          "HUE_MODE color hue" "HUE_MODE bottom hue"; do
-  for s in "A lock 0" "K pond 2" "H mirror 0"; do echo "$v $s"; done
+  for s in "A lockold 0" "K pond 2" "H mirror 0"; do echo "$v $s"; done
 done | xargs -P 6 -L 1 sh -c 'env $0=$1 node sim.js one $2 -n '"$N"' --role $4 --slot $5 | grep -E "X |两侧|局长" > out-suitvar/$2-$1-$3.txt'
 for f in out-suitvar/*.txt; do echo "== $f"; grep -E "X |两侧|局长" "$f"; done

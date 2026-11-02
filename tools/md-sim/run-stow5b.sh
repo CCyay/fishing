@@ -20,7 +20,7 @@ diag() {
   node -e '
 const R = require("./tools/md-sim/rules.js"), AI = require("./tools/md-sim/ai.js")
 const at = k => { for (let i = 0; i < R.SKILLS.length; i++) if (R.SKILLS[i].key === k) return i; throw new Error("没这件：" + k) }
-const role = R.roleIndexOf("lock")
+const role = R.roleIndexOf("lockold")
 const a = at("stow"), b = process.argv[1] === "-" ? -1 : at(process.argv[1])
 // **数组**，照 cmdPair。槽 0 放拢水、槽 1 放搭档、其余空
 const picks = R.DRAW_ROLES[role].slots.map((s, i) => i === 0 ? a : (i === 1 ? b : -1))

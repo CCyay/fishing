@@ -12,7 +12,7 @@ SKILL=swapflow run swap SWAPFLOW_SELF=own
 SKILL=kwself run self1 KW_SELF=straight CHAIN_SELF=own CHAIN_STEP=1
 SKILL=kwself run self2 KW_SELF=straight CHAIN_SELF=own CHAIN_STEP=2
 wait
-node sim.js one flow --role lock --slot 0 -n $N > $o/flow-A.txt 2>&1 &
+node sim.js one flow --role lockold --slot 0 -n $N > $o/flow-A.txt 2>&1 &
 KIT=stonefull,flow,gift,orderins SLOTTAG_KIND=straight node sim.js slottag --full -n $N > $o/slottag-on.txt 2>&1 &
 KIT=stonefull,flow,gift,orderins SLOTTAG_KIND=off node sim.js slottag --full -n $N > $o/slottag-off.txt 2>&1 &
 node sim.js vs flowdraft flowdraft -n $N > $o/vs-fd.txt 2>&1 &

@@ -5,6 +5,6 @@
 cd "$(dirname "$0")" || exit 1
 N=${N:-20000}
 mkdir -p out-heapdraft
-for n in 1 2 4; do for s in "A lock 0" "K pond 2" "H mirror 0"; do echo "$n $s"; done; done \
+for n in 1 2 4; do for s in "A lockold 0" "K pond 2" "H mirror 0"; do echo "$n $s"; done; done \
 | xargs -P 6 -L 1 sh -c 'HEAP_N=$0 node sim.js one heapdraft -n '"$N"' --role $2 --slot $3 | grep -E "X |两侧|局长" > out-heapdraft/$1-N$0.txt'
 for f in out-heapdraft/*.txt; do echo "== $f"; grep -E "X |两侧|局长" "$f"; done

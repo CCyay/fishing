@@ -62,7 +62,7 @@ DIAG=6000
 
 for dir in both up; do
   echo "############ HOOK_DIR=$dir · '3' 槽（slot $SLOT）############"
-  HOOK_DIR=$dir node $OUT/sim.js one hook -n $N --role lock --slot $SLOT \
+  HOOK_DIR=$dir node $OUT/sim.js one hook -n $N --role lockold --slot $SLOT \
     > $OUT/out-hook-$dir-s$SLOT.txt 2>&1
   grep -E 'X|D|标准误|口径' $OUT/out-hook-$dir-s$SLOT.txt | head -12
   echo "---- 计数口（$DIAG 局 · slot $SLOT）----"

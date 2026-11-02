@@ -25,7 +25,7 @@ const AI = require('./ai.js')
 const key = process.argv[2]
 const n = parseInt(process.argv[3] || '4000', 10)
 const slotAt = parseInt(process.argv[4] || '0', 10)
-const roleKey = process.argv[5] || 'lock'
+const roleKey = process.argv[5] || 'lockold' // 江口闸官旧形状 A/2/3/4（2026-11-02 起）
 const withSpecial = process.argv[6] === 'special'
 
 // `none` = **基线档**（槽空着）〔2026-10-26 加〕。

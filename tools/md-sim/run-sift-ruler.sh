@@ -39,7 +39,7 @@
 #    **一个旧数都不废** —— 以前每跑都显式传参，默认档从没被引用过。
 #    第 1 节那个版本锚就是在验这一点。
 #
-#  口径：`vs X X -n 20000`，A 槽 = 江口闸官 `--role lock --slot 0`（定价锚槽）、
+#  口径：`vs X X -n 20000`，A 槽 = 江口闸官 `--role lockold --slot 0`（定价锚槽）、
 #        ♥ 槽 = `--role mirror --slot 0`。**X = 两侧平均、D = 打印那个差的一半。**
 #        诊断 4000 局。R3 规则档。
 # ============================================================================
@@ -51,7 +51,7 @@ N=20000
 ND=4000
 V="node tools/md-sim/sim.js vs"
 D="node tools/md-sim/proto-diag.js"
-A="--role lock --slot 0"
+A="--role lockold --slot 0"
 H="--role mirror --slot 0"
 
 pick() { grep -E '手里：|先手 − 后手|镜像协同' | head -4; }

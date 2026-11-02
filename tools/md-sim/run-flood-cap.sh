@@ -31,7 +31,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 for c in 2 3 4 5 6 8; do
   ( FLOOD_STOP=full FLOOD_CAP=$c node tools/md-sim/sim.js vs flood flood \
-      -n "$N" --role lock --slot 0 >"$TMP/f$c" 2>&1 ) &
+      -n "$N" --role lockold --slot 0 >"$TMP/f$c" 2>&1 ) &
 done
 wait
 

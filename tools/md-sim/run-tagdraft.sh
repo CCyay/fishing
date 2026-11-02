@@ -123,9 +123,9 @@ job d_k node tools/md-sim/proto-diag.js tagdraft "$ND" 1 deepline
 #   〔10-21 实测这两格跟 10-19 **逐位相同**，所以那一族旧数没废。
 #     读的时候记住 `vs` 报的是两侧原始值，**X 是两侧平均**：
 #     3.28/3.54 → 3.41，1.07/1.27 → 1.17〕
-job x_tag_a node tools/md-sim/sim.js vs tagdraft tagdraft -n "$N" --role lock --slot 0
+job x_tag_a node tools/md-sim/sim.js vs tagdraft tagdraft -n "$N" --role lockold --slot 0
 job x_tag_k node tools/md-sim/sim.js vs tagdraft tagdraft -n "$N" --role deepline --slot 1
-job x_dra_a node tools/md-sim/sim.js vs draft draft -n "$N" --role lock --slot 0
+job x_dra_a node tools/md-sim/sim.js vs draft draft -n "$N" --role lockold --slot 0
 job x_dra_k node tools/md-sim/sim.js vs draft draft -n "$N" --role deepline --slot 1
 
 # §2b 同角色对照（默认关）。上面那两格**跨了两个角色**（江口闸官 4 槽 /
@@ -144,7 +144,7 @@ fi
 # 「各自够不够档位」，还有「两件会不会完全重复」。这一族尤其要查：
 # 两件都开 21 匹配这条线，而一张牌同时带标签又带吃水时，
 # `hasDraftLine` 只会开**一次**
-job pair node tools/md-sim/sim.js pair tagdraft draft -n "$N" --role lock
+job pair node tools/md-sim/sim.js pair tagdraft draft -n "$N" --role lockold
 
 # §4 基线。`hasDraftLine` 多了两个参数、**六处**调用全改了。
 # 漏改一处的后果是静默的，而这一行该跟上一轮**逐位相同**

@@ -5,7 +5,7 @@ const R = require('./rules.js')
 const AI = require('./ai.js')
 const key = process.argv[2]
 const n = parseInt(process.argv[3] || '2000', 10)
-const role = R.roleIndexOf(process.argv[4] || 'lock')
+const role = R.roleIndexOf(process.argv[4] || 'lockold')
 const slot = parseInt(process.argv[5] || '0', 10)
 const at = R.SKILLS.findIndex(function (s) { return s.key === key })
 if (at < 0) { console.error('没有这件技能：' + key); process.exit(1) }

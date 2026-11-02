@@ -46,7 +46,7 @@ echo "################ 诊断：配伏流时盾是谁剥的 ################"
 node -e '
 const R = require("./tools/md-sim/rules.js"), AI = require("./tools/md-sim/ai.js")
 const at = k => { for (let i = 0; i < R.SKILLS.length; i++) if (R.SKILLS[i].key === k) return i; throw new Error("没这件：" + k) }
-const role = R.roleIndexOf("lock")
+const role = R.roleIndexOf("lockold")
 const a = at("stow"), b = at(process.argv[1])
 const lo = R.kitFromRole(role, i => i === 0 ? a : (i === 1 ? b : -1))
 const n = 6000
@@ -69,7 +69,7 @@ echo "---- 同一格，带点数（丙档） ----"
 STOW_VOID=0 node -e '
 const R = require("./tools/md-sim/rules.js"), AI = require("./tools/md-sim/ai.js")
 const at = k => { for (let i = 0; i < R.SKILLS.length; i++) if (R.SKILLS[i].key === k) return i; throw new Error("没这件：" + k) }
-const role = R.roleIndexOf("lock")
+const role = R.roleIndexOf("lockold")
 const a = at("stow"), b = at(process.argv[1])
 const lo = R.kitFromRole(role, i => i === 0 ? a : (i === 1 ? b : -1))
 const n = 6000

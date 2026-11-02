@@ -118,7 +118,7 @@ else
 fi
 
 V="node tools/md-sim/sim.js vs"
-A="--role lock --slot 0"        # A 槽：点数、4 张（窄）= 定价锚槽
+A="--role lockold --slot 0"        # A 槽：点数、4 张（窄）= 定价锚槽
 H="--role mirror --slot 0"      # ♥ 槽：花色、13 张（宽）
 
 # ---- 倒饵：三把尺子 × 两个槽 ----

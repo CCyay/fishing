@@ -6,7 +6,7 @@
 # 口径：`one`（双方同角色、各插同一个槽、两侧都量 = X / D）。诊断口走 proto-diag.js（单侧）
 cd "$(dirname "$0")" || exit 1
 N=${N:-20000}
-for slot in "lock 0" "lock 3" "mirror 0"; do
+for slot in "lockold 0" "lockold 3" "mirror 0"; do
   set -- $slot
   echo "######## $1 slot $2"
   node sim.js one atag -n $N --role $1 --slot $2 | sed -n 1,3p

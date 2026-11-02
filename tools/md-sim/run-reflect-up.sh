@@ -55,7 +55,7 @@ else
   echo "（SKIP_GATE=1，跳过）"
 fi
 
-A="--role lock --slot 0"        # A 槽：点数、4 张（窄）
+A="--role lockold --slot 0"        # A 槽：点数、4 张（窄）
 C="--role deepline --slot 0"    # ♣ 槽：花色、13 张（宽）
 
 ( X=1 node tools/md-sim/sim.js all -n $NA $A >"$TMP/a_off" 2>&1 ) &

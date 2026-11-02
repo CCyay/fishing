@@ -4511,12 +4511,17 @@ const SP_NOTE = {
 // 虽然模拟器不管解锁，但跑报表时「第几个角色」要对得上
 const DRAW_ROLES = [
   // 〔2026-10-30 改成「1 花色 + 1 点数」，用户定。旧形状留在 `〈basketold〉`，台账第三十节〕
-  { key: 'basket', name: '背篓渔夫', special: SP.CREEL, slots: ['♣', '6'] },
+  // 2026-11-02 改成 ♥ / K（照源码）。♣ / 6（10-30 ~ 11-02 的形状）→ 〈basket6〉
+  { key: 'basket', name: '背篓渔夫', special: SP.CREEL, slots: ['♥', 'K'] },
   // 〔潮汐观测员 2026-10-16 删了，连带常驻技【活水】。
   //   ⚠ 台账里【归深】那条记录用的量法命令是 `--role flood --slot 0`
   //  （借它的 '2 4' 槽当两点数槽），**那条命令随它一起失效** ——
   //   要复现得换一个两点数槽，而换槽就换了标签，数不能直接比〕
-  { key: 'lock', name: '江口闸官', special: SP.NARROW, slots: ['A', '2', '3', '4'] },
+  // 2026-11-02 改成 ♠ / A（照源码）。旧形状 → 〈lockold〉（下面那张），**全表 X 的标准口径在它身上**
+  { key: 'lock', name: '江口闸官', special: SP.NARROW, slots: ['♠', 'A'] },
+  // 〈lockold〉江口闸官的旧形状 A/2/3/4（模拟器专属量具）。sim.js 的 DEFAULT_ROLE、proto-diag /
+  // steal-diag 的默认、check.js 的 kitOf 用例都换到它身上 —— 所以「江口闸官 A 槽」那个口径**逐位不变**
+  { key: 'lockold', name: '江口闸官·旧', special: SP.NARROW, slots: ['A', '2', '3', '4'] },
   // 〔2026-10-30 改成「1 花色 + 1 点数」，用户定。旧形状留在 `〈upstreamold〉`，台账第三十节〕
   { key: 'upstream', name: '逆流船夫', special: SP.REVERSE, slots: ['♠', '4'] },
   { key: 'mirror', name: '镜湖占卜师', special: SP.CLEAR, slots: ['♥', '3 4'] },
@@ -4548,7 +4553,8 @@ const DRAW_ROLES = [
   // 收成 16 张（'Q K' → 'K'）之后同覆盖面、更弱的常驻技，该落在它下面。
   // 理由全文在源码那条的注释里
   // 〔2026-10-30 改成「1 花色 + 1 点数」，用户定。旧形状留在 `〈surgemanold〉`，台账第三十节〕
-  { key: 'surgeman', name: '开河工', special: SP.JSURGE, slots: ['♦', 'K'] },
+  // 2026-11-02 ♦ / K → ♦ / 9（照源码；旧形状 〈surgemanK〉）
+  { key: 'surgeman', name: '开河工', special: SP.JSURGE, slots: ['♦', '9'] },
   // 【串钩手】2026-10-20 **搬进游戏了**，所以这一行照源码对齐
   //（key / name / special / slots 四样都要跟 `DRAW_ROLES` 一字不差，
   //  `refs.js` 第 1 项比的就是 key 和 name）。
@@ -4813,6 +4819,12 @@ const DRAW_ROLES = [
   // 没选上的两张：背篓渔夫保留连号（+23.99，跟流钥客并排 → 用户定缩成单点数）、单点数取 7
   { key: 'basket1s', name: '〈basket1s〉', special: SP.CREEL, slots: ['♣', '6 7'] },
   { key: 'basket7', name: '〈basket7〉', special: SP.CREEL, slots: ['♣', '7'] },
+  // 〈basket6〉背篓渔夫 10-30 ~ 11-02 的形状（♣ / 6），复现那一段的数用
+  { key: 'basket6', name: '〈basket6〉', special: SP.CREEL, slots: ['♣', '6'] },
+  // 开河工换点数的试样（2026-11-02 · 用户「开河工换个点数」—— K 让给了背篓渔夫）。〈surgemanK〉= 10-30 ~ 11-02 的形状
+  { key: 'surgemanK', name: '〈surgemanK〉', special: SP.JSURGE, slots: ['♦', 'K'] },
+  { key: 'surgeman6', name: '〈surgeman6〉', special: SP.JSURGE, slots: ['♦', '6'] },
+  { key: 'surgeman9', name: '〈surgeman9〉', special: SP.JSURGE, slots: ['♦', '9'] },
   // ---------- 夜钓客改造试样〔2026-10-30 · 用户：「分数太低，可以改造一下吗，不然就去掉」〕----------
   // special -1 = 不带常驻技（hasSpecial 只做相等比较），当【两色】的零点对照
   { key: 'nightoff', name: '〈nightoff〉', special: -1, slots: ['A', '5', '9'] },
