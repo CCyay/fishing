@@ -93,7 +93,7 @@
             :key="'fbz-' + index"
             class="card card-small card-board">
             <view class="card-head card-head-small">
-              <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+              <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
               <text class="card-rank card-rank-small card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
             </view>
             <view class="card-tags">
@@ -121,7 +121,7 @@
           <!-- 翻开的牌跟你的手牌同一套版式〔2026-10-24〕：
                上半部花色放大当底、点数白字描边叠在中间，下半部标签行 -->
           <view v-if="foeOpen(index)" class="card-head card-head-small">
-            <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+            <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
             <text class="card-rank card-rank-small card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
           </view>
           <!-- 冻 / 废**盖着的牌也印**（冻结挑的是位置，你锁的那张多半盖着） -->
@@ -130,6 +130,8 @@
             <!-- 【死水】废掉的标出来。不标的话那张牌看着跟别的一样，
                  而它打出来什么也不发生 —— 那就是规则坏了的感觉 -->
             <text v-else-if="isDead(card)" class="card-dead-tag">废</text>
+            <!-- 【叛变】：你的策反贴的，它一直明着 -->
+            <text v-if="traitorOn(card)" class="card-dead-tag">叛</text>
           </view>
         </view>
       </view>
@@ -177,7 +179,7 @@
                 'card-red': pileRed(index) && !murked(index),
                 'card-shifted': pileRecolored(index) && !murked(index)
               }"
-              >{{ murked(index) ? '' : pileSuitAt(index) }}</text
+              >{{ murked(index) ? '' : suitFace(pileSuitAt(index)) }}</text
             >
             <text
               class="card-rank card-rank-pile card-rank-over"
@@ -831,7 +833,7 @@
               }"
               @click="onPlayBoard(index)">
               <view class="card-head card-head-hand">
-                <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+                <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
                 <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
               </view>
               <view class="card-tags">
@@ -854,7 +856,7 @@
             }"
             @click="onPlay(index)">
             <view class="card-head card-head-hand">
-              <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ card.suit }}</text>
+              <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
               <!-- 被【死水】废掉的印 0、描橙黄（「跟牌面对不上」那个色），不再印原点数 -->
               <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
             </view>
@@ -889,6 +891,8 @@
             <text v-if="fadeKeyOn(card)" class="hand-draft-tag">褪</text>
             <!-- 手里带【顺子匹配】（流钥贴的） -->
             <text v-if="flowKeyOn(card)" class="hand-flow-tag">顺</text>
+            <!-- 手里带【叛变】（对方的策反贴的）：一直明着，打出后剩下的手牌全部置 0 -->
+            <text v-if="traitorOn(card)" class="hand-draft-tag">叛</text>
         <!-- 【引火】预约的火。紧挨着「冰」—— 两个同时挂上
              （引火 + 藏凌）的时候它们落堆就相消，所以玩家看到两个标签
              本身就是「这张落下去两个都没」的提示 -->
@@ -1051,7 +1055,9 @@
   import {
     SUITS,
     RANKS,
-    isRedSuit
+    isRedSuit,
+    sameColor,
+    suitFace
   } from '@/pages/examples/blackjack/cards.uts'
   import {
     DRAW_SKILLS,
@@ -1103,6 +1109,9 @@
     SK_STONELINE,
     // 空钩（2026-11-01）：布饵人 ♠ 槽的专属技能
     SK_TRAPZERO,
+    // 漂白（2026-11-02）：对方的手牌都【失去花色】
+    SK_BLEACH,
+    isRoleOnlySkill,
     SK_CAST,
     SK_PRESS,
     SK_UNHOOK,
@@ -1214,6 +1223,7 @@
     SK_ORDERPILE,
     SK_ORDERSWAP,
     SK_PILEREFLECT,
+    SK_TRAITOR,
     ORDER_MIN,
     ORDER_FULL_MIN,
     STRAIGHT_MIN,
@@ -2146,7 +2156,8 @@
   // 满墙「手牌跟堆底同颜色」的堆底：**匹配之前**那张（照传色）。afterPlayTail 入口每手记一次 ——
   // 满墙那一段在 TAIL_REST，前面的收色 / 收零 / 撒网可能已经把堆改了
   let stoneBottomCard : PlainCard | null = null
-  let stoneBottomRed : boolean = false
+  // 〔2026-11-02 由 stoneBottomRed（布尔）改成记花色串 —— 堆底可能是【失去花色】的牌，那时谁都不跟它同颜色〕
+  let stoneBottomSuit : string = ''
   // ---------- 【空钩】〔2026-11-01 · 布饵人专属〕----------
   // 带空钩的牌落堆就成陷阱（trapPile）。之后**谁把它收走**（普通匹配 / 21 / J / 散收 / 走水都算，
   // **它自己打出当场钓中也算**），谁的手牌全部明置置 0（J 也算）。触发一次就没了（牌离堆）。
@@ -2794,6 +2805,26 @@
   // 带它的牌打出时置 0（valuesOf），落堆后褪色（afterPlayTail 开头）。生命周期照 zeroKey：
   // 打出那一手用掉（endPlay 摘）、洗回牌库 / 换主人也摘。模拟器那边是 `G.fadeKey`
   const fadeKey = ref<PlainCard[]>([] as PlainCard[])
+  // 【叛变】（策反贴的）：手里带它的牌一直明着；打出后，打出它的一方手里剩下的牌全部置 0（endPlay 开头兑现）。
+  // 跟别的手牌标签同一套生命周期：打出那一手用掉、洗回牌库 / 换主人也摘。**ref** —— 牌上要印「叛」
+  const traitorKey = ref<PlainCard[]>([] as PlainCard[])
+  function traitorOn(card : PlainCard) : boolean {
+    for (let i = 0; i < traitorKey.value.length; i++) {
+      if (traitorKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropTraitorKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < traitorKey.value.length; i++) {
+      if (traitorKey.value[i] != card) {
+        keep.push(traitorKey.value[i])
+      }
+    }
+    traitorKey.value = keep
+  }
   function fadeKeyOn(card : PlainCard) : boolean {
     for (let i = 0; i < fadeKey.value.length; i++) {
       if (fadeKey.value[i] == card) {
@@ -3683,6 +3714,10 @@
     const list = equippedSkills(lo)
     for (let i = 0; i < list.length; i++) {
       const k = list[i]
+      // 专属技能（布饵人的空钩）不进技能按钮（用户定 2026-11-02）—— 它印死在角色卡上，堆上那张牌有「钩」角标
+      if (isRoleOnlySkill(k)) {
+        continue
+      }
       chips.push({
         skill: k,
         name: DRAW_SKILLS[k].name,
@@ -3775,13 +3810,17 @@
   // 放大一个禁止等于封掉半副牌，而封色是场上效果、双方都受 ——
   // 到时候「谁的两色在起作用」说不清。理由全文在 draw-skills 的技能注释里
   function sameSuit(a : string, b : string, byFoe : boolean) : boolean {
+    // 【失去花色】（花色是 ''）：跟谁都不同花色，两张无花色的也不同 —— 它们是「没有」，不是「同一种」
+    if (a == '' || b == '') {
+      return false
+    }
     if (a == b) {
       return true
     }
     if (!hasSpecial(byFoe, SP_TWOCOLOR)) {
       return false
     }
-    return isRedSuit(a) == isRedSuit(b)
+    return sameColor(a, b)
   }
 
   // 这一方带的是哪件特殊技能、几级。没带这件就返回 -1。
@@ -4640,12 +4679,20 @@
     if (takeSkill.value >= 0) {
       return true
     }
+    // 【叛变】：带它的牌一直明着 —— 按牌认，不按下标（下标会随出牌挪动）
+    if (index < foeHand.value.length && traitorOn(foeHand.value[index])) {
+      return true
+    }
     return index < foeShown.value.length && foeShown.value[index]
   }
 
   // 你的手牌第 index 张庄家看得见吗。标在牌上告诉你「这张它知道」
   function foeKnows(index : number) : boolean {
     if (heldOn(SK_LANTERN, true)) {
+      return true
+    }
+    // 【叛变】：带它的牌一直明着（庄家看得见）—— 按牌认
+    if (index < hand.value.length && traitorOn(hand.value[index])) {
       return true
     }
     return index < handSeen.value.length && handSeen.value[index]
@@ -6190,7 +6237,7 @@
 
   // 牌名。贴过点数卡的在后面带上那几个点数：♠3·7
   function cardName(card : PlainCard) : string {
-    let out = card.suit + rankFace(card.rank)
+    let out = suitFace(card.suit) + rankFace(card.rank)
     for (let i = 0; i < card.extra.length; i++) {
       out = out + '·' + faceOfValue(card.extra[i])
     }
@@ -6993,11 +7040,11 @@
       return cardVals(card)
     }
     if (hasTrigger(skills, SK_PEAK)) {
-      const red = isRedSuit(card.suit)
       let top = 0
       let found = false
       for (let i = 0; i < pile.value.length; i++) {
-        if (isRedSuit(pileSuitAt(i)) != red) {
+        // 走 sameColor：【失去花色】的牌没有颜色（直接比 isRedSuit 会把它当黑色）
+        if (!sameColor(pileSuitAt(i), card.suit)) {
           continue
         }
         const vals = pileValsAt(i)
@@ -8337,7 +8384,7 @@
   // 只改 pileVals 那一格（花色本来就一样）—— 牌面读 pileValsAt，所以界面上点数自动变、还会描色（pileShifted）。
   // 它自己那一格不在候选里。模拟器 pileReflectFor 是同一条（PR_COLOR=suit · PR_J=0）。
   function reflectHandOk(card : PlainCard, target : number) : boolean {
-    return card.rank != JACK && card.suit == pileSuitAt(target)
+    return card.rank != JACK && card.suit != '' && card.suit == pileSuitAt(target)
   }
   function reflectCanTarget(index : number, byFoe : boolean) : boolean {
     if (index < 0 || index >= pile.value.length) {
@@ -8660,10 +8707,10 @@
     // 上一版（「堆上张数少的那个颜色」，10-22 ~ 10-30）的正文留在下面，注释掉了
     if (hasTrigger(skills, SK_CHAIN) && lastPlayed != null) {
       let spread = 0
-      const wantRed = pile.value.length > 0 ? pileRed(0) : false
+      const want = pile.value.length > 0 ? pileSuitAt(0) : ''
       for (let i = 0; i < pile.value.length; i++) {
         // `lightAt` 自己带三道闸（已着火 / 带保护 / 冰相消），这儿只管选格
-        if (pileRed(i) == wantRed && lightAt(i)) {
+        if (sameColor(pileSuitAt(i), want) && lightAt(i)) {
           spread = spread + 1
         }
       }
@@ -8738,9 +8785,9 @@
       //   技能在匹配之前结算，它已落在堆顶 → 堆上只有它一张时堆底就是它自己。
       //   上面那段「别顺手改回同色」说的是**跟它**同色；跟堆底同色读的是局面、跟槽无关，不撞那条〕
       const hasBottom = pile.value.length > 0
-      const bottomRed = hasBottom ? pileRed(0) : false
+      const bottomSuit = hasBottom ? pileSuitAt(0) : ''
       for (let i = 0; i < mine.length; i++) {
-        if (hasBottom && isRedSuit(mine[i].suit) == bottomRed
+        if (hasBottom && sameColor(mine[i].suit, bottomSuit)
           && !burnOnHand(mine[i])) {
           addBurnHand(mine[i])
           fired = fired + 1
@@ -8837,7 +8884,7 @@
       let iced = 0
       if (got != null) {
         for (let i = 0; i < mine.length; i++) {
-          if (isRedSuit(mine[i].suit) == isRedSuit(got!.suit)
+          if (sameColor(mine[i].suit, got!.suit)
             && !frostOnHand(mine[i])) {
             addFrostHand(mine[i])
             iced = iced + 1
@@ -8930,7 +8977,7 @@
     // 满墙的堆底：这一手第一次进来时记（重入不改）—— 匹配之前那张，堆上只有它自己时就是它自己
     if (lastPlayed != null && stoneBottomCard != lastPlayed) {
       stoneBottomCard = lastPlayed
-      stoneBottomRed = pile.value.length > 0 ? isRedSuit(pileSuitAt(0)) : isRedSuit(lastPlayed!.suit)
+      stoneBottomSuit = pile.value.length > 0 ? pileSuitAt(0) : lastPlayed!.suit
     }
     // 【褪色】标签（褪递贴的）：这张落堆之后先褪色（它自己的置 0 在 valuesOf）。排在所有收牌段前面 ——
     // 同一张要是还带着【收零】，先褪色再收（照「【褪色】；【收零】」那一版的次序）
@@ -9003,12 +9050,12 @@
     //   它自己落在堆底时（堆原先是空的 / 逆流沉底）就照它自己的颜色，跟旧版一样〕
     if (from <= TAIL_HUE && hasTrigger(skills, SK_SUITCOLOR) && lastPlayed != null && pile.value.length > 0) {
       const mine = byFoe ? foeHand.value : hand.value
-      const bottomRed = isRedSuit(pileSuitAt(0))
+      const bottomSuit = pileSuitAt(0)
       let given = 0
       const next = matchKey.value.slice(0)
       for (let i = 0; i < mine.length; i++) {
         if (mine[i].rank != JACK && !matchKeyOn(mine[i])
-          && isRedSuit(mine[i].suit) == bottomRed) {
+          && sameColor(mine[i].suit, bottomSuit)) {
           next.push(mine[i])
           given = given + 1
         }
@@ -9159,11 +9206,11 @@
       if (inPile(lastPlayed!)) {
         addStone(lastPlayed!)
       }
-      // 〔2026-10-30 削弱：手牌只给**跟堆底同颜色**的（堆底在 afterPlayTail 入口记的 stoneBottomRed）〕
+      // 〔2026-10-30 削弱：手牌只给**跟堆底同颜色**的（堆底在 afterPlayTail 入口记的 stoneBottomSuit）〕
       const mine = byFoe ? foeHand.value : hand.value
       let walled = 0
       for (let i = 0; i < mine.length; i++) {
-        if (isRedSuit(mine[i].suit) == stoneBottomRed) {
+        if (sameColor(mine[i].suit, stoneBottomSuit)) {
           addStoneHand(mine[i])
           walled = walled + 1
         }
@@ -9241,6 +9288,46 @@
           markDead(true, at, true, '浑水')
           handSeen.value = withFlag(handSeen.value, at)
         }
+      }
+    }
+    // 【策反】：盲选对方 1 张手牌带上【叛变】（对 J 也生效）。玩家和庄家都是真盲选 —— 随机
+    if (hasTrigger(skills, SK_TRAITOR) && askFirst(SK_TRAITOR)) {
+      const theirs = byFoe ? hand.value : foeHand.value
+      const pool : number[] = []
+      for (let i = 0; i < theirs.length; i++) {
+        if (!traitorOn(theirs[i])) {
+          pool.push(i)
+        }
+      }
+      if (pool.length > 0) {
+        const at = pool[Math.floor(Math.random() * pool.length)]
+        traitorKey.value = traitorKey.value.concat([theirs[at]])
+        message.value = message.value + (byFoe
+          ? ' 庄家策反：你的 ' + cardName(theirs[at]) + ' 带上了【叛变】（明着；打出后你剩下的手牌全部置 0）。'
+          : ' 策反：庄家的 ' + cardName(theirs[at]) + ' 带上了【叛变】。')
+      }
+    }
+    // 【漂白】：对方**此刻**手里的牌都失去花色（永久，落堆后也没有；之后新摸的不受影响）。
+    // 照模拟器 rules.js 的 stripSuits。改牌面（这副牌是每局从存档重新造的副本，照 markDead 改 J 那条），
+    // 再换一次数组引用让界面刷新。askFirst 挡重入（这一段在停人技能问完后会再跑一遍）
+    if (hasTrigger(skills, SK_BLEACH) && askFirst(SK_BLEACH)) {
+      const theirs = byFoe ? hand.value : foeHand.value
+      let n = 0
+      for (let i = 0; i < theirs.length; i++) {
+        if (theirs[i].suit != '') {
+          theirs[i].suit = ''
+          n = n + 1
+        }
+      }
+      if (byFoe) {
+        hand.value = hand.value.slice(0)
+      } else {
+        foeHand.value = foeHand.value.slice(0)
+      }
+      if (n > 0) {
+        message.value = message.value + (byFoe
+          ? ' 庄家漂白：你手里的 ' + n + ' 张牌失去花色。'
+          : ' 漂白：庄家手里的 ' + n + ' 张牌失去花色。')
       }
     }
     if ((hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_UNHOOK)
@@ -10370,11 +10457,11 @@
     if (ref < 0) {
       return -1
     }
-    const red = isRedSuit(pileSuitAt(ref))
+    const refSuit = pileSuitAt(ref)
     const next : number[][] = []
     let n = 0
     for (let i = 0; i < pile.value.length; i++) {
-      if (i != at0 && isRedSuit(pileSuitAt(i)) == red) {
+      if (i != at0 && sameColor(pileSuitAt(i), refSuit)) {
         if (!zeroAt(i)) {
           n = n + 1
         }
@@ -12672,6 +12759,7 @@
       dropZeroKey(card)
       dropFadeKey(card)
       dropFlowKey(card)
+      dropTraitorKey(card)
       // 摘钩拿过来的牌进自己手里。**手牌可能因此超过上限** ——
       // 那没关系，回合末 refill 只负责「补到」上限，不负责弃牌
       if (byFoe) {
@@ -12697,6 +12785,7 @@
     dropZeroKey(card)
     dropFadeKey(card)
     dropFlowKey(card)
+    dropTraitorKey(card)
     if (byFoe) {
       foeHand.value = foeHand.value.concat([card])
       foeShown.value = foeShown.value.concat([false])
@@ -12740,6 +12829,7 @@
     dropZeroKey(card)
     dropFadeKey(card)
     dropFlowKey(card)
+    dropTraitorKey(card)
     if (byFoe) {
       hand.value = hand.value.concat([card])
       // 庄家还过来的牌，它自己当然知道是什么
@@ -13418,6 +13508,7 @@
     dropZeroKey(card)
     dropFadeKey(card)
     dropFlowKey(card)
+    dropTraitorKey(card)
     const next = deck.value.concat([card])
     for (let i = next.length - 1; i > 0; i--) {
       const k = Math.floor(Math.random() * (i + 1))
@@ -14054,6 +14145,24 @@
       // 【连递】的链是 `draftKey` 的子集，**两张表一起摘**
       dropChainTag(lastPlayed!)
       dropFlowKey(lastPlayed!)
+      // 【叛变】：打出后，打出它的一方手里剩下的牌全部置 0（J 也置 0）。这一刻这一手已经结算完、回合末还没补牌
+      if (traitorOn(lastPlayed!)) {
+        dropTraitorKey(lastPlayed!)
+        const own = byFoe ? foeHand.value : hand.value
+        const before = message.value
+        let z = 0
+        for (let k = 0; k < own.length; k++) {
+          if (isDead(own[k])) {
+            continue
+          }
+          // markDead(true, …) 废的是你的手牌、(false, …) 废的是庄家的 —— 所以传 !byFoe。
+          // 它自带的播报写的是「庄家 X：你的 … 废了」，这儿读反了，换成下面那一句
+          markDead(!byFoe, k, true, '叛变')
+          z = z + 1
+        }
+        message.value = before + (byFoe ? ' 庄家打出了叛变牌：' : ' 你打出了叛变牌：')
+          + (byFoe ? '庄家' : '你') + '手里剩下的 ' + z + ' 张都置 0 了。'
+      }
     }
     // 收牌演完了才知道「凑没凑成」「拿没拿到牌」—— 这两件要等到这儿。
     // 停下来等玩家点牌的话就先不交回合了，onChainLink / onHoldTag 会接上
@@ -16091,6 +16200,7 @@
     shrinkPending.value = false
     flowKey.value = [] as PlainCard[]
     zeroDraftPending.value = false
+    traitorKey.value = [] as PlainCard[]
     reflectHandPending.value = false
     reflectTarget = -1
     reflectTargetShown.value = -1
@@ -16105,7 +16215,7 @@
     flowDraftSk.value = -1
     stoneKeyPending.value = false
     stoneBottomCard = null
-    stoneBottomRed = false
+    stoneBottomSuit = ''
     trapPile = [] as PlainCard[]
     // 21 匹配那三件〔2026-10-28〕：链表、五个挑牌位、三笔按侧的记号。
     // 全按牌对象认身份，而新一局是新一副牌 —— 照上面 frostHand 那条

@@ -498,6 +498,10 @@ const SIM_ONLY = {
   drawzero: '〈drawzero〉（原型 · ①对方抽 1 张 + 挑他 1 张，两张明置置 0 / ②对方抽 2 张明置置 0。DZ_MODE=pick|draw）',
   // 〔零吃 zeroself 2026-10-29 上架、当晚撤下（DEAD_SKILLS）—— 回到模拟器专属〕
   zeroself: '〈zeroself〉（原型 · 置 0；【21 匹配】。2026-10-29 上架当晚撤下，墓碑在 DEAD_SKILLS）',
+  zeroall: '〈zeroall〉（量具 · 2026-11-02：对方手牌全部置 0，量 D 用）',
+  turncoat: '〈turncoat〉（原型 · 2026-11-02【叛变】第二版：查看对方手牌选 1 张带上【叛变】，此牌打出的匹配归对方）',
+  betray: '〈betray〉（原型 · 2026-11-02：盲选对方 1 张手牌带上【叛变】。BETRAY_CLAIM=always|never）',
+  rangetag: '〈rangetag〉（原型 · 2026-11-02：置 0，1 张手牌带上【区间匹配】。RANGE_MIN）',
   rangematch: '〈rangematch〉（原型 · 2026-11-01【区间匹配】：收走堆上点数在它和堆顶那张之间的牌，另外至少 1 张才算成功。RANGE_MIN）',
   extraturn: '〈extraturn〉（原型 · 2026-11-01 用户要评价：自己再进行 2 回合。EXTRA_N）',
   jointag: '〈jointag〉（原型 · 2026-11-01 机制一：堆上有匹配则一起被收走，载体＝对方 1 张手牌带上）',

@@ -328,7 +328,8 @@ const SKILLS = [
   //   和照水那几段留着也不会跑〕
   { key: 'swap', name: '换水' },
   { key: 'suited', name: '顺色' },
-  { key: 'freeze', name: '冻结' },
+  // 〔【冻结】2026-11-02 下架（用户定：不再设计在场效果）—— 源码表项删了、墓碑在 DEAD_SKILLS。
+  //   实现（isFrozen 的冻结支、FREEZE_* 旋钮）留着当死代码；isFrozen 本身还被叛变那几件借用〕
   // 〔见底 2026-10-19 删了（源码那边同一天）。条目删掉、`SK.LOWTIDE` 钉
   //   `SK_GONE`，所以 `lowTideFor` / `dropPile` / `dropVals` /
   //   `LOW_TIDE_STEP` 那几段**留着也不会跑**。
@@ -431,7 +432,7 @@ const SKILLS = [
   //   ⚠ 另一条别忘：**保护和结冰在计分上相反** —— `takeAt` 对带盾那格
   //   返回 **1**（垫牌离场、照记 1 分），带冰那格返回 **0**（不走也不计分）。
   //   `blockedAt` 同时管这两样，它的口径必须跟 `takeAt` 一致〕
-  { key: 'clean', name: '净水' },
+  // 【净水】2026-11-02 删（墓碑在 draw-skills 的 DEAD_SKILLS）
   { key: 'wild', name: '野火' },
   { key: 'raise', name: '抬水' },
   { key: 'flow', name: '伏流' },
@@ -1064,6 +1065,11 @@ const SKILLS = [
   { key: 'drawzero', name: '〈drawzero〉' },
   // 【浑水】（2026-10-30 上架）= 〈drawzero〉的 blind 档（对方抽 1 张，盲选他 2 张明置置 0，J 也算）
   { key: 'murk', name: '浑水' },
+  // 〈nosuit〉（2026-11-02 用户要评价）：打出时，对方（NOSUIT_WHO=both 则双方）此刻手里的牌永久失去花色 ——
+  // 没有花色也就没有颜色：不触发花色槽、不算同花色 / 同颜色，落堆后也一直没有（像置 0，用户定）。
+  // 实现：花色改成每张一个不同的哨兵 '∅<n>'（两张无花色的牌也不算同花色），isRedSuit 对它返回 NaN（跟谁比都不同颜色）
+  // 2026-11-02 进游戏，名【漂白】（key bleach），只打对方那一版；NOSUIT_WHO=both 留作研究旋钮
+  { key: 'bleach', name: '漂白' },
   // 【缩水】（2026-10-30 上架，原型代号 〈zerodrop〉）：「对手 1 张手牌明置置 0，**对方**手牌每有 1 张 0 全堆 −3，收零」（ZD_WHO 默认 foe = 上架那一版）
   //   置 0 = 盲选 1 张（随机，J 也算 —— 2026-10-30 用户定照浑水；原先照死水看着挑）+ doDead(…, jackOk)；明置 = G.seen；全堆 −N = dropPile（减到 0 为止，含它自己）；
   //   收零 = resolveMatch 里那条现成的「堆上有 0 点牌 → 连它自己收走全部 0 点牌」特殊匹配
@@ -1394,6 +1400,17 @@ const SKILLS = [
   { key: 'solotag', name: '〈solotag〉' },
   // 〈rangematch〉【区间匹配】〔2026-11-01 · 用户要量〕见 rangeWanted
   { key: 'rangematch', name: '〈rangematch〉' },
+  // 〈rangetag〉「置 0，1 张手牌带上【区间匹配】」〔2026-11-02 · 用户要量〕见 rangeTagFor
+  { key: 'rangetag', name: '〈rangetag〉' },
+  // 〈betray〉「盲选对方 1 张手牌带上【叛变】」〔2026-11-02 · 用户要量〕见 betrayFor
+  { key: 'betray', name: '〈betray〉' },
+  // 〈turncoat〉【叛变】第二版〔2026-11-02〕：「此牌打出的匹配归对方」—— 见 turncoatFor
+  { key: 'turncoat', name: '〈turncoat〉' },
+  // 〈traitor〉【叛变】第三版〔2026-11-02〕：对方抽 1，盲选他 1 张带【叛变】；叛变牌打出后他手牌全部置 0 —— 见 traitorFor
+  // 〔2026-11-02 上架成【策反】（用户定）。默认值 = 游戏那一档：TR_DRAW=0（没有「对方抽 1」）、TRAITOR_AI=naive〕
+  { key: 'traitor', name: '策反' },
+  // 〈zeroall〉「对方手牌全部置 0」〔2026-11-02 · 量 D 用〕J 也置 0（照浑水）；走 doDead
+  { key: 'zeroall', name: '〈zeroall〉' },
   // ========== 2026-10-21 下午 ·【夹带】【开箱】：生成器一产出的两格 ==========
   //
   // 这两件不是「想到的」，是**查出来的**。起因是用户问「为何你没有想到
@@ -1862,7 +1879,7 @@ const HELD_FROST = -2
 const SK = {
   HOOK: skAt('hook'), TIDE: skAt('tide'),
   SWAP: skAt('swap'), SUITED: skAt('suited'),
-  FREEZE: skAt('freeze'),
+  FREEZE: SK_GONE,
   // 见底 2026-10-19 删了 —— 钉 SK_GONE 而不是继续查表（`skAt` 查不到会
   // 记一笔警告）。两处实现分支（`valuesOf` 里那个 `return [0]`、
   // `afterPlay` 里的 `lowTideFor`）**留着也不会跑**。见 SKILLS 表那段墓碑
@@ -1958,7 +1975,7 @@ const SK = {
   // 删掉它让下面七个下标各减 1（抬水 39→38 一路到探潮 45→44）
   // 凝水：**2026-10-28 删了，钉 SK_GONE**（【保护】整个撤了，见 SKILLS 表那块注释）。
   // 保护那一整套实现留着当死代码 —— 零来路，`has(skills, SK_GONE)` 恒 false
-  CALM: SK_GONE, CLEAN: skAt('clean'),
+  CALM: SK_GONE, CLEAN: SK_GONE /* 【净水】2026-11-02 删 */,
   // 【沸水】**删了**（2026-10-13，跟燎原同一轮同一个理由）：
   // 它在场时落堆的牌都带火，而**蔓延并进关键词之后那成了「提前一手」** ——
   // 新落的牌在堆顶、紧挨火线，蔓延一手就覆盖到了，所以那一手的差值是零。
@@ -2029,7 +2046,7 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: skAt('boardself'), ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: skAt('fadeboard'), FADESPLIT: skAt('fadesplit'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: skAt('boardself'), ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: skAt('fadeboard'), FADESPLIT: skAt('fadesplit'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
   HEAP: skAt('heap'), HEAPDRAFT: skAt('heapdraft'), BOTHDRAFT: skAt('bothdraft'), HEAPKEY: skAt('heapkey'), WALLSUIT: skAt('wallsuit'), WALLSEAL: skAt('wallseal'),
@@ -2180,6 +2197,11 @@ const SK = {
   JOINTAG: skAt('jointag'),
   SOLOTAG: skAt('solotag'),
   RANGEMATCH: skAt('rangematch'),
+  RANGETAG: skAt('rangetag'),
+  BETRAY: skAt('betray'),
+  TURNCOAT: skAt('turncoat'),
+  TRAITOR: skAt('traitor'),
+  ZEROALL: skAt('zeroall'),
   // 2026-10-21 下午 ·【夹带】【开箱】—— 见 SKILLS 表末尾那两段。同上那条教训
   SMUGGLE: skAt('smuggle'),
   CRATE: skAt('crate'),
@@ -3804,6 +3826,8 @@ function valueOfRank(rank) {
 }
 
 function isRedSuit(suit) {
+  // 〈nosuit〉失去花色的牌：没有颜色 —— NaN 跟谁 === 都不成立（连另一张无花色的也不成立）
+  if (typeof suit === 'string' && suit.charAt(0) === '∅') return NaN
   return RED.indexOf(suit) >= 0
 }
 
@@ -3813,6 +3837,9 @@ function isRedSuit(suit) {
 // 口径跟源码一样只覆盖「匹配类」三处（顺色、收色 + harvestCount、同花），
 // 封色（suitSealed）照旧按单门花色算 —— 放大一个禁止类效果等于封掉半副牌
 function sameSuit(G, a, b, side) {
+  // 【失去花色】（漂白）：跟谁都不同花色 —— 照源码 sameSuit 的空串闸
+  if (typeof a === 'string' && a.charAt(0) === '∅') return false
+  if (typeof b === 'string' && b.charAt(0) === '∅') return false
   if (a === b) return true
   if (!hasSpecial(G, side, SP.TWOCOLOR)) return false
   return isRedSuit(a) === isRedSuit(b)
@@ -4414,6 +4441,20 @@ if (['match', 'suit', 'none'].indexOf(HUE_KEY) < 0) throw new Error('HUE_KEY 只
 // **早于 2026-10-21 的冻结数全是带闸跑的**，跟现在的数不是一回事
 //（A 槽恰好相同：+0.91，因为 4 张覆盖面挂不满 3 把锁；**♥ 槽差 0.87**）
 const FREEZE_CAP = process.env.FREEZE_CAP ? parseInt(process.env.FREEZE_CAP, 10) : 99
+// 【冻结】解冻代价〔2026-11-02 · 用户定〕：被冻的一方在自己出牌前，可以让**对方从自己手里任意挑 1 张拿走**
+//（进对方手里；冻住的那张也能挑），换那张冻结解除。对方挑走的正好是冻住那张的话，冻结跟着牌一起没了。
+// FREEZE_PAY = AI 花这个代价的门槛：被冻那张「现在打出去能收几张」比手里其他牌最好的那张多出这么多张才花。
+//   'off'（默认）= 不能花（= 现行冻结）；数字 = 门槛。对方挑哪张照摘钩那把尺子 ai.takePick
+const FREEZE_PAY = process.env.FREEZE_PAY && process.env.FREEZE_PAY !== 'off' ? parseFloat(process.env.FREEZE_PAY) : null
+// 谁挑交出去的那张：foe（默认 = 用户定：对方挑，冻住那张也能挑）/ foenf（对方挑，冻住那张不能挑）/ self（被冻的一方自己挑：交最没用的，照换水那把尺子 swapPick）
+const FREEZE_PAY_PICK = process.env.FREEZE_PAY_PICK || 'foe'
+// 【冻结】的寿命〔2026-11-02 · 用户定的永久版〕：'field'（默认 = 现行：冻结牌离场就解冻）/
+// 'perm'（永久：冻结牌离场也不解冻，只有被冻那张离开被冻那一方的手牌才消失 —— 被对方挑走、被洗回牌库等）。
+// perm 档要配 FREEZE_PAY（解法）才有通用解；不配的话那几张就永远打不出去（只当对照看）
+const FREEZE_LIFE = process.env.FREEZE_LIFE || 'field'
+if (['field', 'perm'].indexOf(FREEZE_LIFE) < 0) throw new Error('FREEZE_LIFE 只能是 field / perm')
+// rand：对方**随机抽** 1 张（冻住那张也可能被抽到）——「任意 1 张」的另一种读法
+if (['foe', 'foenf', 'self', 'rand'].indexOf(FREEZE_PAY_PICK) < 0) throw new Error('FREEZE_PAY_PICK 只能是 foe / foenf / self / rand')
 
 // 哪几件特殊技能在模拟器里**跑不出效果**，以及为什么。
 // 报表里标出来 —— 不标的话那几行会是 0 分差，看着像实现错了。
@@ -7102,6 +7143,29 @@ function stackReachBest(G, i, side) {
 
 // 〈drawzero〉两种
 const DZ_MODE = process.env.DZ_MODE || 'pick'
+// 〈nosuit〉谁的手牌失去花色：'foe'（默认）/ 'both'
+const NOSUIT_WHO = process.env.NOSUIT_WHO || 'foe'
+if (['foe', 'both'].indexOf(NOSUIT_WHO) < 0) throw new Error('NOSUIT_WHO 只能是 foe / both')
+let nosuitSeq = 0
+// 一方手里的牌全部失去花色；顺手数「其中几张本来会触发那一方的花色槽」（诊断口）
+function stripSuits(G, side, mine) {
+  const st = PROTO_STAT.nosuit
+  const lo = G.loadouts[side]
+  const hand = G.hands[side]
+  for (let i = 0; i < hand.length; i++) {
+    const c = hand[i]
+    if (typeof c.suit === 'string' && c.suit.charAt(0) === '∅') continue
+    const si = SUITS.indexOf(c.suit)
+    if (c.rank !== JACK && si >= 0 && lo && lo.suitOwner[si] >= 0) {
+      if (mine) st.lostSlotMine++
+      else st.lostSlotFoe++
+    }
+    nosuitSeq++
+    c.suit = '∅' + nosuitSeq
+    if (mine) st.strippedMine++
+    else st.strippedFoe++
+  }
+}
 if (['pick', 'draw', 'blind'].indexOf(DZ_MODE) < 0) throw new Error('DZ_MODE 只能是 pick / draw / blind，收到：' + DZ_MODE)
 // blind 档的对照：不让他抽，只盲选 2 张
 const DZ_NODRAW = process.env.DZ_NODRAW === '1'
@@ -8377,6 +8441,8 @@ const HELD_SINK = process.env.HELD_SINK !== '0'
 // ---------- 【冻结】的「无点数」〔2026-10-21 加，默认开 = 定稿〕 ----------
 //
 // ⚠ **它跟上面 HELD_VOID 那一族不是同一个理由，所以没有配套的 FREEZE_SINK。**
+//〔2026-11-02 用户问「改成增加落堆底呢」，补了 FREEZE_SINK（默认关）：A 槽 +0.72 → +1.39、♥ 槽 +1.00 → +5.07，
+//  ♥ 那一大截来自叠冻 → 全冻住跳过回合 0.68 → 2.66 次/局。见台账四十八节〕
 //
 //   上面三件（寒流 / 满篓 / 窄口）的无点数是**延命**，跟「落堆底」成套，
 //     拆开用亏（互动 ≈ +1.2，单上落堆底是负的）。
@@ -9162,6 +9228,8 @@ function valuesOf(G, card, skills) {
   if (G && G.zeroKey && G.zeroKey.indexOf(card) >= 0) return [0]
   // 〈zerodrop〉/【缩水】的「收零」照词条原文：**带它的牌打出时置 0**（2026-10-30 补 —— 第一版漏了这一句）
   if (has(skills, SK.ZERODROP)) return [0]
+  // 〈rangetag〉「置 0，…」—— 它自己置 0（0 不匹配任何牌）
+  if (has(skills, SK.RANGETAG)) return [0]
   // 〈cmark〉：它自己就是【b】—— 置 0
   if (has(skills, SK.CMARK)) return [0]
   if (has(skills, SK.FLOOD) || has(skills, SK.HUE) || has(skills, SK.SNOW)
@@ -9760,6 +9828,11 @@ function inPile(G, card) {
 // 它只用来数【冻结】的自毁率，不参与清理逻辑 —— 见 PROTO_STAT.freeze
 function expireHeld(G, by) {
   G.held = G.held.filter(function (h) {
+    // 永久冻结：冻结牌离场不算，被冻那张还在被冻那一方（贴冻结那一方的对手）手里就一直冻着
+    if (FREEZE_LIFE === 'perm' && h.skill === SK.FREEZE) {
+      const victim = h.side === ME ? FOE : ME
+      return G.hands[victim].indexOf(h.target) >= 0
+    }
     const live = inPile(G, h.source)
     if (!live && h.skill === SK.FREEZE) {
       const st = PROTO_STAT.freeze
@@ -9778,7 +9851,74 @@ function heldOn(G, skill, side) {
   return false
 }
 
+// 这一张现在打出去大概能收几张（普通 / 21 匹配那一段 + 特殊匹配的估值取大的）—— 只给冻结解冻的判断用
+function freezeCatchEst(G, side, card) {
+  const skills = skillsOf(G, side, card)
+  const at = catchStart(G, card, side, skills, false)
+  const normal = at < 0 ? 0 : catchCountAt(G, card, side, skills, at)
+  const special = harvestCount(G, card, skills, side, false)
+  return normal > special ? normal : special
+}
+// 被冻的一方（side）出牌前：值得的话让对方挑走 1 张，换冻结解除
+function freezePayTry(G, side, ai, forced) {
+  if (FREEZE_PAY === null) return
+  const hand = G.hands[side]
+  let bestFree = 0, frozenAt = -1, frozenEst = -1
+  for (let i = 0; i < hand.length; i++) {
+    const est = freezeCatchEst(G, side, hand[i])
+    if (isFrozen(G, hand[i])) { if (est > frozenEst) { frozenEst = est; frozenAt = i } }
+    else if (est > bestFree) bestFree = est
+  }
+  if (frozenAt < 0) return
+  const st = PROTO_STAT.freezepay
+  st.chances++
+  if (!forced && frozenEst - bestFree < FREEZE_PAY) return
+  if (forced) st.forced++
+  const target = hand[frozenAt]
+  const other = side === ME ? FOE : ME
+  // 对方挑（照摘钩：它看得见、挑最值钱的那张，冻住的也在候选里）
+  let at = -1
+  if (FREEZE_PAY_PICK === 'rand') {
+    at = randInt(G.rng, hand.length)
+  } else if (FREEZE_PAY_PICK === 'self') {
+    at = ai.swapPick(G, side)
+    if (at === frozenAt) at = -1
+    if (at < 0) for (let i = 0; i < hand.length; i++) if (i !== frozenAt) { at = i; break }
+  } else if (FREEZE_PAY_PICK === 'foenf') {
+    // 对方挑，但冻住那张不在候选里：临时把它摘出手牌再挑
+    const keep = hand.splice(frozenAt, 1)[0]
+    const keepSeen = G.seen[side].splice(frozenAt, 1)[0]
+    const j = ai.takePick(G, other)
+    hand.splice(frozenAt, 0, keep)
+    G.seen[side].splice(frozenAt, 0, keepSeen)
+    at = j < 0 ? -1 : (j >= frozenAt ? j + 1 : j)
+  } else {
+    at = ai.takePick(G, other)
+  }
+  if (at < 0) return
+  const taken = takeFromHand(G, side, at)
+  if (taken === target) st.tookFrozen++
+  // 冻结解除：指向那张的冻结、以及指向被拿走那张的冻结（同一张就是同一条）都删
+  G.held = G.held.filter(function (h) { return !(h.skill === SK.FREEZE && (h.target === target || h.target === taken)) })
+  dropLeaveTags(G, taken)
+  giveTo(G, other, taken, true)
+  st.paid++
+  st.gainSum += frozenEst - bestFree
+}
 function isFrozen(G, card) {
+  // 〈betray〉【叛变】：持有人打不出去（接冻结这条现成的路 —— AI 选牌和 playableCount 都读它）
+  if (G.betray && G.betray.has(card)) return true
+  // 〈traitor〉avoid 档：手里还有没带【叛变】的牌就不打叛变牌
+  // 〔量具 TR_AVOID_TAIL=0：牌库空之后不再避开（收尾阶段持有人可以自由打它）—— 查「收尾被迫打最后一张」那个猜测〕
+  if (G.traitor && G.traitor.has(card) && (TRAITOR_AI === 'avoid' || TRAITOR_AI === 'turn2') && !(process.env.TR_AVOID_TAIL === '0' && G.deck.length === 0)) {
+    const holder = G.hands[ME].indexOf(card) >= 0 ? ME : FOE
+    if (G.hands[holder].some(function (c) { return !G.traitor.has(c) })) return true
+  }
+  // 〈turncoat〉：持有人 AI「会匹配就不打」—— 打出去会收到牌（收到的归对方）时当它打不出
+  if (G.turncoat && G.turncoat.has(card)) {
+    const holder = G.hands[ME].indexOf(card) >= 0 ? ME : FOE
+    return betrayGain(G, card, holder) > 0
+  }
   for (let i = 0; i < G.held.length; i++) {
     if (G.held[i].skill === SK.FREEZE && G.held[i].target === card) return true
   }
@@ -9946,6 +10086,24 @@ function reflectPick(G, side, card, skills, sink) {
 //   的同一枚硬币 —— 这一区的强弱全在这上面，设计填充技能时先看这句
 function playFor(G, side, index, ai, fromBoard) {
   if (!fromBoard) noteHandStat(G, side, index)
+  // 〈traitor〉：打的是叛变牌 → 记在持有人名下，这一手结算完（resolveMatch 外包里）兑现置 0
+  if (!fromBoard && G.traitor && index >= 0 && index < G.hands[side].length && G.traitor.has(G.hands[side][index])) {
+    G.traitor.delete(G.hands[side][index])
+    G.traitorPending = side
+    const st = PROTO_STAT.traitor
+    if (G.deck.length > 0) st.playedMain++
+    else st.playedTail++
+    const pk = 'play_' + (side === G.first ? 'front' : 'back') + (G.deck.length > 0 ? 'Main' : 'Tail')
+    st[pk] = (st[pk] || 0) + 1
+  }
+  // 〈turncoat〉：这一手打的是叛变牌 → 这一手所有收牌改归对方（harvestAt 入口换收牌方）；不是就清掉
+  G.turncoatPlay = null
+  if (!fromBoard && G.turncoat && index >= 0 && index < G.hands[side].length && G.turncoat.has(G.hands[side][index])) {
+    const c = G.hands[side][index]
+    G.turncoatPlay = { from: side, to: G.turncoat.get(c) }
+    G.turncoat.delete(c)
+    PROTO_STAT.turncoat.played++
+  }
   // 【抢牌】要在 `resolveMatch` 深处替**对手**打出一张牌，而那儿拿不到
   // `ai`（`resolveMatch` 的签名里没有它，加一个参数要穿四层）。
   // 存在 G 上是这个仓库里唯一的办法 —— 照 `G.keyNow` / `G.mineOverride`
@@ -10153,7 +10311,8 @@ function playFor(G, side, index, ai, fromBoard) {
   // 而 stowFor 在牌已经落下之后才跑（它靠 at0 找宿主）。
   // 自己写第二份 unshift 判断就会跟这儿分叉 —— 见文件头那条
   const stowSink = STOW_SINK && has(skills, SK.STOW)
-  const sink = iceSink || heldSink || stowSink || wantReverse(G, side, card, skills)
+  const freezeSink = FREEZE_SINK && has(skills, SK.FREEZE)
+  const sink = iceSink || heldSink || stowSink || freezeSink || wantReverse(G, side, card, skills)
   // ---------- 【映照】：展示 1 张手牌，这张变成跟它相同（点数和花色）----------
   //
   // **位置是硬的，而它是被两头夹出来的**：
@@ -11014,6 +11173,8 @@ function zeroHarvestStep(G, side, card, skills) {
 // 〈pilereflect〉诊断外包：对子那一支发动后，这一手结算完那张还在堆上 = 当手漏收（pairMissed）
 function resolveMatch(G, side, card, cardSkills, sink) {
   resolveMatchCore(G, side, card, cardSkills, sink)
+  // 〈traitor〉：持有人那一手结算完才置 0（被抢牌时中途替对方出的那一手不消费它）
+  if (G.traitorPending === side) { G.traitorPending = null; traitorPay(G, side) }
   G.prJack = null
   if (G.prPending) {
     if (G.pile.indexOf(G.prPending) >= 0) PROTO_STAT.pilereflect.pairMissed++
@@ -11567,6 +11728,10 @@ function dropLeaveTags(G, card) {
   G.draftHand = G.draftHand.filter(function (c) { return c !== card })
   if (G.chainTag) G.chainTag = G.chainTag.filter(function (c) { return c !== card })
   if (G.joinTag) G.joinTag.delete(card)
+  if (G.betray) G.betray.delete(card)
+  if (G.turncoat) G.turncoat.delete(card)
+  if (G.traitor) G.traitor.delete(card)
+  if (G.rangeKey) G.rangeKey = G.rangeKey.filter(function (c) { return c !== card })
   G.zeroKey = G.zeroKey.filter(function (c) { return c !== card })
   G.flowHand = G.flowHand.filter(function (c) { return c !== card })
   G.reflectHand = G.reflectHand.filter(function (c) { return c !== card })
@@ -11969,6 +12134,18 @@ function bandOf(n) {
 // 所以调用处**不能再拿 count 当收成** —— 那是这次搬叠放模型改动面最大的
 // 一处（finishCatch、floodFor 的统计都跟着改了）
 function harvestAt(G, side, wanted) {
+  // 〈turncoat〉：叛变牌打出的这一手，收到的牌归对方
+  if (G.turncoatPlay && G.turncoatPlay.from === side) {
+    side = G.turncoatPlay.to
+    const st = PROTO_STAT.turncoat
+    st.redirected++
+    for (let i = 0; i < G.pile.length; i++) if (wanted[i]) st.redirCards++
+    // 按「持有人是先手还是后手」×「正常 / 收尾」拆（查 ♥ 槽 D 偏先手用）
+    const key = (G.turncoatPlay.from === G.first ? 'holderFront' : 'holderBack') + (G.deck.length > 0 ? 'Main' : 'Tail')
+    let n = 0
+    for (let i = 0; i < G.pile.length; i++) if (wanted[i]) n++
+    st[key] = (st[key] || 0) + n
+  }
   // 〈trapzero〉：这一下收到了陷阱 → 收走它的人（side）手牌全部明置置 0（收完再置，照「被收走时」）
   let sprung = 0
   if (G.trap && G.trap.size > 0) {
@@ -12875,6 +13052,174 @@ function rangeWanted(G, card, skills, self) {
   if (self >= 0) wanted[self] = true
   return { wanted: wanted, count: count, width: hi - lo }
 }
+// 〈rangetag〉：贴标签（AI 挑点数离 7 最远的那张 —— 两端圈的范围最宽；非 J、没贴过的）→ 下限
+// ---------- 〈betray〉【叛变】〔2026-11-02〕----------
+// 用户原话：「盲选对方1张手牌带上【叛变】；叛变：始终明置，不可打出，对方回合对方可以将此牌收到手牌并去掉【叛变】标签」
+//   + 「若我方的手牌全带上【叛变】，由对方选择自己本回合的出牌」；「不要通用解，就这样量」。
+// 默认读法（用户没定的细节，做成旋钮）：盲选能选中 J（照浑水）；「拿走」在自己回合开始时、**不占出牌权**；
+//   拿不拿是对方的策略 —— `BETRAY_CLAIM`：always（每到自己回合全拿）/ never（一直锁着）。
+// 「始终明置」那一半 AI 不读情报，量不出。全锁时对方替他挑「这一手能收的张数最少」的那张。
+// 〔同日用户定第三档：「用叛变牌打出后牌堆能够匹配则拿」→ `match`（用这张在自己配装下估 harvestCount > 0 才拿），设成默认〕
+const BETRAY_CLAIM = process.env.BETRAY_CLAIM || 'match'
+if (['always', 'never', 'match'].indexOf(BETRAY_CLAIM) < 0) throw new Error('BETRAY_CLAIM 只能是 always / never / match，收到：' + BETRAY_CLAIM)
+function betrayFor(G, side) {
+  const st = PROTO_STAT.betray
+  st.fires++
+  const foe = side === ME ? FOE : ME
+  const free = []
+  for (let k = 0; k < G.hands[foe].length; k++) if (!(G.betray && G.betray.has(G.hands[foe][k]))) free.push(k)
+  if (free.length === 0) { st.noHand++; return }
+  if (!G.betray) G.betray = new Map()
+  G.betray.set(G.hands[foe][free[randInt(G.rng, free.length)]], side)
+  st.tagged++
+}
+// 这张牌由 side 打出能收几张：普通匹配走真正的 catchStart，特殊匹配那几条走 harvestCount(…, true)，取大的（照映照 reflectScore）。
+// ⚠ 不能只调 harvestCount —— 它只估特殊匹配 / 燃尽 / 冰雷，普通匹配一律回 0（同日第一版就栽在这儿：match 档拿走 0 张，
+//   全锁时「挑最不利的」退化成「挑第一张」）
+function betrayGain(G, card, side) {
+  const skills = triggersOf(G.loadouts[side], card)
+  const at = catchStart(G, card, side, skills, false)
+  const normal = at < 0 ? 0 : G.pile.length - at + 1
+  const special = harvestCount(G, card, skills, side, true)
+  return special > normal ? special : normal
+}
+// ---------- 〈traitor〉【叛变】第三版〔2026-11-02〕----------
+const TRAITOR_AI = process.env.TRAITOR_AI || 'naive'  // 〔上架后默认改 naive；avoid 是第五十节那一版的默认〕
+// 〔同日用户加第三档 `turn2`：「第 2 个回合打（这样只置 0 3 张手牌）」—— 贴上后持有人第 1 个回合避开它，第 2 个回合必定打它〕
+// 〔同日再加 `turn1`：用户问「第1个回合就打呢」—— 贴上后持有人自己的第 1 个回合就打它（手里 5 张 → 剩下 4 张置 0）〕
+if (['naive', 'avoid', 'turn2', 'turn1'].indexOf(TRAITOR_AI) < 0) throw new Error('TRAITOR_AI 只能是 naive / avoid / turn2 / turn1，收到：' + TRAITOR_AI)
+// 〔2026-11-02 · 查 D 偏先手用的量具〕TR_PHASE=all|main|tail（只在那一段发动）· TR_DRAW=0 去掉「对方抽 1」· TR_ZERO=0 去掉「打出后全部置 0」
+const TR_PHASE = process.env.TR_PHASE || 'all'
+// 〔上架后默认改 0：游戏里的【策反】没有「对方抽 1」。TR_DRAW=1 复现第五十节那一版〕
+const TR_DRAW = process.env.TR_DRAW === '1'
+const TR_ZERO = process.env.TR_ZERO !== '0'
+function traitorFor(G, side) {
+  if (TR_PHASE !== 'all' && (TR_PHASE === 'main') !== (G.deck.length > 0)) return
+  const st = PROTO_STAT.traitor
+  st.fires++
+  const foe = side === ME ? FOE : ME
+  if (TR_DRAW) drawFor(G, foe)
+  if (!G.traitor) G.traitor = new Map()
+  const hand = G.hands[foe]
+  const free = []
+  for (let k = 0; k < hand.length; k++) if (!G.traitor.has(hand[k])) free.push(k)
+  if (free.length === 0) { st.noHand++; return }
+  const c = hand[free[randInt(G.rng, free.length)]]
+  if (c.rank === JACK) st.tagJ++
+  G.traitor.set(c, side)
+  if (!G.traitorAt) G.traitorAt = new Map()
+  G.traitorAt.set(c, G.stat.plays[foe])
+  st.tagged++
+}
+// 叛变牌那一手结算完：持有人手里剩下的牌全部置 0（以对方身份调 doDead，jackOk = true）
+function traitorPay(G, side) {
+  const st = PROTO_STAT.traitor
+  const other = side === ME ? FOE : ME
+  if (!TR_ZERO) return
+  const seat = (side === G.first ? 'front' : 'back') + (G.deck.length > 0 ? 'Main' : 'Tail')
+  for (let k = 0; k < G.hands[side].length; k++) {
+    if (isZero(G.hands[side][k])) continue
+    doDead(G, other, k, true)
+    st.zeroed++
+    st['zero_' + seat] = (st['zero_' + seat] || 0) + 1
+  }
+}
+// ---------- 〈turncoat〉【叛变】第二版〔2026-11-02〕----------
+// 你挑：J 优先（他打出去整堆归你）；没有 J 就挑他现在打出去能收得最多的那张（粗挑法 → 下限）
+// 〔同日用户：「X 有点高，换成盲选」→ `TC_PICK=blind`（默认）从他没带【叛变】的牌里随机挑；`see` = 原来的查看后挑〕
+const TC_PICK = process.env.TC_PICK || 'blind'
+if (['blind', 'see'].indexOf(TC_PICK) < 0) throw new Error('TC_PICK 只能是 blind / see，收到：' + TC_PICK)
+// 〔2026-11-02 · 查 ♥ 槽 D 偏先手用的量具〕TC_PHASE=all（默认）/ main（牌库空之后不发动）/ tail（只在牌库空之后发动）
+const TC_PHASE = process.env.TC_PHASE || 'all'
+function turncoatFor(G, side) {
+  if (TC_PHASE !== 'all' && (TC_PHASE === 'main') !== (G.deck.length > 0)) return
+  const st = PROTO_STAT.turncoat
+  st.fires++
+  const foe = side === ME ? FOE : ME
+  if (!G.turncoat) G.turncoat = new Map()
+  const hand = G.hands[foe]
+  let best = -1
+  if (TC_PICK === 'blind') {
+    const free = []
+    for (let k = 0; k < hand.length; k++) if (!G.turncoat.has(hand[k])) free.push(k)
+    if (free.length > 0) best = free[randInt(G.rng, free.length)]
+  } else {
+    let score = -1
+    for (let k = 0; k < hand.length; k++) {
+      const c = hand[k]
+      if (G.turncoat.has(c)) continue
+      const s = c.rank === JACK ? 999 : betrayGain(G, c, foe)
+      if (s > score) { score = s; best = k }
+    }
+  }
+  if (best < 0) {
+    // 对方手牌全带【叛变】：先让他摸 1 张，再给新摸的那张带上
+    const got = drawFor(G, foe)
+    if (got === null) { st.noCard++; return }
+    G.turncoat.set(got, side)
+    st.drew++
+    st.tagged++
+    return
+  }
+  if (hand[best].rank === JACK) st.tagJ++
+  G.turncoat.set(hand[best], side)
+  st.tagged++
+}
+// 自己回合开始：把对方手里自己贴的【叛变】牌拿过来（always 全拿 / match 打出能匹配才拿）
+function betrayClaim(G, side) {
+  if (!G.betray || G.betray.size === 0 || BETRAY_CLAIM === 'never') return
+  const foe = side === ME ? FOE : ME
+  for (let k = G.hands[foe].length - 1; k >= 0; k--) {
+    const c = G.hands[foe][k]
+    if (G.betray.get(c) !== side) continue
+    if (BETRAY_CLAIM === 'match' && betrayGain(G, c, side) <= 0) continue
+    G.betray.delete(c)
+    giveTo(G, side, takeFromHand(G, foe, k), true)
+    PROTO_STAT.betray.claimed++
+  }
+}
+// 手牌全带【叛变】：对方替他挑这一手能收的张数最少的那张（打出后去掉标签）
+function betrayForcePick(G, side) {
+  const hand = G.hands[side]
+  let best = 0
+  let low = Infinity
+  for (let k = 0; k < hand.length; k++) {
+    const n = betrayGain(G, hand[k], side)
+    if (n < low) { low = n; best = k }
+  }
+  G.betray.delete(hand[best])
+  return best
+}
+function rangeTagFor(G, side, played) {
+  const st = PROTO_STAT.rangetag
+  st.fires++
+  if (!G.rangeKey) G.rangeKey = []
+  const hand = G.hands[side]
+  let best = -1
+  let far = -1
+  for (let k = 0; k < hand.length; k++) {
+    const c = hand[k]
+    if (c === played || c.rank === JACK || G.rangeKey.indexOf(c) >= 0) continue
+    const d = Math.abs(c.value - 7)
+    if (d > far) { far = d; best = k }
+  }
+  if (best < 0) { st.noHand++; return }
+  G.rangeKey.push(hand[best])
+  st.tagged++
+}
+// 带【区间匹配】标签的那张打出：按区间匹配结算（同一个 rangeWanted）
+function rangeKeyCash(G, side, played, skills) {
+  if (!G.rangeKey || G.rangeKey.indexOf(played) < 0) return
+  G.rangeKey = G.rangeKey.filter(function (c) { return c !== played })
+  const st = PROTO_STAT.rangetag
+  st.cashed++
+  const self = pileIndexOf(G, played)
+  if (self < 0) return
+  const rw = rangeWanted(G, played, skills, self)
+  if (rw === null) return
+  st.hits++
+  st.gotSum += harvestPile(G, side, rw.wanted)
+}
 function rangeMatchFor(G, side, played, skills) {
   const st = PROTO_STAT.rangematch
   st.fires++
@@ -12888,6 +13233,23 @@ function rangeMatchFor(G, side, played, skills) {
 }
 function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.RANGEMATCH)) rangeMatchFor(G, side, played, skills)
+  rangeKeyCash(G, side, played, skills)
+  if (has(skills, SK.RANGETAG)) rangeTagFor(G, side, played)
+  if (has(skills, SK.BETRAY)) betrayFor(G, side)
+  if (has(skills, SK.TURNCOAT)) turncoatFor(G, side)
+  if (has(skills, SK.TRAITOR)) traitorFor(G, side)
+  if (has(skills, SK.ZEROALL)) {
+    const st = PROTO_STAT.zeroall
+    st.fires++
+    const foe = side === ME ? FOE : ME
+    for (let k = 0; k < G.hands[foe].length; k++) {
+      if (isZero(G.hands[foe][k])) continue
+      doDead(G, side, k, true)
+      st.zeroed++
+      if (G.deck.length > 0) st.zMain++
+      else st.zTail++
+    }
+  }
   if (has(skills, SK.EXTRATURN)) extraTurnFor(G, side)
   if (has(skills, SK.JOINTAG)) joinTagFor(G, side)
   if (has(skills, SK.SOLOTAG)) soloTagFor(G, side, played)
@@ -13764,6 +14126,11 @@ function afterPlay(G, side, skills, played, ai) {
       if (isZero(c)) { st.killed++; if (wasJack) st.jack++; G.seen[other][at] = true }
     }
     if (ZS_HALF !== 'zero' && zeroKeyTag(G, side)) st.tagged++
+  }
+  if (has(skills, SK.NOSUIT)) {
+    PROTO_STAT.nosuit.fires++
+    stripSuits(G, side === ME ? FOE : ME, false)
+    if (NOSUIT_WHO === 'both') stripSuits(G, side, true)
   }
   if (has(skills, SK.DRAWZERO) || has(skills, SK.MURK)) {
     // 【浑水】固定走 blind 档（不看 DZ_MODE / DZ_NODRAW / DZ_NOZERO —— 那几个是原型的研究旋钮）
@@ -14846,7 +15213,8 @@ const PROTO_STAT = {
   // **大幅低于** `FREEZE_VOID=0`：无点数切掉的正是「自己打一张同点数的
   // 把它钓走」这条路。两档之间这个比值不动的话，说明无点数没接上
   //（或者自毁本来就走花色那条路，而无点数挡不住花色 —— 那也是个结论）
-  freeze: { fires: 0, onfield: 0, selfTook: 0, foeTook: 0, washed: 0 },
+  // frozenTurns〔2026-11-02〕：被冻那方每次轮到出牌时手里冻着几张，累加 —— 除以 fires = 一次冻结平均冻住几个对方回合
+  freeze: { fires: 0, onfield: 0, selfTook: 0, foeTook: 0, washed: 0, frozenTurns: 0, skips: 0 },
   drag: { fires: 0, picked: 0, hit: 0, floored: 0 },
   // 【21 匹配】锚点改成「打出那张」之后新开的那一支：**沉底时反着数**。
   //
@@ -14918,6 +15286,8 @@ const PROTO_STAT = {
   kwtag: { fires: 0, tagged: 0 },
   // 〈drawzero〉：发动 / 对方抽了几张（其中 J 几张，J 不置 0）/ 牌库不够 / 置 0 几张 / pick 档挑中几张
   drawzero: { fires: 0, drawn: 0, drawnJack: 0, deckShort: 0, zeroed: 0, picked: 0, blindJack: 0 },
+  // 〈nosuit〉：发动 / 剥掉几张（对方 / 自己）/ 其中本来会触发花色槽的（对方 / 自己）
+  nosuit: { fires: 0, strippedFoe: 0, strippedMine: 0, lostSlotFoe: 0, lostSlotMine: 0 },
   // 〈zerodrop〉：发动 / 置 0 他几张 / 「手里几张 0」累加 / 全堆减出几张新 0 / 收零（cashed 判了几次、hits 收成几次、got 收几张）
   zerodrop: { fires: 0, killed: 0, zSum: 0, newZero: 0, cashed: 0, hits: 0, got: 0 },
   // 【隔凌】〔2026-10-30〕：发动几次 / 贴了几张冰 / 牌库空没摸到 / 摸上来那张跟打出那张同颜色几次
@@ -14925,6 +15295,12 @@ const PROTO_STAT = {
   // 【引火】〔2026-10-30〕：发动几次 / 贴了几张火 / 堆底就是它自己 / 堆底跟它同颜色 / 堆空没有堆底
   kindle: { fires: 0, tagged: 0, bottomSelf: 0, sameAsPlayed: 0, noPile: 0 },
   // 〈pilereflect〉〔2026-10-30〕：发动 / 堆上没别的牌 / 没发动（kept）/ 变了几次（当场 pair · 铺垫 setup）/ 变过的牌被谁收走
+  zeroTail: { games: 0, front: 0, back: 0, frontHand: 0, backHand: 0, swapped: 0 },
+  zeroall: { fires: 0, zeroed: 0, zMain: 0, zTail: 0 },
+  traitor: { fires: 0, noHand: 0, tagged: 0, tagJ: 0, playedMain: 0, playedTail: 0, zeroed: 0 },
+  turncoat: { fires: 0, tagged: 0, tagJ: 0, drew: 0, noCard: 0, played: 0, redirected: 0, redirCards: 0, forced: 0, foeChose: 0 },
+  betray: { fires: 0, noHand: 0, tagged: 0, claimed: 0, forced: 0 },
+  rangetag: { fires: 0, noHand: 0, tagged: 0, cashed: 0, hits: 0, gotSum: 0 },
   rangematch: { fires: 0, hits: 0, miss: 0, widthSum: 0, gotSum: 0 },
   handstat: { plays: 0, fullSize: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], fullSuits: [0, 0, 0, 0, 0], restSize: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], restSuits: [0, 0, 0, 0, 0], restSameSuit: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], restAnyPair: 0, restPlayedPair: 0 },
   extraturn: { fires: 0, used: 0, maxBank: 0 },
@@ -14960,6 +15336,8 @@ const PROTO_STAT = {
   backwater: { fires: 0, killed: 0, jack: 0, tagged: 0 },
   foeflow: { fires: 0, handUsed: 0 },
   nest: { tagged: 0, kept: 0, keptSelf: 0, takenMine: 0, takenFoe: 0 },
+  // 【冻结】解冻代价：chances 有冻住的牌、可以选的回合数 / paid 真花了 / tookFrozen 对方挑走的正好是冻住那张 / gainSum 花的时候估的多收张数
+  freezepay: { chances: 0, paid: 0, tookFrozen: 0, gainSum: 0, forced: 0 },
   trapzero: { armed: 0, sprung: 0, selfSprung: 0, zeroed: 0 },
   // 【0 点槽】触发了几次（triggersOf 里记；AI 估值也会调 triggersOf，所以这个数偏大，只看有没有）
   zeroslot: { fires: 0 },
@@ -16042,6 +16420,8 @@ const STOW_N = process.env.STOW_N ? parseInt(process.env.STOW_N, 10) : 2
 // 接线口是 `playFor` 里那个 `sink` 表达式（照 `ICE_SINK` / `HELD_SINK`
 // 那条现成路，别自己写第二份 unshift 判断）。验证口是 `atBottom/fires`
 const STOW_SINK = process.env.STOW_SINK === '1'
+// 【冻结】落堆底〔2026-11-02 用户问「改成增加落堆底呢」，默认关〕：冻结牌强制落堆底（跟寒流 / 满篓同一条强制路）
+const FREEZE_SINK = process.env.FREEZE_SINK === '1'
 
 // `deck` 档：从牌库顶拿 STOW_N 张，叠到宿主下面（N 张 = N 层保护）。
 //
@@ -18486,7 +18866,7 @@ function harvestCount(G, card, skills, side, specialOnly) {
   // 冰雷：这张钥匙能引爆我的雷 → 整堆
   if (!specialOnly && bombReady(G, card, side)) return G.pile.length
   // 〈rangematch〉：凑得成就按这条线估（特殊匹配优先，凑成了这一手就没有普通匹配）
-  if (has(skills, SK.RANGEMATCH)) {
+  if (has(skills, SK.RANGEMATCH) || (G.rangeKey && G.rangeKey.indexOf(card) >= 0)) {
     const rw = rangeWanted(G, card, skills, -1)
     if (rw !== null) return rw.count + 1
   }
@@ -18887,7 +19267,18 @@ function playGame(opts, ai) {
     // 循环外那段剩堆处理（BALANCE 那一支）照旧生效，G.lastSide 也照旧是
     // 最后真打了一手的那一方 —— 所以 TAIL 和 BALANCE 能自由组合着量
     if (TAIL !== Infinity && G.deck.length === 0) {
-      if (G.tailFrom === undefined) G.tailFrom = G.stat.plays[ME] + G.stat.plays[FOE]
+      if (G.tailFrom === undefined) {
+        G.tailFrom = G.stat.plays[ME] + G.stat.plays[FOE]
+        // 〔2026-11-02 自检（用户问：0 点牌是不是留到了牌库抽空）〕进收尾那一刻双方手里各有几张 0 点牌
+        const zt = PROTO_STAT.zeroTail
+        zt.games++
+        for (const sd of [ME, FOE]) {
+          const z = G.hands[sd].filter(function (c) { return isZero(c) }).length
+          const key = sd === G.first ? 'front' : 'back'
+          zt[key] += z
+          zt[key + 'Hand'] += G.hands[sd].length
+        }
+      }
       if (G.stat.plays[ME] + G.stat.plays[FOE] - G.tailFrom >= TAIL) {
         // 【EVEN】双方出牌数不等就让少打的那一方再补一手（见文件头那段）。
         //
@@ -18927,6 +19318,7 @@ function playGame(opts, ai) {
     //     不然这件技能对自己这一手毫无影响（而「自己先吃到厚堆」正是它的全部）；
     //   它**不算一次出牌** —— 落完接着照常走下面的出牌阶段。
     heapFlush(G, side)
+    betrayClaim(G, side)
     // ---- 【上牌区】：「有牌时必须选择上牌区的 1 张牌打出作为自己的本轮出牌」 ----
     //
     // 排在手牌空那道岔**之前**：手里一张没有、上牌区有牌时照样要出
@@ -18951,11 +19343,70 @@ function playGame(opts, ai) {
     // 〔【保护】续层那道岔 2026-10-21 删（它判在 pickCard **之前** ——
     //   因为那是「这一手不打牌」，不是「打哪张」）。
     //   下一件「放弃出牌」型的技能挂回这个位置〕
-    const index = ai.pickCard(G, side)
+    // 【冻结】解冻代价（FREEZE_PAY，默认关）：出牌前先决定要不要让对方挑走 1 张换解冻
+    for (let fi = 0; fi < G.hands[side].length; fi++) if (isFrozen(G, G.hands[side][fi])) PROTO_STAT.freeze.frozenTurns++
+    freezePayTry(G, side, ai, false)
+    let index = ai.pickCard(G, side)
+    // 手牌全被冻住：开了解法就强制付一次（不付 = 放弃这一回合），付完再挑
+    if (index < 0 && FREEZE_PAY !== null) {
+      freezePayTry(G, side, ai, true)
+      index = ai.pickCard(G, side)
+    }
+    // 〔2026-11-02 量具 ZERO_FIRST（用户：「换成优先打出点数0的牌看会不会D偏大」）〕
+    //   strict = 手里有 0 点牌就先打它；soft = 只在 AI 选的这一手本来收不到牌时才改打 0 点牌
+    if (index >= 0 && process.env.ZERO_FIRST) {
+      const hand = G.hands[side]
+      const zk = hand.findIndex(function (c) { return isZero(c) && !isFrozen(G, c) })
+      if (zk >= 0 && zk !== index && (process.env.ZERO_FIRST === 'strict' || betrayGain(G, hand[index], side) <= 0)) {
+        index = zk
+        PROTO_STAT.zeroTail.swapped++
+      }
+    }
+    // 〈traitor〉turn2 档：贴上之后持有人自己的第 2 个回合（之前已经打过 1 手）必定打它
+    if ((TRAITOR_AI === 'turn2' || TRAITOR_AI === 'turn1') && G.traitor && G.traitorAt) {
+      const wait = TRAITOR_AI === 'turn1' ? 0 : 1
+      for (let k = 0; k < G.hands[side].length; k++) {
+        const c = G.hands[side][k]
+        if (G.traitor.has(c) && G.traitorAt.has(c) && G.stat.plays[side] - G.traitorAt.get(c) >= wait) { index = k; break }
+      }
+    }
+    // 〈turncoat〉【叛变】第二版（同日用户补）：自己手牌全带【叛变】→ 由对方决定出哪张。
+    // 对方挑「这一手打出去收得最多」的那张 —— 收到的归他
+    if (G.turncoat && G.hands[side].length > 0 && G.hands[side].every(function (c) { return G.turncoat.has(c) })) {
+      let best = 0
+      let high = -1
+      for (let k = 0; k < G.hands[side].length; k++) {
+        const n = betrayGain(G, G.hands[side][k], side)
+        if (n > high) { high = n; best = k }
+      }
+      index = best
+      PROTO_STAT.turncoat.foeChose++
+      const fk = 'chose' + (side === G.first ? 'Front' : 'Back') + (G.deck.length > 0 ? 'Main' : 'Tail')
+      PROTO_STAT.turncoat[fk] = (PROTO_STAT.turncoat[fk] || 0) + 1
+    }
+    // 〈betray〉手牌全带【叛变】→ 由对方替他选这一回合的出牌
+    if (index < 0 && G.betray && G.hands[side].length > 0 && G.hands[side].every(function (c) { return G.betray.has(c) })) {
+      index = betrayForcePick(G, side)
+      PROTO_STAT.betray.forced++
+    }
+    // 〈turncoat〉手里只剩会匹配的叛变牌（别的被冻结）→ 挑送给对方最少的那张
+    if (index < 0 && G.turncoat && G.hands[side].some(function (c) { return G.turncoat.has(c) })) {
+      let best = -1
+      let low = Infinity
+      for (let k = 0; k < G.hands[side].length; k++) {
+        const c = G.hands[side][k]
+        if (!G.turncoat.has(c)) continue
+        const n = betrayGain(G, c, side)
+        if (n < low) { low = n; best = k }
+      }
+      index = best
+      PROTO_STAT.turncoat.forced++
+    }
     if (index < 0) {
       // 全被冻住了，打不出牌。记一笔（冻结上限那条要量「锁满跳过」有多常见）
       G.stat.lockSkips = G.stat.lockSkips || [0, 0]
       G.stat.lockSkips[side]++
+      PROTO_STAT.freeze.skips++
       // ---- 连跳的长度〔2026-10-21 加〕----
       //
       // 为什么光有 `lockSkips` 不够：那个数是**次数**，而「锁满」的体验
@@ -19086,7 +19537,7 @@ module.exports = {
   // 【顺序匹配】两个旋钮 —— `sim.js` 抬头 / 速查口径要印它们，别各自读 env
   ORDER_MIN, ORDER_INSERT,
   // 〈槽钥〉贴哪一种匹配 —— `sim.js slottag` 抬头印它，别各自读 env
-  SLOTTAG_KIND, TWINVAL, SORT_ZERO, sortPileDesc, STACK21_DIR, STACK21_FALLBACK, WILDKEY, KW_SELF, KW_TAG, DZ_MODE, ZD_WHO, trapPenalty, LOCKCOLOR_REF, KINDLE_HUE, HR_RANK, RANGE_MIN, RANGE_BLANK, BOMB_TAKER, PR_AI, PR_COLOR, PR_J, WILD_SELF, CHAIN_HUE, CHAIN_BOTTOM_SELF, FF_HAND, FF_HEAP, stackReach, stackReachBest,
+  SLOTTAG_KIND, TWINVAL, SORT_ZERO, sortPileDesc, STACK21_DIR, STACK21_FALLBACK, WILDKEY, KW_SELF, KW_TAG, DZ_MODE, ZD_WHO, NOSUIT_WHO, trapPenalty, FREEZE_LIFE, LOCKCOLOR_REF, KINDLE_HUE, HR_RANK, BETRAY_CLAIM, TRAITOR_AI, TC_PICK, RANGE_MIN, RANGE_BLANK, BOMB_TAKER, PR_AI, PR_COLOR, PR_J, WILD_SELF, CHAIN_HUE, CHAIN_BOTTOM_SELF, FF_HAND, FF_HEAP, stackReach, stackReachBest,
   // 2026-10-19 五件原型的诊断口（「它到底做了几次」—— 见 PROTO_STAT 那段）
   PROTO_STAT,
   LOWCUT_STAT,

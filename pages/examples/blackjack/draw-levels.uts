@@ -39,7 +39,8 @@ import {
   SK_HUE,
   // 〔SK_CALM 2026-10-28 从这个 import 里拿掉 —— 本文件不再用它。
   //   导出本身**留在 `draw-skills.uts`**（`.uvue` 还有九处引用），现在是 −1〕
-  SK_CLEAN,
+  // 〔SK_CLEAN（净水）2026-11-02 删了，两张叠放庄家卡的净水槽换成垫吃（用户定）〕
+  SK_STACKDRAFT,
   SK_RAISE,
   SK_WILD
   // 原先这儿还引着：
@@ -1445,8 +1446,11 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       //   同档：R7 A 槽 浑水 +2.95 / 死水 +2.67〕
       { skill: SK_MURK, count: 1, suit: false } as FoeSlot,
       // 〔2026-10-29 调难度〕冻结 2 个标签 → 1 个
-      { skill: SK_FREEZE, count: 1, suit: false } as FoeSlot
-    ], desc: '雾里看不清人。它让你多摸一张、再盲摸你 2 张作废，还能锁住一张，而你打空了才补得到牌' } as FoeRole,
+      // 〔2026-11-02 冻结下架（用户定：不再设计在场效果），这一格换成【压舱】（用户选）——
+      //   同样是动你的手牌、不留在场状态。闯关实测（2026-11-02 · 每关 2000 局 · 同一版代码前后各跑）：
+      //   普通档这一关 68.3% → 69.4%、通关率 17.6 → 17.7 —— 噪声内，难度没动〕
+      { skill: SK_PRESS, count: 1, suit: false } as FoeSlot
+    ], desc: '雾里看不清人。它让你多摸一张、再盲摸你 2 张作废，还会把你一张牌洗回牌库，而你打空了才补得到牌' } as FoeRole,
   { name: '涡心祭司', specials: ['guard'], slots: [
       // ---- 这一关的理由**换过两次，而且每次都是被删技能逼的** ----
       //
@@ -1704,6 +1708,16 @@ export const DRAW_FOE_POOL : FoeRole[] = [
     ], desc: '整片水红了。它一动手，烧着的牌就成片地没' } as FoeRole,
   // ---------- 叠放族：两张 ----------
   //
+  // ---- ⚠ 2026-11-02：**净水删了，两张卡的净水槽都换成垫吃**（用户定）----
+  //
+  //   叠浪弄潮儿  抬水 ×2 + 净水 ×1  →  **抬水 ×2 + 垫吃 ×1**（12 张，2 槽）
+  //   沙垒筑堤工  净水♦ + 抬水 + 净水 →  **垫吃♦ + 抬水 + 垫吃**（21 张，3 槽）
+  //
+  // 垫吃也是叠放（垫在堆上一张牌下面，以那张进行【21 匹配】），庄家选牌分支 foePilePick 早有。
+  // 槽数、覆盖面都没动；而垫吃（R7 A 槽 X +2.51）比净水（+0.15）强得多 —— **这两张卡变难了**。
+  // ⚠ campaign.js 只模十二关的固定庄家，没模这两张池子卡，所以闯关模拟量不出这一笔。
+  // 下面 10-28 那段里「净水」读成过去时。desc 两句同日改（原「盖掉」「埋了」指的都是净水）
+  //
   // ---- ⚠ 2026-10-28：**【保护】整个撤了，凝水跟着删，这两张卡都要改配装** ----
   //
   // 用户定：**用净水 / 抬水顶上，槽数和覆盖面都不变**。两张卡逐槽的换法：
@@ -1728,8 +1742,8 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   //   整叠跟着离场跟哪一件垫的无关〕
   { name: '叠浪弄潮儿', specials: ['leak'], slots: [
       { skill: SK_RAISE, count: 2, suit: false } as FoeSlot,
-      { skill: SK_CLEAN, count: 1, suit: false } as FoeSlot
-    ], desc: '一层压一层。你的牌会被它垫着撞上别的，撞不着的就直接盖掉' } as FoeRole,
+      { skill: SK_STACKDRAFT, count: 1, suit: false } as FoeSlot
+    ], desc: '一层压一层。你的牌会被它垫着撞上别的，它自己也会垫在牌底下凑 21' } as FoeRole,
   // 叠放那一族的完整展示：净水插**花色槽**（一局响六次，把你六张牌埋掉，
   // 连带那几张身上的在场效果一起失效）。
   //
@@ -1755,10 +1769,10 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // **覆盖面一张没动**：净水♦ 13 + 抬水 4 + 净水 4 = 21。
   // desc 里「加上一层护」那半句跟着删 —— 它指的就是凝水，留着是假情报。
   { name: '沙垒筑堤工', specials: ['toll'], slots: [
-      { skill: SK_CLEAN, count: 1, suit: true } as FoeSlot,
+      { skill: SK_STACKDRAFT, count: 1, suit: true } as FoeSlot,
       { skill: SK_RAISE, count: 1, suit: false } as FoeSlot,
-      { skill: SK_CLEAN, count: 1, suit: false } as FoeSlot
-    ], desc: '一层层垒上来的沙。它把你的牌埋了、垫了，埋过的那张就再也不管用' } as FoeRole,
+      { skill: SK_STACKDRAFT, count: 1, suit: false } as FoeSlot
+    ], desc: '一层层垒上来的沙。它一张张垫进堆底下，借上面那张凑 21' } as FoeRole,
   // ---------- 补第 10 关那个洞 ----------
   //
   // 原本是「洪水铺（从库顶翻牌上堆）+ 收色收（堆上同花色的连它自己一起走）」

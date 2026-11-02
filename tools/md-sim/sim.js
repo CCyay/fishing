@@ -2070,6 +2070,49 @@ function printDraftTagDiag() {
     console.log('\n  ---- 诊断：【野火】（WILD_SELF=' + (R.WILD_SELF ? 1 : 0) + '）----')
     console.log('    发动 ' + ws.fires + ' 次：它自己点着 ' + pct(ws.lit / ws.fires) + ' · 另挑 1 张点着 ' + pct(ws.picked / ws.fires))
   }
+  // 自检：进收尾那一刻手里的 0 点牌〔2026-11-02〕
+  const zt = R.PROTO_STAT.zeroTail
+  if (zt && zt.games > 0 && (zt.front + zt.back) > 0) {
+    console.log('\n  ---- 自检：进收尾那一刻手里的 0 点牌（ZERO_FIRST=' + (process.env.ZERO_FIRST || '关') + '）----')
+    console.log('    先手 ' + (zt.front / zt.games).toFixed(2) + ' 张 / 局（手牌 ' + (zt.frontHand / zt.games).toFixed(2) + '）· 后手 ' + (zt.back / zt.games).toFixed(2) + ' 张 / 局（手牌 ' + (zt.backHand / zt.games).toFixed(2) + '）· 改打 0 点牌 ' + zt.swapped + ' 次')
+  }
+  // 〈zeroall〉〔2026-11-02〕
+  const za = R.PROTO_STAT.zeroall
+  if (za && za.fires > 0) {
+    console.log('\n  ---- 诊断：〈zeroall〉----')
+    console.log('    发动 ' + za.fires + ' 次 · 置 0 ' + za.zeroed + ' 张（' + (za.zeroed / za.fires).toFixed(2) + ' 张 / 次；正常阶段 ' + za.zMain + ' / 收尾 ' + za.zTail + '）')
+  }
+  // 〈traitor〉〔2026-11-02〕
+  const tr = R.PROTO_STAT.traitor
+  if (tr && tr.fires > 0) {
+    const pl = tr.playedMain + tr.playedTail
+    console.log('\n  ---- 诊断：〈traitor〉（TRAITOR_AI=' + R.TRAITOR_AI + '）----')
+    console.log('    发动 ' + tr.fires + ' 次：贴上 ' + tr.tagged + '（J ' + tr.tagJ + '）· 叛变牌被打出 ' + pl + ' 次（' + pct(pl / Math.max(1, tr.tagged)) + '；正常阶段 ' + tr.playedMain + ' / 收尾 ' + tr.playedTail + '）· 置 0 ' + tr.zeroed + ' 张（' + (tr.zeroed / Math.max(1, pl)).toFixed(2) + ' 张 / 次）')
+    console.log('    按持有人座位（先手 / 后手）：打出 正常 ' + (tr.play_frontMain || 0) + ' / ' + (tr.play_backMain || 0) + ' · 收尾 ' + (tr.play_frontTail || 0) + ' / ' + (tr.play_backTail || 0)
+      + '　｜　置 0 正常 ' + (tr.zero_frontMain || 0) + ' / ' + (tr.zero_backMain || 0) + ' · 收尾 ' + (tr.zero_frontTail || 0) + ' / ' + (tr.zero_backTail || 0))
+  }
+  // 〈turncoat〉〔2026-11-02〕
+  const tc = R.PROTO_STAT.turncoat
+  if (tc && tc.fires > 0) {
+    console.log('\n  ---- 诊断：〈turncoat〉----')
+    console.log('    发动 ' + tc.fires + ' 次：贴上 ' + tc.tagged + '（J ' + tc.tagJ + '，让他先摸再贴 ' + tc.drew + '）· 叛变牌被打出 ' + tc.played + ' 次 · 其中收到牌、归了对方 ' + tc.redirected + ' 次 / ' + tc.redirCards + ' 张 · 只剩会匹配的叛变牌被迫打 ' + tc.forced + ' 次 · 手牌全是叛变牌、由对方挑 ' + tc.foeChose + ' 次')
+    console.log('    送出去的牌（持有人先手 / 后手）：正常阶段 ' + (tc.holderFrontMain || 0) + ' / ' + (tc.holderBackMain || 0)
+      + ' · 收尾 ' + (tc.holderFrontTail || 0) + ' / ' + (tc.holderBackTail || 0)
+      + '　｜　由对方挑（被挑的一方先手 / 后手）：正常 ' + (tc.choseFrontMain || 0) + ' / ' + (tc.choseBackMain || 0)
+      + ' · 收尾 ' + (tc.choseFrontTail || 0) + ' / ' + (tc.choseBackTail || 0))
+  }
+  // 〈betray〉〔2026-11-02〕
+  const bt = R.PROTO_STAT.betray
+  if (bt && bt.fires > 0) {
+    console.log('\n  ---- 诊断：〈betray〉（BETRAY_CLAIM=' + R.BETRAY_CLAIM + '）----')
+    console.log('    发动 ' + bt.fires + ' 次：贴上 ' + bt.tagged + '（对方手里全是叛变牌、没得贴 ' + bt.noHand + '）· 拿走 ' + bt.claimed + ' 张 · 全锁由对方替他选 ' + bt.forced + ' 次')
+  }
+  // 〈rangetag〉〔2026-11-02〕
+  const rtg = R.PROTO_STAT.rangetag
+  if (rtg && rtg.fires > 0) {
+    console.log('\n  ---- 诊断：〈rangetag〉（RANGE_MIN=' + R.RANGE_MIN + '）----')
+    console.log('    发动 ' + rtg.fires + ' 次：贴上 ' + rtg.tagged + ' · 带标签的牌打出 ' + rtg.cashed + ' 次（兑现率 ' + pct(rtg.cashed / Math.max(1, rtg.tagged)) + '）· 凑成 ' + pct(rtg.hits / Math.max(1, rtg.cashed)) + ' · 每次收 ' + (rtg.gotSum / Math.max(1, rtg.hits)).toFixed(2) + ' 张（含它）')
+  }
   // 〈rangematch〉〔2026-11-01〕
   const rm = R.PROTO_STAT.rangematch
   if (rm && rm.fires > 0) {
@@ -2141,6 +2184,22 @@ function printDraftTagDiag() {
     console.log('    打出时：真变了 ' + pct(rf.changed / Math.max(1, rf.fires)) + ' · 没变（不如不变）' + pct(rf.kept / Math.max(1, rf.fires))
       + ' · 变了的那几次每次多收 ' + f2(rf.gainSum / Math.max(1, rf.changed)) + ' 张')
   }
+  // 【冻结】寿命诊断〔2026-11-02〕
+  const fz = R.PROTO_STAT.freeze
+  if (fz && fz.fires > 0) {
+    console.log('\n  ---- 诊断：【冻结】寿命（FREEZE_SINK=' + (process.env.FREEZE_SINK || '0') + '）----')
+    console.log('    落堆 ' + fz.onfield + ' 次，真冻上 ' + fz.fires + ' 次 · 平均每次冻住对方 ' + f2(fz.frozenTurns / fz.fires) + ' 个回合'
+      + ' · 全冻住跳过回合 ' + fz.skips + ' 次 · 冻结牌离场：自己收走 ' + fz.selfTook + ' / 对方收走 ' + fz.foeTook + ' / 冲走 ' + fz.washed)
+  }
+  // 【冻结】解冻代价〔2026-11-02〕
+  const fp = R.PROTO_STAT.freezepay
+  if (fp && fp.chances > 0) {
+    console.log('\n  ---- 诊断：【冻结】解冻代价（FREEZE_PAY=' + process.env.FREEZE_PAY + '）----')
+    console.log('    有冻住的牌的回合 ' + fp.chances + ' 次，真花代价 ' + fp.paid + ' 次（' + pct(fp.paid / fp.chances) + '）'
+      + '，其中对方挑走的正好是冻住那张 ' + fp.tookFrozen + ' 次（' + pct(fp.tookFrozen / Math.max(1, fp.paid)) + '）'
+      + ' · 花的时候估计多收 ' + f2(fp.gainSum / Math.max(1, fp.paid)) + ' 张/次')
+    console.log('    寿命 FREEZE_LIFE=' + R.FREEZE_LIFE + ' · 手牌全被冻住时强制付 ' + fp.forced + ' 次')
+  }
   // 〈trapzero〉〔2026-11-01〕
   const tz = R.PROTO_STAT.trapzero
   if (tz && tz.armed > 0) {
@@ -2169,6 +2228,13 @@ function printDraftTagDiag() {
     console.log('    发动 ' + zs.fires + ' 次：置 0 他 ' + f2(zs.killed / zs.fires) + ' 张/次（J ' + f2(zs.jack / zs.fires) + '）'
       + '，贴收零 ' + pct(zs.tagged / zs.fires) + ' · 收零打出 ' + at.cashed + ' 次、收成 ' + pct(at.hits / Math.max(1, at.cashed))
       + '、每次收 ' + f2(at.got / Math.max(1, at.hits)) + ' 张')
+  }
+  // 〈nosuit〉〔2026-11-02〕
+  const nsu = R.PROTO_STAT.nosuit
+  if (nsu && nsu.fires > 0) {
+    console.log('\n  ---- 诊断：〈nosuit〉（NOSUIT_WHO=' + R.NOSUIT_WHO + '）----')
+    console.log('    发动 ' + nsu.fires + ' 次 · 每次剥对方 ' + f2(nsu.strippedFoe / nsu.fires) + ' 张（其中本来会触发他花色槽的 ' + f2(nsu.lostSlotFoe / nsu.fires) + ' 张）'
+      + ' · 剥自己 ' + f2(nsu.strippedMine / nsu.fires) + ' 张（花色槽 ' + f2(nsu.lostSlotMine / nsu.fires) + ' 张）')
   }
   // 〈drawzero〉〔2026-10-30〕
   const dz = R.PROTO_STAT.drawzero
@@ -3089,6 +3155,51 @@ function printColdDiag() {
 // 还有一条换算不出来的：**协同没法转成 X 口径**。它是三个 `back` 的差，
 // 要转得知道「两件都带」那一格的 D，而这儿不量对手侧，给不出。
 // 要 X 口径的协同只能改成三格 × 三种配装（九格），当前没这个命令。
+// ---------- kitvs〔2026-11-02 加，量〈nosuit〉用〕----------
+//
+// 为什么 one / pair / vs 都不行：它们每一格**只有一方带技能**（或者两件插同一个槽），
+// 而「对方手牌失去花色」这一类反制件的价值全在**对手的花色槽上坐着一件技能**。
+// 对手槽空着，它就是一张白板（实测 one 下 X 正好 0.00）。
+//
+// 用法：KVS_BASE=a,b KVS_TEST=a,c [KVS_FOE=a,b] node sim.js kitvs --role R -n 20000
+//   第 i 件插第 i 个槽，'-' = 空。KVS_FOE 缺省 = KVS_BASE（对手跟我同一套底子）。
+//   back  = 我拿 TEST 对他 FOE − 我拿 BASE 对他 FOE（我后手那一侧）
+//   front = 镜像：他拿 FOE、我在先手位拿 TEST 对 BASE
+//   X = 两侧平均，D = 两侧差的一半 —— 跟 measureBothLo 同号同义
+function cmdKitvs(args) {
+  const role = roleIndexOrDie(args.role)
+  const slots = R.DRAW_ROLES[role].slots
+  const parse = function (env) {
+    const list = (process.env[env] || '').split(',')
+    return R.kitFromRole(role, slots.map(function (s, i) {
+      const k = list[i]
+      return (k === undefined || k === '' || k === '-') ? -1 : skillIndexOf(k)
+    }))
+  }
+  if (!process.env.KVS_BASE || !process.env.KVS_TEST) throw new Error('要 KVS_BASE 和 KVS_TEST')
+  const base = parse('KVS_BASE')
+  const test = parse('KVS_TEST')
+  const foe = process.env.KVS_FOE ? parse('KVS_FOE') : base
+  const o = rolesFor(args, role, true)
+  const bB = run(args.n, args.seed, base, foe, o)
+  const tB = run(args.n, args.seed, test, foe, o)
+  const bF = run(args.n, args.seed, foe, base, o)
+  const tF = run(args.n, args.seed, foe, test, o)
+  const back = meanDiff(tB) - meanDiff(bB)
+  const front = meanDiff(bF) - meanDiff(tF)
+  const se = Math.sqrt(stderrOf(tB) * stderrOf(tB) + stderrOf(bB) * stderrOf(bB)
+    + stderrOf(tF) * stderrOf(tF) + stderrOf(bF) * stderrOf(bF)) / 2
+  const plays = function (m) { return (m.plays[R.ME] + m.plays[R.FOE]) / m.games }
+  const lenPct = ((plays(tB) + plays(tF)) / (plays(bB) + plays(bF)) - 1) * 100
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
+  console.log('kitvs · ' + R.DRAW_ROLES[role].name + '（槽 ' + slots.join(' / ') + '）· ' + args.n + ' 局 · ' + specialNote(args, role))
+  console.log('  底子 ' + process.env.KVS_BASE + ' → 测 ' + process.env.KVS_TEST + ' · 对手 ' + (process.env.KVS_FOE || process.env.KVS_BASE))
+  console.log('  后手 ' + sign(back) + '   先手 ' + sign(front) + '   X ' + sign((back + front) / 2)
+    + '   D ' + sign((back - front) / 2) + '   标准误 ' + f2(se) + '   局长 ' + sign(lenPct) + '%')
+  console.log('  口径：对手带着配装（不是空槽），两侧都量。**跟 one / all / pair 的数不能直接相减**（那几条的对手槽是空的）')
+  printDraftTagDiag()
+}
+
 function cmdPair(args) {
   const role = roleIndexOrDie(args.role)
   const slots = R.DRAW_ROLES[role].slots
@@ -4197,6 +4308,7 @@ function main() {
   if (cmd === 'one') return cmdOne(args)
   if (cmd === 'all') return cmdAll(args)
   if (cmd === 'pair') return cmdPair(args)
+  if (cmd === 'kitvs') return cmdKitvs(args)
   // vs：我带一件、**对手带一件** —— 反制型技能只能这么量（见 cmdVs）
   if (cmd === 'vs') return cmdVs(args)
   if (cmd === 'roles') return cmdRoles(args)

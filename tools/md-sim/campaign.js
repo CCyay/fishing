@@ -83,7 +83,8 @@ const FOE_ROLES = [
   //   所以它的数字从「两件白板」变成「一件白板」—— 还是下限，但下限抬高了〕
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
   // 〔2026-10-30 死水下架，槽 1 换成浑水（照 draw-levels.uts）〕
-  { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['freeze', 1, false]] },
+  // 〔2026-11-02 冻结下架，第二格换压舱（照 draw-levels.uts）〕
+  { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['press', 1, false]] },
   // 〔见底 2026-10-19 删了，那一格**空出来没补**（用户定「其他不用」）——
   //   所以这一关从三条腿（守滩 / 见底 / 染水）变两条腿，跟着变简单。
   //   它养厚堆的手段（守滩）还在，**把厚堆变现的手段没了**〕
@@ -245,7 +246,7 @@ const PLAYER_POOL = [
   // 〔【死水】2026-10-30 下架 —— 从池子里拿掉〕
   'hue', 'press',
   // 2026-10-29 ~ 30 上架的四件：垫吃 / 顺递 / 浑水 / 缩水〔顺递 2026-10-30 下架，从池子里拿掉〕
-  'stackdraft', 'pilereflect', 'flowall', 'flowpass', 'murk', 'zerodrop', 'backwater', 'stonehue', 'stoneline',
+  'stackdraft', 'pilereflect', 'traitor', 'flowall', 'flowpass', 'murk', 'zerodrop', 'backwater', 'stonehue', 'stoneline',
   // 2026-10-20 上架的两件，同一天藏凌 / 寒流删了
   'lockdraw', 'lockcolor'
 ]

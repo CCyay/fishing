@@ -141,6 +141,25 @@ export function isRedSuit(suit : string) : boolean {
   return suit == '♥' || suit == '♦'
 }
 
+// ---- 【失去花色】〔2026-11-02 · 【漂白】〕：花色是空串 '' ----
+//
+// 没有花色也就**没有颜色** —— 而 isRedSuit('') 是 false，直接拿两个 isRedSuit 比的话
+// 无花色会被当成黑色。所以「同颜色」一律走 sameColor，别再写 isRedSuit(a) == isRedSuit(b)。
+// 两张无花色的牌也**不**算同花色 / 同颜色（它们是「没有」，不是「同一种」）。
+// 模拟器那边用的是每张一个不同的哨兵 '∅n' + isRedSuit 返回 NaN，语义相同
+export function hasSuit(suit : string) : boolean {
+  return suit != ''
+}
+
+export function sameColor(a : string, b : string) : boolean {
+  return a != '' && b != '' && isRedSuit(a) == isRedSuit(b)
+}
+
+// 牌面上花色那个位置印什么：无花色印 ∅
+export function suitFace(suit : string) : string {
+  return suit == '' ? '∅' : suit
+}
+
 export function isSpecial(card : Card) : boolean {
   return card.stickerKey != S_NONE
 }
