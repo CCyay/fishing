@@ -674,6 +674,9 @@ export const ZERO_CARD_PRICE : number = 40
 export const BLANK_CARD_PRICE : number = 50
 // 货架摆牌时，几张里出一张零点 / 无点数牌（1/N，两种各半）
 export const SPECIAL_CARD_ODDS : number = 8
+// 货架（技能 · 卡牌 · 点数那一栏）每一格摆**牌**的概率〔2026-11-02 用户定 0.2〕。
+// 原先的配比是技能 1/3、点数卡 1/6、牌 1/2；同日点数卡下架，剩下的 0.8 全是技能
+export const SHOP_CARD_P : number = 0.2
 // 牌组里一个点数到了这么多张，商店就不再卖这个点数（见 draw-save 的 rollShopCard）。
 // 标准牌组每个点数 4 张，这儿是它的两倍
 export const RANK_SELL_CAP : number = 8
@@ -709,6 +712,8 @@ export const RANK_SELL_CAP : number = 8
 // 自己的牌明显常见了，可另一半照常是行情，刷新、买别的点数仍然是个选项。
 // 定 3 的话江口闸官会到 57%、镜湖占卜师 63%，货架基本只剩自己那几个点数，
 // 「这一店有什么」就不成其为问题了
+// 〔2026-11-02 起**不用了**：商店改成只卖能触发角色槽的牌（见 draw-save 的 rollShopCard），
+//   加权变成了过滤。常量留着当这段论证的落脚处〕
 export const SLOT_CARD_WEIGHT : number = 2
 
 // 原先这儿还有个 RANK_BONUS（加权加几格点数槽）。
@@ -953,8 +958,11 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
     desc: '庄家起手和手牌上限都 +1 张' } as FoeSpecial,
   { key: 'silt', name: '淤滩',
     desc: '开局庄家先从牌库顶往堆上垫 3 张，都置 0' } as FoeSpecial,
+  // 〔2026-11-02 desc「你每回合只补到 3 张」→「你的手牌上限 −1」（用户定）：
+  //   实现一直是 HAND_SIZE − 1（ap-fishing 的 handLimitOf，跟窄口同一个减法），
+  //   照 11-01 窄口那次改成相对写法 —— 满篓 / 涨落叠上来时「3 张」那个数就不对了〕
   { key: 'pinch', name: '掐口',
-    desc: '你每回合只补到 3 张' } as FoeSpecial,
+    desc: '你的手牌上限 −1' } as FoeSpecial,
   // 枯水：跟掐口是**同一条轴的两头** —— 掐口削「补到几张」（上限），
   // 枯水削「什么时候补」（频率）。两条能叠，叠起来相当难受，
   // 所以别放同一关（一关只有一条规矩，见文件头那段）。
@@ -1341,7 +1349,7 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 死水 40.1%、摘钩 40.4% 都偏难。主题不变 —— 还是砍你手里那几张
       // 〔2026-10-29 调难度〕压舱 2 个标签 → 1 个
       { skill: SK_PRESS, count: 1, suit: false } as FoeSlot
-    ], desc: '礁石底下的。你每回合只补到三张，而它还会把你一张好牌塞回牌库' } as FoeRole,
+    ], desc: '礁石底下的。你的手牌上限少一张，而它还会把你一张好牌塞回牌库' } as FoeRole,
   { name: '潮眼引水人', specials: ['drift'], slots: [
       // 两个槽、12 张。观潮管两个点数，磁钩管一个
       { skill: SK_TIDE, count: 2, suit: false } as FoeSlot,

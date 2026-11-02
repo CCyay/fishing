@@ -110,11 +110,11 @@
         </view>
       </view>
 
-      <!-- 技能、卡牌、点数卡**混在同一栏** —— 三样是同一件事的三种形态：
+      <!-- 技能、卡牌**混在同一栏**〔点数卡 2026-11-02 下架〕—— 同一件事的两种形态：
            都是「花钱添一样东西进这一轮」。上面那一栏管的是「改手头已有的」。
            这一排刷得动（道具是机会，这儿是行情） -->
       <view class="shelf-head">
-        <text class="section">技能 · 卡牌 · 点数</text>
+        <text class="section">技能 · 卡牌</text>
         <text id="md-reroll" class="reroll" @click="doReroll">换一批 {{ rerollPrice }}</text>
       </view>
       <!-- 原先这儿写「技能名额满了，想换先卖掉一个」。名额没了，

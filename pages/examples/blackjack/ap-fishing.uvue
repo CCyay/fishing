@@ -93,7 +93,7 @@
             :key="'fbz-' + index"
             class="card card-small card-board">
             <view class="card-head card-head-small">
-              <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
+              <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card), 'card-suit-dia': card.suit == '♦' }">{{ suitFace(card.suit) }}</text>
               <text class="card-rank card-rank-small card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
             </view>
             <view class="card-tags">
@@ -121,7 +121,7 @@
           <!-- 翻开的牌跟你的手牌同一套版式〔2026-10-24〕：
                上半部花色放大当底、点数白字描边叠在中间，下半部标签行 -->
           <view v-if="foeOpen(index)" class="card-head card-head-small">
-            <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
+            <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card), 'card-suit-dia': card.suit == '♦' }">{{ suitFace(card.suit) }}</text>
             <text class="card-rank card-rank-small card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
           </view>
           <!-- 冻 / 废**盖着的牌也印**（冻结挑的是位置，你锁的那张多半盖着） -->
@@ -141,7 +141,7 @@
          张数在顶栏（库 / 堆），所以这儿不要标题 ——
          牌堆是这一页最该占地方的东西，标题只会挤它 -->
     <view class="pile-area">
-      <scroll-view class="board sv-out">
+      <scroll-view class="board sv-out" :class="{ 'board-wrapped': pileWrapped }">
         <view class="board-row">
           <text v-if="pile.length == 0" class="dim-tip">空堆</text>
           <!-- 【凝水】/【净水】等着的时候，这一排点得动（`card-pickable` 描边）。
@@ -177,7 +177,8 @@
               class="card-suit card-suit-pile"
               :class="{
                 'card-red': pileRed(index) && !murked(index),
-                'card-shifted': pileRecolored(index) && !murked(index)
+                'card-shifted': pileRecolored(index) && !murked(index),
+                'card-suit-dia': pileSuitAt(index) == '♦' && !murked(index)
               }"
               >{{ murked(index) ? '' : suitFace(pileSuitAt(index)) }}</text
             >
@@ -303,10 +304,12 @@
       （`:scroll-top="logScroll"`，见 logToBottom）—— 不跟的话
       长播报一来，最新那条就落在视口下面，而那正是要看的那一条
     -->
-    <view v-if="playLog.length > 0" class="play-log" :class="{ 'play-log-slim': pileWrapped }">
+    <!-- 还没出过牌：占同样的位置但什么都不画 —— 出牌记录现在是 flex: 1 吃掉剩下的高度，
+         不占位的话第一手打出去时手牌那一排会从上面「掉」到底下〔2026-11-02〕 -->
+    <view v-if="playLog.length == 0" class="play-log-spacer"></view>
+    <view v-if="playLog.length > 0" class="play-log">
       <scroll-view
         class="play-scroll sv-out"
-        :class="{ 'play-scroll-slim': pileWrapped }"
         direction="vertical"
         :scroll-top="logScroll">
         <!-- 渐暗做在**行上**（opacity），不是给每个 text 换 color ——
@@ -833,7 +836,7 @@
               }"
               @click="onPlayBoard(index)">
               <view class="card-head card-head-hand">
-                <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
+                <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card), 'card-suit-dia': card.suit == '♦' }">{{ suitFace(card.suit) }}</text>
                 <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
               </view>
               <view class="card-tags">
@@ -856,7 +859,7 @@
             }"
             @click="onPlay(index)">
             <view class="card-head card-head-hand">
-              <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card) }">{{ suitFace(card.suit) }}</text>
+              <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card), 'card-suit-dia': card.suit == '♦' }">{{ suitFace(card.suit) }}</text>
               <!-- 被【死水】废掉的印 0、描橙黄（「跟牌面对不上」那个色），不再印原点数 -->
               <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
             </view>
@@ -949,7 +952,7 @@
         <!-- 跟牌堆 / 手牌同一套版式〔2026-10-24〕：花色放大当底，点数白字描边叠在中间。
              它没有标签，所以整张牌就是那个「头」 -->
         <view class="card-head card-head-cut">
-          <text class="card-suit cut-suit" :class="{ 'card-red': cutRed }">{{ cutSuit }}</text>
+          <text class="card-suit cut-suit" :class="{ 'card-red': cutRed, 'card-suit-dia': cutSuit == '♦' }">{{ cutSuit }}</text>
           <text class="card-rank cut-rank card-rank-over" :class="{ 'card-red': cutRed }">{{ cutFace }}</text>
         </view>
       </view>
@@ -974,18 +977,19 @@
     <!-- 庄家**第一次**用某件技能：把它要打的那张放大、印上技能说明，
          **等你点一下才接着走**（用户定 2026-11-02）。每件技能每局只弹一次 -->
     <view v-if="showcaseOn" id="ap-showcase" class="mask" @click="onShowcase">
-      <view class="sc-box">
-        <text class="sc-title">庄家第一次用这件技能</text>
-        <view class="sc-card">
-          <text class="sc-suit" :class="{ 'sc-red': showcaseRed }">{{ showcaseSuit }}</text>
-          <text class="sc-rank" :class="{ 'sc-red': showcaseRed }">{{ showcaseRank }}</text>
+      <!-- 跟手牌同一套版式（花色放大当底、点数白字叠在中间），放大到能读；
+           技能名和说明**印在牌上**，下半部那一块〔2026-11-02 用户定〕 -->
+      <view class="sc-card">
+        <view class="card-head sc-head">
+          <text class="card-suit sc-suit" :class="{ 'card-red': showcaseRed, 'card-suit-dia': showcaseSuit == '♦' }">{{ showcaseSuit }}</text>
+          <text class="card-rank card-rank-over sc-rank" :class="{ 'card-red': showcaseRed }">{{ showcaseRank }}</text>
         </view>
         <view v-for="(name, si) in showcaseNames" :key="'sc-' + si" class="sc-skill">
           <text class="sc-name">{{ name }}</text>
           <text class="sc-desc">{{ showcaseDescs[si] }}</text>
         </view>
-        <text class="sc-hint">点一下继续</text>
       </view>
+      <text class="sc-hint">点一下继续</text>
     </view>
 
     <view v-if="showLeft" class="mask" @click="showLeft = false">
@@ -1691,7 +1695,8 @@
   // 「这一轮来回发生了什么」。
   // ⚠ 加这个数要连着看高度：缩了那一档只有 44px（约两行），
   // 再多留几手就全靠翻 —— 条数和能一眼看到的行数是两件事
-  const PLAY_LOG_MAX : number = 3
+  // 〔2026-11-02 从 3 放到 30：记录那一块改成占满剩下的空间之后，3 条只填得满上面一截〕
+  const PLAY_LOG_MAX : number = 30
   // 滚动位置。单调加，见 logToBottom
   const logScroll = ref<number>(0)
   // 等「你打出 X。」那一句到场。见 logPlay 那段
@@ -1774,8 +1779,9 @@
 
   // ---------- 这一块多高：看牌堆换没换行 ----------
   //
-  // 平时给足（`.play-log`，三行长播报都放得下），而**牌堆一换行就缩**
-  // （`.play-log-slim`）〔2026-10-22 用户定〕。
+  // 〔2026-11-02 改〕现在是**牌堆**看它：换行了就放两排高（`.board-wrapped`），
+  // 出牌记录占满剩下的（flex: 1），自动跟着变矮 —— 不再有 `.play-log-slim` 那一档。
+  // 下面是 2026-10-22 那一版的原话：平时给足、牌堆一换行就缩〔用户定〕。
   //
   // 为什么要缩：`.pile-area` 是 `flex: 1`，剩下的竖向空间全归牌堆。
   // 堆排到第二行的时候，那一行要 82px（牌 76 + 缝 6），而这一块平时占 108 ——
@@ -17080,16 +17086,22 @@
     min-height: 48px;
   }
 
+  /* 〔2026-11-02 改〕牌堆**不再 flex: 1** —— 它原先吃掉所有剩下的高度，
+     而堆常年只有一排，下面那一大截是空的；出牌记录却被钉在 108px、只放 3 条。
+     现在反过来：牌堆按排数定高，剩下的全给出牌记录（.play-log 的 flex: 1） */
   .pile-area {
-    flex: 1;
     margin-top: 10px;
   }
 
   .board {
-    flex: 1;
     /* 一排牌（76）+ 下边距（6） */
-    min-height: 84px;
+    height: 84px;
     margin-top: 4px;
+  }
+
+  /* 牌堆换行了（出牌太多）：放两排的高度，再多就在里面滚 */
+  .board-wrapped {
+    height: 166px;
   }
 
   .board-row {
@@ -17491,9 +17503,13 @@
     line-height: 30px;
   }
 
+  /* 所有牌面上的花色**整体放大 1.15 倍**〔2026-11-02 用户提「花色图标都加大一点」〕。
+     用 scale 不改各处 font-size，理由同 .card-suit-dia：一个比例管住牌堆 / 手牌 / 庄家那排 /
+     切牌 / 放大那张，而且行高不动，叠在上面的点数位置不变 */
   .card-suit {
     color: #222222;
     font-size: 16px;
+    transform: scale(1.15);
   }
 
   /* 花色当底：牌堆 40px、手牌 32px、庄家那排 26px〔2026-10-24 再放大；
@@ -17516,6 +17532,19 @@
 
   .card-red {
     color: #d33b3b;
+  }
+
+  /* ♦ 这个字形在同一字号下比 ♠♥♣ 小一圈（菱形只占字框中间那一块），
+     所以单独放大，跟另外三门看着一样大〔2026-11-02 用户提〕。
+     用 scale 不改 font-size：各处字号（牌堆 / 手牌 / 庄家那排 / 切牌 / 放大那张）不一样，
+     一个比例全管住，而且不动行高、不挤开叠在上面的点数 */
+  /* 1.4 ≈ 1.2（补 ♦ 字形小一圈）× 1.15（全体花色那一档）。
+     这条盖掉 .card-suit 的 transform（同一个属性后写的赢），所以要乘进来。
+     〔2026-11-02：1.5 那一版下边被裁了 —— ♦ 在字框里偏下，放大是从中心往外撑，
+       底边先撞到花色那一块的下沿（card-head 定高）。所以倍数收一点，再整体往上挪 6%
+       （按自身高度算，各处字号一个比例管住）〕 */
+  .card-suit-dia {
+    transform: translateY(-6%) scale(1.4);
   }
 
   /* 叠在花色上的点数：白字 + 深色描边，绝对定位盖在花色正中间。
@@ -17887,8 +17916,14 @@
 
      108px ≈ 六行 11px 小字（行高约 16）+ 上下各 4 的内边距 ——
      三条记录、每条两行，是常见的那个长度〔2026-10-22 从 62 加大〕 */
+  /* 〔2026-11-02〕高度不再写死成 108px：**占满牌堆下面剩下的空间**（flex: 1）。
+     原先写死是怕播报一长一短把牌桌顶得上下跳 —— 现在高度由外面的空间定、
+     不由内容定，内容长短照旧由里面的滚条兜，所以跳的问题不会回来。
+     min-height 兜住小屏：至少放得下两三行 */
   .play-log {
-    height: 108px;
+    flex: 1;
+    min-height: 60px;
+    position: relative;
     margin-top: 6px;
     padding-top: 4px;
     padding-bottom: 4px;
@@ -17901,32 +17936,24 @@
     border-left-color: #2f6b4f;
   }
 
-  /* 牌堆换行了（出牌太多）就缩到这一档，让出 64px 给牌堆 —— 理由写在
-     脚本那边 pileWrapped 上面。牌堆不换行了自己变回去。
-     44 ≈ 两行小字：**最新那条照旧看得见**（滚条自动跟到底），
-     往前那几手要翻一下
-
-     ⚠ 排在 `.play-log` **后面**，靠的是「同权重后来居上」——
-     uvue 的 App 端不支持后代选择器，所以这一族全是单类加覆盖，
-     顺序就是优先级（同一条惯例在 .card-rank-over 那儿写着）。
-     **别把这两条的先后调过来** */
-  .play-log-slim {
-    height: 44px;
-  }
-
-  /* flex 和 height 都写 —— 照 .field-scroll 那条：
-     uvue 的 scroll-view 只给 flex 不一定撑得起来。
-     100 = 外面那块 108 − 上下各 4 的内边距 */
-  .play-scroll {
+  .play-log-spacer {
     flex: 1;
-    height: 100px;
+    min-height: 60px;
+    margin-top: 6px;
   }
 
-  /* 缩了那一档的里层。**两层都要换** —— 只缩外面那块，里面这个
-     写死的 100px 会从底下顶出去（scroll-view 自己不跟着外层缩）。
-     36 = 44 − 上下各 4 */
-  .play-scroll-slim {
-    height: 36px;
+  /* 〔play-log-slim / play-scroll-slim 2026-11-02 删了：牌堆换行时让高度的事
+     改由牌堆自己（.board-wrapped）+ 这一块的 flex: 1 自动完成〕 */
+
+  /* 里层**绝对定位贴满外面那块**（四边留出内边距）：uvue 的 scroll-view
+     只给 flex 不一定撑得起来（照 .field-scroll 那条），而外层高度现在是 flex 算出来的、
+     不是写死的数 —— top / bottom 都钉住，高度就是确定的 */
+  .play-scroll {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 6px;
+    right: 6px;
   }
 
   /* 一行 = 一手。左边「你 / 庄」+ 牌名，右边正文。
@@ -18109,56 +18136,45 @@
     font-weight: bold;
   }
 
-  /* ---------- 庄家第一次用技能：放大那张牌 + 技能说明 ---------- */
-  .sc-box {
-    width: 270px;
-    padding: 16px;
-    border-radius: 12px;
-    background-color: #fffaf0;
-    align-items: center;
-  }
-  .sc-title {
-    font-size: 14px;
-    font-weight: bold;
-    color: #8a5a00;
-    margin-bottom: 12px;
-  }
-  /* 牌的尺寸是牌堆那张（54x76）的两倍上下，一眼看清是哪一张 */
+  /* ---------- 庄家第一次用技能：放大那张牌，技能印在牌上 ---------- */
+  /* 牌面照 .card / .card-hand（米白底、浅描边、阴影），尺寸放大到 200 宽；
+     不直接套 .card —— 它把高度钉死在 64px，而这张要随说明长短长高 */
   .sc-card {
-    width: 104px;
-    height: 146px;
-    border-radius: 10px;
-    border-width: 2px;
+    width: 200px;
+    padding: 8px 12px 14px 12px;
+    border-radius: 14px;
+    border-width: 3px;
     border-style: solid;
-    border-color: #d4a017;
-    background-color: #ffffff;
+    border-color: #e9e1cf;
+    background-color: #fffdf7;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
     align-items: center;
-    justify-content: center;
-    margin-bottom: 12px;
+  }
+  /* 上半部：手牌那一块（34px 高、花色 32px）照比例放大 */
+  .sc-head {
+    height: 120px;
   }
   .sc-suit {
-    font-size: 56px;
-    color: #263238;
+    font-size: 112px;
+    line-height: 120px;
   }
   .sc-rank {
-    font-size: 36px;
-    font-weight: bold;
-    color: #263238;
+    font-size: 56px;
+    line-height: 120px;
   }
-  .sc-red {
-    color: #c62828;
-  }
+  /* 下半部：技能名用手牌上那个技能字的蓝（.card-skill），说明接在下面 */
   .sc-skill {
-    width: 238px;
-    padding: 8px;
-    margin-top: 6px;
-    border-radius: 8px;
-    background-color: #fff1d0;
+    width: 176px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top-width: 1px;
+    border-top-style: solid;
+    border-top-color: #e9e1cf;
   }
   .sc-name {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: bold;
-    color: #b85c00;
+    color: #1565c0;
   }
   .sc-desc {
     font-size: 13px;
@@ -18166,9 +18182,9 @@
     margin-top: 4px;
   }
   .sc-hint {
-    font-size: 12px;
-    color: #999999;
-    margin-top: 12px;
+    font-size: 13px;
+    color: #ffffff;
+    margin-top: 14px;
   }
 
   .mask {
