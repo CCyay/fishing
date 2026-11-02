@@ -6330,16 +6330,16 @@ export function isSuitSlot(label : string) : boolean {
 // 唯一能横着比的就是它）
 // ---------- 简易角色（终局对决 / 实战对决的简易模式，2026-10-25）----------
 //
-// **没有常驻特殊技、只有一个点数槽**。它**不进 DRAW_ROLES** —— 进了的话闯关选角色、
+// **没有常驻特殊技、只有一个槽**。〔2026-11-02 用户定：原先是随机发一个点数槽，
+// 改成**一方黑桃槽、一方红心槽**（你 / 第 1 位 ♠，庄家 / 第 2 位 ♥）〕它**不进 DRAW_ROLES** —— 进了的话闯关选角色、
 // 角色图鉴、模拟器那几张表全会冒出它，每处都得特意滤掉。
-// 改成「虚拟下标」：SIMPLE_BASE + 点数在 SIMPLE_RANKS 里的位置。界面上读角色一律走
+// 改成「虚拟下标」：SIMPLE_BASE + 槽在 SIMPLE_SLOTS 里的位置。界面上读角色一律走
 // roleOf，它对这一段下标现做一个 DrawRole 出来；kitFromRole 遇到它不挂角色（role = -1）。
-// 点数里没有 J —— J 不触发任何技能，印 J 的槽是空的
 export const SIMPLE_BASE : number = 1000
-export const SIMPLE_RANKS : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
+export const SIMPLE_SLOTS : string[] = ['♠', '♥']
 
 export function isSimpleRole(role : number) : boolean {
-  return role >= SIMPLE_BASE && role < SIMPLE_BASE + SIMPLE_RANKS.length
+  return role >= SIMPLE_BASE && role < SIMPLE_BASE + SIMPLE_SLOTS.length
 }
 
 // 这个下标是一张角色卡吗（真的或简易的）
@@ -6351,16 +6351,16 @@ export function roleOf(role : number) : DrawRole {
   if (isSimpleRole(role)) {
     return {
       key: 'simple', name: '简易', special: '',
-      slots: [SIMPLE_RANKS[role - SIMPLE_BASE]],
-      desc: '没有常驻特殊技，只有一个点数槽'
+      slots: [SIMPLE_SLOTS[role - SIMPLE_BASE]],
+      desc: '没有常驻特殊技，只有一个花色槽'
     } as DrawRole
   }
   return DRAW_ROLES[role]
 }
 
-// 随机一个简易角色（点数随机）
-export function rollSimpleRole() : number {
-  return SIMPLE_BASE + Math.floor(Math.random() * SIMPLE_RANKS.length)
+// 第 side 位的简易角色：0 = 黑桃槽（你 / 实战第 1 位），1 = 红心槽（庄家 / 实战第 2 位）
+export function simpleRoleFor(side : number) : number {
+  return SIMPLE_BASE + (side == 0 ? 0 : 1)
 }
 
 // 全部技能里随机挑一件（简易模式下庄家没被配技能时用）
@@ -6572,12 +6572,21 @@ export function roleIndexOf(key : string) : number {
 //   长度从 12 掉到 11，`refs.js` 的长度检查会盯住它跟 DRAW_ROLES 对齐〕
 //
 // 〔2026-10-29 加第 12 格：【流钥客】，门槛 9 —— 补镜湖那一档「只剩一个」〕
-export const ROLE_UNLOCK : number[] = [0, 0, 6, 9, 99, 99, 99, 99, 99, 99, 99, 9]
+//
+// 〔2026-11-02 补第 13 格：【布饵人】，门槛 99 —— 11-01 上架时漏补了（它那块注释写着「解锁：99（通关一次）」）。
+//   漏补的后果正是上面写的那条：越界 → 永远锁着；而选角界面读 ROLE_UNLOCK[ri] 报门槛，
+//   越界读出 undefined，于是印成「打到第 undefined 关才解锁」〕
+// 〔同日用户定：布饵人改成**成就解锁** ——「闯关里打出【收零】并成功收牌」，门槛写 ROLE_UNLOCK_ZERO。
+//   记在存档旁边一个单独的键上（draw-save 的 zeroTrapOpen，照新手引导那个键），输了重开也不丢〕
+export const ROLE_UNLOCK : number[] = [0, 0, 6, 9, 99, 99, 99, 99, 99, 99, 99, 9, 98]
 // 通关一次才解锁的那两个，门槛写成这个数（关卡总共 12 关，所以 99 等于「得通关」）
 export const ROLE_UNLOCK_CLEAR : number = 99
+// 「闯关里打出【收零】并成功收牌」才解锁（布饵人）
+export const ROLE_UNLOCK_ZERO : number = 98
 
 // 这个角色解锁了吗。best 是最远纪录，cleared 是通关过没有
-export function roleUnlocked(index : number, best : number, cleared : boolean) : boolean {
+// zeroDone：这个存档在闯关里用【收零】收到过牌没有（见 ROLE_UNLOCK_ZERO）
+export function roleUnlocked(index : number, best : number, cleared : boolean, zeroDone : boolean) : boolean {
   // 两个长度都要查 —— ROLE_UNLOCK 是平行数组，漏加一格的话
   // 这儿读到的是 undefined，而拿它跟 best 比大小在 UTS 里不会报错，
   // 只会让那个角色的门槛变成一个说不清的值。锁着比那个好
@@ -6587,6 +6596,9 @@ export function roleUnlocked(index : number, best : number, cleared : boolean) :
   const need = ROLE_UNLOCK[index]
   if (need == ROLE_UNLOCK_CLEAR) {
     return cleared
+  }
+  if (need == ROLE_UNLOCK_ZERO) {
+    return zeroDone
   }
   return best >= need
 }

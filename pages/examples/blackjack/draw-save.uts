@@ -680,6 +680,7 @@ export function writeDrawAt(index : number, data : DrawSave) {
 export function clearDrawAt(index : number) {
   uni.removeStorageSync(KEY_PREFIX + index)
   uni.removeStorageSync(KEY_GUIDE + index)
+  uni.removeStorageSync(KEY_ZERO + index)
   uni.removeStorageSync(KEY_DIFF + index)
 }
 
@@ -718,6 +719,20 @@ export function shopGuided(index : number) : boolean {
 
 export function setShopGuided(index : number) {
   uni.setStorageSync(KEY_GUIDE + index, '1')
+}
+
+// ---------- 布饵人的解锁：闯关里打出【收零】并成功收牌〔2026-11-02〕----------
+//
+// 跟新手引导同一个路子：单独一个键，不塞进存档那一串（那一串带版本号，改格式要迁移）。
+// 它是成就、跨轮的（跟 best 同一层），输了重开不丢；删档（clearDrawAt）时一起清
+const KEY_ZERO : string = 'md_zero_'
+
+export function zeroTrapOpen(index : number) : boolean {
+  return readString(KEY_ZERO + index) == '1'
+}
+
+export function setZeroTrapOpen(index : number) {
+  uni.setStorageSync(KEY_ZERO + index, '1')
 }
 
 export function drawSaveSlot() : number {

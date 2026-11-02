@@ -152,7 +152,7 @@
           <view id="md-custom" class="card-btn" @click="openFinalRole">
             <text class="card-btn-text">自定义技能</text>
           </view>
-          <!-- 简易模式：双方都没有常驻特殊技、只有一个点数槽（点数随机），技能从全部里挑 -->
+          <!-- 简易模式：双方都没有常驻特殊技、只有一个花色槽（你黑桃、庄家红心），技能从全部里挑 -->
           <view id="md-final-simple" class="card-btn" @click="openFinalSimple">
             <text class="card-btn-text">简易模式</text>
           </view>
@@ -173,7 +173,7 @@
           <view id="md-duel-go" class="card-btn card-btn-main" @click="openDuel">
             <text class="card-btn-text card-btn-text-dark">{{ duelRoles.length == 0 ? '发两套' : '接着配' }}</text>
           </view>
-          <!-- 简易模式：各发一个随机点数槽、没有特殊技，技能从全部里挑。每次都重新发 -->
+          <!-- 简易模式：第 1 位黑桃槽、第 2 位红心槽，没有特殊技，技能从全部里挑 -->
           <view id="md-duel-simple" class="card-btn" @click="openDuelSimple">
             <text class="card-btn-text">简易模式</text>
           </view>
@@ -230,18 +230,21 @@
             @click="tapRole(ri)">
             <view class="my-skill-head">
               <text class="my-skill-name">{{ role.name }}</text>
-              <text class="my-skill-key">{{ specialNameOf(ri) }}</text>
+              <text v-if="roleOpen(ri)" class="my-skill-key">{{ specialNameOf(ri) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-cover">{{ roleOpen(ri) ? '' + roleCover(ri) + ' 张' : roleLock(ri) }}</text>
+              <text v-if="roleOpen(ri)" class="my-skill-cover">{{ '' + roleCover(ri) + ' 张' }}</text>
             </view>
-            <text class="my-skill-level">槽：{{ slotsText(ri) }}</text>
-            <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
+            <!-- 锁着的角色**不报槽位和常驻技**，只报解锁条件（用户定 2026-11-02）——
+                 解锁本身就是揭晓，提前把底牌摊开就没东西可等了 -->
+            <text v-if="roleOpen(ri)" class="my-skill-level">槽：{{ slotsText(ri) }}</text>
+            <text v-if="roleOpen(ri)" class="my-skill-desc">{{ specialDescOf(ri) }}</text>
+            <text v-else class="my-skill-desc">{{ roleLock(ri) }}</text>
           </view>
         </scroll-view>
 
         <!-- 第二步：那几个槽。点一个槽进技能列表 -->
         <scroll-view v-else-if="slotPick < 0" class="skill-box-body sv-out" direction="vertical">
-          <text class="skill-box-empty">{{ isSimpleRole(roleAt) ? '简易模式：没有常驻特殊技，只有这一个点数槽（点数是随机发的）' : specialNameOf(roleAt) + '（常驻）：' + specialDescOf(roleAt) }}</text>
+          <text class="skill-box-empty">{{ isSimpleRole(roleAt) ? '简易模式：没有常驻特殊技，只有这一个花色槽（你黑桃、庄家红心）' : specialNameOf(roleAt) + '（常驻）：' + specialDescOf(roleAt) }}</text>
           <!-- 终局自己的难度，**跟闯关那档分开记**（不写存档）——
                终局是不记账的沙盒：你可能想用简单试一套配装、
                再用困难拿同一套挑战。绑死在闯关那档上就没法分开玩了 -->
@@ -280,6 +283,14 @@
         <!-- 第三步：给这个槽挑技能 -->
         <scroll-view v-else class="skill-box-body sv-out" direction="vertical">
           <text class="skill-box-empty">嵌进 {{ slotLabelText(roleOf(roleAt).slots[slotPick]) }} 槽（已嵌的会被换掉）</text>
+          <!-- 随机一件〔2026-11-02 用户加〕：当场从能嵌的里摇一件嵌上（跳过已嵌在别的槽的），
+               嵌完回到槽位那一步，看得见摇到了什么；不满意再点这个槽重摇 -->
+          <view id="md-pickskill-random" class="my-skill" @click="embedRandom">
+            <view class="my-skill-head">
+              <text class="my-skill-name">随机</text>
+            </view>
+            <text class="my-skill-desc">从全部技能里随机嵌一件</text>
+          </view>
           <!-- 列的是 PICK_SKILLS（排掉角色专属技能），id / key 照旧用技能下标 -->
           <view
             v-for="k in PICK_SKILLS"
@@ -642,7 +653,7 @@
     DRAW_ROLES,
     roleOf,
     isSimpleRole,
-    rollSimpleRole,
+    simpleRoleFor,
     SPECIAL_SKILLS,
     specialIndexOf,
     isSuitSlot,
@@ -654,6 +665,7 @@
     roleUnlocked,
     ROLE_UNLOCK,
     ROLE_UNLOCK_CLEAR,
+    ROLE_UNLOCK_ZERO,
     // 实战对决摇技能池用（48 件里取 8 件不重复）
     rollSpots,
     // 角色专属技能（布饵人的空钩）：挑技能列表 / 实战技能池排掉它；固定槽不许换
@@ -682,6 +694,7 @@
     clearDrawAt,
     newDrawSave,
     drawSaveSlot,
+    zeroTrapOpen,
     setDrawSaveSlot,
     saveDraw,
     resetDrawRun,
@@ -1089,7 +1102,7 @@
     if (roleMode.value != 'run') {
       return true
     }
-    return roleUnlocked(ri, save.value.best, save.value.best >= DRAW_RUN_LENGTH)
+    return roleUnlocked(ri, save.value.best, save.value.best >= DRAW_RUN_LENGTH, zeroTrapOpen(slotIndex.value))
   }
 
   // 锁着的角色报门槛。报得出具体数字才叫目标，「未解锁」只是一堵墙
@@ -1098,6 +1111,9 @@
       return ''
     }
     const need = ROLE_UNLOCK[ri]
+    if (need == ROLE_UNLOCK_ZERO) {
+      return '闯关里打出【收零】并成功收牌才解锁'
+    }
     return need == ROLE_UNLOCK_CLEAR
       ? '通关一次才解锁'
       : '打到第 ' + need + ' 关才解锁'
@@ -1190,6 +1206,23 @@
     slotPick.value = -1
   }
 
+  // 「随机」那一行：从 PICK_SKILLS 里排掉已嵌在别的槽的，摇一件走 embed
+  function embedRandom() {
+    if (slotPick.value < 0) {
+      return
+    }
+    const pool : number[] = []
+    for (let i = 0; i < PICK_SKILLS.length; i++) {
+      if (!usedElsewhere(PICK_SKILLS[i])) {
+        pool.push(PICK_SKILLS[i])
+      }
+    }
+    if (pool.length == 0) {
+      return
+    }
+    embed(pool[Math.floor(Math.random() * pool.length)])
+  }
+
   function clearSlot() {
     if (slotPick.value < 0 || roleFixedSkill(roleAt.value, slotPick.value) >= 0) {
       return
@@ -1278,6 +1311,18 @@
   //
   // 奖励倍率那条在这儿不生效 —— 终局不发金币（它一个字都不写存档）
   const finalDiffNote = computed<string>(() : string => {
+    // 简易模式〔2026-11-02 调整〕：双方的槽是定死的（你黑桃、庄家红心，各一格），
+    // 所以「嵌一半的槽」「专摇覆盖面最大的角色」那两句都不成立 —— 难度只剩出牌方式这一件
+    // 只在配装面板开着时认（菜单页那张卡上也印这一句，而关掉面板后 roleAt 还留着上次的简易角色）
+    if (showCustom.value && (isSimpleRole(roleAt.value) || isSimpleRole(parkedRole.value))) {
+      if (finalDiff.value == DIFF_EASY) {
+        return '庄家随手出牌。它的红心槽你不配的话，随机嵌一件技能'
+      }
+      if (finalDiff.value == DIFF_HARD) {
+        return '庄家记牌出牌。简易模式双方的槽固定，困难跟普通打起来一样'
+      }
+      return '庄家记牌出牌。它的红心槽你不配的话，随机嵌一件技能'
+    }
     if (finalDiff.value == DIFF_EASY) {
       return '庄家随手出牌，而且只嵌一半的槽'
     }
@@ -1426,14 +1471,14 @@
     showCustom.value = true
   }
 
-  // 终局的简易模式：你和庄家**各发一个随机点数槽**、没有常驻特殊技，
+  // 终局的简易模式：**你一个黑桃槽、庄家一个红心槽**〔2026-11-02，原先各发一个随机点数槽〕、没有常驻特殊技，
   // 直接进「看槽」那一步（没有选角色这一步）。庄家那一边照样能切过去配，不配就随机一件
   function openFinalSimple() {
     roleMode.value = 'final'
     customSide.value = 'me'
-    roleAt.value = rollSimpleRole()
+    roleAt.value = simpleRoleFor(0)
     slotSkills.value = [-1]
-    parkedRole.value = rollSimpleRole()
+    parkedRole.value = simpleRoleFor(1)
     parkedSlots.value = [-1]
     slotPick.value = -1
     showCustom.value = true
@@ -1458,7 +1503,7 @@
   function sideRoleName(side : string) : string {
     const ri = customSide.value == side ? roleAt.value : parkedRole.value
     if (isSimpleRole(ri)) {
-      return '点数槽 ' + roleOf(ri).slots[0]
+      return '花色槽 ' + roleOf(ri).slots[0]
     }
     if (ri >= 0) {
       return roleOf(ri).name
@@ -1612,7 +1657,7 @@
 
   // 下面这几个都按「当前这个人」取 —— 模板里到处写
   // duelSlots[duelSide] 会又长又容易错
-  // 实战对决的简易模式：**每次都重新发** —— 两人各一个随机点数槽，
+  // 实战对决的简易模式：第 1 位黑桃槽、第 2 位红心槽〔2026-11-02，原先各一个随机点数槽〕，
   // 技能池是全部技能（用户定：简易模式都从全部技能里挑）
   function openDuelSimple() {
     const roles : number[] = []
@@ -1621,7 +1666,7 @@
     // 全部技能 = 排掉角色专属的那些
     const all : number[] = PICK_SKILLS.slice(0)
     for (let s = 0; s < DUEL_SIDES; s++) {
-      roles.push(rollSimpleRole())
+      roles.push(simpleRoleFor(s))
       pools.push(all)
       slots.push([-1])
     }

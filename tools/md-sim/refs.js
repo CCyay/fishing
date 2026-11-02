@@ -1063,6 +1063,19 @@ function checkShape() {
         + '（删霜降那次就是，后果是技能图鉴多一行「null 金币」+ 查询整个废掉）')
     }
   })
+  // ---- 平行数组 ROLE_UNLOCK 跟 DRAW_ROLES 等长〔2026-11-02 补〕----
+  // draw-skills.uts 那段注释一直写着「refs.js 的长度检查会盯住它」，**而这项检查从来不存在** ——
+  // 布饵人 11-01 上架时漏补了一格，选角界面印成「打到第 undefined 关才解锁」才被发现
+  const text = stripComments(read(path.join(GAME, 'draw-skills.uts')))
+  const ra = text.indexOf('export const DRAW_ROLES')
+  const rseg = ra < 0 ? '' : text.slice(ra, text.indexOf('\n]', ra))
+  const roles = (rseg.match(/\bkey:/g) || []).length
+  const um = text.match(/export const ROLE_UNLOCK\s*:\s*number\[\]\s*=\s*\[([^\]]*)\]/)
+  const unlocks = um ? um[1].split(',').filter(function (x) { return x.trim() !== '' }).length : -1
+  if (roles !== unlocks) {
+    fail('draw-skills.uts', 'DRAW_ROLES 有 ' + roles + ' 个角色，ROLE_UNLOCK 有 ' + unlocks + ' 格',
+      '平行数组按下标对齐 —— 漏补的那个角色永远锁着，选角界面印「打到第 undefined 关」')
+  }
 }
 
 function main() {

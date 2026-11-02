@@ -1369,6 +1369,8 @@
     loadDrawSave,
     saveDraw,
     drawSaveSlot,
+    zeroTrapOpen,
+    setZeroTrapOpen,
     difficultyOf,
     settleWin,
     resetDrawRun,
@@ -10526,6 +10528,11 @@
     }
     const taken = harvestIndices(wanted)
     message.value = message.value + who + '收走 ' + taken.length + ' 张 0 点牌。'
+    // 布饵人的解锁条件：**闯关里你自己**打出【收零】并收到牌（终局不记账，所以不算）
+    if (!byFoe && !finalMode && !zeroTrapOpen(drawSaveSlot())) {
+      setZeroTrapOpen(drawSaveSlot())
+      message.value = message.value + ' 解锁了新角色【布饵人】！'
+    }
     return startSweep(byFoe, taken, skills, TAIL_CAST)
   }
 
