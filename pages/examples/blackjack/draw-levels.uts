@@ -957,7 +957,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   { key: 'hand', name: '添手',
     desc: '庄家起手和手牌上限都 +1 张' } as FoeSpecial,
   { key: 'silt', name: '淤滩',
-    desc: '开局庄家先从牌库顶往堆上垫 3 张，都置 0' } as FoeSpecial,
+    desc: '开局庄家先从牌库顶往堆上垫 2 张，都置 0' } as FoeSpecial,
   // 〔2026-11-02 desc「你每回合只补到 3 张」→「你的手牌上限 −1」（用户定）：
   //   实现一直是 HAND_SIZE − 1（ap-fishing 的 handLimitOf，跟窄口同一个减法），
   //   照 11-01 窄口那次改成相对写法 —— 满篓 / 涨落叠上来时「3 张」那个数就不对了〕
@@ -1006,6 +1006,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
     desc: '庄家每次钓到牌之后，自动往堆上垫一张自己的手牌' } as FoeSpecial,
   { key: 'again', name: '再钩',
     desc: '庄家钓到牌时可以再打一张（一回合最多连两次）' } as FoeSpecial,
+  // ↑〔再钩 2026-11-02 起**没有载体**：深渊君主换成了逆钩 —— 它让双方出牌数对不齐〕
   { key: 'seal', name: '封竿',
     desc: '摇定一个点数：你打出这个点数的牌算 0 点' } as FoeSpecial,
   // ---- 下面两条**现在没有载体，所以也没有实现** ----
@@ -1331,7 +1332,7 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
   { name: '回漩摆渡人', specials: ['silt'], slots: [
       // 一个点数槽 = 4 张。磁钩是最基础那件，第一关有技能的庄家配它正好
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
-    ], desc: '水在这儿打转。开局堆上就压着三张死牌 —— 它教你 J 有多值' } as FoeRole,
+    ], desc: '水在这儿打转。开局堆上就压着两张死牌 —— 它教你 J 有多值' } as FoeRole,
   { name: '礁石海女', specials: ['pinch'], slots: [
       // ---- 压邻 → 冻结〔2026-10-14，压邻那一族全删了〕----
       //
@@ -1540,7 +1541,10 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       { skill: SK_ZERODRAFT, count: 1, suit: false } as FoeSlot,
       { skill: SK_CAST, count: 1, suit: false } as FoeSlot
     ], desc: '鲸落下去的地方。它封掉你一个点数 —— 而它自己也往堆上垫死牌，一路累加着捞、连着同奇偶捞，死牌一张都挡不住它' } as FoeRole,
-  { name: '深渊君主', specials: ['again'], slots: [
+  // 〔2026-11-02 规矩【再钩】→【逆钩】（用户定）：再钩让它一回合打两张，
+  //   双方出牌数对不齐，收摊那条「少的一方补一手」只补得了 1 张、补不平。
+  //   再钩从此没有载体（表里留着，见 FoeSpecial 那段）〕
+  { name: '深渊君主', specials: ['rev'], slots: [
       // ---- 主题：沉进深渊的死牌，都被它吃掉（2026-10-10 改） ----
       //
       // 原来是「顺色 + 掏库 + 磁钩」的全能套，四样各管各的，没有配合。
@@ -1637,7 +1641,7 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       { skill: SK_WILD, count: 1, suit: true } as FoeSlot,
       { skill: SK_HOOK, count: 1, suit: false } as FoeSlot,
       { skill: SK_SUITED, count: 1, suit: false } as FoeSlot
-    ], desc: '渊里的那个。它点着的牌会一路烧过去、钩得着差一点的牌、按花色整段捞 —— 而它钓到就接着打' } as FoeRole
+    ], desc: '渊里的那个。它点着的牌会一路烧过去、钩得着差一点的牌、按花色整段捞 —— 而你的 J 在这儿只掀得动堆顶 3 张' } as FoeRole
 ]
 
 // ---------- 角色素材池：六张，**还没挂到任何一关上** ----------

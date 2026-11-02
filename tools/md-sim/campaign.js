@@ -113,7 +113,8 @@ const FOE_ROLES = [
   { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false], ['cast', 1, false]] },
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
   // 〔2026-10-30 关底野火改进花色槽（照 draw-levels.uts）〕
-  { name: '深渊君主', specials: ['again'], slots: [['wild', 1, true], ['hook', 1, false], ['suited', 1, false]] }
+  // 2026-11-02 再钩 → 逆钩（照源码）。两条都不在 MODELED_SP 里，所以这一关的模拟数不变
+  { name: '深渊君主', specials: ['rev'], slots: [['wild', 1, true], ['hook', 1, false], ['suited', 1, false]] }
 ]
 const MODELED_SP = ['hand', 'pinch']
 // 〔2026-10-29 · 调难度用的量测开关〕`FOE_OVERRIDE`：按关号（1 起）覆盖庄家的技能槽，JSON。
