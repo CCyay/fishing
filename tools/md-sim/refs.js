@@ -1078,6 +1078,25 @@ function checkShape() {
   }
 }
 
+// ---------- 第九项的附带：ROLE_UNLOCK 跟 DRAW_ROLES 一样长〔2026-11-02 加〕----------
+//
+// draw-skills.uts 的注释两次说「refs.js 的长度检查会盯住它」，而这项检查**一直没有** ——
+// 于是 11-01 加【布饵人】时 ROLE_UNLOCK 少一格，闯关里它被 roleUnlocked 的越界闸永久锁死，不报错。
+function checkUnlockLength() {
+  const text = stripComments(read(path.join(GAME, 'draw-skills.uts')))
+  const at = text.indexOf('export const DRAW_ROLES')
+  const end = text.indexOf('\n]', at)
+  if (at < 0) { fail('draw-skills.uts', '找不到 DRAW_ROLES', '表改名了？'); return }
+  const roles = (text.slice(at, end).match(/\bkey: '/g) || []).length
+  const m = text.match(/export const ROLE_UNLOCK : number\[\] = \[([^\]]*)\]/)
+  if (!m) { fail('draw-skills.uts', '找不到 ROLE_UNLOCK', '表改名了？'); return }
+  const cells = m[1].split(',').filter(function (x) { return x.trim() !== '' }).length
+  if (cells !== roles) {
+    fail('draw-skills.uts', 'ROLE_UNLOCK 有 ' + cells + ' 格，DRAW_ROLES 有 ' + roles + ' 个角色',
+      '平行数组没对齐 —— 多出来的角色在闯关里**永久锁死、不报错**（roleUnlocked 越界返回 false）')
+  }
+}
+
 function main() {
   console.log('技能引用完整性检查 · 活着 ' + Object.keys(LIVE).length + ' 件'
     + ' / 已删登记 ' + Object.keys(DEAD).length + ' 件\n')
@@ -1090,6 +1109,7 @@ function main() {
   checkDeadConsts()
   checkCombos()
   checkShape()
+  checkUnlockLength()
 
   const simOnly = Object.keys(SIM_ONLY)
   if (simOnly.length > 0) {

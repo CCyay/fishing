@@ -221,15 +221,16 @@
              名字 + 特殊技 + 覆盖张数（锁着的换成门槛），下面是槽、特殊技效果 -->
         <scroll-view v-if="roleAt < 0" class="skill-box-body sv-out" direction="vertical">
           <text v-if="roleMode == 'final' && customSide == 'foe'" class="skill-box-empty">不选的话，庄家照难度随机满配（困难只摇覆盖面最大的角色、简单只嵌一半的槽）</text>
+          <!-- 可选的排前面、锁着的排后面（roleOrder，2026-11-02 用户定）。ri 照旧是 DRAW_ROLES 的真下标 -->
           <view
-            v-for="(role, ri) in DRAW_ROLES"
+            v-for="ri in roleOrder()"
             :key="'rl-' + ri"
             :id="'md-role-' + ri"
             class="my-skill"
             :class="{ 'my-skill-off': !roleOpen(ri) }"
             @click="tapRole(ri)">
             <view class="my-skill-head">
-              <text class="my-skill-name">{{ role.name }}</text>
+              <text class="my-skill-name">{{ DRAW_ROLES[ri].name }}</text>
               <text v-if="roleOpen(ri)" class="my-skill-key">{{ specialNameOf(ri) }}</text>
               <view class="my-skill-gap"></view>
               <text v-if="roleOpen(ri)" class="my-skill-cover">{{ '' + roleCover(ri) + ' 张' }}</text>
@@ -1103,6 +1104,27 @@
       return true
     }
     return roleUnlocked(ri, save.value.best, save.value.best >= DRAW_RUN_LENGTH, zeroTrapOpen(slotIndex.value))
+  }
+
+  // 选角列表的顺序〔2026-11-02 · 用户定「可选角色要放前面」〕：解锁了的按表序排前面，
+  // 锁着的排后面、按门槛从近到远（第 3 关 → 6 → 9 → 成就 → 通关）。
+  // 写成函数不写 computed：解锁看存档和成就键，跟 roleOpen 同一个口径，每次渲染现算
+  function roleOrder() : number[] {
+    const open : number[] = []
+    const locked : number[] = []
+    for (let i = 0; i < DRAW_ROLES.length; i++) {
+      if (roleOpen(i)) {
+        open.push(i)
+      } else {
+        locked.push(i)
+      }
+    }
+    locked.sort((a : number, b : number) : number => {
+      const na = a < ROLE_UNLOCK.length ? ROLE_UNLOCK[a] : ROLE_UNLOCK_CLEAR
+      const nb = b < ROLE_UNLOCK.length ? ROLE_UNLOCK[b] : ROLE_UNLOCK_CLEAR
+      return na != nb ? na - nb : a - b
+    })
+    return open.concat(locked)
   }
 
   // 锁着的角色报门槛。报得出具体数字才叫目标，「未解锁」只是一堵墙

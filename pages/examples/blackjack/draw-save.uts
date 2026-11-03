@@ -30,6 +30,10 @@ import {
   libraryCapOf,
   LOTTO_ODDS,
   LOTTO_PRIZES,
+  LOTTO2_ODDS,
+  LOTTO2_PRIZES,
+  LOTTO3_ODDS,
+  LOTTO3_PRIZES,
   CARD_PRICE,
   JACK_PRICE,
   ZERO_CARD_PRICE,
@@ -237,8 +241,12 @@ export type DrawSave = {
   // 格式：一个槽一段，段内用空格分隔标签（跟角色卡的 slots 同一个写法）。
   // 比如鲸落拾骨人摇出来可能是 ['♦', '3 9']
   foeSlots : string[]
-  // 本轮：手里还没开奖的彩票张数。**下一次进商店**时开（见 drawLottery）
+  // 本轮：手里还没开奖的彩票张数。**下一次进商店**时开（见 drawLottery）。
+  // lotto 是小彩票（原来那一张），lottoMid / lottoBig 是 2026-11-03 加的中、大彩票。
+  // 三个数存在**同一段**里（"小,中,大"），不升版号：老档那一段只有一个数，读出来就是小彩票
   lotto : number
+  lottoMid : number
+  lottoBig : number
   // 本轮：上一次开奖一共中了多少。-1 = 没有要报的。
   // 商店进门报一声，报完写回 -1（开奖在结算那一刻，播报在商店，所以得存）
   prize : number
@@ -279,6 +287,8 @@ export function emptyDrawSave() : DrawSave {
     library: [] as number[],
     lives: 0,
     lotto: 0,
+    lottoMid: 0,
+    lottoBig: 0,
     prize: -1,
     bonusLibrary: 0,
     foeOrder: [] as number[]
@@ -321,6 +331,8 @@ export function resetDrawRun(data : DrawSave) {
   data.lives = 0
   // 没开的彩票作废 —— 一轮输光了，奖池跟着这一轮走
   data.lotto = 0
+  data.lottoMid = 0
+  data.lottoBig = 0
   data.prize = -1
   data.bonusLibrary = 0
   // 庄家那一套也重摇 —— 新一轮就是新的十二道题。
@@ -590,11 +602,20 @@ export function loadDrawAt(index : number) : DrawSave {
       : textToSkills(parts[13]),
     lives: old ? 0 : toInt(parts[14], 0),
     // md11 及以前没有这三段
-    lotto: labelAt >= 18 ? toInt(parts[15], 0) : 0,
+    // 彩票那一段是 "小,中,大"（2026-11-03 起）；老档只有一个数 = 小彩票
+    lotto: labelAt >= 18 ? lottoAt(parts[15], 0) : 0,
+    lottoMid: labelAt >= 18 ? lottoAt(parts[15], 1) : 0,
+    lottoBig: labelAt >= 18 ? lottoAt(parts[15], 2) : 0,
     prize: labelAt >= 18 ? toInt(parts[16], -1) : -1,
     bonusLibrary: labelAt >= 18 ? toInt(parts[17], 0) : 0,
     foeOrder: labelAt >= 19 ? textToNums(parts[18]) : ([] as number[])
   }
+}
+
+// 彩票那一段（"小,中,大"）第 i 档有几张。老档只有一个数，中、大读出来是 0
+function lottoAt(text : string, i : number) : number {
+  const parts = text.split(',')
+  return i < parts.length ? toInt(parts[i], 0) : 0
 }
 
 // 一串数字（逗号分隔）读成数组。读不出来的段跳过
@@ -669,7 +690,7 @@ export function writeDrawAt(index : number, data : DrawSave) {
     + '|' + listToText(data.foeSlots)
     + '|' + skillsToText(data.library)
     + '|' + data.lives
-    + '|' + data.lotto
+    + '|' + data.lotto + ',' + data.lottoMid + ',' + data.lottoBig
     + '|' + data.prize
     + '|' + data.bonusLibrary
     + '|' + data.foeOrder.join(',')
@@ -1269,24 +1290,36 @@ export function cardPriceOf(text : string) : number {
 // 一张一张独立开（LOTTO_ODDS / LOTTO_PRIZES，见 draw-levels）。
 // 期望略高于票价 —— 它卖的不是赚钱，是**波动**：前期一张中 200
 // 能把一轮整个改道，而攒着钱吃利息的人不会去碰它
+//
+// 〔2026-11-03 分三档：小 / 中 / 大各自按自己那张表开，奖金加在一起报〕
 export function drawLottery(data : DrawSave) {
-  if (data.lotto <= 0) {
+  if (data.lotto <= 0 && data.lottoMid <= 0 && data.lottoBig <= 0) {
     return
   }
+  const won = rollTickets(data.lotto, LOTTO_ODDS, LOTTO_PRIZES)
+    + rollTickets(data.lottoMid, LOTTO2_ODDS, LOTTO2_PRIZES)
+    + rollTickets(data.lottoBig, LOTTO3_ODDS, LOTTO3_PRIZES)
+  data.gold = data.gold + won
+  data.prize = won
+  data.lotto = 0
+  data.lottoMid = 0
+  data.lottoBig = 0
+}
+
+// count 张同一档的彩票一张一张独立开，返回一共中了多少
+function rollTickets(count : number, odds : number[], prizes : number[]) : number {
   let won = 0
-  for (let n = 0; n < data.lotto; n++) {
+  for (let n = 0; n < count; n++) {
     let roll = randomInt(100)
-    for (let i = 0; i < LOTTO_ODDS.length; i++) {
-      roll = roll - LOTTO_ODDS[i]
+    for (let i = 0; i < odds.length; i++) {
+      roll = roll - odds[i]
       if (roll < 0) {
-        won = won + LOTTO_PRIZES[i]
+        won = won + prizes[i]
         break
       }
     }
   }
-  data.gold = data.gold + won
-  data.prize = won
-  data.lotto = 0
+  return won
 }
 
 // 买加栏：道具栏永久 +SHELF_BONUS 格。买过了就不动（它是唯一道具，

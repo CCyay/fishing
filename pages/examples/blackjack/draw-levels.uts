@@ -227,14 +227,15 @@ export const FIX_ITEMS : FixItem[] = [
   // 推点数那三件：一格、两格便宜又常见（普通），三格跨度大 —— 它能
   // 把一张 4 直接推到你技能管着的 7 上，那是精确调牌，所以压成稀有。
   //
-  // **往上不封顶、往下最低到 A**（见 draw-skills.uvue 的 doPush）。
-  // 从前到 K 就停；改成跟熔合同一套「点数可以超过 13」之后，
-  // K 推一格就是 14 —— 一张没人对得上的大点数。零点牌也推得动（往上一格是 A）
-  { key: 'push1', name: '推一格', desc: '挑一张牌，点数 ±1（往上不封顶）', price: 30,
+  // **A 到 K 首尾相接**（见 draw-skills.uvue 的 doPush）：K 往上一格是 A，A 往下一格是 K。
+  // 〔2026-11-03 用户定。之前两版：最早到 K 就停；后来跟【熔合】同一套「点数可以超过 13」，
+  //   K 推一格是 14、往下最低到 A。熔合同日删了，14 以上的点数没有来路了，改成绕圈〕
+  // 零点牌往上一格是 A、往下推不动（它不在那个圈上）
+  { key: 'push1', name: '推一格', desc: '挑一张牌，点数 ±1（K 和 A 首尾相接）', price: 30,
     step: 1, rare: RARE_COMMON, once: false } as FixItem,
-  { key: 'push2', name: '推两格', desc: '挑一张牌，点数 ±2（往上不封顶）', price: 50,
+  { key: 'push2', name: '推两格', desc: '挑一张牌，点数 ±2（K 和 A 首尾相接）', price: 50,
     step: 2, rare: RARE_COMMON, once: false } as FixItem,
-  { key: 'push3', name: '推三格', desc: '挑一张牌，点数 ±3（往上不封顶）', price: 70,
+  { key: 'push3', name: '推三格', desc: '挑一张牌，点数 ±3（K 和 A 首尾相接）', price: 70,
     step: 3, rare: RARE_RARE, once: false } as FixItem,
   // 同化：右边那张完全变成左边那张（点数和花色都一样）。
   // 于是牌组里出现两张一模一样的牌，那两张必然互相钓得上
@@ -282,27 +283,10 @@ export const FIX_ITEMS : FixItem[] = [
   // 它也是唯一能把一张贴好点数卡的核心牌「再来一张」的办法 —— 所以不比同化便宜太多
   { key: 'copy', name: '拓印', desc: '挑一张牌，牌组里多一张一模一样的（点数卡一起抄）',
     price: 60, step: 0, rare: RARE_COMMON, once: false } as FixItem,
-  // 熔合：两张**同花色**的牌合成一张，**点数相加**，可以超过 13（♠8 + ♠9 = ♠17）。
-  // 两张都贴过点数卡的话，点数卡一起带到新牌上。
-  //
-  // 它一次做三件事：
-  //   **牌组薄一张**（跟弃饵一样，所以受 DECK_MIN 管）；
-  //   **造一个指定的点数** —— 5+8 造一张 K，比推三格跨得远，但两张牌换一张；
-  //   **造一个没人对得上的大点数** —— 14 以上的牌原牌里一张都没有，
-  //     只有别的熔合牌、磁钩（差 1）、齐顶碰得到。它几乎是一张安全饵，
-  //     **可它留在你手里也几乎钓不到东西** —— 那是代价。
-  //
-  // **加出 11 就是 J**，通吃照样有（见 draw-save 的 fusedRank）。
-  // 造 J 本来就有便宜路（推一格把 10 推成 J 只要 30），熔合这条更贵，不拦。
-  // J 也能当料（算 11 点）—— 把通吃熔掉换一个大点数，是你自己的决定。
-  //
-  // **零点牌也收**：0 加上去等于没加，所以它熔进去就直接没了，另一张原样留着 ——
-  // 这是一条花 90 块清掉零点牌的路（比弃饵贵，但弃饵要刷得到）。
-  // 只有无点数牌不收：它没有点数，「相加」无从说起。
-  // **熔合出来的牌还能再熔**（它的点数是个真数），所以 ♠K + ♠K + ♠K 能熔到 39 ——
-  // 一张三十九点的牌没人钓得上，也钓不上任何人，花两次钱换一张死牌，不拦
-  { key: 'fuse', name: '熔合', desc: '挑两张同花色的牌合成一张，点数相加（可以超过 13，加出 11 就是 J）',
-    price: 90, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  // ---- 这儿原先有【熔合】（稀有 90）：「挑两张同花色的牌合成一张，点数相加（可以超过 13，加出 11 就是 J）」----
+  // 2026-11-03 用户定删。它造的 14 以上的大点数是推格「往上不封顶」的唯一理由，
+  // 同日推格改成首尾相接。老存档里熔出来的牌（'17' 这种）照旧能打、能推（推的时候折回 A–K 的圈上），
+  // 所以 draw-save 的 fusedRank / valueOfRankText 和挑牌表最后那一行「熔」都留着
   // 抹点：挑一张，它从此**没有点数**（点数卡一起抹掉），变成一张无点数牌。
   //
   // 无点数牌按点数钓不到、也不会被按点数钓走 —— 只有 J、顺色、收色带得走它。
@@ -314,13 +298,43 @@ export const FIX_ITEMS : FixItem[] = [
   // J 也抹得掉 —— 那是你自己的决定，不拦
   { key: 'blank', name: '抹点', desc: '挑一张牌，它从此没有点数（按点数钓不到，也不会被按点数钓走）',
     price: 40, step: 0, rare: RARE_COMMON, once: false } as FixItem,
+  // 置零〔2026-11-03 用户定：普通 40〕：挑一张牌，它变成 **0 点牌**（花色不变）。
+  //
+  // 跟抹点是一对，差在**还在不在点数轴上**：
+  //   抹点 → 无点数牌：只有 J、顺色、收色带得走它，永远安全；
+  //   置零 → 0 点牌：按点数照样钓不到、也不会被按点数钓走，可**收零、见底、撒网带得走它**，
+  //          而【收零】那几件（缩水 / 回水）正要堆上有 0 点牌。
+  // 价钱跟抹点、跟货架上一张 0 点牌（ZERO_CARD_PRICE）都是 40。
+  //
+  // 贴的点数卡**一起没**（0 点牌不收点数卡，见 draw-save 的 ZERO_RANK 那段）。
+  // J 也能置零 —— 那是你自己的决定，不拦（跟抹点一样）
+  { key: 'zero', name: '置零', desc: '挑一张牌，它变成 0 点牌（按点数钓不到，也不会被按点数钓走；收零带得走它）',
+    price: 40, step: 0, rare: RARE_COMMON, once: false } as FixItem,
+  // 染色〔2026-11-03 用户定：任选花色、普通 40〕：挑一张牌，花色改成你选的。点数和点数卡不动。
+  //
+  // 早先有过一件【对调】（两张互换花色），因为「只对看花色的构筑有用，占一个名额不值」删了
+  //（见 rareWeight 上面那段）。那条理由现在不成立了：每张角色卡都有一个**花色槽**（1 花色 + 1 点数），
+  // 把一张牌染到自己的花色槽上 = 多一张触发牌 —— 跟推格把牌推到自己的点数槽上是同一类事，
+  // 所以跟推一格同档。它还能凑同花色（花色匹配、传色、收色那几件吃这个）
+  { key: 'dye', name: '染色', desc: '挑一张牌，把它的花色改成你选的',
+    price: 40, step: 0, rare: RARE_COMMON, once: false } as FixItem,
   // 彩票：下一次进商店时开奖（见 draw-save 的 drawLottery）。
   //
   // 期望（32.5）略高于票价（30），但一半上下是白买 —— 它卖的是**波动**，
   // 不是稳赚。攒钱吃利息的那条路跟它天然相斥：30 块够把利息推上一档。
   // 不是唯一道具，可以每店都买；同一批货里最多摆一张（rollFixKeys 不重复）
-  { key: 'lotto', name: '彩票', desc: '下次进商店开奖：一半上下落空，最多中 200',
+  //
+  // 〔2026-11-03 用户定分三档：价格不同，**越贵中奖率越高**。原来那张就是小彩票，数一个没动。
+  //  回报率也跟着略往上走（108% / 111% / 112%）—— 不然没人买贵的：
+  //  贵的那两张卖的不是「中大奖」，是「**很少全赔**」。大彩票「中 60」也算中奖，可还是亏 40。
+  //  三张各是一件货，同一批里可能摆出两张不同档的。开奖分布见下面 LOTTO_* 那几行〕
+  { key: 'lotto', name: '小彩票', desc: '下次进商店开奖：中奖率 55%，最多中 200',
     price: 30, step: 0, rare: RARE_COMMON, once: false } as FixItem,
+  { key: 'lotto2', name: '中彩票', desc: '下次进商店开奖：中奖率 70%，最多中 200',
+    price: 60, step: 0, rare: RARE_COMMON, once: false } as FixItem,
+  // 大彩票压在稀有：一百块一张、期望多赚 12，后期钱多时它是一条稳当的存钱路，别让它太常见
+  { key: 'lotto3', name: '大彩票', desc: '下次进商店开奖：中奖率 85%，最多中 400',
+    price: 100, step: 0, rare: RARE_RARE, once: false } as FixItem,
   // ---- 这儿原先有【砺钩】和【洗点】，跟角色卡那套结构**冲突，整件删掉** ----
   //
   // 砺钩是「挑一个技能升一级」。可角色卡的槽上**印死了标签**，
@@ -377,6 +391,32 @@ export const FIX_ITEMS : FixItem[] = [
     price: 120, step: 0, rare: RARE_EPIC, once: false } as FixItem,
   { key: 'cards6', name: '牌六选一', desc: '当场摊 6 张随机牌，挑 1 张加进牌组',
     price: 60, step: 0, rare: RARE_COMMON, once: false } as FixItem,
+  // ---- 关键词技能包〔2026-11-03 用户定：每族一件、稀有 80、全摊〕----
+  //
+  // 跟技能二选一同价同档，区别是**挑的是一条路线**而不是碰运气：
+  // 摊开的是「desc 里带这个关键词、你还没有的」**全部**技能（每族只有 2~4 件，
+  // 固定 n 的话常常摆不满）。族的归属按 desc 原文认（见 packKeyword 下面那段），
+  // 所以以后加一件带【结冰】的技能，它自动进结冰包，不用回来改表。
+  //
+  // 只有 1 件的关键词（映照 / 叛变 / 通配 / 失去花色）不做包 —— 一件构不成「选」。
+  //
+  // 加这八件时一度把道具栏提到 4 格，同日用户定保持 3 格（见 SHOP_FIX_COUNT）
+  { key: 'kwfrost', name: '结冰包', desc: '摊开带【结冰】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  { key: 'kwburn', name: '燃烧包', desc: '摊开带【燃烧】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  { key: 'kw21', name: '21 匹配包', desc: '摊开带【21 匹配】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  { key: 'kwsuit', name: '花色匹配包', desc: '摊开带【花色匹配】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  { key: 'kwstraight', name: '顺子匹配包', desc: '摊开带【顺子匹配】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  { key: 'kwwall', name: '石墙包', desc: '摊开带【石墙】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  { key: 'kworder', name: '顺序匹配包', desc: '摊开带【顺序匹配】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
+  { key: 'kwzero', name: '收零包', desc: '摊开带【收零】的技能里你还没有的全部，挑 1 个',
+    price: 80, step: 0, rare: RARE_RARE, once: false } as FixItem,
   // ---- 下面四件是永久扩容。都是**唯一**：一轮只买得到一次 ----
   //
   // 它们跟表里别的货不是一类东西。别的货改的是「这一关我手里多了什么」，
@@ -473,7 +513,28 @@ export const FIX_ITEMS : FixItem[] = [
     step: 0, rare: RARE_COMMON, once: true } as FixItem
 ]
 
-// 三个包各摊几个候选
+// 关键词技能包 → 它认的关键词（不带【】）。不是关键词包就是 ''。
+//
+// 族的归属**按 desc 原文认**：desc 里写着【结冰】的技能就进结冰包（见 draw-skills.uvue 的 openPack）。
+// 认 desc 而不是另开一张名单，是因为 desc 就是玩家看见的那句话 —— 包上写「带【结冰】的技能」，
+// 摊出来的就该是说明里带【结冰】的那几件；另开名单的话两份必然分叉
+const KW_PACK_KEYS : string[] = ['kwfrost', 'kwburn', 'kw21', 'kwsuit', 'kwstraight', 'kwwall', 'kworder', 'kwzero']
+const KW_PACK_WORDS : string[] = ['结冰', '燃烧', '21 匹配', '花色匹配', '顺子匹配', '石墙', '顺序匹配', '收零']
+export function packKeyword(key : string) : string {
+  for (let i = 0; i < KW_PACK_KEYS.length; i++) {
+    if (KW_PACK_KEYS[i] == key) {
+      return KW_PACK_WORDS[i]
+    }
+  }
+  return ''
+}
+
+// 这件货是不是**技能**包（二选一、五选一、关键词包）—— 技能库满了 / 没选角色就开不了
+export function isSkillPack(key : string) : boolean {
+  return key == 'pack2' || key == 'pack5' || packKeyword(key) != ''
+}
+
+// 三个包各摊几个候选。关键词包是**全摊**，候选数开包时才知道，这儿报 0
 export function packSize(key : string) : number {
   if (key == 'pack2') {
     return 2
@@ -486,7 +547,7 @@ export function packSize(key : string) : number {
 
 // 这件货是不是「包」（买了当场摊候选挑一个）
 export function isPack(key : string) : boolean {
-  return key == 'pack2' || key == 'pack5' || key == 'cards6'
+  return isSkillPack(key) || key == 'cards6'
 }
 
 // 牌组的下限。只有这一条，**不限制「每个点数至少留几张」**。
@@ -644,6 +705,18 @@ export function rollFixKeys(level : number, want : number, skip : string[]) : st
 // 后来又加了五件（拓印、熔合、抹点、彩票、扩库），表涨到十六种，
 // 这个 3 **仍然没动** —— 一件特定的货摆出来的概率掉到两成上下（见 rareWeight 上面那张表）。
 // 先看实际手感；嫌稀再提到 4
+//
+// 〔2026-11-03 提到 4：删熔合、加八个关键词技能包，表 16 → 23 件（普通 8、稀有 14、史诗 1）。
+//  照上面 rareWeight 那段的规矩先动格数。模拟（tools/md-sim/out-drift/shopodds.js，每档 20 万次）
+//  一整轮（第 2–12 关 11 店）期望见几次：
+//                       某一件普通   某一件稀有   史诗
+//    16 件 · 摆 3（改前）    2.7          1.6        0.7
+//    23 件 · 摆 3            2.0          1.2        0.5
+//    23 件 · 摆 4（现行）    2.7          1.6        0.7
+//  摆 4 正好回到改前的手感。
+//  同日用户定**保持 3 格**（「道具栏保持3格」）—— 接受摊薄，上面那行「23 件 · 摆 3」就是现行；
+//  之后又加了【置零】（普通），表是 24 件：普通 9、稀有 14、史诗 1。同一个模拟、摆 3：
+//  一整轮某一件普通 1.9、某一件稀有 1.1、史诗 0.5 次〕
 export const SHOP_FIX_COUNT : number = 3
 
 // 加栏加几格。定 1 而不是让它叠买 —— 它是唯一道具（once），
@@ -661,6 +734,19 @@ export const LIBRARY_BONUS : number = 1
 // 期望 0×.45 + 30×.35 + 80×.15 + 200×.05 = 32.5，票价 30
 export const LOTTO_ODDS : number[] = [45, 35, 15, 5]
 export const LOTTO_PRIZES : number[] = [0, 30, 80, 200]
+// 中彩票（60）：30% 落空 · 40% 中 60（回本）· 22% 中 120 · 8% 中 200
+// 期望 0 + 24 + 26.4 + 16 = 66.4（111%）
+export const LOTTO2_ODDS : number[] = [30, 40, 22, 8]
+export const LOTTO2_PRIZES : number[] = [0, 60, 120, 200]
+// 大彩票（100）：15% 落空 · 45% 中 60 · 30% 中 150 · 10% 中 400
+// 期望 0 + 27 + 45 + 40 = 112（112%）
+export const LOTTO3_ODDS : number[] = [15, 45, 30, 10]
+export const LOTTO3_PRIZES : number[] = [0, 60, 150, 400]
+
+// 这件货是不是彩票（三档都算）
+export function isLotto(key : string) : boolean {
+  return key == 'lotto' || key == 'lotto2' || key == 'lotto3'
+}
 
 // 货架上的牌价。从前「J 卖 80，其余 40」硬编码在商店页两处（详情框、扣钱），
 // 挪到这儿统一（见 draw-save 的 cardPriceOf）。

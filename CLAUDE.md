@@ -286,6 +286,16 @@
 —— 编译到 Kotlin 是 `Number.toString(10)`，Number 上没有那个带进制的重载，整个包编译不过。
 判据写在 `pages/examples/blackjack/cards.uts` 的 `faceOf`。
 
+**别给任何变量起名 `ref` / `computed` / `watch` / `reactive`**（局部的也不行）：
+H5 的自动导入扫全文的 `let / const` 声明，见到同名就**不再注入** vue 的那个 ——
+整个页面开不了，报错在**第一个 `ref<…>`**（「ref is not defined」），离真凶几千行。
+2026-11-02 栽的：`fadeLand` 里一个 `let ref = -1`。查法：`grep -nE "(let|const|var)s+(ref|computed|watch|reactive)s*=" *.uvue`
+
+**删掉的技能 `SK_*` 是 −1，跟「空闲 = −1」的状态撞**：`takeSkill` / `pilePick` 空闲时也是 −1，
+于是 `takeSkill.value == SK_已删` 在空闲时成立 —— 【退潮】删了之后，点手牌一律被当成「给退潮挑牌」，手牌打不出去。
+2026-11-02 修成 `taking(sk)` / `picking(sk)`（先判 `sk >= 0`）。**新写这类比较一律走这两个，别直接写 `== SK_X`**；
+模板里的同类比较要放在 `v-if="pilePick >= 0"` 之类的块里面。
+
 **按一整个回合算，不按单步算**：`refill` 每回合补到满，所以「手牌 ↔ 牌库」之间的挪动
 一律被抹平（换水、同号都不改局长）。真正改局长的只有三类：牌离场、不经「打出」就离场、手牌上限。
 

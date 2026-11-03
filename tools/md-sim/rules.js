@@ -6324,6 +6324,12 @@ function newGame(opts) {
   for (let i = 0; i < DROP && G.deck.length > 0; i++) {
     G.deck.pop()
   }
+  // 【窄口】「去掉 1 张牌使牌组变奇数」〔2026-11-03 用户提案，NARROW_ODD=1 开，默认关 = 现行〕：
+  // 有一方带窄口时，偶数闸剔完（发完手牌后牌库是偶数）再去掉 1 张 → 牌库变奇数。只在带窄口的对局里响，基线不受影响
+  if (NARROW_ODD && G.deck.length > dealt && (hasSpecial(G, ME, SP.NARROW) || hasSpecial(G, FOE, SP.NARROW))) {
+    G.deck.pop()
+    PROTO_STAT.narrowLast.odd++
+  }
   // 每个点数一共几张（照 buildRankTotals）—— 改造过的牌组不是恒定的 4 张
   for (let i = 0; i < G.deck.length; i++) {
     G.rankTotal[G.deck[i].rank] = (G.rankTotal[G.deck[i].rank] || 0) + 1
@@ -6394,8 +6400,32 @@ function baitFor(G, side) {
 }
 
 // 从牌库顶摸一张。**数组末尾是牌库顶**（照 drawFor 的 pop）
+// 【窄口】「牌组最后一张留给对方」〔2026-11-03 用户提案，NARROW_LAST=1 开，默认关 = 现行〕：
+// 牌库只剩 1 张时，带窄口的一方**不摸它**（任何来路的摸牌都不摸），留给对方补牌时摸走。
+// 挂在摸牌的唯一入口上，所以补牌 / 被迫摸牌 / 开局发牌一视同仁
+// NARROW_LAST=self 是反过来的对照档：最后一张留给**带窄口的自己**（对方不摸它）
+const NARROW_LAST = process.env.NARROW_LAST === '1' || process.env.NARROW_LAST === 'self'
+const NARROW_LAST_SELF = process.env.NARROW_LAST === 'self'
+const NARROW_ODD = process.env.NARROW_ODD === '1'
+const NARROW_END = process.env.NARROW_END ? parseInt(process.env.NARROW_END, 10) : 0
+// 【窄口】换形〔2026-11-03 用户提案，NARROW_MODE=stuck 开；默认 limit = 现行「对方上限 −1」〕：
+//   开局时带窄口的一方挑对方 1 张手牌，那张**打不出去**、照样占手牌名额（补牌照数它）。stuck 档下上限 −1 那句不再生效。
+//   NARROW_PICK=view（查看并选择，挑法照摘钩的 ai.takePick）| blind（盲选，随机，J 也可能中）
+//   NARROW_STUCK_END=game（整局，默认）| empty（牌库摸空时解除）
+//   离开对方手牌（被拿走 / 洗回牌库）就解除 —— 判的是「那张还在他手里吗」
+const NARROW_MODE = process.env.NARROW_MODE || 'limit'
+const NARROW_PICK = process.env.NARROW_PICK || 'view'
+const NARROW_STUCK_END = process.env.NARROW_STUCK_END || 'game'
 function drawFor(G, side) {
   if (G.deck.length === 0) return null
+  if (NARROW_LAST && G.deck.length === 1 && (NARROW_LAST_SELF ? hasSpecial(G, side === ME ? FOE : ME, SP.NARROW) : hasSpecial(G, side, SP.NARROW))) {
+    PROTO_STAT.narrowLast.blocked++
+    return null
+  }
+  if (NARROW_LAST && G.deck.length === 1) {
+    const other = side === ME ? FOE : ME
+    if (hasSpecial(G, other, SP.NARROW)) PROTO_STAT.narrowLast.toFoe++
+  }
   const card = G.deck.pop()
   G.hands[side].push(card)
   G.seen[side].push(false)
@@ -9918,6 +9948,10 @@ function freezePayTry(G, side, ai, forced) {
   st.gainSum += frozenEst - bestFree
 }
 function isFrozen(G, card) {
+  // 【窄口】stuck 档：开局被挑中的那张（还在原主手里、而且没到解除时机）
+  if (G.stuck && G.stuck.has(card) && !(NARROW_STUCK_END === 'empty' && G.deck.length === 0)) {
+    if (G.hands[ME].indexOf(card) >= 0 || G.hands[FOE].indexOf(card) >= 0) return true
+  }
   // 〈betray〉【叛变】：持有人打不出去（接冻结这条现成的路 —— AI 选牌和 playableCount 都读它）
   if (G.betray && G.betray.has(card)) return true
   // 〈traitor〉avoid 档：手里还有没带【叛变】的牌就不打叛变牌
@@ -15350,6 +15384,14 @@ const PROTO_STAT = {
   nest: { tagged: 0, kept: 0, keptSelf: 0, takenMine: 0, takenFoe: 0 },
   // 【冻结】解冻代价：chances 有冻住的牌、可以选的回合数 / paid 真花了 / tookFrozen 对方挑走的正好是冻住那张 / gainSum 花的时候估的多收张数
   freezepay: { chances: 0, paid: 0, tookFrozen: 0, gainSum: 0, forced: 0 },
+  // 【窄口】最后一张〔2026-11-03〕：blocked 带窄口那方想摸最后一张被拦了几次 / toFoe 最后一张真被对方摸走几次
+  narrowLast: { blocked: 0, toFoe: 0, odd: 0, stuck: 0, stuckJack: 0 },
+  // 终局诊断〔2026-11-03〕：见 tailDiag
+  tail: {
+    none: { games: 0, playsH: 0, playsO: 0, scoreH: 0, scoreO: 0, lastH: 0 },
+    hfirst: { games: 0, playsH: 0, playsO: 0, scoreH: 0, scoreO: 0, lastH: 0 },
+    hsecond: { games: 0, playsH: 0, playsO: 0, scoreH: 0, scoreO: 0, lastH: 0 }
+  },
   trapzero: { armed: 0, sprung: 0, selfSprung: 0, zeroed: 0 },
   // 【0 点槽】触发了几次（triggersOf 里记；AI 估值也会调 triggersOf，所以这个数偏大，只看有没有）
   zeroslot: { fires: 0 },
@@ -19039,7 +19081,8 @@ function handLimit(G, side) {
   if (SYM_CREEL ? heldAny(G, SK.CREEL) : heldOn(G, SK.CREEL, side)) want = want + 1
   if (hasSpecial(G, side, SP.CREEL)) want = want + 1
   if (SYM_NARROW ? heldAny(G, SK.NARROW) : heldOn(G, SK.NARROW, other)) want = want - 1
-  if (hasSpecial(G, other, SP.NARROW)) want = want - 1
+  // NARROW_END=N〔2026-11-03 量先后手平衡〕：牌库剩 N 张以下时窄口失效（对方上限恢复）—— 让牌库摸空时双方手牌张数不受上限差影响。默认 0 = 现行
+  if (NARROW_MODE === 'limit' && hasSpecial(G, other, SP.NARROW) && !(NARROW_END > 0 && G.deck.length <= NARROW_END)) want = want - 1
   // 【涨落】换掉底数（6 而不是 4），所以放在最后 —— 上面那几件照旧叠加，
   // 带涨落又挂着满篓就是峰值 7 张。**什么时候补**在 refill 里判
   if (hasSpecial(G, side, SP.CYCLE)) want = want + (CYCLE_REFILL - HAND_SIZE)
@@ -19246,9 +19289,46 @@ function spreadFire(G) {
 
 // 跑完一整局。**先手由开局切牌定**（见 newGame 的 CUT 那段）——
 // 原先这儿写死 FOE（庄家恒先手）
+// 终局诊断的累加〔2026-11-03〕。格 = 窄口持有者坐先手（hfirst）/ 坐后手（hsecond）/ 没人带（none）。
+// 「先」「后」按 G.first 定；h = 持有者那一侧、o = 另一侧（none 格里 h = 先手、o = 后手）
+function tailDiag(G) {
+  const hasN = function (s) { return hasSpecial(G, s, SP.NARROW) }
+  const holder = hasN(ME) ? ME : (hasN(FOE) ? FOE : -1)
+  const key = holder < 0 ? 'none' : (holder === G.first ? 'hfirst' : 'hsecond')
+  const h = holder < 0 ? G.first : holder
+  const o = h === ME ? FOE : ME
+  const st = PROTO_STAT.tail[key]
+  const at = G.tailAt || [G.score[ME], G.score[FOE]]
+  const tp = G.tailPlays || [0, 0]
+  st.games++
+  st.playsH += tp[h]
+  st.playsO += tp[o]
+  st.scoreH += G.score[h] - at[h]
+  st.scoreO += G.score[o] - at[o]
+  if (G.lastSide === h) st.lastH++
+}
+
 function playGame(opts, ai) {
   const G = newGame(opts)
   G.turn = G.first
+  // 【窄口】stuck 档：开局挑对方 1 张（发完牌之后、第一手之前）
+  if (NARROW_MODE === 'stuck') {
+    for (let s = 0; s < 2; s++) {
+      if (!hasSpecial(G, s, SP.NARROW)) continue
+      const other = s === ME ? FOE : ME
+      const hand = G.hands[other]
+      if (hand.length === 0) continue
+      // view 走 takePick（看得见对方全部手牌：J 最贵、其次现在钓得着的、再其次点数大的）——
+      // **不能用 freezePick**：它只在「明着的」牌里挑，开局一张都看不见就退化成随机 = 盲选
+      const at = NARROW_PICK === 'blind' ? randInt(G.rng, hand.length) : ai.takePick(G, s)
+      if (at < 0 || at >= hand.length) continue
+      G.stuck = G.stuck || new Set()
+      G.stuck.add(hand[at])
+      const st = PROTO_STAT.narrowLast
+      st.stuck++
+      if (hand[at].rank === JACK) st.stuckJack++
+    }
+  }
   // 不变量自检的钩子（check.js 用）。不传就是 null → 每次迭代一次 falsy
   // 判断，零开销。
   //
@@ -19438,9 +19518,16 @@ function playGame(opts, ai) {
       passTurn(G, side)
       continue
     }
+    // 终局诊断〔2026-11-03〕：牌库摸空之后打的每一手记一笔（第一次进来时拍下当时的比分）
+    if (G.deck.length === 0) {
+      if (!G.tailAt) G.tailAt = [G.score[ME], G.score[FOE]]
+      G.tailPlays = G.tailPlays || [0, 0]
+      G.tailPlays[side]++
+    }
     playFor(G, side, index, ai)
     if (G.stat.lockRun) G.stat.lockRun[side] = 0
   }
+  tailDiag(G)
   // 终局还卡在上牌区的张数（诊断口；它们一分不值，但守恒桶认得它们）
   PROTO_STAT.board.left += G.boardZone[ME].length + G.boardZone[FOE].length
   // 削后手优势的那两条「终局剩堆」规则。走 harvestPile 而不是直接加分 ——

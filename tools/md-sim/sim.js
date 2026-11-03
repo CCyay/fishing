@@ -128,6 +128,31 @@ function specialNote(args, role) {
 //
 // opts.myRole / opts.foeRole 是角色下标（-1 = 不带角色）——
 // 那件常驻特殊技能靠它现查，所以**量特殊技能就是换这个数**
+// 〔2026-11-03 量具 · 用户问「怎样的牌组构筑最适合顺子匹配」〕DECK_MAP：改牌组构成（双方共用，张数不变）。
+// 写法「原点数>新点数」逗号分隔；新点数用 / 分开就按花色轮着分（♠ 拿第一个、♥ 第二个……），
+// 比如 。没写到的点数照旧
+const DECK_MAP = process.env.DECK_MAP || ''
+function mappedDeck() {
+  const map = {}
+  for (const part of DECK_MAP.split(',')) {
+    const [from, to] = part.split('>')
+    if (!from || !to) throw new Error('DECK_MAP 写法不对：' + part)
+    map[from] = to.split('/')
+  }
+  const deck = R.standardDeck()
+  const seen = {}
+  // 新点数写 x = 这张从牌组里删掉（【弃饵】）。〔2026-11-03 补：用户要量「把 10 全去掉」〕
+  return deck.map(function (c) {
+    const to = map[c.rank]
+    if (!to) return c
+    const k = seen[c.rank] = (seen[c.rank] || 0) + 1
+    const r = to[(k - 1) % to.length]
+    if (r === 'x') return null
+    if (R.RANKS.indexOf(r) < 0 && r !== R.ZERO_RANK && r !== R.BLANK_RANK) throw new Error('DECK_MAP 新点数不认得：' + r)
+    return R.makeCard(c.suit, r, [])
+  }).filter(function (c) { return c !== null })
+}
+
 function run(n, seed, mine, foe, opts) {
   const o = opts || {}
   const sum = {
@@ -311,7 +336,7 @@ function run(n, seed, mine, foe, opts) {
       foeRole: o.foeRole === undefined ? -1 : o.foeRole,
       // 改造过的牌组（cards 命令用）。每局现造一副 —— 牌是按对象认的，
       // 两局共用同一批对象不出错，但现造最省心
-      deck: o.deckFn ? o.deckFn() : undefined,
+      deck: o.deckFn ? o.deckFn() : (DECK_MAP ? mappedDeck() : undefined),
       // ---- 量技能时**写死庄家先手**（见 rules.js 的 fixFirst）----
       //
       // 开局切牌定庄之后 ME 有一半的局是先手，而「这件技能在先手手里
@@ -3201,6 +3226,39 @@ function cmdKitvs(args) {
   printDraftTagDiag()
 }
 
+// ---------- sp〔2026-11-03〕：只量一张角色卡的常驻技（槽全空），两侧都量 ----------
+// 用法：[NARROW_LAST=1] node sim.js sp lock -n 20000
+// 走 measureSpecial（roles 那一列同一个函数），只是不用把十几张卡全跑一遍
+function cmdSp(args) {
+  const role = roleIndexOrDie(args._[1] || args.role)
+  const r = R.DRAW_ROLES[role]
+  const m = measureSpecial(args, role)
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
+  const bp = (m.base.plays[R.ME] + m.base.plays[R.FOE]) / m.base.games
+  const tp = (m.test.plays[R.ME] + m.test.plays[R.FOE]) / m.test.games
+  console.log('【' + r.name + '】' + r.key + ' · 常驻技 ' + r.special + ' · 槽全空 · ' + args.n + ' 局')
+  console.log('  后手 ' + sign(m.back) + '   先手 ' + sign(m.front) + '   X ' + sign(m.x)
+    + '   D ' + sign(m.d) + '   标准误 ' + f2(m.se) + '   局长 ' + sign((tp - bp) / bp * 100) + '%')
+  console.log('  口径：measureSpecial（我带 / 对手带各跑一侧，对裸基线）—— 跟 roles 那一列同一个函数')
+  // 终局诊断〔2026-11-03〕：牌库摸空之后
+  const tl = R.PROTO_STAT.tail
+  const row = function (name, t, hName, oName) {
+    if (!t || t.games === 0) return
+    console.log('  ' + name.padEnd(16) + hName + ' 打 ' + f2(t.playsH / t.games) + ' 手 / 收 ' + f2(t.scoreH / t.games) + ' 分 · '
+      + oName + ' 打 ' + f2(t.playsO / t.games) + ' 手 / 收 ' + f2(t.scoreO / t.games) + ' 分 · 最后一手是' + hName + ' ' + pct(t.lastH / t.games))
+  }
+  console.log('\n  ---- 终局（牌库摸空之后）----')
+  row('没人带窄口', tl.none, '先手', '后手')
+  row('窄口坐先手', tl.hfirst, '带窄口', '对方')
+  row('窄口坐后手', tl.hsecond, '带窄口', '对方')
+  const nl = R.PROTO_STAT.narrowLast
+  if (nl && nl.stuck > 0) console.log('  诊断：窄口（stuck · ' + (process.env.NARROW_PICK || 'view') + ' · ' + (process.env.NARROW_STUCK_END || 'game') + '）开局扣下 ' + nl.stuck + ' 张，其中 J ' + nl.stuckJack + ' 张')
+  if (nl && nl.odd > 0) console.log('  诊断：开局为变奇数去掉 1 张 ' + nl.odd + ' 次（两侧格合计）')
+  if (nl && (nl.blocked > 0 || nl.toFoe > 0)) {
+    console.log('  诊断：最后一张被拦 ' + nl.blocked + ' 次 · 最后一张被对方摸走 ' + nl.toFoe + ' 次（两侧格合计）')
+  }
+}
+
 function cmdPair(args) {
   const role = roleIndexOrDie(args.role)
   const slots = R.DRAW_ROLES[role].slots
@@ -4309,6 +4367,7 @@ function main() {
   if (cmd === 'one') return cmdOne(args)
   if (cmd === 'all') return cmdAll(args)
   if (cmd === 'pair') return cmdPair(args)
+  if (cmd === 'sp') return cmdSp(args)
   if (cmd === 'kitvs') return cmdKitvs(args)
   // vs：我带一件、**对手带一件** —— 反制型技能只能这么量（见 cmdVs）
   if (cmd === 'vs') return cmdVs(args)
