@@ -499,6 +499,7 @@ const SIM_ONLY = {
   // 〔零吃 zeroself 2026-10-29 上架、当晚撤下（DEAD_SKILLS）—— 回到模拟器专属〕
   zeroself: '〈zeroself〉（原型 · 置 0；【21 匹配】。2026-10-29 上架当晚撤下，墓碑在 DEAD_SKILLS）',
   rockself: '〈rockself〉（原型 · 2026-11-03：它带上【顽石】—— 不会被 J 收走）',
+  asjack: '〈asjack〉（原型 · 2026-11-03：此牌可视为 J，但不能参与抢牌）',
   jsub: '〈jsub〉（原型 · 2026-11-03：当 J 不在游戏中时，此牌视为 J）',
   fetchj: '〈fetchj〉（原型 · 2026-11-03：获取下一张 J）',
   traitorzero: '〈traitorzero〉（原型 · 2026-11-02：对方 1 张手牌带上【叛变】，自己 1 张手牌带上【收零】）',

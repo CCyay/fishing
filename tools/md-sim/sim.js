@@ -2109,6 +2109,12 @@ function printDraftTagDiag() {
     console.log('\n  ---- 诊断：〈顽石〉----')
     console.log('    发动 ' + rk.fires + ' 次 · 落堆带上顽石 ' + rk.landed + '（' + pct(rk.landed / rk.fires) + '）· 挡住 J ' + rk.blocked + ' 次 · 被普通 / 特殊匹配收走 ' + rk.taken + ' 次')
   }
+  // 〈asjack〉〔2026-11-03〕
+  const aj = R.PROTO_STAT.asjack
+  if (aj && aj.fires > 0) {
+    console.log('\n  ---- 诊断：〈asjack〉----')
+    console.log('    触发 ' + aj.fires + ' 次：当 J ' + pct(aj.asJack / aj.fires) + '（平均收堆上 ' + f2(aj.pileSum / Math.max(1, aj.asJack)) + ' 张 + 它自己）· 抢牌那一手里没变 J ' + aj.inSteal + ' 次 · 挡掉抢牌询问 ' + aj.immune + ' 次')
+  }
   // 〈jsub〉〔2026-11-03〕
   const js = R.PROTO_STAT.jsub
   if (js && js.fires > 0) {
@@ -2926,8 +2932,15 @@ function cmdRoles(args) {
 // 〔2026-10-30：**易流（swapflow）10-29 就下架了，这一位一直没换**（fingerprint 审计顺带查出）——
 //   江口闸官 / 流钥客的满配因此带着一件不存在的技能。照删对换 / 洪水 / 涉水的先例，换成名单外 X 最高的上架件【一色】
 //  （R7 A 槽 +4.62）。只有插满 4 槽的卡用得到第 4 位。名单其余位置没动（**仍不是严格 X 降序**，见上面 10-28 那段）〕
+// 〔2026-11-03 用户定「按 R8 的 X 重排名单」：取速查表 R8 全表（A 槽 X，`all -n 20000`）前八，**重新严格 X 降序**。
+//  旧名单 stonefull / flow / gift / suitify / orderins / unhook / peak / kindle —— 满墙 R8 掉出前十四、伏流掉到第 7。
+//  新：分饵 4.38 · 一色 4.13 · 引火 3.88 · 缩水 3.74 · 零递 3.73 · 插流 3.61 · 伏流 3.60 · 调序 3.55
+//  ⚠ 第 3~8 名相邻差多在一个 SE（0.15）以内，名次统计上分不开。**「满配 / D / 满配胜率」三列再废一次**〕
+// 〔同日再改（用户定「第 3 到 8 名差距都在 0.15 以内，用第 3 到 8 名来跑」）：**去掉分饵、一色**（4.38 / 4.13 明显更强），
+//  只用 R8 第 3~8 名 —— 一套中等强度、彼此分不开的件当统一配装。两槽角色 = 引火 + 缩水。
+//  上一版（前八）的角色数记在台账第五十六节，也作废〕
 const KIT_ORDER = [
-  'stonefull', 'flow', 'gift', 'suitify', 'orderins', 'unhook', 'peak', 'kindle'
+  'kindle', 'zerodrop', 'zerodraft', 'orderins', 'flow', 'orderpile'
 ]
 
 // ⚠ 上界走 **`roleKitCount`**，不是 `slots.length`〔2026-10-28 改〕——
@@ -3374,6 +3387,61 @@ function cmdRolesd(args) {
     console.log('  ' + R.DRAW_ROLES[role].name.padEnd(6) + ' ' + k.padEnd(10)
       + ' back ' + sign(back) + '   front ' + sign(front)
       + '   X ' + sign((back + front) / 2) + '   D ' + sign((front - back) / 2) + '   se ' + f2(se))
+  }
+}
+
+// ---------- rolesmed〔2026-11-03〕：角色满配 = 几套轮换配装的**中位数** ----------
+//
+// 为什么：同一张卡换一套统一配装，满配能差好几分（布饵人 9.56 → 15.89、流钥客第 1 → 第 13，台账第五十六节）——
+// 单一一套量的是「这张卡跟这一套合不合」。用户定：多跑几套、取中位数（适配的、不适配的都算进去）。
+//
+// 配装：技能池 ROLESMED_POOL（默认 = 现行 KIT_ORDER，即 R8 第 3~8 名那 6 件），**轮换**排 N 套：
+//   第 k 套 = 从池子第 k 件起依次往后插满这张卡的槽 —— 每件技能在每个槽位上正好出现一次，没有哪件被偏重。
+// 每套三格（基线共用 / 我带 / 对手带），报：back（单侧，= 速查「满配」的定义）的中位数 + 最低 / 最高、
+// D 的中位数、我带那一格胜率的中位数。默认只跑游戏里那些角色（ROLESD_KEYS 可覆写）
+function cmdRolesmed(args) {
+  const keys = (process.env.ROLESD_KEYS || 'basket,lock,upstream,mirror,pond,night,reckon,surgeman,rigger,peachtide,flowkey,zerotrap,inspector').split(',')
+  const pool = (process.env.ROLESMED_POOL ? process.env.ROLESMED_POOL.split(',') : KIT_ORDER).map(function (k) { return skillIndexOf(k) })
+  const empty = R.emptyLoadout()
+  const C = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
+  const baseDiff = meanDiff(C)
+  const med = function (xs) { const a = xs.slice(0).sort(function (p, q) { return p - q }); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2 }
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
+  console.log('rolesmed · 每张卡 ' + pool.length + ' 套轮换配装取中位数 · ' + args.n + ' 局 / 格 · 基线格共用')
+  console.log('  技能池：' + pool.map(function (i) { return R.SKILLS[i].name }).join(' · '))
+  console.log('  back = 我带格 − 基线（单侧，= 速查「满配」的定义）；D = (先手 − 后手) / 2；胜率 = 我带那一格')
+  for (const k of keys) {
+    const role = R.roleIndexOf(k)
+    if (role < 0) { console.log('  ' + k + '：找不到'); continue }
+    const n = R.roleKitCount(role)
+    const backs = [], ds = [], wins = [], kits = []
+    // 提前停〔同日用户：「如果两套（技能完全不同）的分数很相近，就不用再跑其他了」〕：
+    // 先跑第 0 套和第 n 套（两套技能完全不重叠，要 2n ≤ 池子大小）；两者 back 差 < ROLESMED_CLOSE（默认 0.6 ≈ 两套之差的 2σ）就停、取这两套的平均。
+    // 凑不出两套不重叠的（四槽卡、池子 6 件）就跑满
+    const order = []
+    if (2 * n <= pool.length) { order.push(0, n); for (let k = 0; k < pool.length; k++) if (k !== 0 && k !== n) order.push(k) }
+    else for (let k = 0; k < pool.length; k++) order.push(k)
+    const close = process.env.ROLESMED_CLOSE ? parseFloat(process.env.ROLESMED_CLOSE) : 0.6
+    let early = false
+    for (const start of order) {
+      if (backs.length === 2 && 2 * n <= pool.length && Math.abs(backs[0] - backs[1]) < close) { early = true; break }
+      const picks = []
+      for (let i = 0; i < n; i++) picks.push(pool[(start + i) % pool.length])
+      const lo = R.kitFromRole(role, picks)
+      const D = run(args.n, args.seed, lo, empty, { myRole: role, foeRole: -1 })
+      const A = run(args.n, args.seed, empty, lo, { myRole: -1, foeRole: role })
+      const back = meanDiff(D) - baseDiff
+      const front = baseDiff - meanDiff(A)
+      backs.push(back)
+      ds.push((front - back) / 2)
+      wins.push(avg(D.wins[R.ME], D.games))
+      kits.push(picks.map(function (i) { return R.SKILLS[i].name }).join('+') + ' ' + sign(back))
+    }
+    console.log('  ' + R.DRAW_ROLES[role].name.padEnd(6) + ' ' + k.padEnd(10)
+      + (early ? ' 〔两套不重叠的配装相差 < ' + close + '，提前停：2 套〕' : ' 〔跑满 ' + backs.length + ' 套〕')
+      + ' 中位 ' + sign(med(backs)) + '   最低 ' + sign(Math.min.apply(null, backs)) + '   最高 ' + sign(Math.max.apply(null, backs))
+      + '   D 中位 ' + sign(med(ds)) + '   胜率中位 ' + pct(med(wins)))
+    if (process.env.ROLESMED_SHOW) console.log('      ' + kits.join(' · '))
   }
 }
 
@@ -4485,6 +4553,7 @@ function main() {
   if (cmd === 'one') return cmdOne(args)
   if (cmd === 'all') return cmdAll(args)
   if (cmd === 'pair') return cmdPair(args)
+  if (cmd === 'rolesmed') return cmdRolesmed(args)
   if (cmd === 'rolesd') return cmdRolesd(args)
   if (cmd === 'sp') return cmdSp(args)
   if (cmd === 'kitvs') return cmdKitvs(args)

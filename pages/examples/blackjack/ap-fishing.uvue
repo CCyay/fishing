@@ -538,6 +538,40 @@
         </view>
       </view>
     </view>
+    <!-- 拣色（2026-11-03 · 新夜钓客）：你上回合摸到的、跟你花色槽同颜色的牌 —— 点一张塞回牌库底再摸 1 张，或者不换。每回合一次 -->
+    <view v-if="colorOpen && colorChoices().length > 0" class="tide-box">
+      <text class="tide-text">拣色：你摸到这几张同颜色的牌 —— 点一张塞回牌库底、再摸 1 张，或者不换</text>
+      <view class="tide-actions">
+        <view
+          v-for="(one, ci) in colorChoices()"
+          :key="'cr-' + ci"
+          :id="'ap-color-' + ci"
+          class="tide-btn"
+          @click="onColorPick(ci)">
+          <text class="tide-btn-text">{{ cardName(one) }}</text>
+        </view>
+        <view id="ap-color-skip" class="tide-btn tide-btn-plain" @click="onColorPick(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不换</text>
+        </view>
+      </view>
+    </view>
+    <!-- 甩货（2026-11-03 · 沉船打捞人）：你抽到 0 点牌 —— 点一张手牌给庄家（明置）、再摸 1 张，或者不给。抽到几次 0 问几次 -->
+    <view v-if="giveOpen && giveLeft > 0 && hand.length > 0" class="tide-box">
+      <text class="tide-text">{{ '甩货：你抽到了 0 点牌' + (giveLeft > 1 ? '（还能甩 ' + giveLeft + ' 次）' : '') + ' —— 点一张手牌给庄家（它一直亮着）、你再摸 1 张，或者不给' }}</text>
+      <view class="tide-actions">
+        <view
+          v-for="(one, gi) in hand"
+          :key="'gv-' + gi"
+          :id="'ap-give-' + gi"
+          class="tide-btn"
+          @click="onGive(gi)">
+          <text class="tide-btn-text">{{ cardName(one) + (isDead(one) ? '（0）' : '') }}</text>
+        </view>
+        <view id="ap-give-skip" class="tide-btn tide-btn-plain" @click="onGive(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不给</text>
+        </view>
+      </view>
+    </view>
     <!-- 顺递：挑一张自己的手牌贴【顺子匹配】（照零递那块） -->
     <view v-if="flowDraftPending" class="tide-box">
       <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
@@ -1142,6 +1176,7 @@
     SK_STONELINE,
     // 空钩（2026-11-01）：布饵人 ♠ 槽的专属技能
     SK_TRAPZERO,
+    SK_DECKZERO,
     // 漂白（2026-11-02）：对方的手牌都【失去花色】
     SK_BLEACH,
     isRoleOnlySkill,
@@ -1322,6 +1357,11 @@
     SP_ZEROFREE,
     // 安检（2026-11-03）：鱼市验货人的常驻技
     SP_INSPECT,
+    // 拣色（2026-11-03 · 新【夜钓客】）
+    SP_COLORREDRAW,
+    SP_ZHANDGIVE,
+    // 拣色判「跟花色槽同颜色」要读角色卡上印的槽标签
+    slotLabels,
     JSURGE_HEAP,
     SP_REVERSE,
     SP_LIVEWATER,
@@ -1523,6 +1563,18 @@
   // 庄家在这中间不出牌，所以跟「抽的那一刻决定」等价 —— 例外：你自己的技能让他在你的回合里抽牌（比如浑水），
   // 那张要到你下回合开头才确认，而他可能先拿它抢牌（少见，登记在台账第五十五节）
   const inspectPending = ref<PlainCard[]>([] as PlainCard[])
+  // 【拣色】（2026-11-03）：你上回合摸到的、跟你花色槽同颜色的牌 —— 轮到你出牌时问一次换不换（每回合一次）
+  const colorPending = ref<PlainCard[]>([] as PlainCard[])
+  const colorOpen = ref<boolean>(false)
+  // 庄家那一侧这一回合用过没有（startFoeTurn 清）
+  let colorUsedFoe : boolean = false
+  // 【甩货】（2026-11-03 · 沉船打捞人）：你抽到 0 点牌攒下的次数（开局发牌不算；不限次数，再抽到 0 接着加）。
+  // 你补完牌、交回合给庄家之前问（passTurnTail）—— 跟模拟器「补牌那一刻送」同一个时点；
+  // 别的时候摸到的（庄家回合里的抢牌补牌之类）到你回合开头问（startMyTurn）
+  const giveLeft = ref<number>(0)
+  const giveOpen = ref<boolean>(false)
+  // 问完接着走哪一步：true = passTurnTail(false)（交回合）；false = startMyTurn
+  let giveResumeTail : boolean = false
   const inspectOpen = ref<boolean>(false)
   // 开局发牌不算（用户定「开局发牌不用」）：发完牌才置真，每局开头清掉
   let dealt : boolean = false
@@ -3575,6 +3627,8 @@
       && !reflectHandPending.value
       // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
       && !giftPending.value
+      // 【甩货】交回合前问的那一下 myTurn 还是 true（startFoeTurn 才清）—— 不挡的话弹窗开着还能出牌
+      && !giveOpen.value
       // 〔【薪潮】那一项 2026-10-28 撤了（`fuelPending` 删了，它换成堆牌、
       //   没有决策了）。判据留着：**每个 pending 都要列在这一行**，
       //   漏了的话那件事没做完还能出牌〕
@@ -3904,6 +3958,11 @@
   // 各处的效果值跟着写死（满篓 +1、稳钩前 4 张…），
   // 那几个数挑定的理由在 SPECIAL_SKILLS 表里各自那段
   function hasSpecial(byFoe : boolean, sp : number) : boolean {
+    // 〔2026-11-03〕已删的常驻技常量是 −1（specialIndexOf 查不到）—— 而角色的常驻技 key 要是写错 / 被删，
+    // 下面那个比较也是 −1 == −1、成立。跟【退潮】那次「已删 SK 撞上空闲 −1」同一个坑，在这儿一次挡住
+    if (sp < 0) {
+      return false
+    }
     const r = byFoe ? foeRole.value : myRole.value
     if (r < 0 || r >= DRAW_ROLES.length) {
       return false
@@ -6401,7 +6460,22 @@
         seen = true
       }
     }
+    // 【拣色】庄家带、庄家抽（终局对决）：AI 当场判 —— 同色、没用（不是 J、点不着自己的槽、现在钓不中）、
+    // 牌库里还有牌、这一回合没用过，就置底再摸一张。照模拟器 rules.js 〈redraw〉那一支（drawUseful + redrawMatch）
+    if (dealt && byFoe && !colorUsedFoe && hasSpecial(true, SP_COLORREDRAW) && rest.length > 0 && sameColorAsSlot(true, card)) {
+      const sk = skillsOf(true, card)
+      if (card.rank != JACK && sk.length == 0 && catchStart(card, true, sk, false) < 0) {
+        rest.unshift(card)
+        card = rest.pop()!
+        colorUsedFoe = true
+        message.value = message.value + ' 庄家拣色：摸到的那张塞回牌库底，又摸了一张。'
+      }
+    }
     deck.value = rest
+    // 【拣色】你带、你抽：同色的先记下来，轮到你出牌时问（见 startMyTurn / onColorPick）
+    if (dealt && !byFoe && hasSpecial(false, SP_COLORREDRAW) && sameColorAsSlot(false, card)) {
+      colorPending.value = colorPending.value.concat([card])
+    }
     if (byFoe) {
       // 【安检】你带、庄家抽：先进他手里、明置，记进待确认（轮到你出牌时再决定放行还是置底）
       const inspect = dealt && hasSpecial(false, SP_INSPECT)
@@ -6410,11 +6484,185 @@
       if (inspect) {
         inspectPending.value = inspectPending.value.concat([card])
       }
+      // 【甩货】庄家带（终局对决）：AI 当场判，照模拟器〈zhandgive〉
+      if (dealt && isDead(card) && hasSpecial(true, SP_ZHANDGIVE) && deck.value.length > 0) {
+        foeGive()
+      }
     } else {
       hand.value = hand.value.concat([card])
       handSeen.value = handSeen.value.concat([seen])
+      // 【甩货】你带：记一次，交回合前问（见 giveLeft）
+      if (dealt && isDead(card) && hasSpecial(false, SP_ZHANDGIVE)) {
+        giveLeft.value = giveLeft.value + 1
+      }
     }
     return card
+  }
+
+  // 这张牌对 byFoe 那一方「有用」吗：J、点得着他的槽（0 点牌响 0 点槽也算）、现在打出去钓得中。
+  // 照模拟器 rules.js 的 drawUseful（【安检】那一支是同一个判法，写在 drawFor 里）
+  function cardUseful(byFoe : boolean, card : PlainCard) : boolean {
+    if (card.rank == JACK) {
+      return true
+    }
+    const sk = skillsOf(byFoe, card)
+    return sk.length > 0 || catchStart(card, byFoe, sk, false) >= 0
+  }
+
+  // 【甩货】庄家那一侧：从后往前找一张「对它没用、对你也没用」的手牌给你（明着 —— 它知道你手里有这张），再摸 1 张。
+  // 再摸到 0 点牌会在 drawFor 里接着触发（原文不限次数）。没有合适的就不给
+  function foeGive() {
+    let at = -1
+    for (let i = foeHand.value.length - 1; i >= 0 && at < 0; i--) {
+      const c = foeHand.value[i]
+      if (!cardUseful(true, c) && !cardUseful(false, c)) {
+        at = i
+      }
+    }
+    if (at < 0) {
+      return
+    }
+    const card = foeHand.value[at]
+    const keepH : PlainCard[] = []
+    const keepS : boolean[] = []
+    for (let i = 0; i < foeHand.value.length; i++) {
+      if (i != at) {
+        keepH.push(foeHand.value[i])
+        keepS.push(i < foeShown.value.length ? foeShown.value[i] : false)
+      }
+    }
+    foeHand.value = keepH
+    foeShown.value = keepS
+    hand.value = hand.value.concat([card])
+    handSeen.value = handSeen.value.concat([true])
+    message.value = message.value + ' 庄家甩货：把 ' + cardName(card) + ' 塞给了你，它又摸了一张。'
+    drawFor(true)
+  }
+
+  // 【甩货】你选一张：index = 你第几张手牌，−1 = 不给（这一串剩下的次数一起作废）。
+  // 给 = 那张进庄家手里、明置，你再摸 1 张（再摸到 0 点牌 giveLeft 又加 1，接着问）
+  function onGive(index : number) {
+    if (index >= 0 && index < hand.value.length && deck.value.length > 0) {
+      giveLeft.value = giveLeft.value - 1
+      const card = hand.value[index]
+      const keepH : PlainCard[] = []
+      const keepS : boolean[] = []
+      for (let i = 0; i < hand.value.length; i++) {
+        if (i != index) {
+          keepH.push(hand.value[i])
+          keepS.push(i < handSeen.value.length ? handSeen.value[i] : false)
+        }
+      }
+      hand.value = keepH
+      handSeen.value = keepS
+      foeHand.value = foeHand.value.concat([card])
+      foeShown.value = foeShown.value.concat([true])
+      const next = drawFor(false)
+      message.value = '甩货：' + cardName(card) + ' 给了庄家' + (next != null ? '，你又摸了 ' + cardName(next!) + '。' : '。')
+    } else {
+      giveLeft.value = 0
+    }
+    if (giveReady()) {
+      return
+    }
+    giveOpen.value = false
+    if (giveResumeTail) {
+      passTurnTail(false)
+    } else {
+      startMyTurn()
+    }
+  }
+
+  // 【甩货】现在能问吗：有次数、牌库还有牌（给了要再摸）、手里有牌。问不了就把次数清掉
+  function giveReady() : boolean {
+    if (giveLeft.value > 0 && deck.value.length > 0 && hand.value.length > 0) {
+      return true
+    }
+    giveLeft.value = 0
+    return false
+  }
+
+  // 【锈锚】置 0 几张。模拟器 rules.js 的 DECKZERO_N 默认值必须一样
+  const DECKZERO_N : number = 2
+  // 【锈锚】将牌库顶 2 张牌置 0（J 也置 0 —— 牌面改成 0，照 markDead）。已经是 0 的照样占名额。
+  // 记进 deadCards：摸进谁手里都带「废」标（明置）、0 点、只响 0 点槽。模拟器〈deckzero〉同一个数
+  function deckZero(byFoe : boolean) {
+    let n = 0
+    for (let k = 0; k < DECKZERO_N && k < deck.value.length; k++) {
+      const card = deck.value[deck.value.length - 1 - k]
+      if (isDead(card)) {
+        continue
+      }
+      if (card.rank == JACK) {
+        card.rank = '0'
+        card.value = 0
+        card.extra = [] as number[]
+      }
+      deadCards.value = deadCards.value.concat([card])
+      n = n + 1
+    }
+    if (n > 0) {
+      message.value = message.value + (byFoe ? ' 庄家锈锚：' : ' 锈锚：') + '牌库顶 ' + n + ' 张置 0。'
+    }
+  }
+
+  // 【拣色】这张牌跟这一方花色槽同颜色吗（角色卡上印的第一个花色标签）。没有花色槽 = 不算
+  function sameColorAsSlot(byFoe : boolean, card : PlainCard) : boolean {
+    const r = byFoe ? foeRole.value : myRole.value
+    if (r < 0 || r >= DRAW_ROLES.length) {
+      return false
+    }
+    const slots = DRAW_ROLES[r].slots
+    for (let i = 0; i < slots.length; i++) {
+      const labels = slotLabels(slots[i])
+      for (let j = 0; j < labels.length; j++) {
+        if (SUITS.indexOf(labels[j]) >= 0) {
+          return sameColor(card.suit, labels[j])
+        }
+      }
+    }
+    return false
+  }
+
+  // 【拣色】还能换的那几张：记下来的、现在还在你手里的
+  function colorChoices() : PlainCard[] {
+    const out : PlainCard[] = []
+    for (let i = 0; i < colorPending.value.length; i++) {
+      const c = colorPending.value[i]
+      for (let k = 0; k < hand.value.length; k++) {
+        if (hand.value[k] == c) {
+          out.push(c)
+          break
+        }
+      }
+    }
+    return out
+  }
+
+  // 【拣色】选一张：index = colorChoices 里第几张，−1 = 不换。换 = 放牌库底、你再摸 1 张。每回合一次 —— 选完（或不换）就清掉
+  function onColorPick(index : number) {
+    const choices = colorChoices()
+    colorPending.value = [] as PlainCard[]
+    colorOpen.value = false
+    if (index >= 0 && index < choices.length && deck.value.length > 0) {
+      const card = choices[index]
+      const keepH : PlainCard[] = []
+      const keepS : boolean[] = []
+      for (let i = 0; i < hand.value.length; i++) {
+        if (hand.value[i] != card) {
+          keepH.push(hand.value[i])
+          keepS.push(i < handSeen.value.length ? handSeen.value[i] : false)
+        }
+      }
+      const rest = deck.value.slice(0)
+      rest.unshift(card)
+      const next = rest.pop()!
+      deck.value = rest
+      hand.value = keepH.concat([next])
+      handSeen.value = keepS.concat([false])
+      message.value = '拣色：' + cardName(card) + ' 塞回牌库底，你又摸了 ' + cardName(next) + '。'
+    }
+    startMyTurn()
   }
 
   // 【安检】确认一张：keep = 放行（留在庄家手里、一直亮着）；否则置底 ——
@@ -8465,6 +8713,10 @@
     if (hasTrigger(skills, SK_TRAPZERO) && lastPlayed != null && inPile(lastPlayed!) && !trapOn(lastPlayed!)) {
       trapPile = trapPile.concat([lastPlayed!])
       message.value = message.value + (byFoe ? ' 庄家空钩：' : ' 空钩：') + '它成了陷阱 —— 谁收走它，谁的手牌全部置 0。'
+    }
+    // 【锈锚】（沉船打捞人专属）：牌库顶 2 张置 0
+    if (hasTrigger(skills, SK_DECKZERO)) {
+      deckZero(byFoe)
     }
     // ---- 带「优先」那几件的播报摆在最前面 ----
     //
@@ -14893,6 +15145,12 @@
   // 交回合的最后两步。单独拎出来是因为 `drainStealTails` 可能停在半路，
   // 而回来那一下要从这儿接着走（见 onChainLink / onHoldTag）
   function passTurnTail(byFoe : boolean) {
+    // 【甩货】：你这回合补牌摸到 0 点牌 —— 交回合之前问（问完 onGive 再调回这儿）
+    if (!byFoe && hasSpecial(false, SP_ZHANDGIVE) && giveReady()) {
+      giveResumeTail = true
+      giveOpen.value = true
+      return
+    }
     if (checkOver()) {
       return
     }
@@ -14908,6 +15166,20 @@
     // 【安检】：庄家上回合抽的牌先过你的手（见 drawFor / onInspect）。逐张确认完再接着走这个回合
     if (inspectPending.value.length > 0) {
       inspectOpen.value = true
+      return
+    }
+    // 【拣色】：你上回合摸到的同色牌，问一次换不换（每回合一次；牌库空了 / 那几张都不在手里了就不问）
+    if (colorPending.value.length > 0) {
+      if (deck.value.length > 0 && colorChoices().length > 0) {
+        colorOpen.value = true
+        return
+      }
+      colorPending.value = [] as PlainCard[]
+    }
+    // 【甩货】：庄家回合里你摸到的 0 点牌（抢牌补牌之类），回合开头问
+    if (hasSpecial(false, SP_ZHANDGIVE) && giveReady()) {
+      giveResumeTail = false
+      giveOpen.value = true
       return
     }
     myTurn.value = true
@@ -15160,6 +15432,7 @@
 
   function startFoeTurn() {
     myTurn.value = false
+    colorUsedFoe = false
     foeTimer = setTimeout(foeTurn, FOE_DELAY_MS)
   }
 
@@ -16730,6 +17003,11 @@
     foeShown.value = []
     inspectPending.value = [] as PlainCard[]
     inspectOpen.value = false
+    colorPending.value = [] as PlainCard[]
+    colorOpen.value = false
+    colorUsedFoe = false
+    giveLeft.value = 0
+    giveOpen.value = false
     dealt = false
     pile.value = []
     pileByFoe.value = []
