@@ -1177,6 +1177,11 @@ function roleLabelsOf(data : DrawSave) : string[] {
       out.push(one[j])
     }
   }
+  // 【归十】：Q、K 也触发 10 槽（2026-11-03）—— 商店「只卖能触发角色槽的牌」把它们也算进去
+  if (DRAW_ROLES[data.role].special == 'tens' && out.indexOf('10') >= 0) {
+    out.push('Q')
+    out.push('K')
+  }
   return out
 }
 

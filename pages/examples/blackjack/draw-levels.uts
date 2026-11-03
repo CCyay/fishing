@@ -2054,19 +2054,31 @@ export function maxLivesOf(diff : number) : number {
 // 实测（campaign.js · 每关 2000 局 · 种子 1 / 10007，同一版代码）：普通 15.9% / 18.2% → **18.4% / 19.9%**。
 // 同一批里「生命 4 → 5」是 26.5% / 29.8%（冲过头），没用
 const DIFF_REWARD_RATE : number[] = [4.0, 3.6, 1.4]
-const EASY_RANDOM_UNTIL : number = 4
+// 〔2026-11-03 起不用了：简单档不再有随机关（见 levelForDiff）。原先「简单前 4 关随机出牌」〕
+// 困难档从第几关起庄家随机出牌〔2026-11-03 用户定〕
+const HARD_RANDOM_FROM : number = 7
+// 普通档从第几关起庄家随机出牌〔2026-11-03 用户定「普通再往下调，20% 左右」：扫了第 7 / 9 / 10 / 11 关起随机，
+//  7 → 20.0%、9 → 22.0%、10 → 23.3%、11 → 23.5%（不随机 27.7%）。台账第五十九·乙〕
+const NORMAL_RANDOM_FROM : number = 7
 const FIRST_REWARD_FLOOR : number = 80
 
 // 这一关在这个难度下的样子。返回一份新的，不改 DRAW_LEVELS 本身
 export function levelForDiff(lv : DrawLevel, diff : number) : DrawLevel {
   let random = lv.random
   let smart = lv.smart
+  // 〔2026-11-03 用户定：按抢牌规则下的强弱重配（不记牌 < 记牌 < 随机）。抢牌规则下「随机出牌」反而最强：它不急着匹配、专等对方出手再抢（抢牌那一步所有档都挑收得最多的那张）。双方都没技能时 记牌玩家 vs 随机庄家 39.2%、vs 不记牌 60.8%、vs 记牌 47.9%（台账第五十九节）。
+  //   原先 简单「前 4 关随机、之后不记牌」· 普通「第 1 关随机、第 2 关不记牌、第 3 关起记牌」· 困难「全记牌」——
+  //   当初把随机当成最容易的一档，抢牌之后它是最难的〕
   if (diff == DIFF_EASY) {
-    random = lv.id <= EASY_RANDOM_UNTIL
+    random = false
     smart = false
   } else if (diff == DIFF_HARD) {
-    random = false
+    random = lv.id >= HARD_RANDOM_FROM
     smart = true
+  } else {
+    // 普通：记牌照关卡表（第 3 关起），第 1 关不再随机（DRAW_LEVELS 第 1 关的 random 还写着 true）；
+    // 第 NORMAL_RANDOM_FROM 关起随机出牌（2026-11-03 用户定，把普通档压到 20% 左右）
+    random = lv.id >= NORMAL_RANDOM_FROM
   }
   const rate = diff >= 0 && diff < DIFF_REWARD_RATE.length ? DIFF_REWARD_RATE[diff] : 1.0
   let reward = Math.round(lv.reward * rate)

@@ -4174,7 +4174,9 @@
   //  跟词条和模拟器都对不上：**花色槽也被一起掐了**〕
   // 串钩 / 红钩也读同一个 rank：置 0 的牌串钩不认（不是点数槽的牌），红钩照旧认（它认花色）
   function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
-    const rank = isDead(card) ? '0' : card.rank
+    // 【归十】〔2026-11-03 用户定「自己的 Q、K 都算 10 点，能触发 10 槽」〕：带它的一方的 Q、K 按 10 去查槽
+    const tensRank = (card.rank == 'Q' || card.rank == 'K') && hasSpecial(byFoe, SP_TENS)
+    const rank = isDead(card) ? '0' : (tensRank ? '10' : card.rank)
     const lo = loadoutOf(byFoe)
     const list = triggersOf(lo, card.suit, rank)
     // 【串钩】（串钩手）：命中任一个**被占**的点数槽 → **再响 1 件**（你选的那件，见 heartPick）。

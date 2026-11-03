@@ -1,0 +1,51 @@
+# 重做基准前（2026-11-03）fingerprint.js 报的漂移清单
+# 旧基准 = baseline-2026-10-21.json（同一份也在 git 09da522 里）
+# ⚠ 这 47 条没有逐条核过。重做基准是用户定的（11-03「做 5」）：旧基准过期太久，报警已经没有信息量。
+# 原始输出（含分组）在 tools/md-sim/out-r8/fingerprint-before-resave.txt（本地，不进仓库）
+draw-skills.uts:SCORE_BANDS：undefined → []
+draw-skills.uts:BAIT_COUNT：3 → 2
+draw-skills.uts:JSURGE_HEAP：undefined → 4
+draw-skills.uts:FUEL_HEAP：undefined → 1
+draw-skills.uts:FUEL_HEAP_FOE：undefined → 1
+ap-fishing.uvue:TAIL_PLAYS：2 → 0
+ap-fishing.uvue:catchStart
+ap-fishing.uvue:playFor
+ap-fishing.uvue:resolveMatch
+ap-fishing.uvue:skillsOf
+ap-fishing.uvue:afterPlay
+ap-fishing.uvue:afterPlayHead
+ap-fishing.uvue:afterPlayTail
+ap-fishing.uvue:valuesOf
+ap-fishing.uvue:finishCatch
+ap-fishing.uvue:pushPile
+ap-fishing.uvue:unshiftPile
+ap-fishing.uvue:suitifyFor
+ap-fishing.uvue:startSweep
+ap-fishing.uvue:endPlay
+ap-fishing.uvue:addFrostAt
+ap-fishing.uvue:bestChainAt
+ap-fishing.uvue:straightFor
+ap-fishing.uvue:hueFor
+ap-fishing.uvue:harvestCount
+ap-fishing.uvue:doPickDeck
+ap-fishing.uvue:shuffleBack
+ap-fishing.uvue:foeOpen
+ap-fishing.uvue:foeKnows
+ap-fishing.uvue:surgeFor
+ap-fishing.uvue:refill
+ap-fishing.uvue:checkOver
+ap-fishing.uvue:passTurn
+ap-fishing.uvue:trimDeck
+ap-fishing.uvue:drawFor
+ap-fishing.uvue:foePickCard
+ap-fishing.uvue:sameSuit
+draw-skills.uts:triggersOf
+draw-skills.uts:kitFromRole
+draw-skills.uts:kitFromSlots
+draw-skills.uts:slotCover
+draw-skills.uts:roleCover
+draw-skills.uts:baitRankOf
+ap-fishing.uvue:doFuel
+draw-skills.uts:scoreWith
+draw-skills.uts:scoreOf
+draw-skills.uts:bandOf

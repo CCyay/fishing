@@ -5504,7 +5504,20 @@ function isZero(card) {
 //
 // 分两层是照源码的结构：triggersOf 在 draw-skills.uts（纯函数、只看配装），
 // skillsOf 在 ap-fishing.uvue（查死牌再调它）
+// ---------- 【归十】〔2026-11-03 补：模拟器原先**完全没实现**它〕----------
+//
+// 源码在 `valuesOf(card, byFoe, skills)` 里判（它有 byFoe）：带归十的一方打出 Q、K 时点数换成 10（tenVals，点数卡照旧追加）。
+// 模拟器的 valuesOf **没有 side**（见净滩那段：加参数要动一串调用点）—— 而所有调用点传的 skills 都是
+// `skillsOf(G, side, card)` 按那一侧算的，所以在这儿往列表里塞一个标记，valuesOf 读它，侧就对了。
+// TENS_MARK 不是任何技能的下标（负数），has() / hasTrigger 之外没人按下标去查它
+const TENS_MARK = -1010
 function skillsOf(G, side, card) {
+  const list = skillsOfCore(G, side, card)
+  if ((card.rank === 'Q' || card.rank === 'K') && hasSpecial(G, side, SP.TENS)) return list.concat([TENS_MARK])
+  return list
+}
+
+function skillsOfCore(G, side, card) {
   // 〔原先这儿有一行 `if (isDead(G, card)) return []` ——
   //   死水改成「把牌变成 0 点牌」之后不需要了：`triggersOf` 查
   //   SKILL_RANKS（A–10 / Q / K）找不到 `'0'`，点数槽自然不触发。
@@ -5516,7 +5529,9 @@ function skillsOf(G, side, card) {
   // 看到的得是 ♦。`playFor` 那边真牌已经改过（这儿 `diaSuitOf` 原样返回），
   // 而 AI 试算时牌还没改 —— 这一步就是替它先看到那个 ♦。
   // 不这么做的话 AI 评估「打这张值不值」时读不到 ♦ 槽那一件
-  const view = diaOn(G, side) ? { suit: diaSuitOf(lo, card), rank: card.rank } : card
+  const view0 = diaOn(G, side) ? { suit: diaSuitOf(lo, card), rank: card.rank } : card
+  // 【归十】〔2026-11-03 用户定「自己的 Q、K 都算 10 点，能触发 10 槽」，照源码 skillsOf〕：Q、K 按 10 去查槽
+  const view = (card.rank === 'Q' || card.rank === 'K') && hasSpecial(G, side, SP.TENS) ? { suit: view0.suit, rank: '10' } : view0
   const out = triggersOf(lo, view)
   // 〔【白雪】原先在这儿展开成「花色匹配 + 石果」，而石果 2026-10-26 删了。
   //   贴石那一步搬到了 `afterPlay`（直接 `addStone`，同一个入口），
@@ -9354,6 +9369,13 @@ function ownerOf(G, card) {
   return G.turn === FOE ? FOE : ME
 }
 
+function tenValsSim(card) {
+  const out = [10]
+  const extra = card.extra || []
+  for (let i = 0; i < extra.length; i++) if (out.indexOf(extra[i]) < 0) out.push(extra[i])
+  return out
+}
+
 function valuesOf(G, card, skills) {
   // 🔴 **废牌（被置 0 的牌）一律 [0]，判在最前面、盖掉下面所有分支**〔2026-10-30 · fingerprint 审计第 5 条，用户定「模拟器对齐源码」〕。
   //   源码 valuesOf 一直是这样（「废了就是废了，不该还受别的技能摆布」）；模拟器这儿原先**有意**删了这一支（见下面那段墓碑）。
@@ -9560,7 +9582,8 @@ function valuesOf(G, card, skills) {
     const top = tideTop(G, card)
     if (top > 13) return [top]
   }
-  const out = cardVals(card)
+  // 【归十】：Q、K 算 10（照源码 tenVals：[10] + 点数卡贴上来的那几个）
+  const out = has(skills, TENS_MARK) ? tenValsSim(card) : cardVals(card)
   // 归深：**追加** 11 这个候选。11 是 J 的数，而 J 从不落堆 ——
   // 所以那是一个只有归深牌够得到的私有钓点
   if (has(skills, SK.DEEP) && out.indexOf(11) < 0) {

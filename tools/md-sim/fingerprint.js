@@ -2,12 +2,15 @@
 //
 //   node fingerprint.js          对一遍，报哪几个函数变了
 //
-// ⚠ 还有一个 `--save`（把现在的状态存成基准），而**现在不要跑它** ——
-//   用户站着的指示（2026-10-28）。已有 6 个函数在漂移，而旧基准没有副本，
-//   盖掉就永久失去「哪里分叉了」的凭据。漂移要靠**逐条核函数名**消化，
-//   确认过的差异写进 `README.md` 的「有意的差异」那张表，不是收进基准里。
-//   〔同一天在 run-redhook.sh / run-rigger.sh / run-heart.sh 和本文件末尾
-//     各删掉一处「跑 --save」的指示 —— run-rigger 那处是 echo 出来给人照抄的〕
+//   node fingerprint.js --save   把现在的状态存成基准
+//
+// ⚠ 跑 `--save` 之前先把报红的函数**逐条核一遍**（模拟器那边有没有跟上），
+//   确认过的有意差异写进 `README.md` 的「有意的差异」那张表。
+//   旧基准在 git 里有历史，盖掉之前想留证据就另存一份（照 baseline-2026-10-21.json 那次）。
+//   〔~~「不要跑 `--save`」~~ 是 2026-10-28 用户的指示（当时担心旧基准没副本），
+//     **2026-11-03 用户撤了**（「10-28 定的『不要跑 --save』去掉」）。同日重做了基准：
+//     旧基准另存成 baseline-2026-10-21.json，当时报的 47 处漂移（**没逐条核过**）
+//     记在 fingerprint-drift-2026-11-03.txt〕
 //
 // ---- 它解决的问题 ----
 //
@@ -123,12 +126,9 @@ const WATCH = [
       'peekFor', 'doPickDeck', 'sinkTops',
       'topCards', 'shuffleBack', 'doFreeze', 'expireHeld', 'heldOn', 'isFrozen',
       'inPile', 'foeOpen', 'foeKnows', 'takeStack', 'cleanAt0',
-      'surgeFor', 'doSurge', 'surgeLayers',
-      // 【薪潮】贴标签那一步（2026-10-16）。跟 `doSurge` 同级 ——
-      // 它是**盲选那条路**唯一的落点，而盲选跟看着挑的区别
-      //（走 `fuelPending` 而不是 `takeSkill`）全靠它和调用处那一支撑着。
-      // 改错了的表现是**对方手牌被翻开**，而那会静默改掉这件技能的性质
-      'doFuel']
+      'surgeFor', 'doSurge', 'surgeLayers']
+      // 〔`doFuel`（【薪潮】旧版贴推牌那一步）2026-11-03 摘掉：薪潮 10-28 改成「燃烧 + 堆牌」，
+      //   源码里 doFuel 整个删了，留着每次报一条「找不到了」。照量水那次的办法：实现一删，监视名单跟着删〕
   },
   {
     file: 'ap-fishing.uvue',
@@ -547,12 +547,9 @@ function main() {
     for (let i = 0; i < added.length; i++) console.log('    ' + added[i])
     console.log('')
   }
-  console.log('🔴 **不要跑 `--save`** —— 用户站着的指示（2026-10-28）。')
-  console.log('   已经有 6 个函数在漂移（合并那一轮两边各自 save 过），')
-  console.log('   盖掉基准就失去「模拟器跟源码哪里分叉了」的唯一凭据，')
-  console.log('   而那凭据是不可重建的 —— 旧基准没有别的副本。')
-  console.log('   红了要**逐条看函数名**，确认每一条都是有意改的；')
-  console.log('   `README.md` 里「有意的差异」那张表就是放这个的地方。')
+  // 〔2026-11-03：原先这儿印「不要跑 --save」（10-28 用户的指示），用户 11-03 撤了〕
+  console.log('红了要**逐条看函数名**，确认每一条都是有意改的（模拟器那边跟上了没有）；')
+  console.log('有意的差异写进 `README.md` 的「有意的差异」那张表。核完再 `node fingerprint.js --save` 收进基准。')
   process.exit(2)
 }
 

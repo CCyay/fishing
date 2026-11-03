@@ -165,17 +165,28 @@ const DIFFS = [
 
 // ease = 庄家放水几关：随机关多 ease 关、「开始记牌」推迟 ease 关。
 // 那是难度表里**唯一一个按关调**的旋钮，所以单独给它一个参数
+// 〔2026-11-03 照 draw-levels 的 levelForDiff 重配（用户定）：简单全不记牌、普通第 1~2 关不记牌之后记牌、
+//   困难第 1~6 关记牌之后随机。ease 只留在普通档（「开始记牌」推迟 ease 关），简单 / 困难不吃它〕
+const HARD_RANDOM_FROM = 7
 function foeMode(diff, level, ease) {
   const id = level + 1
   if (diff === 'easy') {
-    return { random: id <= EASY_RANDOM_UNTIL + ease, smart: false }
+    return { random: false, smart: false }
   }
   if (diff === 'hard') {
-    return { random: id <= ease, smart: id > ease * 2 }
+    return { random: id >= HARD_RANDOM_FROM, smart: true }
+  }
+  // 〔2026-11-03 量具（用户：「普通可以再往下调，20% 左右」）〕NORMAL_SMART_FROM / NORMAL_RANDOM_FROM：
+  //   普通档从第几关起记牌 / 随机出牌（不设 = 现行：第 3 关起记牌、不随机）
+  if (process.env.NORMAL_SMART_FROM || process.env.NORMAL_RANDOM_FROM) {
+    const sf = parseInt(process.env.NORMAL_SMART_FROM || '3', 10)
+    const rf = parseInt(process.env.NORMAL_RANDOM_FROM || '99', 10)
+    return { random: id >= rf, smart: id >= sf }
   }
   const at = Math.max(0, level - ease)
+  // 〔2026-11-03 普通第 7 关起随机出牌（照 draw-levels 的 NORMAL_RANDOM_FROM）〕
   return {
-    random: LEVEL_RANDOM[at] || id <= 1 + ease,
+    random: id >= 7,
     smart: level >= ease ? LEVEL_SMART[at] && id > 2 + ease : false
   }
 }
@@ -408,7 +419,10 @@ function levelOdds(diff, level, opt) {
       rng: rng,
       mine: playerKit(rng, kitSize(diff, level, opt.kshift)),
       foe: foeKit(rng, level),
-      mineSmart: true,
+      // 〔2026-11-03 用户定：模拟器的玩家换成**随机出牌**（抢牌照样精准）—— 抢牌规则下它是最强的一档，
+      //   比一步贪心（原先 mineSmart: true）更接近会打的玩家。PLAYER_AI=smart 复现旧口径〕
+      mineSmart: process.env.PLAYER_AI === 'smart',
+      mineRandom: process.env.PLAYER_AI !== 'smart',
       foeSmart: mode.smart,
       foeRandom: mode.random,
       // `myRole` 不传 = −1 = `hasSpecial` 恒 false = **一件常驻技都不模**，
