@@ -75,9 +75,10 @@ const FOE_ROLES = [
   // 冻结 → 压舱（2026-10-20，冻结升级成自带结冰之后这一关太陡）
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
   { name: '礁石海女', specials: ['pinch'], slots: [['press', 1, false]] },
-  { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 2, false], ['hook', 1, false]] },
+  // 〔2026-11-03 R8 调难度：观潮 / 顺色 / 一色 2 → 1 个标签，照 draw-levels〕
+  { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 1, false], ['hook', 1, false]] },
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 2, false]] },
+  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, false]] },
   // 〔2026-10-16 照水 ×2 → **死水 ×1**（照水删了）。理由见 draw-levels 那一关的注释。
   //   对这个报表的意义：这一关**第一次有了模拟器量得到的槽技能**（枯水仍然没模），
   //   所以它的数字从「两件白板」变成「一件白板」—— 还是下限，但下限抬高了〕
@@ -89,7 +90,7 @@ const FOE_ROLES = [
   //   所以这一关从三条腿（守滩 / 见底 / 染水）变两条腿，跟着变简单。
   //   它养厚堆的手段（守滩）还在，**把厚堆变现的手段没了**〕
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 2, false]] },
+  { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 1, false]] },
   // ---- 11 / 12 关 2026-10-15 改过两轮（曲线倒挂：11 关比关底难 21 个点）----
   //
   // **第一轮改错了**：把关底的结冰两件换成吃水 + 撒网（理由是「各自独立兑现」），
@@ -116,6 +117,23 @@ const FOE_ROLES = [
   // 2026-11-02 再钩 → 逆钩（照源码）。两条都不在 MODELED_SP 里，所以这一关的模拟数不变
   { name: '深渊君主', specials: ['rev'], slots: [['wild', 1, true], ['hook', 1, false], ['suited', 1, false]] }
 ]
+// 〔2026-11-03 用户：「庄家角色尽量不要用到相同技能」「要有特色，比如用顺子匹配、结冰」〕
+// 每张卡一族机制、24 个槽不重复（素材池那 6 张 campaign 不模）。同日用户定上游戏 → **默认就是这一套**（= draw-levels.uts 现行）；FOE_SET=old 复现之前那套
+const FOE_ROLES_THEMED = [
+  { name: '试竿学徒', specials: [], slots: [] },
+  { name: '游荡钓客', specials: [], slots: [] },
+  { name: '守河老汉', specials: [], slots: [] },
+  { name: '滩头老翁', specials: ['hand'], slots: [] },
+  { name: '回漩摆渡人', specials: ['silt'], slots: [['backwater', 1, false]] },
+  { name: '礁石海女', specials: ['pinch'], slots: [['press', 1, false]] },
+  { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 1, false], ['pick', 1, false]] },
+  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, false]] },
+  { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['bleach', 1, false]] },
+  { name: '涡心祭司', specials: ['guard'], slots: [['orderpile', 1, false]] },
+  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false], ['zerodrop', 1, false]] },
+  { name: '深渊君主', specials: ['rev'], slots: [['lockcolor', 1, true], ['lockdraw', 1, false], ['icebomb', 1, false]] }
+]
+if (process.env.FOE_SET !== 'old') FOE_ROLES.splice(0, FOE_ROLES.length, ...FOE_ROLES_THEMED)
 const MODELED_SP = ['hand', 'pinch']
 // 〔2026-10-29 · 调难度用的量测开关〕`FOE_OVERRIDE`：按关号（1 起）覆盖庄家的技能槽，JSON。
 //   例：FOE_OVERRIDE='{"6":[["press",1,false]],"12":[["wild",2,false],["hook",1,false]]}'
@@ -139,7 +157,8 @@ const DIFFS = [
   //   两边又对上了 —— 但**改难度表的时候要顺手过来对一眼**。
   //   量别的档就加 `--lives 4,3,2`〕
   // 〔2026-10-29 → 5/4/3，照 draw-levels 的 DIFF_LIVES〕
-  { key: 'easy', name: '简单', lives: 5 },
+  // 〔2026-11-03 → 4/4/3，照 draw-levels 的 DIFF_LIVES（R8 之后调难度；一度 6/5/3，用户否了）〕
+  { key: 'easy', name: '简单', lives: 4 },
   { key: 'normal', name: '普通', lives: 4 },
   { key: 'hard', name: '困难', lives: 3 }
 ]
@@ -236,7 +255,7 @@ const PLAYER_POOL = [
   // 〔【零吃】zeroself 2026-10-29 上架、当晚撤下 —— 从池子里拿掉〕
   // 〔涉水 2026-10-29 撤了，从池子里拿掉〕
   // 〔【褪递】2026-10-29 深夜上架、2026-10-30 下架 —— 从池子里拿掉〕
-  'zerodraft', 'peak', 'unhook', 'suitify', 'cast', 'raise', 'suited',
+  'zerodraft', 'peak', 'unhook', 'suitify', 'cast', 'suited',
   // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。
   //   **留着的后果是静默的**：
   //   ⚠ 写这条注释时**带引号写了那个 key，refs.js 当场误报成真引用** ——

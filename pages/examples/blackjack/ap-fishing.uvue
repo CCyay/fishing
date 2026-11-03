@@ -569,7 +569,7 @@
 
     <!-- 回水：庄家那张已经置 0，等你挑一张手牌贴【收零】（照褪递那块） -->
     <view v-if="backTagPending" class="tide-box">
-      <text class="tide-text">回水：点一张你的手牌贴上收零（打出时置 0，堆上另有 0 点牌就全收走）· J 和无点数的点不动</text>
+      <text class="tide-text">{{ backTagName }}：点一张你的手牌贴上收零（打出时置 0，堆上另有 0 点牌就全收走）· J 和无点数的点不动</text>
       <view class="tide-actions">
         <view id="ap-backtag-skip" class="tide-btn tide-btn-plain" @click="onBackTag(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
@@ -957,7 +957,7 @@
       <view
         id="ap-cut-card"
         class="card cut-card"
-        :class="{ 'cut-card-to-foe': cutPhase == 2 && cutToFoe, 'cut-card-to-me': cutPhase == 2 && !cutToFoe }">
+        :class="{ 'cut-card-to-pile': cutPhase == 2 }">
         <!-- 牌面走 computed（cutFace / cutSuit / cutRed）而不是在模板里
              断言 `cutFly!` —— 那张牌是可空的，而模板里的非空断言
              在 uvue 的编译里不保险 -->
@@ -1485,8 +1485,6 @@
   const FOE_DELAY_MS : number = 600
   // 赢了之后结算框停多久再自动进商店 —— 够看清拿了多少金币就行
   const SHOP_DELAY_MS : number = 1200
-  // 庄家倒饵：牌库剩这么多张以下就不送了〔2026-11-03，跟模拟器 BAIT_TAIL 默认值一致〕
-  const BAIT_TAIL_DECK : number = 4
   // 输了：结算框亮出来多久之后那颗心碎掉；碎完再过多久退回商店
   const HEART_BREAK_MS : number = 500
   const LOSE_SHOP_MS : number = 1200
@@ -2051,7 +2049,12 @@
   // ⚠ `BALANCE`（剩堆归属）**没有跟着动**，理由还是上面那条
   //   「终局一缩短剩堆归属就过补」—— 反过来也成立：终局拉长之后
   //   更不能再叠剩堆那条补丁。两条规则互斥，不是能叠的两件补丁。
-  const TAIL_PLAYS : number = 6
+  //
+  // 〔2026-11-03 用户定（R8）：**6 → 0，牌库一空就收摊**。各打 3 手是在终局里把抢牌造成的
+  //  先手优势找补回来（后手在那 3 手里多抢 1.20 张），可那几手让很多技能失衡。
+  //  换成从开局治：翻 1 张到堆上 + 牌组奇数（见 trimDeck / 切牌那段）。
+  //  依据见《摸打钓鱼-实测数据台账.md》第五十八节：抢牌让先手占优（各打 1 手时后手 −0.88），成因是「先有得钓的一方先被抢」；开局翻 1 张到堆上 + 牌组奇数 + 牌库一空就结束，实测后手分差 −0.00（SE 0.10）、胜率 48.7 : 48.5。「双方出牌数要一样多、少的补一手」那条照留（下面 checkOver）〕
+  const TAIL_PLAYS : number = 0
   // 牌库刚空那一刻双方合计打了几手。−1 = 牌库还没空过。
   // checkOver 拿它数「还许打几手」，newGame 重置
   let tailFrom : number = -1
@@ -2199,6 +2202,8 @@
   const backPending = ref<boolean>(false)
   // 回水等你挑自己的一张手牌贴【收零】（照褪递）
   const backTagPending = ref<boolean>(false)
+  // 贴收零那一下是哪件技能问的（回水 / 策反 共用这一步，〔2026-11-03 策反加收零〕）—— 只管提示文字
+  const backTagName = ref<string>('回水')
   // 顺递 / 续流等你挑自己的一张手牌贴【顺子匹配】（两件共用这一块挑牌，flowDraftSk 记是哪件）
   const flowDraftPending = ref<boolean>(false)
   const flowDraftSk = ref<number>(-1)
@@ -2508,6 +2513,8 @@
   //  而它们那三笔按侧的记号在连续互抢下会被**同一侧的下一手盖掉**
   //  —— 见 stealTailTook 那段〕
   let stealTailSide : boolean[] = []
+  // 抢牌方欠着的那一次补牌：−1 没有，0 你，1 庄家（「第一个打出匹配的一方先补牌」，2026-11-03）
+  let stealRefillThief : number = -1
   let stealTailSurge : number[] = []
   let stealTailHeap : number[] = []
   // 【对方堆牌】那一笔 —— 跟上面那条**必须分开存**：兑现时一个传 `side`、
@@ -4317,23 +4324,21 @@
   //
   // 剔的是**牌顶**（数组末尾，照 drawFor 的 pop）。洗过了，所以剔掉那一张是随机的。
   // 返回剔了几张（0 或 1）—— 开局那句 message 要说一声
+  //
+  // 〔2026-11-03 用户定（R8）：规则换成「**牌库是偶数张就去掉 1 张，去掉的是隐藏信息**」。
+  //  上面那段锁「发完牌之后的牌库」是为各打 1 / 3 手的终局结构定的；新规则开局还要翻 1 张到堆上，
+  //  所以改锁整副牌：标准 52 → 51，发完 8 张、翻掉 1 张之后牌库 42（偶数）。
+  //  ⚠ 添手 / 掐口让发牌数变奇数时，翻完之后牌库是奇数 —— 用户的规则就是这么写的，照实现。
+  //  **去掉的那张不公开**：调用点挪到 buildRankTotals **之后**，于是庄家的记牌
+  //  （outsideCount）照旧把它算在「外面还剩」里 —— 它跟你一样不知道少的是哪张〕
   function trimDeck() : number {
-    // 发牌总数。切出来那张算在先手那一份里（它进先手的手牌，见下面发牌那段），
-    // 所以牌库最终是「牌组 − foeDeal − myDeal」
-    const dealt = handLimit(true) + handLimit(false)
+    if (deck.value.length % 2 != 0) {
+      return 0
+    }
     const rest = deck.value.slice(0)
-    let cut = 0
-    // 一次就够（剔一张奇偶就翻），写成 while 是为了万一 dealt 的算法以后变了。
-    // `> dealt` 那个条件是防护：牌组最少 DECK_MIN 张、dealt 最多 9，
-    // 所以现实里走不到，但少了它、万一牌组薄过发牌数就会 pop 到负数去
-    while (rest.length > dealt && (rest.length - dealt) % 2 != 0) {
-      rest.pop()
-      cut = cut + 1
-    }
-    if (cut > 0) {
-      deck.value = rest
-    }
-    return cut
+    rest.pop()
+    deck.value = rest
+    return 1
   }
 
   // 堆里这张对出牌的一方来说是不是被护着：对方护的才挡，自己护的不挡自己
@@ -8074,6 +8079,12 @@
       expireGuards(side)
       refill(side)
     }
+    // 被抢方都补完了，再补欠着的抢牌方（见 passTurn 那段）
+    if (stealRefillThief >= 0) {
+      const thief = stealRefillThief == 1
+      stealRefillThief = -1
+      refill(thief)
+    }
     return false
   }
 
@@ -8904,15 +8915,19 @@
     // 冰色（同色）♥ 槽 +4.18 → 隔凌（异色）+8.33。
     // 实现照【隔凌】那一段（下面）的异色写法，两件同一个形状
     if (hasTrigger(skills, SK_KINDLE) && lastPlayed != null) {
-      const lit = inPile(lastPlayed!) && lightAt(pileIndexOf(lastPlayed!))
+      // 〔2026-11-03 用户定：「【燃烧】」→「**堆底的牌**带上【燃烧】」（点堆底，不再点自己）。
+      //   R8 下现行版偏先手（A 槽 D +0.58、♥ 槽 +1.64，换种子 +1.86），偏差全在「自带【燃烧】」那半句；点堆底 A 槽 X +3.88 / D +0.07、♥ 槽 +12.26 / +0.35。台账第五十八·丁节。
+      //   堆上只有它一张时，堆底就是它自己 —— 那一格照旧点着、当场燃尽〕
+      const hasBottom = pile.value.length > 0
+      const lit = hasBottom && lightAt(0)
       const mine = byFoe ? foeHand.value : hand.value
       let fired = 0
       // 〔2026-10-30 用户改：参照从「它」换成**堆底**，「不同颜色」→「同颜色」。
-      //   desc「【燃烧】；你手里跟堆底同颜色的牌都带上【燃烧】」。
       //   技能在匹配之前结算，它已落在堆顶 → 堆上只有它一张时堆底就是它自己。
       //   上面那段「别顺手改回同色」说的是**跟它**同色；跟堆底同色读的是局面、跟槽无关，不撞那条〕
-      const hasBottom = pile.value.length > 0
       const bottomSuit = hasBottom ? pileSuitAt(0) : ''
+      // 〔2026-11-03 补：下面播报读的 bottomRed 原先没定义（编译不过）。走 isRedSuit 照 pileRed 那条〕
+      const bottomRed = hasBottom && isRedSuit(bottomSuit)
       for (let i = 0; i < mine.length; i++) {
         if (hasBottom && sameColor(mine[i].suit, bottomSuit)
           && !burnOnHand(mine[i])) {
@@ -8921,7 +8936,7 @@
         }
       }
       message.value = message.value + (byFoe ? ' 庄家引火：' : ' 引火：')
-        + (lit ? '它自带燃烧；' : '它没点着；')
+        + (lit ? '堆底那张点着了；' : (hasBottom ? '堆底那张没点着；' : ''))
         + (!hasBottom ? '堆空着，没有堆底。'
           : fired > 0
             ? '堆底是' + (bottomRed ? '红' : '黑') + '的，手里 ' + fired + ' 张同颜色的带上了燃烧。'
@@ -9433,6 +9448,21 @@
           ? ' 庄家策反：你的 ' + cardName(theirs[at]) + ' 带上了【叛变】（明着；打出后你剩下的手牌全部置 0）。'
           : ' 策反：庄家的 ' + cardName(theirs[at]) + ' 带上了【叛变】。')
       }
+      // 〔2026-11-03 用户定：策反加上「1 张手牌带上【收零】」（叛变 + 收零）。原型〈traitorzero〉（台账第五十二节 R7、第五十八·戊 R8）：R8 A 槽 +2.46（对手先清 0 点牌）/ 照常出牌 +3.18，♥ +10.38 / +11.26。
+      //   贴收零走回水那一套：你点一张（backTagPending → onBackTag），庄家照 foeZeroKeyPick〕
+      if (!byFoe) {
+        if (backTagRoom(false)) {
+          backTagName.value = '策反'
+          backTagPending.value = true
+          return
+        }
+      } else {
+        const mine = foeZeroKeyPick()
+        if (mine >= 0) {
+          zeroKey.value = zeroKey.value.concat([foeHand.value[mine]])
+          message.value = message.value + ' 庄家策反：手里 1 张带上了收零。'
+        }
+      }
     }
     // 【漂白】：对方**此刻**手里的牌都失去花色（永久，落堆后也没有；之后新摸的不受影响）。
     // 照模拟器 rules.js 的 stripSuits。改牌面（这副牌是每局从存档重新造的副本，照 markDead 改 J 那条），
@@ -9806,7 +9836,9 @@
         // 「有用的」就收手 —— 实测那道闸值 +0.27：强制换满一局只多洗
         // 0.116 张，却亏 0.27 分，换算下来**误洗一张当场能收的约亏 2.3 分**
         let got = 0
-        while (foeHand.value.length > 0) {
+        // 〔2026-11-03 用户定：牌库空时选 0 张 —— 洗回空牌库回合末又摸回来，什么都不改，被抢牌时还白送对方。
+        //  模拟器 rules.js 的 SWAP_MIN 同日默认 1。玩家那边自己决定，不拦〕
+        while (foeHand.value.length > 0 && deck.value.length > 0) {
           const at = foeSwapPick()
           if (at < 0) {
             break
@@ -9850,10 +9882,10 @@
         // 带闸 +2.75）：不收手的话手里不够废牌，J 也会被塞出去 ——
         // 而 J 通吃，送一张 J 给他是净送分
         let out = 0
-        // 〔2026-11-03 用户定：牌库剩 BAIT_TAIL_DECK 张以下时**一张都不送**（desc 是「任意张」，0 张合法）。
-        //  终局还送牌 = 把终局那几手白送给对方 —— 模拟器 rules.js 的 BAIT_TAIL 同日默认 4，
-        //  实测 R7 A 槽 D +0.41 → +0.19、♥ 槽 +0.67 → +0.25（台账第五十二·丁）。玩家那边自己决定，不拦〕
-        while (foeHand.value.length > 0 && deck.value.length > BAIT_TAIL_DECK) {
+        // 〔2026-11-03 用户定：**送出去的补得回来才送** —— 送出的张数 ≤ 牌库张数 − 1
+        //  （回合末要补「打出那 1 张 + 送出的 n 张」）。desc 是「任意张」，0 张合法。
+        //  同日先写过「牌库剩 4 张以下不送」，被这条取代。模拟器 rules.js 的 BAIT_REFILL 同日默认开。玩家那边自己决定，不拦〕
+        while (foeHand.value.length > 0 && out < deck.value.length - 1) {
           const at = foeSwapPick()
           if (at < 0) {
             break
@@ -13154,11 +13186,12 @@
     }
     if (index >= 0) {
       zeroKey.value = zeroKey.value.concat([hand.value[index]])
-      message.value = message.value + ' 回水：' + cardName(hand.value[index]) + ' 带上了收零。'
+      message.value = message.value + ' ' + backTagName.value + '：' + cardName(hand.value[index]) + ' 带上了收零。'
     } else {
-      message.value = message.value + ' 回水：收零没贴。'
+      message.value = message.value + ' ' + backTagName.value + '：收零没贴。'
     }
     backTagPending.value = false
+    backTagName.value = '回水'
     askNext()
   }
 
@@ -14823,8 +14856,16 @@
     if (hasFoeSpecial('leak') && pile.value.length > LEAK_DEEP) {
       dropBottomToFoe('走水')
     }
-    refill(byFoe)
+    // 【抢牌】「第一个打出匹配的一方先补牌」〔2026-11-03 用户定〕：还有被抢方的尾巴要接（stealTailSide 不空）时，
+    // 这一手是**抢牌方**的 —— 先不补，记下来，等 drainStealTails 把被抢方补完再补。
+    // 原先是抢牌方先补：被抢方要是刚把牌洗回空牌库（换水），那几张就先被抢牌方摸走了（台账第五十二·己）
+    if (stealTailSide.length > 0) {
+      stealRefillThief = byFoe ? 1 : 0
+    } else {
+      refill(byFoe)
+    }
     // ---- 【抢牌】：被抢的那几方在这儿补上欠的几笔〔2026-10-27〕 ----
+    //〔2026-11-03 起顺序反过来：被抢方先补、抢牌方后补（drainStealTails 末尾补抢牌方那一笔）。下面「一、」那条是旧顺序，过去时读〕
     //
     // 排在这儿的三条理由：
     //   一、**抢牌方先补、被抢方后补** —— 规则第三条「双方补齐手牌」，
@@ -16499,6 +16540,7 @@
     stealResumeNote = ''
     stealResumeCard = null
     stealTailSide = []
+    stealRefillThief = -1
     stealTailSurge = []
     stealTailHeap = []
     stealTailHeapFoe = []
@@ -16655,8 +16697,9 @@
     // **返回值（剔了几张）现在没人读** —— 开局那句话不再报它（见下面那段：
     // 剔 1 张玩家无能为力，报它只是制造一个「我的牌被动过」的疑问）。
     // 调用本身当然不能删，它改的是 deck
-    trimDeck()
+    // 〔2026-11-03：剔牌挪到 buildRankTotals 之后 —— 去掉的那张是隐藏信息，庄家的账里照旧有它〕
     buildRankTotals(deck.value)
+    trimDeck()
     // ---- 切牌定庄：翻牌库顶那张，红 = 庄家先手、黑 = 你先手 ----
     //
     // **排在 buildRankTotals 之后**：切出来那张进先手的手牌、仍在这一局里，
@@ -16710,26 +16753,19 @@
     const foeDeal = handLimit(true)
     const myDeal = handLimit(false)
     const deal = foeDeal > myDeal ? foeDeal : myDeal
-    // ---- 切出来那张先给先手，**而且对手看得见** ----
+    // ---- 切出来那张**放到堆上**〔2026-11-03 用户定（R8）〕----
     //
-    // 它是公开翻出来的，所以标成「对方知道这张」—— 那是先手为「定庄」
-    // 付的小代价（对「先手略优」的一点微调）。
+    // 原先它进先手的手牌（明着）。改成翻到堆上：先手第一手就有得钓，
+    // 不再是「先手开在空堆上、后手先有得钓 → 抢牌之下先手先抢」那条链的起点。
+    // 依据见《摸打钓鱼-实测数据台账.md》第五十八节：抢牌让先手占优（各打 1 手时后手 −0.88），成因是「先有得钓的一方先被抢」；开局翻 1 张到堆上 + 牌组奇数 + 牌库一空就结束，实测后手分差 −0.00（SE 0.10）、胜率 48.7 : 48.5。
     //
-    // 两条路照摘钩 / 对换那两处的写法（手牌 concat + 标记 concat）：
-    //   庄家先手 → foeShown 标 true，于是它那张在你眼里是明的（见 foeOpen）；
-    //   你先手   → handSeen 标 true，于是你那张挂着「被看」角标（见 foeKnows）。
-    // UI 两头都是现成的，不用加东西
+    // 走 pushPile + landVals（照洪水从牌库翻上堆那条）。挂在**你**名下（byFoe = false）：
+    // 它不是谁打的，而挂庄家名下会让【硬壳】这类「庄家打出的牌」规矩误认它
     if (cutCard != null) {
-      if (firstByFoe) {
-        foeHand.value = foeHand.value.concat([cutCard!])
-        foeShown.value = foeShown.value.concat([true])
-      } else {
-        hand.value = hand.value.concat([cutCard!])
-        handSeen.value = handSeen.value.concat([true])
-      }
+      pushPile(cutCard!, false, GUARD_NONE, landVals(cutCard!, false, [] as number[], false))
     }
-    // 发到各自的上限。**先手已经有切出来那张了**，所以判一下长度别发超 ——
-    // 「庄家先发、交替」那个次序照旧（添手 / 掐口走 handLimit，起手就算上）
+    // 发到各自的上限。「庄家先发、交替」那个次序照旧（添手 / 掐口走 handLimit，起手就算上）。
+    // 〔切出来那张 2026-11-03 起放到堆上了，长度判断留着当防护〕
     for (let i = 0; i < deal; i++) {
       if (i < foeDeal && foeHand.value.length < foeDeal) {
         drawFor(true)
@@ -18357,14 +18393,10 @@
   /* 飞向庄家（屏幕上方那排手牌）/ 飞向你（下方那排）。
      位移给得比实际距离短一点、同时淡出 —— 淡出之后它在哪已经
      不要紧了，而「一路飞到位」在不同屏高上会错位 */
-  .cut-card-to-foe {
+  /* 〔2026-11-03〕切出来那张放到堆上了，不再飞向哪一边：原地缩小淡出，堆上那张就是它 */
+  .cut-card-to-pile {
     opacity: 0;
-    transform: translateY(-200px);
-  }
-
-  .cut-card-to-me {
-    opacity: 0;
-    transform: translateY(200px);
+    transform: scale(0.5);
   }
 
   /* 「黑 → 你先手」那行字。摆在牌下面，跟牌一起淡掉 */

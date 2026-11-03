@@ -41,8 +41,24 @@ import {
   //   导出本身**留在 `draw-skills.uts`**（`.uvue` 还有九处引用），现在是 −1〕
   // 〔SK_CLEAN（净水）2026-11-02 删了，两张叠放庄家卡的净水槽换成垫吃（用户定）〕
   SK_STACKDRAFT,
-  SK_RAISE,
-  SK_WILD
+  SK_WILD,
+  // 〔2026-11-03 庄家按机制族重配用到的〕
+  SK_BACKWATER,
+  SK_PICK,
+  SK_BLEACH,
+  SK_ORDERPILE,
+  SK_ZERODROP,
+  SK_LOCKCOLOR,
+  SK_LOCKDRAW,
+  SK_ICEBOMB,
+  SK_KINDLE,
+  SK_PILEREFLECT,
+  SK_STONEFULL,
+  SK_STONEHUE,
+  SK_STONELINE,
+  SK_FLOW,
+  SK_FLOWALL,
+  SK_FLOWPASS,
   // 原先这儿还引着：
   //   SK_FLOOD —— 洪水。技能 2026-10-15 删了（X 超档而且限幅治不了，
   //     见 draw-skills 那块履历）。靠它撑「铺设」那一半的【漫江拉网人】
@@ -1078,14 +1094,14 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   // > 删 `SP_CYCLE` 那半边是可以的，但 `|| hasFoeSpecial('dryup')` 那半边
   // > **是第 9 关的全部规矩**，删了那一关就没题目了。
   { key: 'dryup', name: '枯水',
-    desc: '你只有一张牌都打不出时才补牌（打空或者全被冻住）' } as FoeSpecial,
+    desc: '你手里没有能打出的牌时才补牌' } as FoeSpecial,
   { key: 'drift', name: '偏流',
     desc: '庄家打出的牌落堆底，不落堆顶' } as FoeSpecial,
   // 「钓不上」说的是**它当不了匹配的那一张**，不是「永远拿不走」——
   // 从更深处钓起的时候它照旧被连带收走（跟护饵一个待遇，见 shelled）。
   // 初稿写的是「只有 J 收得走」，那跟实现不符：J 只是最省事的那条解
   { key: 'shell', name: '硬壳',
-    desc: '庄家打出的 ♠ 匹配不到（匹配更深的牌时才连带收走）' } as FoeSpecial,
+    desc: '你不能直接匹配庄家打出的 ♠；匹配到它下面的牌时，它照样一起收走' } as FoeSpecial,
   { key: 'pick', name: '挑潮',
     desc: '庄家回合末补牌时从库顶 2 张挑 1 张（另一张沉底）' } as FoeSpecial,
   { key: 'guard', name: '守滩',
@@ -1094,7 +1110,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
     desc: '庄家钓到牌时可以再打一张（一回合最多连两次）' } as FoeSpecial,
   // ↑〔再钩 2026-11-02 起**没有载体**：深渊君主换成了逆钩 —— 它让双方出牌数对不齐〕
   { key: 'seal', name: '封竿',
-    desc: '摇定一个点数：你打出这个点数的牌算 0 点' } as FoeSpecial,
+    desc: '每一关随机封一个点数，你打出这个点数的牌算 0 点' } as FoeSpecial,
   // ---- 下面两条**现在没有载体，所以也没有实现** ----
   //
   // 当初是给终局留的（那一局不记账，可以上最凶的）。可终局的庄家摇的是
@@ -1128,7 +1144,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   // 只管**庄家打出的牌**（照硬壳的边界）—— 你自己的牌带火不受影响，
   // 不然沸水 × 炙水 会变成「堆上所有牌你都钓不走」，那不是题目是墙。
   { key: 'char', name: '炙水',
-    desc: '庄家打出的牌带着【燃烧】时匹配不到（匹配更深的牌时才连带收走）' } as FoeSpecial,
+    desc: '你不能直接匹配庄家打出、带着【燃烧】的牌；匹配到它下面的牌时，它照样一起收走' } as FoeSpecial,
   // ---- 走水 / 过闸：**同一条轴的两头**，照掐口 × 枯水那一对的做法 ----
   //
   //   走水 —— 按**堆的厚度**触发：罚你养厚堆（顺色、收色、J 全靠厚堆）；
@@ -1416,8 +1432,10 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
   // 礁石海女（掐口）削你手牌 → 潮眼引水人（偏流）让你钩不着它的牌。
   // 前一关种下的概念，后一关加码
   { name: '回漩摆渡人', specials: ['silt'], slots: [
+      // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // 一个点数槽 = 4 张。磁钩是最基础那件，第一关有技能的庄家配它正好
-      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：置 0 · 收零（回水收淤滩垫的 0 点牌） ----
+      { skill: SK_BACKWATER, count: 1, suit: false } as FoeSlot
     ], desc: '水在这儿打转。开局堆上就压着两张死牌 —— 它教你 J 有多值' } as FoeRole,
   { name: '礁石海女', specials: ['pinch'], slots: [
       // ---- 压邻 → 冻结〔2026-10-14，压邻那一族全删了〕----
@@ -1438,9 +1456,12 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       { skill: SK_PRESS, count: 1, suit: false } as FoeSlot
     ], desc: '礁石底下的。你的手牌上限少一张，而它还会把你一张好牌塞回牌库' } as FoeRole,
   { name: '潮眼引水人', specials: ['drift'], slots: [
+      // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // 两个槽、12 张。观潮管两个点数，磁钩管一个
-      { skill: SK_TIDE, count: 2, suit: false } as FoeSlot,
-      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot
+      // 〔2026-11-03 R8 调难度（用户定方案 A：生命最多 4、降庄家强度）：2 个标签 → 1 个。台账第五十八·戊〕
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：看牌库 ----
+      { skill: SK_TIDE, count: 1, suit: false } as FoeSlot,
+      { skill: SK_PICK, count: 1, suit: false } as FoeSlot
     ], desc: '看得见潮眼在哪。它的牌打到堆底 —— 你得连带收一大段才碰得到' } as FoeRole,
   { name: '湾口税吏', specials: ['shell'], slots: [
       // **一整门花色 13 张，只一件技能** —— 专精那一头
@@ -1448,10 +1469,12 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 而且槽和特殊技是**同一门花色**：它打的 ♠ 既触发顺色、又钓不走。
       // 那是湾口税吏这一关的全部内容
       // 〔2026-10-29 调难度〕顺色 花色槽 → 点数槽 ×2（13 张 → 8 张）
-      { skill: SK_SUITED, count: 2, suit: false } as FoeSlot
+      // 〔2026-11-03 R8 调难度（用户定方案 A：生命最多 4、降庄家强度）：2 个标签 → 1 个。台账第五十八·戊〕
+      { skill: SK_SUITED, count: 1, suit: false } as FoeSlot
     ], desc: '守着湾口收税。它打出的黑桃钓不走，而那门花色正是它的技能' } as FoeRole,
   // ---------- 深海：每关换一种压力 ----------
   { name: '雾港守灯人', specials: ['dryup'], slots: [
+      // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // ---- 这一关的规矩**换过一次**：挑潮 → 枯水 ----
       //
       // 原先是三件信息类凑一关（照水、冻结 + 挑潮），想法是
@@ -1539,14 +1562,16 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 因为照水在模拟器里是白板（AI 不读明牌），死水要 AI 挑两张。
       // 〔2026-10-30 死水下架（用户定），换成同族的【浑水】—— 盲选跟「雾里看不清人」的题目对得上。
       //   同档：R7 A 槽 浑水 +2.95 / 死水 +2.67〕
-      { skill: SK_MURK, count: 1, suit: false } as FoeSlot,
       // 〔2026-10-29 调难度〕冻结 2 个标签 → 1 个
       // 〔2026-11-02 冻结下架（用户定：不再设计在场效果），这一格换成【压舱】（用户选）——
       //   同样是动你的手牌、不留在场状态。闯关实测（2026-11-02 · 每关 2000 局 · 同一版代码前后各跑）：
       //   普通档这一关 68.3% → 69.4%、通关率 17.6 → 17.7 —— 噪声内，难度没动〕
-      { skill: SK_PRESS, count: 1, suit: false } as FoeSlot
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：迷雾（置 0 + 失去花色） ----
+      { skill: SK_MURK, count: 1, suit: false } as FoeSlot,
+      { skill: SK_BLEACH, count: 1, suit: false } as FoeSlot
     ], desc: '雾里看不清人。它让你多摸一张、再盲摸你 2 张作废，还会把你一张牌洗回牌库，而你打空了才补得到牌' } as FoeRole,
   { name: '涡心祭司', specials: ['guard'], slots: [
+      // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // ---- 这一关的理由**换过两次，而且每次都是被删技能逼的** ----
       //
       // **第一次**：原来是「染水 + 见底那条组合」（染黑 → 见底的 N 拉满
@@ -1571,9 +1596,12 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 不是看 X**（照水 → 死水那次标称只差 2.7，换上去掉了 9 个点）。
       // 而**21 匹配那条线不能用** —— 第 11 关鲸落拾骨人已经带着它（花色槽，原先吃水、2026-10-25 起零递）
       // 〔2026-10-29 调难度〕一色 花色槽 → 点数槽 ×2（13 张 → 8 张）
-      { skill: SK_SUITIFY, count: 2, suit: false } as FoeSlot
+      // 〔2026-11-03 R8 调难度（用户定方案 A：生命最多 4、降庄家强度）：2 个标签 → 1 个。台账第五十八·戊〕
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：顺序匹配（搅动堆的次序） ----
+      { skill: SK_ORDERPILE, count: 1, suit: false } as FoeSlot
     ], desc: '漩涡中心。它一色，而它每钓一次就往堆上再垫一张' } as FoeRole,
   { name: '鲸落拾骨人', specials: ['seal'], slots: [
+      // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // ---- 封色 + 分水 → 野火 + 磁钩〔2026-10-14，抹点数那一族全删了〕----
       //
       // 原先两件都在「抹点数」那一族（封色一整门 + 分水两个点数），
@@ -1624,13 +1652,15 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 庄家贴哪张是确定性规则（手里点数最小的），所以它在 AI 手里不打折
       //（贴完那张就是一张 catchStart 算得到的牌）。曲线跑 campaign 验过（数在台账）
       // 〔2026-10-29 调难度〕零递 花色槽 → 点数槽 ×1、撒网 2 个标签 → 1 个
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：置 0 · 21 匹配（死牌） ----
       { skill: SK_ZERODRAFT, count: 1, suit: false } as FoeSlot,
-      { skill: SK_CAST, count: 1, suit: false } as FoeSlot
+      { skill: SK_ZERODROP, count: 1, suit: false } as FoeSlot
     ], desc: '鲸落下去的地方。它封掉你一个点数 —— 而它自己也往堆上垫死牌，一路累加着捞、连着同奇偶捞，死牌一张都挡不住它' } as FoeRole,
   // 〔2026-11-02 规矩【再钩】→【逆钩】（用户定）：再钩让它一回合打两张，
   //   双方出牌数对不齐，收摊那条「少的一方补一手」只补得了 1 张、补不平。
   //   再钩从此没有载体（表里留着，见 FoeSpecial 那段）〕
   { name: '深渊君主', specials: ['rev'], slots: [
+      // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // ---- 主题：沉进深渊的死牌，都被它吃掉（2026-10-10 改） ----
       //
       // 原来是「顺色 + 掏库 + 磁钩」的全能套，四样各管各的，没有配合。
@@ -1724,9 +1754,10 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 〔2026-10-29 调难度〕野火 花色槽 → 点数槽 ×1（关底仍是全表最难的一关）
       // 〔2026-10-30 用户定：「只有 1 件或 2 件用点数槽，3 件可以任意」—— 关底 3 件，野火改进**花色槽**（13 张），
       //   磁钩 / 顺色照旧点数槽。1~2 件的第 5~11 关保持全点数槽（10-29 调难度那一刀不动）〕
-      { skill: SK_WILD, count: 1, suit: true } as FoeSlot,
-      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot,
-      { skill: SK_SUITED, count: 1, suit: false } as FoeSlot
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：结冰 ----
+      { skill: SK_LOCKCOLOR, count: 1, suit: true } as FoeSlot,
+      { skill: SK_LOCKDRAW, count: 1, suit: false } as FoeSlot,
+      { skill: SK_ICEBOMB, count: 1, suit: false } as FoeSlot
     ], desc: '渊里的那个。它点着的牌会一路烧过去、钩得着差一点的牌、按花色整段捞 —— 而你的 J 在这儿只掀得动堆顶 3 张' } as FoeRole
 ]
 
@@ -1799,7 +1830,8 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   //
   // 槽位现在只留野火，纯粹是为了编得过 —— 别把它当设计
   { name: '赤礁烧炭工', specials: ['char'], slots: [
-      { skill: SK_WILD, count: 1, suit: false } as FoeSlot
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：燃烧 ----
+      { skill: SK_KINDLE, count: 1, suit: false } as FoeSlot
     ], desc: '礁石烧红了。它打出的牌一着火你就钓不上' } as FoeRole,
   { name: '赤潮巡海人', specials: ['pick'], slots: [
       { skill: SK_WILD, count: 2, suit: false } as FoeSlot
@@ -1838,10 +1870,13 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   //   ⚠ **「双刃」那条跟着凝水没了**：现在它垫的是抬水（给你的牌加点数），
   //   漏在堆底的不再是它自己的盾。走水 × 叠放那条咬合照旧成立 ——
   //   整叠跟着离场跟哪一件垫的无关〕
+  // 〔2026-11-03 抬水下架（用户定）：抬水 ×2 那一格换成垫吃 ×2 —— 同属「垫在牌底下」那一路，覆盖面不变（12 张）。
+  //   原 desc：「一层压一层。你的牌会被它垫着撞上别的，它自己也会垫在牌底下凑 21」〕
   { name: '叠浪弄潮儿', specials: ['leak'], slots: [
-      { skill: SK_RAISE, count: 2, suit: false } as FoeSlot,
-      { skill: SK_STACKDRAFT, count: 1, suit: false } as FoeSlot
-    ], desc: '一层压一层。你的牌会被它垫着撞上别的，它自己也会垫在牌底下凑 21' } as FoeRole,
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：动堆上的牌（叠放 / 映照） ----
+      { skill: SK_STACKDRAFT, count: 2, suit: false } as FoeSlot,
+      { skill: SK_PILEREFLECT, count: 1, suit: false } as FoeSlot
+    ], desc: '一层压一层。它总垫在牌底下，借上面那张凑 21' } as FoeRole,
   // 叠放那一族的完整展示：净水插**花色槽**（一局响六次，把你六张牌埋掉，
   // 连带那几张身上的在场效果一起失效）。
   //
@@ -1867,9 +1902,12 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // **覆盖面一张没动**：净水♦ 13 + 抬水 4 + 净水 4 = 21。
   // desc 里「加上一层护」那半句跟着删 —— 它指的就是凝水，留着是假情报。
   { name: '沙垒筑堤工', specials: ['toll'], slots: [
-      { skill: SK_STACKDRAFT, count: 1, suit: true } as FoeSlot,
-      { skill: SK_RAISE, count: 1, suit: false } as FoeSlot,
-      { skill: SK_STACKDRAFT, count: 1, suit: false } as FoeSlot
+      // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
+      // 〔2026-11-03 抬水下架（用户定）：这一格换成垫吃，覆盖面不变（21 张）。desc 本来就只说垫吃，不用改〕
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：石墙 ----
+      { skill: SK_STONEFULL, count: 1, suit: true } as FoeSlot,
+      { skill: SK_STONEHUE, count: 1, suit: false } as FoeSlot,
+      { skill: SK_STONELINE, count: 1, suit: false } as FoeSlot
     ], desc: '一层层垒上来的沙。它一张张垫进堆底下，借上面那张凑 21' } as FoeRole,
   // ---------- 补第 10 关那个洞 ----------
   //
@@ -1909,9 +1947,10 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   //（顺带记一笔：**深渊君主现在就有这个可能**，它也同时带着顺色和磁钩，
   //  而设计稿和代码注释里从没提过这件事）
   { name: '东海龙王', specials: ['rev', 'murk'], slots: [
-      { skill: SK_SUITED, count: 1, suit: true } as FoeSlot,
-      { skill: SK_HOOK, count: 1, suit: false } as FoeSlot,
-      { skill: SK_HUE, count: 1, suit: false } as FoeSlot
+      // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：顺子匹配 ----
+      { skill: SK_FLOW, count: 1, suit: true } as FoeSlot,
+      { skill: SK_FLOWALL, count: 1, suit: false } as FoeSlot,
+      { skill: SK_FLOWPASS, count: 1, suit: false } as FoeSlot
     ], desc: '渊底那位。你的 J 掀不动整堆，而堆一厚你就看不见底下' } as FoeRole
 ]
 
@@ -1992,7 +2031,11 @@ const LIBRARY_CAPS : number[] = [8, 6, 5]
 // 实测（campaign.js · 每关 2000 局 · 两个不重叠种子 1 / 10007）：
 //   简单 53.3% / 56.0%   普通 19.5% / 22.1%   困难 5.6% / 5.6%
 // **困难因此不再是「一命通关」。** 全过程在台账第五节 10-29 那一条
-const DIFF_LIVES : number[] = [5, 4, 3]
+// 〔2026-11-03 R8 之后调难度：一度改成 6/5/3（实测 53.5 / 28.8 / ~6~7%），用户随即否了：
+//  「不能只靠调生命改难度，6 太高了。最多 4 生命」「可以降低庄家角色强度」。
+//  定稿 **4/4/3 + 三张庄家 2 个标签 → 1 个**（潮眼引水人 观潮、湾口税吏 顺色、涡心祭司 一色）：
+//  简单 30.6% · 普通 21.8% · 困难 9.0%（R7 是 51.3 / 20.5 / 7.6，简单那时 5 命）。台账第五十八·戊〕
+const DIFF_LIVES : number[] = [4, 4, 3]
 
 export function libraryCapOf(diff : number) : number {
   return diff >= 0 && diff < LIBRARY_CAPS.length ? LIBRARY_CAPS[diff] : LIBRARY_CAPS[1]

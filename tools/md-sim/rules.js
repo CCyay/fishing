@@ -123,7 +123,16 @@ const BAL_K = process.env.BAL_K ? parseInt(process.env.BAL_K, 10) : 1
 // 「真正改局长的只有三类」那条 —— **全表 40 件技能的 X 跟着作废**，
 // 按回合计价的件偏得最多。用户 2026-10-27 拍板「直接定 TAIL=6，
 // 接受全表重算」。作废公告写在台账开头那一节。
-const TAIL = process.env.TAIL === undefined ? 6 : parseInt(process.env.TAIL, 10)
+//
+// 〔2026-11-03 用户定（R7 → R8）：**默认 6 → 0，牌库一空就收摊**，同时开局两条一起换（见 TRIM / CUT_TO）。
+//  依据见《摸打钓鱼-实测数据台账.md》第五十八节：抢牌让先手占优（各打 1 手时后手 −0.88），成因是「先有得钓的一方先被抢」；开局翻 1 张到堆上 + 牌组奇数 + 牌库一空就结束，实测后手分差 −0.00（SE 0.10）、胜率 48.7 : 48.5。`TAIL=6 TRIM=even CUT_TO=hand` 复现 R7〕
+const TAIL = process.env.TAIL === undefined ? 0 : parseInt(process.env.TAIL, 10)
+// 〔2026-11-03 · R8〕TRIM：'odd'（默认）= 牌组偶数就去掉 1 张、**不公开**（庄家记牌照旧算它）；'even' = R7 的「发完牌后牌库凑偶数」
+const TRIM = process.env.TRIM || 'odd'
+if (['odd', 'even'].indexOf(TRIM) < 0) throw new Error('TRIM 只能是 odd / even')
+// 〔2026-11-03 · R8〕CUT_TO：'pile'（默认）= 切出来那张翻到堆上；'hand' = R7 的「进先手手牌、明着」
+const CUT_TO = process.env.CUT_TO || 'pile'
+if (['pile', 'hand'].indexOf(CUT_TO) < 0) throw new Error('CUT_TO 只能是 pile / hand')
 
 // ---------- DROP：剔完之后再从牌顶拿掉几张（实验旋钮，2026-10-15） ----------
 //
@@ -242,11 +251,14 @@ function ruleTag() {
   //   （`EVEN` 会补，但那是补到出牌数相等，不是补成「各 N 手」），
   //   所以奇数照旧只报合计，不编一个 .5 出来
   const tail = TAIL >= 999 ? '打完手牌'
+    : TAIL === 0 ? '牌库空就收摊'
     : '牌库空 + 双方合计再打 ' + TAIL + ' 手'
       + (TAIL % 2 === 0 ? '（各 ' + (TAIL / 2) + ' 手）' : '')
   const pile = BALANCE === 'pileNotLast' ? '剩堆归没打最后一手的'
     : (BALANCE === 'pileFirst' ? '剩堆归先手' : '剩堆不算分')
   const flags = [tail, pile]
+  if (TRIM !== 'odd') flags.push('TRIM=' + TRIM + '（R7 剔牌）')
+  if (CUT_TO !== 'pile') flags.push('CUT_TO=' + CUT_TO + '（R7 切牌进手）')
   if (!EVEN) flags.push('EVEN=0（不补手）')
   if (!CUT) flags.push('CUT=0（庄家恒先手）')
   if (BALANCE !== 'old' && BALANCE !== 'pileNotLast' && BALANCE !== 'pileFirst') {
@@ -277,7 +289,8 @@ function ruleTag() {
   // ⚠ `TAIL` 这一项 2026-10-27 从 2 改成 6 —— 改默认值时**这一行必须跟着改**，
   //   不然整个「现行 / ⚠ 非现行」的标签会反着打（现行跑被标成非现行，
   //   而非现行那一档反倒不报警）。这正是上面 262 行那条 ⚠ 说的同一件事
-  const now = TAIL === 6 && BALANCE === 'old' && EVEN && CUT
+  // 〔2026-11-03 R8：TAIL 6 → 0，加 TRIM / CUT_TO 两项〕
+  const now = TAIL === 0 && TRIM === 'odd' && CUT_TO === 'pile' && BALANCE === 'old' && EVEN && CUT
     && STEAL_ON && STEAL_AGAIN && SCORE_BANDS === null
   return (now ? '现行' : '⚠ 非现行') + '（' + flags.join(' · ') + '）'
 }
@@ -436,7 +449,7 @@ const SKILLS = [
   //   `blockedAt` 同时管这两样，它的口径必须跟 `takeAt` 一致〕
   // 【净水】2026-11-02 删（墓碑在 draw-skills 的 DEAD_SKILLS）
   { key: 'wild', name: '野火' },
-  { key: 'raise', name: '抬水' },
+  // 〔【抬水】2026-11-03 下架（用户定）—— 源码表项删了、墓碑在 DEAD_SKILLS；实现留着当死代码〕
   { key: 'flow', name: '伏流' },
   // 〔**涉水 2026-10-29 撤了**（用户定）—— 条目删掉，SK.WADE 钉 SK_GONE，wadeFor / wadeCount / WADE_* 旋钮留着也不会跑。
   //   撤因见 draw-skills.uts 的 DEAD_SKILLS 和台账第二十二节〕
@@ -1412,6 +1425,7 @@ const SKILLS = [
   // 〔2026-11-02 上架成【策反】（用户定）。默认值 = 游戏那一档：TR_DRAW=0（没有「对方抽 1」）、TRAITOR_AI=naive〕
   { key: 'traitor', name: '策反' },
   // 〈traitorzero〉〔2026-11-02 · 用户要评价〕对方 1 张手牌带上【叛变】（照策反 traitorFor），自己 1 张手牌带上【收零】（照回水 zeroKeyTag）
+  // 〔2026-11-03 并进【策反】（用户定）—— 这个原型留着当对照，跟现行策反逐位同一件事〕
   { key: 'traitorzero', name: '〈traitorzero〉' },
   // 〈fetchj〉〔2026-11-03 · 用户要评价〕「获取下一张 J」：从牌库顶往下找第一张 J 拿进手牌（对方知道 → seen）
   { key: 'fetchj', name: '〈fetchj〉' },
@@ -1996,7 +2010,7 @@ const SK = {
   //
   // 〔两次删除原先各要手工重排后面十来个下标。现在按 key 查，不用了〕
   WILD: skAt('wild'),
-  RAISE: skAt('raise'),
+  RAISE: SK_GONE,
   // 伏流：第四条匹配线（点数 / 花色 / 累加不超 21 / **顺子**）。
   // 它凑顺子时当通配，所以**幅度跟槽标签的大小无关** ——
   // 全表几乎唯一一件这样的。追加在表尾，所以上面的下标一个没动
@@ -6349,7 +6363,8 @@ function newGame(opts) {
   // 有极小概率剔掉刚买的那张。要「买的保证进场」就得在这儿跳过本轮买的，
   // 那是商店那边的事
   const dealt = handLimit(G, FOE) + handLimit(G, ME)
-  while (G.deck.length > dealt && (G.deck.length - dealt) % 2 !== 0) {
+  // 〔R8 起这一道只在 TRIM=even（复现 R7）时跑；现行剔牌在下面 rankTotal 之后〕
+  while (TRIM === 'even' && G.deck.length > dealt && (G.deck.length - dealt) % 2 !== 0) {
     G.deck.pop()
   }
   // 【DROP】剔完之后再拿掉几张 —— 量奇偶用的实验旋钮，默认 0（见文件头那段）。
@@ -6367,6 +6382,12 @@ function newGame(opts) {
   for (let i = 0; i < G.deck.length; i++) {
     G.rankTotal[G.deck[i].rank] = (G.rankTotal[G.deck[i].rank] || 0) + 1
   }
+  // ---- 〔2026-11-03 · R8〕剔牌：牌库是偶数张就去掉 1 张，**不公开** ----
+  // 排在 rankTotal **之后**：庄家的记牌照旧把它算在「外面还剩」里（它跟玩家一样不知道少的是哪张）。
+  // 源码同一个顺序（ap-fishing 的 buildRankTotals → trimDeck）
+  if (TRIM === 'odd' && G.deck.length % 2 === 0 && G.deck.length > dealt) {
+    G.deck.pop()
+  }
   // ---- 开局切牌定庄（见文件头 CUT 那段）----
   //
   // 翻牌库顶那张：**红 → 庄家先手，黑 → 玩家先手**。
@@ -6378,7 +6399,9 @@ function newGame(opts) {
   // `opts.fixFirst` 让调用方写死先手（量技能时用，见 sim.js 的 run）——
   // 不写死的话 ME 一半时间是先手，而「先手值 / 后手值」那套口径
   // 正是靠「配装给 ME 还是给 FOE」来区分的
-  G.cutCard = CUT && opts.fixFirst === undefined && G.deck.length > 0
+  // 〔R8：切出来那张放到堆上 —— 先后手写死（fixFirst，量技能用）时**照样翻**，
+  //   不然量技能的口径跟实战差一张堆上的牌。R7（CUT_TO=hand）照旧：写死时不切〕
+  G.cutCard = CUT && (CUT_TO === 'pile' || opts.fixFirst === undefined) && G.deck.length > 0
     ? G.deck.pop() : null
   G.first = opts.fixFirst !== undefined ? opts.fixFirst
     : (G.cutCard === null ? FOE : (isRedSuit(G.cutCard.suit) ? FOE : ME))
@@ -6389,8 +6412,12 @@ function newGame(opts) {
   //
   // 它是公开翻出来的，所以 seen=true —— 那是先手为「定庄」付的小代价。
   // 走 giveTo 而不是 drawFor：这张不是从牌库顶摸的，它已经在手上了
-  if (G.cutCard !== null) {
+  if (G.cutCard !== null && CUT_TO === 'hand') {
     giveTo(G, G.first, G.cutCard, true)
+  }
+  // 〔R8〕翻到堆上（照源码：pushPile + landVals，挂玩家名下）
+  if (G.cutCard !== null && CUT_TO === 'pile') {
+    pushPile(G, G.cutCard, ME, GUARD_NONE, landVals(G, G.cutCard, [], false))
   }
   // 开局各发满 HAND_SIZE，庄家先发、交替（照 newGame 末尾那个循环）。
   // **先手已经有切出来那张了**，所以判一下别发超
@@ -6414,6 +6441,19 @@ function newGame(opts) {
   // 这一区现在没有任何技能往里放牌，而**没人走过的规则等于没写** ——
   // 留这个口是为了让 `check.js` 的守恒和 `sim.js` 的对局真的走一遍它。
   // ⚠ 它不是技能，别把它的分当谁的强度。双方各塞同样多，口径才对称
+  // 〔2026-11-03 量具〕PILE_START=N：发完牌从牌库顶翻 N 张到堆上 —— 先手第一手就有得钓（量「谁先面对空堆」那条）
+  // 〔2026-11-03 量具〕SCORE_START=N：发完牌，后手从牌库顶拿 N 张直接计分（让分，张=分照旧成立）
+  for (let i = 0; i < SCORE_START && G.deck.length > 0; i++) {
+    const c = G.deck.pop()
+    const back = G.first === ME ? FOE : ME
+    G.gone.push(c.rank)
+    G.score[back]++
+    G.taken[back]++
+  }
+  for (let i = 0; i < PILE_START && G.deck.length > 0; i++) {
+    const c = G.deck.pop()
+    pushPile(G, c, G.first === ME ? FOE : ME, GUARD_NONE, landVals(G, c, [], false))
+  }
   if (BOARD_TEST > 0) {
     for (let i = 0; i < BOARD_TEST; i++) {
       if (G.deck.length > 0) G.boardZone[FOE].push(G.deck.pop())
@@ -12415,8 +12455,20 @@ function harvestAtCore(G, side, wanted) {
   // `taken` 另记原始张数，守恒自检查的是它
   G.score[side] += scoreOf(taken)
   G.taken[side] += taken
+  // 〔2026-11-03 量具 · 用户问「抢牌先手占优是什么原因」〕PHASE_DIAG=1：按「第几手」×「先 / 后手」×「自己收 / 抢来的」记收牌张数
+  if (PHASE_DIAG && taken > 0) {
+    const n = G.stat.plays[0] + G.stat.plays[1]
+    const b = G.deck.length === 0 ? 'tail' : (n <= 2 ? 'p1-2' : n <= 6 ? 'p3-6' : n <= 12 ? 'p7-12' : 'main')
+    const k = (side === G.first ? 'F' : 'B') + '|' + b + '|' + (G.stealing ? 'steal' : 'own')
+    PHASE_STAT[k] = (PHASE_STAT[k] || 0) + taken
+  }
   return taken
 }
+const PHASE_DIAG = process.env.PHASE_DIAG === '1'
+const SCORE_START = process.env.SCORE_START ? parseInt(process.env.SCORE_START, 10) : 0
+const PILE_START = process.env.PILE_START ? parseInt(process.env.PILE_START, 10) : 0
+const PHASE_STAT = {}
+if (PHASE_DIAG) process.on('exit', function () { console.log('PHASE_STAT ' + JSON.stringify(PHASE_STAT)) })
 
 // 把 [from, from+count) 这一段收走记分。返回**实际**收走几张（见 harvestAt）
 function collect(G, side, from, count) {
@@ -13411,7 +13463,11 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.RANGETAG)) rangeTagFor(G, side, played)
   if (has(skills, SK.BETRAY)) betrayFor(G, side)
   if (has(skills, SK.TURNCOAT)) turncoatFor(G, side)
-  if (has(skills, SK.TRAITOR)) traitorFor(G, side)
+  // 〔2026-11-03 策反加收零（用户定，即原型〈traitorzero〉）。TRAITOR_ZERO=0 复现旧版（只贴叛变）〕
+  if (has(skills, SK.TRAITOR)) {
+    traitorFor(G, side)
+    if (process.env.TRAITOR_ZERO !== '0') zeroKeyTag(G, side)
+  }
   if (has(skills, SK.FETCHJ)) {
     const st = PROTO_STAT.fetchj
     st.fires++
@@ -13483,11 +13539,20 @@ function afterPlay(G, side, skills, played, ai) {
   // 而燃尽在匹配之前判（见 burnStep）。排到后面就赶不上这一手的燃尽，
   // 那会让三件各差一整拍 —— 而一拍就是对手的一个回合
   if (has(skills, SK.KINDLE)) {
-    lightAt(G, pileIndexOf(G, played))
+    // 〔2026-11-03 量具 · 引火 R8 下 D 偏先手〕KINDLE_SELF=0：去掉「【燃烧】」那半句（打出的这张不自带火）
+    // KINDLE_LIGHT=self（默认，现行）/ alone0（它落在空堆上时不点 —— 量「空堆上当场燃尽自己」那一支）/ bottom（点堆底那张，不点自己）
+    // 〔2026-11-03 用户定：默认翻成 bottom = 游戏里那一版；KINDLE_LIGHT=self 复现旧版「【燃烧】」〕
+    const kl = process.env.KINDLE_LIGHT || 'bottom'
+    if (process.env.KINDLE_SELF !== '0') {
+      if (kl === 'bottom') { if (G.pile.length > 0) lightAt(G, 0) }
+      else if (!(kl === 'alone0' && G.pile.length === 1)) lightAt(G, pileIndexOf(G, played))
+    }
     // 手里**剩下的**牌预约上火（这张已经打出去了，不在 hands 里）。
     // 贴几张由两个旋钮定，见它们各自那段：全贴 +7.11 超档一倍
     const hand = G.hands[side]
-    if (KINDLE_HUE === 'bottom') {
+    // KINDLE_HAND=0：去掉「手里跟堆底同颜色的牌都带上【燃烧】」那半句（量具）
+    if (process.env.KINDLE_HAND === '0') { /* 不贴手牌 */ }
+    else if (KINDLE_HUE === 'bottom') {
       // 定稿（2026-10-30）：跟堆底同颜色。堆空（它被别的效果拿走了）→ 没有堆底，一张不贴
       const st = PROTO_STAT.kindle
       st.fires++
@@ -14616,7 +14681,7 @@ function afterPlay(G, side, skills, played, ai) {
   // ⚠ **要盯的不是 X，是 `swapped`**（真换了几张）—— 要是 AI 平均只换
   // 1.2 张，那「任意张数」这个词就是摆设，X 涨不涨都跟这个改动无关。
   // 照 CLAUDE.md 第四节：加旋钮的时候一起加计数口
-  // SWAP_MIN〔2026-11-03 查 ♥ 槽 D 用，默认 0 = 现行〕：牌库少于 SWAP_MIN 张时换水不发动 —— 验「终局洗回牌库挪了摸空时机」那个推测
+  // SWAP_MIN：牌库少于 SWAP_MIN 张时 AI 不换（desc「任意张」，0 张合法）。默认 1 = 牌库空时不换（2026-11-03 用户定，见常量那段）
   if (has(skills, SK.SWAP) && G.hands[side].length > 0 && !(SWAP_MIN > 0 && G.deck.length < SWAP_MIN)) {
     const st = PROTO_STAT.swap
     st.fires++
@@ -14669,7 +14734,9 @@ function afterPlay(G, side, skills, played, ai) {
     const st = PROTO_STAT.dumpbait
     const other = side === ME ? FOE : ME
     st.fires++
-    for (let n = 0; n < BAIT_N; n++) {
+    // BAIT_REFILL：最多送到「回合末补得回来」为止
+    const baitCap = BAIT_REFILL ? Math.max(0, G.deck.length - 1) : BAIT_N
+    for (let n = 0; n < BAIT_N && n < baitCap; n++) {
       if (G.hands[side].length === 0) break
       let at = -1
       if (BAIT_PICK === 'mine') {
@@ -15574,6 +15641,8 @@ const PROTO_STAT = {
   freezepay: { chances: 0, paid: 0, tookFrozen: 0, gainSum: 0, forced: 0 },
   // 【窄口】最后一张〔2026-11-03〕：blocked 带窄口那方想摸最后一张被拦了几次 / toFoe 最后一张真被对方摸走几次
   narrowLast: { blocked: 0, toFoe: 0, odd: 0, stuck: 0, stuckJack: 0 },
+  // 抢牌后补牌诊断〔2026-11-03〕：被抢方坐先手 / 后手各几次；牌库不够两边补满（short）几次；那几次双方各拿到几张（新 / 旧顺序）
+  stealRefill: { steals: 0, victim: { first: 0, second: 0 }, short: { first: 0, second: 0 }, gainNew: { first: 0, second: 0 }, gainOld: { first: 0, second: 0 }, thiefNew: { first: 0, second: 0 }, thiefOld: { first: 0, second: 0 } },
   // 择饵 PICK_HAND 档〔2026-11-03〕：真进手牌几张
   pickHand: { pulled: 0 },
   // 终局诊断〔2026-11-03〕：见 tailDiag
@@ -16503,8 +16572,12 @@ const BAIT_N = process.env.BAIT_N ? parseInt(process.env.BAIT_N, 10) : 99
 //   **那样三档不可比** —— 一个带闸两个裸奔，而裸奔的 `mine` 在 N=3 翻负到 −0.75。
 //   要量三档的张数线就得三档同构，否则量到的差里混着「有没有闸」。
 const BAIT_HOLD = process.env.BAIT_HOLD !== '0'
-// 〔2026-11-03 用户定默认 4（= 游戏里庄家那一条）；BAIT_TAIL=-1 复现旧 AI（终局照送）〕
-const BAIT_TAIL = process.env.BAIT_TAIL !== undefined ? parseInt(process.env.BAIT_TAIL, 10) : 4
+// 〔2026-11-03 先定默认 4，同日被 BAIT_REFILL 取代、默认改回 -1（关）—— 留作对照档：BAIT_TAIL=4 复现「剩 4 张不送」那一版〕
+const BAIT_TAIL = process.env.BAIT_TAIL !== undefined ? parseInt(process.env.BAIT_TAIL, 10) : -1
+// 【倒饵】AI「送出去的补得回来才送」〔2026-11-03 用户：「遇到失去手牌的效果时要考虑能不能把手牌补回来才发动」〕：
+// 送出的张数 ≤ 牌库张数 − 1 —— 回合末要补「打出的那 1 张 + 送出的 n 张」，牌库不够就少送 / 不送。
+// 默认开 = 游戏里庄家那一条；BAIT_REFILL=0 关（配 BAIT_TAIL=-1 复现最早那版：终局照送）
+const BAIT_REFILL = process.env.BAIT_REFILL !== '0'
 
 // ---------- 【滤饵】抽几张 / 退几张〔2026-10-22 原型〕 ----------
 //
@@ -16525,7 +16598,11 @@ const SIFT_DRAW = process.env.SIFT_DRAW ? parseInt(process.env.SIFT_DRAW, 10) : 
 const SIFT_BACK = process.env.SIFT_BACK ? parseInt(process.env.SIFT_BACK, 10) : 2
 // 〔2026-11-03 用户定上游戏，默认 3 = 游戏里那一版；SIFT_MIN=0 复现旧版〕
 const SIFT_MIN = process.env.SIFT_MIN !== undefined ? parseInt(process.env.SIFT_MIN, 10) : 3
-const SWAP_MIN = process.env.SWAP_MIN ? parseInt(process.env.SWAP_MIN, 10) : 0
+// 〔2026-11-03 用户定：换水是纯打法问题 —— 牌库空时选 0 张。默认 1 = 牌库空时 AI 不换（= 游戏里庄家那一条）；SWAP_MIN=0 复现旧 AI〕
+const SWAP_MIN = process.env.SWAP_MIN !== undefined ? parseInt(process.env.SWAP_MIN, 10) : 1
+// 【抢牌】之后谁先补牌〔2026-11-03 用户定规则：「第一个打出匹配的一方先补牌」〕：
+//   'victim'（默认）= 被抢方（先打出那张匹配牌的人）先补，抢牌方后补；'thief' = 旧顺序（抢牌方打完那一手先补）
+const STEAL_REFILL = process.env.STEAL_REFILL || 'victim'
 
 // ---------- `SIFT_PICK`：退哪张的尺子，`'ai'`（默认）/ `'rand'` ----------
 //
@@ -19387,7 +19464,31 @@ function passTurn(G, side) {
   if (G.stoleThisPlay) {
     G.stoleThisPlay = false
     expireGuards(G, side)
+    // 诊断〔2026-11-03〕：抢牌后牌库够不够两边都补满（不够时补牌顺序决定谁拿到最后那几张）
+    if (G.stealRefillDefer !== undefined && G.stealRefillDefer !== null) {
+      const thief = G.stealRefillDefer
+      const needV = Math.max(0, handLimit(G, side) - G.hands[side].length)
+      const needT = Math.max(0, handLimit(G, thief) - G.hands[thief].length)
+      const st = PROTO_STAT.stealRefill
+      const vSeat = side === G.first ? 'first' : 'second'
+      st.steals++
+      st.victim[vSeat]++
+      if (G.deck.length < needV + needT) {
+        const D = G.deck.length
+        st.short[vSeat]++
+        st.gainNew[vSeat] += Math.min(D, needV)
+        st.gainOld[vSeat] += Math.max(0, Math.min(needV, D - needT))
+        st.thiefNew[vSeat] += Math.max(0, Math.min(needT, D - needV))
+        st.thiefOld[vSeat] += Math.min(D, needT)
+      }
+    }
     refill(G, side)
+    // 欠着的抢牌方补牌（STEAL_REFILL=victim：被抢方先补、抢牌方后补）
+    if (G.stealRefillDefer !== undefined && G.stealRefillDefer !== null) {
+      const thief = G.stealRefillDefer
+      G.stealRefillDefer = null
+      refill(G, thief)
+    }
     if (G.swapEmpty && G.swapEmpty.side === side) {
       const st = PROTO_STAT.swap
       for (const c of G.swapEmpty.cards) {
@@ -19424,8 +19525,14 @@ function passTurn(G, side) {
   G.forceBy = -1
   G.forceUsed = false
   expireGuards(G, side)
+  // 【抢牌】先补牌的是被抢方（STEAL_REFILL=victim）：抢牌方那一手（stealTry 里嵌套的 playFor）走到这儿时先不补，
+  // 记下来，等被抢方在 stoleThisPlay 那一支补完再补
+  if (STEAL_REFILL === 'victim' && G.stealing) {
+    G.stealRefillDefer = side
+  } else {
   // 【燎原】原先在这儿蔓延（回合末一次），改成每打一张牌一次，挪到了 endPlay
   refill(G, side)
+  }
   if (G.swapEmpty && G.swapEmpty.side === side) {
     const st = PROTO_STAT.swap
     for (const c of G.swapEmpty.cards) {

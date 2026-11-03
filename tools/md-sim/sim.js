@@ -2380,6 +2380,34 @@ function printDraftTagDiag() {
 //
 // 为什么非得拆开：**溢价一样不代表强度一样**。洪水 X=+5.22 是「强且偏」，
 // 连竿 X=−0.45 是「弱且偏」—— 前者该削、后者该修效果，只看溢价会混成一回事
+// 源码 DRAW_SKILLS 里现有的 key（已删的不在里头）。读源码原文 —— 跟 refs.js 同一个来源
+function liveSkillKeys() {
+  const text = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'pages', 'examples', 'blackjack', 'draw-skills.uts'), 'utf8')
+  const at = text.indexOf('export const DRAW_SKILLS')
+  const end = text.indexOf('\n]', at)
+  if (at < 0 || end < 0) throw new Error('draw-skills.uts 里找不到 DRAW_SKILLS —— 表改名了？')
+  const out = []
+  const re = /^\s+key: '([a-z0-9]+)'/gm
+  const block = text.slice(at, end)
+  let m
+  while ((m = re.exec(block)) !== null) out.push(m[1])
+  return out
+}
+
+// 源码 DRAW_ROLES 里现有的角色 key（已删的不在里头）〔2026-11-03 · 同「只量活着的技能」那条〕
+function liveRoleKeys() {
+  const text = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'pages', 'examples', 'blackjack', 'draw-skills.uts'), 'utf8')
+  const at = text.indexOf('export const DRAW_ROLES')
+  const end = text.indexOf('\n]', at)
+  if (at < 0 || end < 0) throw new Error('draw-skills.uts 里找不到 DRAW_ROLES —— 表改名了？')
+  const out = []
+  const re = /^\s+key: '([a-z0-9]+)'/gm
+  const block = text.slice(at, end)
+  let m
+  while ((m = re.exec(block)) !== null) out.push(m[1])
+  return out
+}
+
 function cmdAll(args) {
   const role = roleIndexOrDie(args.role)
   const slots = R.DRAW_ROLES[role].slots
@@ -2430,9 +2458,16 @@ function cmdAll(args) {
   //（`rules.js:3832-3924`），而 `all` 只遍历 `R.SKILLS` ——
   //   我报过一次 59，那是把两张表的匹配数加在一起了
   let skipped = 0
+  // ---- 已删技能过滤〔2026-11-03 用户定「以后已删除的技能不要再跑了」〕----
+  // 判据是**源码的 DRAW_SKILLS 里还有没有这个 key**（真相在源码那一层）：模拟器的 SKILLS 表
+  // 删技能时有的整项改墓碑、有的只把 SK.X 指向 SK_GONE、名字照旧是中文 —— 只看名字分不出来。
+  // 原型（〈〉）照上面那条另算；`--proto` 只放开原型，不放开已删的
+  const live = liveSkillKeys()
+  let gone = 0
   for (let i = 0; i < R.SKILLS.length; i++) {
     const def = R.SKILLS[i]
     if (!args.proto && def.name.indexOf('〈') === 0) { skipped++; continue }
+    if (def.name.indexOf('〈') !== 0 && live.indexOf(def.key) < 0) { gone++; continue }
     const lo = R.kitWithOne(role, slotAt, i)
     const D = run(args.n, args.seed, lo, empty, o)
     const A = run(args.n, args.seed, empty, lo, o)
@@ -2514,6 +2549,10 @@ function cmdAll(args) {
     console.log('  上表 ' + lines.length + ' 件 = 上架件；'
       + '另有 **' + skipped + ' 件模拟器专属原型（名字带〈〉）没量** —— '
       + '要连原型一起跑加 `--proto`。')
+  }
+  // 已删的同样要说出来（不许静默截断，理由同上）
+  if (gone > 0) {
+    console.log('  另有 **' + gone + ' 件已删技能（源码 DRAW_SKILLS 里没有）没量**。')
   }
   // 目标档位 2026-10-15 从「+3~5」降下来：每人每局积分从 24.4 掉到 21.8
   //（终局规则换了），比例没变、绝对值跟着走
@@ -2720,8 +2759,11 @@ function cmdRoles(args) {
   const baseRun = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
   const baseD = meanDiff(baseRun)
   const lines = []
+  // 〔2026-11-03 用户定「已删的不要再跑」：只量源码 DRAW_ROLES 里有的；ROLES_ALL=1 连原型一起跑〕
+  const liveRoles = liveRoleKeys()
   for (let i = 0; i < R.DRAW_ROLES.length; i++) {
     const role = R.DRAW_ROLES[i]
+    if (process.env.ROLES_ALL !== '1' && liveRoles.indexOf(role.key) < 0) continue
     const m = measureSpecial(args, i)
     // 满配：同一张卡插满槽（KIT_ORDER 前 N 件）。跟基线比，所以它
     // **含常驻技**那一份 —— 「每槽」那一列把常驻减掉再除槽数
@@ -3269,6 +3311,13 @@ function printTailDiag() {
   row('没人带', tl.none, '先手', '后手')
   row('持有者坐先手', tl.hfirst, '持有者', '对方')
   row('持有者坐后手', tl.hsecond, '持有者', '对方')
+  const sr = R.PROTO_STAT.stealRefill
+  if (sr && sr.steals > 0) {
+    const g = function (k) { return '被抢方坐' + (k === 'first' ? '先手' : '后手') + ' ' + sr.victim[k] + ' 次，其中牌库不够两边补满 ' + sr.short[k] + ' 次 —— 被抢方拿到 新 ' + sr.gainNew[k] + ' / 旧 ' + sr.gainOld[k] + ' 张，抢牌方拿到 新 ' + sr.thiefNew[k] + ' / 旧 ' + sr.thiefOld[k] + ' 张' }
+    console.log('  抢牌补牌诊断：共 ' + sr.steals + ' 次抢牌')
+    console.log('    ' + g('first'))
+    console.log('    ' + g('second'))
+  }
   const sw = R.PROTO_STAT.swap
   if (sw && sw.emptyFires) console.log('  换水诊断：牌库空时换水 ' + sw.emptyFires + ' 次 · 洗回去的牌回合末回到自己手上 ' + (sw.emptyBack || 0) + ' 张 · 没回来 ' + (sw.emptyLost || 0) + ' 张 · 补完牌后牌库还剩 ' + (sw.emptyDeckLeft || 0) + ' 张（累计）')
 }
@@ -3305,7 +3354,8 @@ function cmdSp(args) {
 // back = 我带格 − 基线 = 速查表「满配」那一列的定义（cmdRoles 的 full，同一个算式）。
 // 默认只跑游戏里那 13 张（ROLESD_KEYS 可覆写，逗号分隔）
 function cmdRolesd(args) {
-  const keys = (process.env.ROLESD_KEYS || 'basket,lock,upstream,mirror,pond,night,reckon,filler,surgeman,rigger,peachtide,flowkey,zerotrap').split(',')
+  // 〔2026-11-03：默认名单改成读源码 DRAW_ROLES（原先手写 13 个，删了填河工、加了鱼市验货人都没跟上）〕
+  const keys = process.env.ROLESD_KEYS ? process.env.ROLESD_KEYS.split(',') : liveRoleKeys()
   const empty = R.emptyLoadout()
   const C = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
   const baseDiff = meanDiff(C)

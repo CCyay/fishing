@@ -137,9 +137,12 @@ function check(G, st, where) {
     //
     // 切出来那张**仍在局内**（进了先手的手牌），所以照样数得到。
     // 〔跑 `DROP=k` 那个实验旋钮时这条会报 —— 它就是故意去改奇偶的〕
-    if (b.deck % 2 === 1 || n < 40) {
+    // 〔2026-11-03 · R8：剔牌换成「牌组偶数就去掉 1 张」→ 局首总数恒为**奇数**（切出来那张在堆上，照样数得到）。
+    //   TRIM=even（复现 R7）时还按旧判据：局首牌库偶数〕
+    const parityBad = process.env.TRIM === 'even' ? b.deck % 2 === 1 : n % 2 === 0
+    if (parityBad || n < 40) {
       return '局首牌库 ' + b.deck + ' 张、总数 ' + n
-        + ' —— 牌库该是偶数、总数不该低于 40（见 rules.js 那道剔牌闸）\n'
+        + ' —— ' + (process.env.TRIM === 'even' ? '牌库该是偶数' : '总数该是奇数') + '、总数不该低于 40（见 rules.js 那道剔牌闸）\n'
         + '    现在数的是：' + BUCKETS.join(' + ') + '\n'
         + '    明细：' + bucketText(b) + '\n'
         + '    （另外 held=' + G.held.length + '）\n'

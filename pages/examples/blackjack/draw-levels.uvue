@@ -477,7 +477,7 @@
             <text v-if="foeSpecialDescsOf(role) != ''" class="my-skill-desc"
               >{{ foeSpecialDescsOf(role) }}</text
             >
-            <text class="my-skill-desc">{{ role.desc }}</text>
+            <!-- 〔2026-11-03 用户定：这儿原先还有一行氛围文字（role.desc），删了 —— 只留规矩的客观说明〕 -->
           </view>
 
           <!-- 第三段：素材池。**标明还没挂关卡** ——
@@ -498,7 +498,7 @@
             <text v-if="foeSpecialDescsOf(role) != ''" class="my-skill-desc"
               >{{ foeSpecialDescsOf(role) }}</text
             >
-            <text class="my-skill-desc">{{ role.desc }}</text>
+            <!-- 〔2026-11-03 用户定：这儿原先还有一行氛围文字（role.desc），删了 —— 只留规矩的客观说明〕 -->
           </view>
         </scroll-view>
       </view>
