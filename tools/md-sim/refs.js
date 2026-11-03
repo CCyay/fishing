@@ -498,6 +498,10 @@ const SIM_ONLY = {
   drawzero: '〈drawzero〉（原型 · ①对方抽 1 张 + 挑他 1 张，两张明置置 0 / ②对方抽 2 张明置置 0。DZ_MODE=pick|draw）',
   // 〔零吃 zeroself 2026-10-29 上架、当晚撤下（DEAD_SKILLS）—— 回到模拟器专属〕
   zeroself: '〈zeroself〉（原型 · 置 0；【21 匹配】。2026-10-29 上架当晚撤下，墓碑在 DEAD_SKILLS）',
+  rockself: '〈rockself〉（原型 · 2026-11-03：它带上【顽石】—— 不会被 J 收走）',
+  jsub: '〈jsub〉（原型 · 2026-11-03：当 J 不在游戏中时，此牌视为 J）',
+  fetchj: '〈fetchj〉（原型 · 2026-11-03：获取下一张 J）',
+  traitorzero: '〈traitorzero〉（原型 · 2026-11-02：对方 1 张手牌带上【叛变】，自己 1 张手牌带上【收零】）',
   zeroall: '〈zeroall〉（量具 · 2026-11-02：对方手牌全部置 0，量 D 用）',
   turncoat: '〈turncoat〉（原型 · 2026-11-02【叛变】第二版：查看对方手牌选 1 张带上【叛变】，此牌打出的匹配归对方）',
   betray: '〈betray〉（原型 · 2026-11-02：盲选对方 1 张手牌带上【叛变】。BETRAY_CLAIM=always|never）',
@@ -608,6 +612,8 @@ const SIM_ONLY = {
   // 2026-10-30 用户要评价、评完定「不要了」—— 原型留着（数在台账第三十六节）
   foeflow: '〈foeflow〉（原型 · 对方堆牌1，【顺子匹配】（不当通配），1 张手牌可参与顺子匹配。FF_HAND / FF_HEAP。用户定不要）',
   reflecttag: '〈reflecttag〉（原型 · 2026-10-30 用户要评价「手牌 N 张带上【映照】」：带标签的牌打出时可以展示 1 张手牌、变成跟它相同。RT_N=1|2|all）',
+  redraw: '〈redraw〉（原型常驻技 · 2026-11-03：可以把自己的抽牌放牌库底再抽 1 张，每回合限 1 次；开局发牌不算）',
+  redrawer: '〈redrawer〉（原型角色 · 常驻〈redraw〉，槽照江口闸官）',
   reflectx: '〈reflectx〉（原型 · 2026-11-01 【映照】的四个新载体：堆上 1 张 + 顺子 / 堆上 1 张 + 顺序 / 手牌 1 张 / 牌库顶 1 张。RX_MODE=pilestraight|pileorder|hand|deck）',
   // 2026-10-30 石墙重新设计那一轮〔同日【石影】stonehue /【石顺】stoneline 上架，从这张表撤掉 —— 理由同上面【引潮】那条〕
   wallorder: '〈wallorder〉（原型 · 它带上【石墙】；1 张手牌带上【顺序匹配】）',

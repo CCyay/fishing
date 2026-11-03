@@ -344,7 +344,7 @@
          跟观潮同一个朝向（挑的是你回合末要补的），但它是精确挑选 ——
          所以这块得把牌面摆出来点，不能像观潮那样只给「沉/不沉」两颗钮 -->
     <view v-if="pickPending" class="pick-deck">
-      <text class="tide-text">择饵：挑一张留在牌库顶（你回合末会补到它），其余沉底</text>
+      <text class="tide-text">择饵：挑一张加入手牌，其余洗回牌库</text>
       <view class="pick-deck-row">
         <view
           v-for="(one, pi) in pickTops"
@@ -526,6 +526,18 @@
          保护续层写的是「取消」，因为那时还没有牌离手〕 -->
 
     <!-- 零递：挑一张自己的手牌贴【21 匹配】。借手牌那一排（照冰雷） -->
+    <!-- 安检（2026-11-03）：庄家上回合抽的牌逐张过你的手 —— 放行（留在他手里、明着）/ 置底（他再抽一张）。J 只能放行 -->
+    <view v-if="inspectOpen && inspectPending.length > 0" class="tide-box">
+      <text class="tide-text">{{ '安检：庄家抽到 ' + cardName(inspectPending[0]) + (inspectPending[0].rank == 'J' ? ' —— J 不能置底，只能放行' : (deck.length == 0 ? ' —— 牌库空了，只能放行' : ' —— 放行（留在他手里，一直亮着）还是置底（他再抽一张）？')) }}</text>
+      <view class="tide-actions">
+        <view id="ap-inspect-keep" class="tide-btn tide-btn-plain" @click="onInspect(true)">
+          <text class="tide-btn-text tide-btn-text-plain">放行</text>
+        </view>
+        <view v-if="inspectPending[0].rank != 'J' && deck.length > 0" id="ap-inspect-bottom" class="tide-btn" @click="onInspect(false)">
+          <text class="tide-btn-text">置底</text>
+        </view>
+      </view>
+    </view>
     <!-- 顺递：挑一张自己的手牌贴【顺子匹配】（照零递那块） -->
     <view v-if="flowDraftPending" class="tide-box">
       <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
@@ -1308,6 +1320,8 @@
     SP_JSURGE,
     // 零空（2026-11-01 · 布饵人）：0 点牌不占手牌数量
     SP_ZEROFREE,
+    // 安检（2026-11-03）：鱼市验货人的常驻技
+    SP_INSPECT,
     JSURGE_HEAP,
     SP_REVERSE,
     SP_LIVEWATER,
@@ -1471,6 +1485,8 @@
   const FOE_DELAY_MS : number = 600
   // 赢了之后结算框停多久再自动进商店 —— 够看清拿了多少金币就行
   const SHOP_DELAY_MS : number = 1200
+  // 庄家倒饵：牌库剩这么多张以下就不送了〔2026-11-03，跟模拟器 BAIT_TAIL 默认值一致〕
+  const BAIT_TAIL_DECK : number = 4
   // 输了：结算框亮出来多久之后那颗心碎掉；碎完再过多久退回商店
   const HEART_BREAK_MS : number = 500
   const LOSE_SHOP_MS : number = 1200
@@ -1505,6 +1521,13 @@
   const foeHand = ref<PlainCard[]>([])
   // 和 foeHand 下标对齐：这张被你窥视翻开了
   const foeShown = ref<boolean[]>([])
+  // 【安检】（2026-11-03）：你带它时，庄家抽的牌先进这张表、明置；轮到你出牌时逐张确认（见 startMyTurn / onInspect）。
+  // 庄家在这中间不出牌，所以跟「抽的那一刻决定」等价 —— 例外：你自己的技能让他在你的回合里抽牌（比如浑水），
+  // 那张要到你下回合开头才确认，而他可能先拿它抢牌（少见，登记在台账第五十五节）
+  const inspectPending = ref<PlainCard[]>([] as PlainCard[])
+  const inspectOpen = ref<boolean>(false)
+  // 开局发牌不算（用户定「开局发牌不用」）：发完牌才置真，每局开头清掉
+  let dealt : boolean = false
   // ---------- 手牌区旁边那两个区〔2026-10-26 加〕 ----------
   //
   // 规则在 draw-terms 的『手牌区旁边那两个区』那一节，**这儿只记实现上的事**。
@@ -4453,7 +4476,9 @@
       //   普通（落堆顶）→ 从 size − 3 收到堆顶；
       //   沉底（落堆底）→ 从堆底收到第 2 格。
       // 堆比 3 张还薄的时候退回整堆（那时候「只收 3 张」本来就是整堆）
-      if (!byFoe && hasFoeSpecial('rev')) {
+      // 〔2026-11-03〕玩家常驻技【逆涌】「对方打出 J 只收走堆顶 3 张」走同一处：J 的对手一方带逆涌就收口。
+      // 你带它（开河工）→ 庄家的 J；庄家带它（只在终局对决）→ 你的 J
+      if ((!byFoe && hasFoeSpecial('rev')) || hasSpecial(!byFoe, SP_JSURGE)) {
         if (size <= REV_TOPS) {
           return sink ? size - 1 : 0
         }
@@ -6354,16 +6379,78 @@
       return null
     }
     const rest = deck.value.slice(0)
-    const card = rest.pop()!
+    let card = rest.pop()!
+    let seen = false
+    // 【安检】庄家带、你抽（只会在终局对决出现）：庄家 AI 当场判 ——
+    // 对你有用（点得着你的槽 / 现在打出去钓得中）、不是 J、牌库里还有牌，就置底再抽；留下的那张它看得见。
+    // 照模拟器 rules.js 的 drawFor / drawUseful
+    if (dealt && !byFoe && hasSpecial(true, SP_INSPECT) && rest.length > 0) {
+      const sk = skillsOf(false, card)
+      if (card.rank != JACK && (sk.length > 0 || catchStart(card, false, sk, false) >= 0)) {
+        rest.unshift(card)
+        card = rest.pop()!
+        message.value = message.value + ' 庄家安检：你抽到的那张被塞回牌库底，你又抽了一张。'
+      } else {
+        seen = true
+      }
+    }
     deck.value = rest
     if (byFoe) {
+      // 【安检】你带、庄家抽：先进他手里、明置，记进待确认（轮到你出牌时再决定放行还是置底）
+      const inspect = dealt && hasSpecial(false, SP_INSPECT)
       foeHand.value = foeHand.value.concat([card])
-      foeShown.value = foeShown.value.concat([false])
+      foeShown.value = foeShown.value.concat([inspect])
+      if (inspect) {
+        inspectPending.value = inspectPending.value.concat([card])
+      }
     } else {
       hand.value = hand.value.concat([card])
-      handSeen.value = handSeen.value.concat([false])
+      handSeen.value = handSeen.value.concat([seen])
     }
     return card
+  }
+
+  // 【安检】确认一张：keep = 放行（留在庄家手里、一直亮着）；否则置底 ——
+  // 不能置底 J、牌库空了也只能放行；置底之后庄家再抽 1 张（不看、不明置）。确认完全部才接着走你的回合
+  function onInspect(keep : boolean) {
+    if (inspectPending.value.length == 0) {
+      inspectOpen.value = false
+      return
+    }
+    const card = inspectPending.value[0]
+    inspectPending.value = inspectPending.value.slice(1)
+    let at = -1
+    for (let i = 0; i < foeHand.value.length; i++) {
+      if (foeHand.value[i] == card) {
+        at = i
+        break
+      }
+    }
+    if (at < 0) {
+      // 那张已经不在他手里了（别的效果拿走了）—— 没得确认
+    } else if (!keep && card.rank != JACK && deck.value.length > 0) {
+      const keepH : PlainCard[] = []
+      const keepS : boolean[] = []
+      for (let i = 0; i < foeHand.value.length; i++) {
+        if (i != at) {
+          keepH.push(foeHand.value[i])
+          keepS.push(i < foeShown.value.length ? foeShown.value[i] : false)
+        }
+      }
+      const rest = deck.value.slice(0)
+      rest.unshift(card)
+      const next = rest.pop()!
+      deck.value = rest
+      foeHand.value = keepH.concat([next])
+      foeShown.value = keepS.concat([false])
+      message.value = '安检：' + cardName(card) + ' 塞回牌库底，庄家又抽了一张。'
+    } else {
+      message.value = '安检：' + cardName(card) + ' 放行（留在庄家手里，一直亮着）。'
+    }
+    if (inspectPending.value.length == 0) {
+      inspectOpen.value = false
+      startMyTurn()
+    }
   }
 
   // ---------- 〔判废〕【判定】：翻牌库顶 1 张、用完放回库底 ----------
@@ -9763,7 +9850,10 @@
         // 带闸 +2.75）：不收手的话手里不够废牌，J 也会被塞出去 ——
         // 而 J 通吃，送一张 J 给他是净送分
         let out = 0
-        while (foeHand.value.length > 0) {
+        // 〔2026-11-03 用户定：牌库剩 BAIT_TAIL_DECK 张以下时**一张都不送**（desc 是「任意张」，0 张合法）。
+        //  终局还送牌 = 把终局那几手白送给对方 —— 模拟器 rules.js 的 BAIT_TAIL 同日默认 4，
+        //  实测 R7 A 槽 D +0.41 → +0.19、♥ 槽 +0.67 → +0.25（台账第五十二·丁）。玩家那边自己决定，不拦〕
+        while (foeHand.value.length > 0 && deck.value.length > BAIT_TAIL_DECK) {
           const at = foeSwapPick()
           if (at < 0) {
             break
@@ -9792,7 +9882,10 @@
     //
     // 这儿没有「手里有没有牌」那道闸（换水有）—— 摸牌不看手牌，
     // 摸完手里必然有牌可退，除非牌库和手牌同时空
-    if (hasTrigger(skills, SK_SIFT) && askFirst(SK_SIFT)) {
+    // 〔2026-11-03 用户定：**牌库不足 SIFT_DRAW（3）张时不发动**（desc 同日加了那半句）。
+    //  原先是「牌库见底就少摸几张」—— 终局那一下摸 3 退 2 会挪动牌库摸空的时机、把后手的最后一手挪走。
+    //  模拟器 rules.js 的 SIFT_MIN 同日默认 3，实测 R7 A 槽 D +0.29 → +0.19、♥ 槽 +0.61 → +0.41（台账第五十二·丁）〕
+    if (hasTrigger(skills, SK_SIFT) && deck.value.length >= SIFT_DRAW && askFirst(SK_SIFT)) {
       let drew = 0
       for (let n = 0; n < SIFT_DRAW; n++) {
         // 牌库见底就少摸几张（drawFor 返回 null）
@@ -9835,7 +9928,7 @@
         }
       }
     }
-    // 择饵：摊开牌库顶**五张**，挑一张留顶，其余沉底。
+    // 择饵：摊开牌库顶**五张**，挑一张**进手牌**，剩下的洗回牌库〔2026-11-03 用户定新版；原先是「挑一张留顶，其余沉底」〕。
     //
     // 排在观潮**前面**，而且两件都停人 —— 一个回合只停一次（见换水那段），
     // 所以同一张牌上两件都触发的时候，走的是择饵、观潮那次作废。
@@ -10078,13 +10171,16 @@
     }
     const at = keep < 0 || keep >= tops.length ? 0 : keep
     const card = tops[at]
-    sinkTops(tops.length)
-    // 整个换一份而不是 push：牌库别处（sinkTops、洗回去）都是换引用，
-    // 一处 push 一处换引用迟早在响应式上踩一脚
-    deck.value = deck.value.concat([card])
+    // 〔2026-11-03 新版：挑中的那张**进手牌**，剩下的洗回牌库 —— 走 pullFromDeck（同号同一条路：
+    //  从牌库取出那张、整个牌库洗一遍、进手牌）。原先是「留在牌库顶 + 其余沉底」（sinkTops）。
+    //  模拟器 rules.js 的 PICK_HAND 同日默认翻成这一版。
+    //  实测 R7 A 槽 X +3.10 → +3.44、D +1.23 → +0.07；♥ 槽 +8.55 → +8.28、D +1.18 → +0.34（台账第五十二·乙）〕
+    if (!pullFromDeck(byFoe, card)) {
+      return
+    }
     const note = byFoe
-      ? ' 庄家择饵，给自己挑了一张（' + tops.length + ' 张里挑 1）。'
-      : ' 择饵：' + cardName(card) + ' 留在牌库顶，其余 ' + (tops.length - 1) + ' 张沉底。'
+      ? ' 庄家择饵，' + tops.length + ' 张里挑了 1 张进手牌，其余洗回牌库。'
+      : ' 择饵：' + cardName(card) + ' 到你手上了，其余 ' + (tops.length - 1) + ' 张洗回牌库。'
     message.value = message.value + note
   }
 
@@ -14310,10 +14406,8 @@
     //
     // 判 J 用 `lastPlayed`：这会儿牌早离手了（可能还被收走了），
     // 所以不能查手牌，而 `lastPlayed` 是这一手打出那张的唯一记录
-    if (lastPlayed != null && lastPlayed!.rank == JACK
-      && hasSpecial(!byFoe, SP_JSURGE)) {
-      heapStage(!byFoe, JSURGE_HEAP)
-    }
+    // 〔2026-11-03【逆涌】改成「对方打出 J 只收走堆顶 3 张」（判在 catchStart 的 J 那一支），
+    //   这儿原先那句「对方打出 J 之后堆牌4」（heapStage(!byFoe, JSURGE_HEAP)）删了。上面那段注释讲的是堆牌版，过去时读〕
     // ---- 【堆牌】兑现〔2026-10-26〕：取牌盖进**指定方**的堆牌区 ----
     // 〔⚠ 2026-10-28 用户把它定成两个关键词：【堆牌 N】盖进自己的、
     //   【对方堆牌 N】盖进对方的。`byFoe` 就是那个「谁」——
@@ -14768,6 +14862,11 @@
 
   // 回合开始**不摸牌** —— 牌是上一回合结束时补好的（见 passTurn 的 refill）
   function startMyTurn() {
+    // 【安检】：庄家上回合抽的牌先过你的手（见 drawFor / onInspect）。逐张确认完再接着走这个回合
+    if (inspectPending.value.length > 0) {
+      inspectOpen.value = true
+      return
+    }
     myTurn.value = true
     // ---- 【堆牌区】落堆：**排在所有别的事前面**〔2026-10-26〕 ----
     //
@@ -16584,6 +16683,9 @@
     handSeen.value = []
     foeHand.value = []
     foeShown.value = []
+    inspectPending.value = [] as PlainCard[]
+    inspectOpen.value = false
+    dealt = false
     pile.value = []
     pileByFoe.value = []
     pileGuard.value = []
@@ -16636,6 +16738,8 @@
         drawFor(false)
       }
     }
+    // 开局发牌到此为止 —— 【安检】只管这之后的抽牌
+    dealt = true
     // ---------- 【淤滩】：开局堆上就压着三张死牌 ----------
     //
     // 从牌库顶垫 3 张，**点数一律算 0**（见 pushPile 的 vals 参数）——

@@ -1854,6 +1854,7 @@ function cmdOne(args) {
   printStoneDiag()
   printHeapDiag()
   printDraftTagDiag()
+  printTailDiag()
   if (process.env.CATCH_CURVE) {
     console.log('\n  ======== 我带那一格（m.test：ME 带、FOE 空手）========')
     console.log('  ⚠ 下面是**两人合计**，而这一格两侧不对称 ——'
@@ -2101,6 +2102,31 @@ function printDraftTagDiag() {
   if (zt && zt.games > 0 && (zt.front + zt.back) > 0) {
     console.log('\n  ---- 自检：进收尾那一刻手里的 0 点牌（ZERO_FIRST=' + (process.env.ZERO_FIRST || '关') + '）----')
     console.log('    先手 ' + (zt.front / zt.games).toFixed(2) + ' 张 / 局（手牌 ' + (zt.frontHand / zt.games).toFixed(2) + '）· 后手 ' + (zt.back / zt.games).toFixed(2) + ' 张 / 局（手牌 ' + (zt.backHand / zt.games).toFixed(2) + '）· 改打 0 点牌 ' + zt.swapped + ' 次')
+  }
+  // 〈rockself〉〔2026-11-03〕
+  const rk = R.PROTO_STAT.rock
+  if (rk && rk.fires > 0) {
+    console.log('\n  ---- 诊断：〈顽石〉----')
+    console.log('    发动 ' + rk.fires + ' 次 · 落堆带上顽石 ' + rk.landed + '（' + pct(rk.landed / rk.fires) + '）· 挡住 J ' + rk.blocked + ' 次 · 被普通 / 特殊匹配收走 ' + rk.taken + ' 次')
+  }
+  // 〈jsub〉〔2026-11-03〕
+  const js = R.PROTO_STAT.jsub
+  if (js && js.fires > 0) {
+    console.log('\n  ---- 诊断：〈jsub〉----')
+    console.log('    触发 ' + js.fires + ' 次：当成 J ' + pct(js.asJack / js.fires) + '（' + js.asJack + ' 次）· 其中堆上有牌 ' + js.withPile + ' 次、平均 ' + f2(js.pileSum / Math.max(1, js.withPile)) + ' 张')
+  }
+  // 〈fetchj〉〔2026-11-03〕
+  const fj = R.PROTO_STAT.fetchj
+  if (fj && fj.fires > 0) {
+    console.log('\n  ---- 诊断：〈fetchj〉----')
+    console.log('    发动 ' + fj.fires + ' 次：拿到 J ' + pct(fj.got / fj.fires) + '（牌库没 J ' + fj.none + ' 次）· 平均跳过 ' + f2(fj.depth / Math.max(1, fj.got)) + ' 张')
+  }
+  // 〈traitorzero〉〔2026-11-02〕叛变那半句的诊断在〈traitor〉那一块
+  const tzr = R.PROTO_STAT.traitorzero
+  if (tzr && tzr.fires > 0) {
+    const at = R.PROTO_STAT.atag
+    console.log('\n  ---- 诊断：〈traitorzero〉收零那半句 ----')
+    console.log('    发动 ' + tzr.fires + ' 次：贴收零 ' + pct(tzr.tagged / tzr.fires) + ' · 收零打出 ' + at.cashed + ' 次、收成 ' + pct(at.hits / Math.max(1, at.cashed)) + '、每次收 ' + f2(at.got / Math.max(1, at.hits)) + ' 张')
   }
   // 〈zeroall〉〔2026-11-02〕
   const za = R.PROTO_STAT.zeroall
@@ -3229,6 +3255,24 @@ function cmdKitvs(args) {
 // ---------- sp〔2026-11-03〕：只量一张角色卡的常驻技（槽全空），两侧都量 ----------
 // 用法：[NARROW_LAST=1] node sim.js sp lock -n 20000
 // 走 measureSpecial（roles 那一列同一个函数），只是不用把十几张卡全跑一遍
+// 终局诊断〔2026-11-03〕：牌库摸空之后双方各打几手、各收几分、最后一手谁打（rules.js 的 tailDiag 分格）。
+// 「持有者」= 带窄口的一方；没人带窄口时 = 配装不空的那一方
+function printTailDiag() {
+  // 终局诊断〔2026-11-03〕：牌库摸空之后
+  const tl = R.PROTO_STAT.tail
+  const row = function (name, t, hName, oName) {
+    if (!t || t.games === 0) return
+    console.log('  ' + name.padEnd(16) + hName + ' 打 ' + f2(t.playsH / t.games) + ' 手 / 收 ' + f2(t.scoreH / t.games) + ' 分 · '
+      + oName + ' 打 ' + f2(t.playsO / t.games) + ' 手 / 收 ' + f2(t.scoreO / t.games) + ' 分 · 最后一手是' + hName + ' ' + pct(t.lastH / t.games))
+  }
+  console.log('\n  ---- 终局（牌库摸空之后）----')
+  row('没人带', tl.none, '先手', '后手')
+  row('持有者坐先手', tl.hfirst, '持有者', '对方')
+  row('持有者坐后手', tl.hsecond, '持有者', '对方')
+  const sw = R.PROTO_STAT.swap
+  if (sw && sw.emptyFires) console.log('  换水诊断：牌库空时换水 ' + sw.emptyFires + ' 次 · 洗回去的牌回合末回到自己手上 ' + (sw.emptyBack || 0) + ' 张 · 没回来 ' + (sw.emptyLost || 0) + ' 张 · 补完牌后牌库还剩 ' + (sw.emptyDeckLeft || 0) + ' 张（累计）')
+}
+
 function cmdSp(args) {
   const role = roleIndexOrDie(args._[1] || args.role)
   const r = R.DRAW_ROLES[role]
@@ -3240,22 +3284,46 @@ function cmdSp(args) {
   console.log('  后手 ' + sign(m.back) + '   先手 ' + sign(m.front) + '   X ' + sign(m.x)
     + '   D ' + sign(m.d) + '   标准误 ' + f2(m.se) + '   局长 ' + sign((tp - bp) / bp * 100) + '%')
   console.log('  口径：measureSpecial（我带 / 对手带各跑一侧，对裸基线）—— 跟 roles 那一列同一个函数')
-  // 终局诊断〔2026-11-03〕：牌库摸空之后
-  const tl = R.PROTO_STAT.tail
-  const row = function (name, t, hName, oName) {
-    if (!t || t.games === 0) return
-    console.log('  ' + name.padEnd(16) + hName + ' 打 ' + f2(t.playsH / t.games) + ' 手 / 收 ' + f2(t.scoreH / t.games) + ' 分 · '
-      + oName + ' 打 ' + f2(t.playsO / t.games) + ' 手 / 收 ' + f2(t.scoreO / t.games) + ' 分 · 最后一手是' + hName + ' ' + pct(t.lastH / t.games))
-  }
-  console.log('\n  ---- 终局（牌库摸空之后）----')
-  row('没人带窄口', tl.none, '先手', '后手')
-  row('窄口坐先手', tl.hfirst, '带窄口', '对方')
-  row('窄口坐后手', tl.hsecond, '带窄口', '对方')
+  // 〔2026-11-03〕两件抽牌常驻技的诊断口：它到底做了几次（三格合计 —— 只有带的那一侧会累加）
+  const ins = R.PROTO_STAT.inspect, rd = R.PROTO_STAT.redraw
+  if (ins && ins.fires > 0) console.log('  【安检】对手抽牌 ' + ins.fires + ' 次，放底 ' + ins.bottomed + ' 次（' + pct(ins.bottomed / ins.fires) + '）')
+  if (rd && rd.fires > 0) console.log('  〈redraw〉判过 ' + rd.fires + ' 次，真换了 ' + rd.used + ' 次（' + pct(rd.used / rd.fires) + '）')
+  printTailDiag()
   const nl = R.PROTO_STAT.narrowLast
   if (nl && nl.stuck > 0) console.log('  诊断：窄口（stuck · ' + (process.env.NARROW_PICK || 'view') + ' · ' + (process.env.NARROW_STUCK_END || 'game') + '）开局扣下 ' + nl.stuck + ' 张，其中 J ' + nl.stuckJack + ' 张')
   if (nl && nl.odd > 0) console.log('  诊断：开局为变奇数去掉 1 张 ' + nl.odd + ' 次（两侧格合计）')
   if (nl && (nl.blocked > 0 || nl.toFoe > 0)) {
     console.log('  诊断：最后一张被拦 ' + nl.blocked + ' 次 · 最后一张被对方摸走 ' + nl.toFoe + ' 次（两侧格合计）')
+  }
+}
+
+// ---------- rolesd〔2026-11-03〕：角色满配**两侧**都量（补速查表角色那张表的 D）----------
+//
+// 为什么不用 measureBothLo：它带常驻技时是**双方都带**同一件（rolesFor 的 foeToo），
+// 常驻技那一份两边抵掉，量出来只剩槽 —— 跟速查表「满配（含常驻技）」不是一回事。
+// 这儿照 measureSpecial 的三格：基线（双方裸）/ 我带（这张卡：常驻技 + KIT_ORDER 满配，对手裸）/ 对手带。
+// back = 我带格 − 基线 = 速查表「满配」那一列的定义（cmdRoles 的 full，同一个算式）。
+// 默认只跑游戏里那 13 张（ROLESD_KEYS 可覆写，逗号分隔）
+function cmdRolesd(args) {
+  const keys = (process.env.ROLESD_KEYS || 'basket,lock,upstream,mirror,pond,night,reckon,filler,surgeman,rigger,peachtide,flowkey,zerotrap').split(',')
+  const empty = R.emptyLoadout()
+  const C = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })
+  const baseDiff = meanDiff(C)
+  const sign = function (v) { return (v >= 0 ? '+' : '') + f2(v) }
+  console.log('rolesd · 角色满配（含常驻技）两侧都量 · ' + args.n + ' 局 / 格 · 基线格共用')
+  console.log('  back = 我带格 − 基线 = 速查表「满配」那一列的定义；X = 两侧平均；D = (先手 − 后手) / 2')
+  for (const k of keys) {
+    const role = R.roleIndexOf(k)
+    if (role < 0) { console.log('  ' + k + '：找不到'); continue }
+    const lo = R.kitFromRole(role, kitFor(role))
+    const D = run(args.n, args.seed, lo, empty, { myRole: role, foeRole: -1 })
+    const A = run(args.n, args.seed, empty, lo, { myRole: -1, foeRole: role })
+    const back = meanDiff(D) - baseDiff
+    const front = baseDiff - meanDiff(A)
+    const se = Math.sqrt(stderrOf(D) * stderrOf(D) + stderrOf(C) * stderrOf(C))
+    console.log('  ' + R.DRAW_ROLES[role].name.padEnd(6) + ' ' + k.padEnd(10)
+      + ' back ' + sign(back) + '   front ' + sign(front)
+      + '   X ' + sign((back + front) / 2) + '   D ' + sign((front - back) / 2) + '   se ' + f2(se))
   }
 }
 
@@ -4367,6 +4435,7 @@ function main() {
   if (cmd === 'one') return cmdOne(args)
   if (cmd === 'all') return cmdAll(args)
   if (cmd === 'pair') return cmdPair(args)
+  if (cmd === 'rolesd') return cmdRolesd(args)
   if (cmd === 'sp') return cmdSp(args)
   if (cmd === 'kitvs') return cmdKitvs(args)
   // vs：我带一件、**对手带一件** —— 反制型技能只能这么量（见 cmdVs）

@@ -486,9 +486,12 @@ const CASES = [
     }
   },
   {
-    key: 'filler', label: '填河工（填塘 —— 它动的是 endPlay）',
+    // 〔2026-11-03：原先这一组是【填河工】（填塘 / 净滩，动的是 endPlay），随【净滩】一起删了。
+    //   换成【开河工】—— 逆涌同日改成「对方打出 J 只收走堆顶 3 张」，改的是 catchStart 的 J 那一支（收牌起点），
+    //   守恒那几条正该在它身上跑一遍〕
+    key: 'surgeman', label: '开河工（逆涌 —— 对方的 J 只收堆顶 3 张）',
     build: function () {
-      return { mine: R.emptyLoadout(), foe: R.emptyLoadout(), myRole: roleAt('filler') }
+      return { mine: R.emptyLoadout(), foe: R.emptyLoadout(), myRole: roleAt('surgeman') }
     }
   },
   {
