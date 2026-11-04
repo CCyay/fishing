@@ -3324,6 +3324,8 @@ function printTailDiag() {
   row('没人带', tl.none, '先手', '后手')
   row('持有者坐先手', tl.hfirst, '持有者', '对方')
   row('持有者坐后手', tl.hsecond, '持有者', '对方')
+  const sj = R.PROTO_STAT.stealjack
+  if (sj && sj.used > 0) console.log('  诊断：〈stealjack〉当 J 抢了 ' + sj.used + ' 次 · 抢到 ' + sj.gain + ' 张（平均 ' + (sj.gain / sj.used).toFixed(2) + '）· 其中不当 J 就抢不到 ' + sj.onlyAsJack + ' 次（三格合计）')
   const ns = R.PROTO_STAT.nosteal
   if (ns && ns.fires > 0) console.log('  诊断：〈nosteal〉发动 ' + ns.fires + ' 次 · 贴上 d ' + ns.tagged + ' 张（其中 J ' + ns.jack + '）· 带 d 的牌本来抢得到、被拦下 ' + ns.blocked + ' 次')
   const tj = R.PROTO_STAT.tojack

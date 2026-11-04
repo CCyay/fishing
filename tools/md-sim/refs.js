@@ -637,6 +637,7 @@ const SIM_ONLY = {
   nesthand: '〈nesthand〉（原型 · 1 张手牌带上【夹层】）',
   nestall: '〈nestall〉（原型 · 它和你手里的牌都带上【夹层】）',
   nestfoe: '〈nestfoe〉（原型 · 对方 1 张手牌带上【夹层】）',
+  stealjack: '〈stealjack〉（原型 · 2026-11-04：「此牌可当作 J 进行抢牌」，〈asjack〉的镜像）',
   nosteal: '〈nosteal〉（原型 · 2026-11-03：机制 d「此牌不能抢牌」；给对方 1 张手牌带上 d。NOSTEAL_PICK=blind|view）',
   redblack: '〈redblack〉（原型 · 2026-11-04：常驻「红算 1 / 黑算 0」。RB_SLOTS / RB_MODE）',
   copyfoe: '〈copyfoe〉（原型 · 2026-11-03：专属草花技「可以选择对方 1 个技能发动」。COPY_PICK=rank|first。台账第六十一节）',

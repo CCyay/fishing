@@ -1461,6 +1461,9 @@ const SKILLS = [
   { key: 'jsub', name: '〈jsub〉' },
   // 〈asjack〉〔2026-11-03 · 用户要评价〕「此牌可视为 J，但不能参与抢牌」—— 当 J 通吃（G.prJack）、那一手不能被抢、抢牌时不变 J
   { key: 'asjack', name: '〈asjack〉' },
+  // 〈stealjack〉〔2026-11-04 · 用户要评价〕「此牌可当作 J 进行抢牌」—— 〈asjack〉的镜像：只在**抢牌**时当 J（收整堆），平常照自己的点数打。
+  //   「此牌」照 asjack 的读法 = 这件技能那个槽覆盖的牌（拿它去抢的那一刻判 skillsOf）
+  { key: 'stealjack', name: '〈stealjack〉' },
   // 〈rockself〉〔2026-11-03 · 用户要评价机制【顽石】「不会被 J 收走」〕它带上【顽石】—— 落堆后 J 通吃收不走它
   { key: 'rockself', name: '〈rockself〉' },
   // 〈zeroall〉「对方手牌全部置 0」〔2026-11-02 · 量 D 用〕J 也置 0（照浑水）；走 doDead
@@ -2258,7 +2261,7 @@ const SK = {
   TRAITORZERO: skAt('traitorzero'),
   FETCHJ: skAt('fetchj'),
   JSUB: skAt('jsub'),
-  ASJACK: skAt('asjack'),
+  ASJACK: skAt('asjack'), STEALJACK: skAt('stealjack'),
   ROCKSELF: skAt('rockself'),
   ZEROALL: skAt('zeroall'),
   // 2026-10-21 下午 ·【夹带】【开箱】—— 见 SKILLS 表末尾那两段。同上那条教训
@@ -10113,6 +10116,8 @@ function catchStart(G, card, side, skills, sink) {
     return sink ? size - 1 : 0
   }
   // 〈pilereflect〉复制 J（PR_J=1）：这一手按 J 通吃 —— 起点同 J 那一支。只在 resolveMatch 那一次判定里成立（外包里清掉）
+  // 〈stealjack〉SJ_TOP=N：当 J 抢的那一手只收堆顶 N 张（照逆涌）
+  if (G.prJack === card && size > 0 && process.env.SJ_TOP && G.sjTopCard === card) return Math.max(0, size - parseInt(process.env.SJ_TOP, 10))
   if (G.prJack === card && size > 0) return sink ? size - 1 : 0
   const hook = has(skills, SK.HOOK)
   // 【花色匹配】钥匙（石色给的手牌标签）：多一条按花色的线，**点数照留**（不像顺色那样无点数）
@@ -11738,7 +11743,13 @@ function stealTry(G, side, myCount) {
     //（21 匹配已经在 catchStart 里）。走 harvestCount 的 specialOnly 档 —— 燃尽 / 冰雷 / 撒网不算
     const nNormal = at < 0 ? 0 : catchCountAt(G, c, foe, sk, at)
     const nSpecial = STEAL_SPECIAL === 'new' ? harvestCount(G, c, sk, foe, true) : 0
-    const n = Math.max(nNormal, nSpecial)
+    // 〈stealjack〉：当 J 抢 = 收整堆（照 catchStart 里 prJack 那一支：从 0 收起）
+    // 削弱档（量具）：SJ_MODE=vsjack（只能抢对方打出的 J）· SJ_ONCE=1（每局一次）· SJ_TOP=N（当 J 只收堆顶 N 张，照逆涌）
+    const sjOk = c.rank !== JACK && G.pile.length > 0 && has(sk, SK.STEALJACK)
+      && (process.env.SJ_MODE !== 'vsjack' || !!G.jackPlay) && !(process.env.SJ_ONCE === '1' && G.sjUsed && G.sjUsed[foe])
+    const sjTop = process.env.SJ_TOP ? parseInt(process.env.SJ_TOP, 10) : 0
+    const nJack = sjOk ? (sjTop > 0 ? Math.min(G.pile.length, sjTop) + 1 : catchCountAt(G, c, foe, sk, 0)) : 0
+    const n = Math.max(nNormal, nSpecial, nJack)
     if (n <= 0) continue
     // 〈nosteal〉机制 d：带它的牌不能拿去抢牌（诊断：本来抢得到的那几次）
     if (G.noSteal && G.noSteal.has(c)) { if (n > myCount) PROTO_STAT.nosteal.blocked++; continue }
@@ -11781,6 +11792,25 @@ function stealTry(G, side, myCount) {
   // **B 补牌 + 回合交给 A** 两件事都由现成那条路办了（规则第三条）。
   const was = G.stealing
   G.stealing = true
+  {
+    const cs = G.hands[foe][best]
+    if (cs.rank !== JACK && has(skillsOf(G, foe, cs), SK.STEALJACK)) {
+      const sks = skillsOf(G, foe, cs)
+      const atn = catchStart(G, cs, foe, sks, false)
+      const nn = atn < 0 ? 0 : catchCountAt(G, cs, foe, sks, atn)
+      // 只有「当 J 才抢得到 / 当 J 收得更多」时才变 J（照自己点数就够的话照常打）
+      if (nn <= myCount || nn < bestN) {
+        G.prJack = cs
+        G.sjUsed = G.sjUsed || [false, false]
+        G.sjUsed[foe] = true
+        G.sjTopCard = cs
+        const st = PROTO_STAT.stealjack
+        st.used++
+        st.gain += bestN
+        if (nn <= myCount) st.onlyAsJack++
+      }
+    }
+  }
   playFor(G, foe, best, G.aiRef)
   G.stealing = was
   // 留给 A 自己那次 `passTurn` 看：回合已经推进过了，别再换一次手
@@ -14023,7 +14053,23 @@ function afterPlay(G, side, skills, played, ai) {
     st.fires++
     const hand = G.hands[side]
     let at = -1
-    if (process.env.TOJ_PICK === 'best') {
+    // TOJ_PAIR=1〔2026-11-04 · 用户「展示手牌的对子，将其中 1 张变成 J」〕：只能从手里成对的牌里挑（同点数 ≥ 2 张，J / 0 点 / 无点数不算），
+    //   两张都明置（G.seen）；有几对就挑「现在钓不到东西」的那一对优先。没有对子 = 不发动
+    if (process.env.TOJ_PAIR === '1') {
+      const cnt = {}
+      for (const c of hand) if (c.rank !== JACK && c.rank !== ZERO_RANK && c.rank !== BLANK_RANK) cnt[c.rank] = (cnt[c.rank] || 0) + 1
+      let best = -1
+      for (let k = 0; k < hand.length; k++) {
+        if (!(cnt[hand[k].rank] >= 2)) continue
+        const v = canCatch(G, hand[k], side) ? 1 : 2
+        if (v > best) { best = v; at = k }
+      }
+      if (at >= 0) {
+        const r = hand[at].rank
+        for (let k = 0; k < hand.length; k++) if (hand[k].rank === r && G.seen && G.seen[side]) G.seen[side][k] = true
+        st.pair = (st.pair || 0) + 1
+      }
+    } else if (process.env.TOJ_PICK === 'best') {
       let best = -1
       for (let k = 0; k < hand.length; k++) {
         if (hand[k].rank === JACK) continue
@@ -16216,6 +16262,8 @@ const PROTO_STAT = {
   zeroTail: { games: 0, front: 0, back: 0, frontHand: 0, backHand: 0, swapped: 0 },
   rock: { fires: 0, landed: 0, blocked: 0, taken: 0 },
   asjack: { fires: 0, asJack: 0, pileSum: 0, inSteal: 0, immune: 0 },
+  // 〈stealjack〉：当 J 抢了几次 / 一共抢到几张 / 其中「不当 J 就抢不到」的几次
+  stealjack: { used: 0, gain: 0, onlyAsJack: 0 },
   jsub: { fires: 0, asJack: 0, withPile: 0, pileSum: 0 },
   fetchj: { fires: 0, got: 0, none: 0, depth: 0 },
   traitorzero: { fires: 0, tagged: 0 },
