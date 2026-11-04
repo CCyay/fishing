@@ -3324,6 +3324,12 @@ function printTailDiag() {
   row('没人带', tl.none, '先手', '后手')
   row('持有者坐先手', tl.hfirst, '持有者', '对方')
   row('持有者坐后手', tl.hsecond, '持有者', '对方')
+  const ns = R.PROTO_STAT.nosteal
+  if (ns && ns.fires > 0) console.log('  诊断：〈nosteal〉发动 ' + ns.fires + ' 次 · 贴上 d ' + ns.tagged + ' 张（其中 J ' + ns.jack + '）· 带 d 的牌本来抢得到、被拦下 ' + ns.blocked + ' 次')
+  const tj = R.PROTO_STAT.tojack
+  if (tj && tj.fires > 0) console.log('  诊断：〈tojack〉发动 ' + tj.fires + ' 次 · 变成 J ' + tj.made + ' 张（其中原是 0 点牌 ' + tj.fromZero + '）· 没得变 ' + tj.none + ' 次')
+  const zf2 = R.PROTO_STAT.zerofetchj
+  if (zf2 && zf2.fires > 0) console.log('  诊断：〈zerofetchj〉发动 ' + zf2.fires + ' 次 · 置 0 ' + zf2.zeroed + ' 张（其中 J ' + zf2.zeroJack + '）· 拿到 J ' + zf2.got + ' 次 · 牌库没 J ' + zf2.none + ' 次 · 不发动 ' + zf2.skipped + ' 次')
   const sr = R.PROTO_STAT.stealRefill
   if (sr && sr.steals > 0) {
     const g = function (k) { return '被抢方坐' + (k === 'first' ? '先手' : '后手') + ' ' + sr.victim[k] + ' 次，其中牌库不够两边补满 ' + sr.short[k] + ' 次 —— 被抢方拿到 新 ' + sr.gainNew[k] + ' / 旧 ' + sr.gainOld[k] + ' 张，抢牌方拿到 新 ' + sr.thiefNew[k] + ' / 旧 ' + sr.thiefOld[k] + ' 张' }
@@ -3351,6 +3357,8 @@ function cmdSp(args) {
   if (ins && ins.fires > 0) console.log('  【安检】对手抽牌 ' + ins.fires + ' 次，放底 ' + ins.bottomed + ' 次（' + pct(ins.bottomed / ins.fires) + '）')
   if (rd && rd.fires > 0) console.log('  〈redraw〉判过 ' + rd.fires + ' 次，真换了 ' + rd.used + ' 次（' + pct(rd.used / rd.fires) + '）')
   printTailDiag()
+  const zf = R.PROTO_STAT.zerofetchj
+  if (zf && zf.fires > 0) console.log('  诊断：〈zerofetchj〉发动 ' + zf.fires + ' 次 · 置 0 ' + zf.zeroed + ' 张（其中 J ' + zf.zeroJack + '）· 拿到 J ' + zf.got + ' 次 · 牌库没 J ' + zf.none + ' 次 · 不发动 ' + zf.skipped + ' 次')
   const nl = R.PROTO_STAT.narrowLast
   if (nl && nl.stuck > 0) console.log('  诊断：窄口（stuck · ' + (process.env.NARROW_PICK || 'view') + ' · ' + (process.env.NARROW_STUCK_END || 'game') + '）开局扣下 ' + nl.stuck + ' 张，其中 J ' + nl.stuckJack + ' 张')
   if (nl && nl.odd > 0) console.log('  诊断：开局为变奇数去掉 1 张 ' + nl.odd + ' 次（两侧格合计）')
@@ -3400,7 +3408,7 @@ function cmdRolesd(args) {
 // 每套三格（基线共用 / 我带 / 对手带），报：back（单侧，= 速查「满配」的定义）的中位数 + 最低 / 最高、
 // D 的中位数、我带那一格胜率的中位数。默认只跑游戏里那些角色（ROLESD_KEYS 可覆写）
 function cmdRolesmed(args) {
-  const keys = (process.env.ROLESD_KEYS || 'basket,lock,upstream,mirror,pond,night,reckon,surgeman,rigger,peachtide,flowkey,zerotrap,inspector').split(',')
+  const keys = (process.env.ROLESD_KEYS || 'basket,lock,upstream,mirror,pond,night,reckon,surgeman,rigger,peachtide,flowkey,zerotrap,inspector,zerodeck,octopus').split(',')
   const pool = (process.env.ROLESMED_POOL ? process.env.ROLESMED_POOL.split(',') : KIT_ORDER).map(function (k) { return skillIndexOf(k) })
   const empty = R.emptyLoadout()
   const C = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })

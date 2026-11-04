@@ -5762,6 +5762,15 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
     desc: '你摸到跟你花色槽同颜色的牌时，可以把它放到牌库底，重摸 1 张（每回合一次）'
   },
   {
+    // 送红（2026-11-04 · 【散鱼人】的常驻技；名字代起）：用户「可以将抽到的颜色牌给对方，重抽 1 张」→ 定「固定红牌、不限次数」。
+    // 跟拣色是同一个动作的两版：拣色放牌库底（每回合一次），这件**塞给对方**（明着）—— 塞一张没用的牌 = 对方少摸一次。
+    // 重摸的那张不能再送。开局发牌不算。模拟器 SP.REDGIFT。
+    // R8 · `rolesmed -n 8000`（6 套轮换配装中位）**+17.95**（17.39 ~ 18.83）/ D +0.06 / 胜率中位 91.7%；槽全空单量（只塞红牌、不限次数）+9.16。同批锚点夜钓客 17.09 / 江口闸官 16.75 逐位复现。台账第六十一节。
+    // 只配点数槽是量出来的：配花色槽（♣ / 6、♦ / 2…）都在 +24 上下，超全表最高 3.5 分
+    key: 'redgift', name: '送红',
+    desc: '你摸到红色牌时，可以把它给对方（明置），重摸 1 张'
+  },
+  {
     // 甩货（2026-11-03 · 沉船打捞人的常驻技）：用户「抽到 0 点数牌时，可以把 1 张手牌给对方，再抽 1 张」，
     // 试过限黑色（满配中位 +16.56）后定「不限颜色」。原文不限次数 ⇒ 再抽到 0 点牌接着触发。开局发牌不算。
     // 模拟器〈zhandgive〉。R8 · rolesmed 满配中位 **+19.52**（14.65 ~ 22.37）/ D −0.23 / 胜率中位 93.7%；
@@ -5769,6 +5778,14 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
     // 实现：ap-fishing 的 drawFor 记次数（giveLeft），你那边在交回合前 / 回合开头弹窗（onGive）；庄家那边 drawFor 里当场判
     key: 'zhandgive', name: '甩货',
     desc: '你抽到 0 点牌时，可以把 1 张手牌给对方（明置），再抽 1 张'
+  },
+  {
+    // 归八（2026-11-04 · 八爪渔夫的常驻技）：用户「自己的草花牌点数都变成 8」。照【归十】的写法：
+    // 出牌时 ♣ 按 8 算点数（覆盖牌面，点数卡贴的照旧）、也按 8 查点数槽；落堆后那张按 8 点留着（落堆时定点数，不认出处）。
+    // J 照旧是 J（照归十不收 J），被置 0 的照旧是 0，失去花色的不算 ♣。
+    // 实现：ap-fishing 的 clubEight / eightVals（skillsOf、valuesOf 各一处）。模拟器〈club3〉（CLUB3_RANK 默认 8）。台账第六十二节
+    key: 'clubeight', name: '归八',
+    desc: '你的 ♣ 牌都算 8 点，能触发 8 槽（J 不算）'
   }
 ]
 
@@ -5813,8 +5830,11 @@ export const SP_ZEROFREE : number = specialIndexOf('zerofree')
 export const SP_INSPECT : number = specialIndexOf('inspect')
 // 拣色（2026-11-03 · 新【夜钓客】）
 export const SP_COLORREDRAW : number = specialIndexOf('colorredraw')
+export const SP_REDGIFT : number = specialIndexOf('redgift')
 // 甩货（2026-11-03 · 沉船打捞人）
 export const SP_ZHANDGIVE : number = specialIndexOf('zhandgive')
+// 归八（2026-11-04 · 八爪渔夫）
+export const SP_CLUBEIGHT : number = specialIndexOf('clubeight')
 // 【稳钩】删了（2026-10-13，连带「护饵」那一类效果）。
 // 常量留着是因为 specialIndexOf 查不到会返回 **-1**，而 hasSpecial 拿 -1
 // 比任何角色的 special 都不会相等 —— 所以读它的那几处自动失效、不用改。
@@ -6394,6 +6414,21 @@ export const DRAW_ROLES : DrawRole[] = [
     // 14 张里第 3（赌船荷官 20.48 · 桃汛客 19.66 之后）。台账第五十七节（甲 ~ 辛）
     key: 'zerodeck', name: '沉船打捞人', special: 'zhandgive', slots: ['♥', '0'],
     desc: '♥ 槽固定是专属的【锈锚】—— 把牌库顶 2 张置 0；摸到 0 点牌时可以甩一张手牌给对手、再摸一张'
+  },
+  {
+    // ---------- 【八爪渔夫】（2026-11-04 · 用户设计，名字是代起的）：4 / 8 / Q，常驻【归八】 ----------
+    // 不是「1 花色 + 1 点数」的常规形状（用户定）。归八让 13 张 ♣ 全响 8 槽 —— 8 槽管着 16 张牌（13 张 ♣ + 另外三门的 8），
+    // 4、Q 两个槽各 4 张。台账第六十二节（原型〈club3〉，同一天先量过「♣ 算 3」的一槽 / 两槽 / 三槽 / ♣ + 3 几种形状）
+    key: 'octopus', name: '八爪渔夫', special: 'clubeight', slots: ['4', '8', 'Q'],
+    desc: '你的梅花全算 8 点，一张张都响 8 槽；另有 4 和 Q 两个小槽'
+  },
+  {
+    // ---------- 【散鱼人】（2026-11-04 · 用户设计「固定红牌，按 3 点数槽」，名字是代起的）：2 / 5 / 6，常驻【送红】 ----------
+    // 不是「1 花色 + 1 点数」的常规形状（用户定「槽位不一定需要花色槽」）。2 / 5 / 6 是那几张「1 花色 + 1 点数」卡都没用到的三个点数。
+    // 量过的几种槽（同口径）：6 +12.22 · 6 / 8 +15.79 · 2 / 5 +15.36 · **2 / 5 / 6 +17.95** · 6 / 8 / 3 +18.29 · 6 / 8 / K +18.74 · 带花色槽 ~+24。
+    // R8 · `rolesmed -n 8000`（6 套轮换配装中位）**+17.95**（17.39 ~ 18.83）/ D +0.06 / 胜率中位 91.7%；槽全空单量（只塞红牌、不限次数）+9.16。同批锚点夜钓客 17.09 / 江口闸官 16.75 逐位复现。台账第六十一节 ⇒ 排在开河工 18.47 和夜钓客 17.09 之间，跟八爪渔夫 17.93 同一档
+    key: 'giver', name: '散鱼人', special: 'redgift', slots: ['2', '5', '6'],
+    desc: '三个小槽；摸到红牌没用就塞给对方，再摸一张'
   }
 ]
 
@@ -6804,30 +6839,71 @@ export function roleIndexOf(key : string) : number {
 //
 // 〔同日补第 14 格：【沉船打捞人】满配中位 +19.52（同批锚点夜钓客 17.09 / 验货人 15.61 / 串钩手 16.16 逐位复现）→ **通关**那一档
 //   （用户定「不限颜色加入游戏」；通关档因此是 4 张，其余没动 —— 要不要把开河工往前挪一档没定）〕
-// 下标：0 背篓 1 江口 2 逆流 3 镜湖 4 鱼塘 5 赌船 6 开河 7 串钩 8 桃汛 9 流钥 10 布饵 11 验货 12 夜钓 13 沉船
-export const ROLE_UNLOCK : number[] = [9, 6, 0, 6, 3, 99, 99, 3, 99, 0, 98, 0, 9, 99]
-// 通关一次才解锁的那两个，门槛写成这个数（关卡总共 12 关，所以 99 等于「得通关」）
-export const ROLE_UNLOCK_CLEAR : number = 99
-// 「闯关里打出【收零】并成功收牌」才解锁（布饵人）
-export const ROLE_UNLOCK_ZERO : number = 98
+// 〔2026-11-04 补第 15 格：【八爪渔夫】满配中位 +17.93（同批锚点夜钓客 17.09 / 串钩手 16.16 逐位复现）→ 排在开河工 18.47 和夜钓客 17.09 之间 ⇒ **第 9 关**那一档（现 3 张：背篓 / 夜钓 / 八爪），其余没动〕
+// 下标：0 背篓 1 江口 2 逆流 3 镜湖 4 鱼塘 5 赌船 6 开河 7 串钩 8 桃汛 9 流钥 10 布饵 11 验货 12 夜钓 13 沉船 14 八爪
+// 〔2026-11-04 补第 16 格：【散鱼人】满配中位 +17.95 → 跟八爪渔夫 17.93 同一档 ⇒ **第 9 关**〕
+// 下标续：15 散鱼
+// 〔上面这一版的数组是 [9, 6, 0, 6, 3, 99, 99, 3, 99, 0, 98, 0, 9, 99, 9, 9]（按「打到第几关」，99 = 通关、98 = 布饵人成就）〕
+//
+// ======== 2026-11-04 换成星星 + 强度三档（用户定）========
+// 「简单难度通关获得 1 个银色星星，普通难度通关获得 1 个金色星星；1 个银色星星解锁低档角色……高档角色要在困难下达成条件解锁」。
+// 三档照《全技能速查》三·〇（满配中位的整数部分：15 ~ 16 低、17 ~ 18 中、19 ~ 20 高）。用户另定：
+//   · 开局给几张低档：用原来开局就有的三张（逆流船夫 15.36 · 鱼市验货人 15.61 · 流钥客 15.94，正好是低档最弱的几张）；
+//   · 布饵人按档走银星（【收零】那个成就撤了）；
+//   · 老存档通关过的补 1 颗银星（draw-save 的 starEarned）；
+//   · 高档三张各一个困难成就（roleHardGoal；在 ap-fishing 的 hardGoal 里记）。
+//
+//   开局（ROLE_UNLOCK_START） 逆流船夫 · 鱼市验货人 · 流钥客
+//   银星（低档）               背篓渔夫 · 镜湖占卜师 · 江口闸官 · 串钩手 · 鱼塘老板 · 布饵人
+//   金星（中档）               开河工 · 散鱼人 · 八爪渔夫 · 夜钓客
+//   困难成就（高档）           赌船荷官 · 桃汛客 · 沉船打捞人
+//
+// 〔同日用户补：「1 个星星解锁 1 个角色」「用 1 个角色通关一种难度给 1 颗星星，同一个角色同 1 难度无法连续获得星星」——
+//   星星是**货币**：每个「角色 × 难度」通关一次发 1 颗，玩家在选角界面花 1 颗开 1 张（银星开低档、金星开中档）。
+//   所以下面的 SILVER / GOLD 是「这一张要花哪种星」，不是「有了那种星就全开」。存取在 draw-save 的 starEarned / buyRole〕
+//
+// ⚠ 新角色进来时：先按满配中位定档，再在这儿补一格。档是**按数定的**，数变了（改规则 / 改效果）档要跟着重看
+export const ROLE_UNLOCK_START : number = 0
+export const ROLE_UNLOCK_SILVER : number = 1
+export const ROLE_UNLOCK_GOLD : number = 2
+export const ROLE_UNLOCK_HARD : number = 3
+export const ROLE_UNLOCK : number[] = [1, 1, 0, 1, 1, 3, 2, 1, 3, 0, 1, 0, 2, 3, 2, 2]
 
-// 这个角色解锁了吗。best 是最远纪录，cleared 是通关过没有
-// zeroDone：这个存档在闯关里用【收零】收到过牌没有（见 ROLE_UNLOCK_ZERO）
-export function roleUnlocked(index : number, best : number, cleared : boolean, zeroDone : boolean) : boolean {
+// 高档的困难成就要数到几〔2026-11-04 用户定〕：桃汛客「一局里用 ♥ 牌收牌 5 次」、赌船荷官「一局收牌正好 21 张并赢下」
+export const HARD_HEART_GOAL : number = 5
+export const HARD_SCORE_GOAL : number = 21
+
+// 高档角色的解锁条件（选角界面报门槛用；达成的判定在 ap-fishing 的 hardGoal 那几处）。不是高档的返回 ''
+export function roleHardGoal(roleKey : string) : string {
+  if (roleKey == 'zerodeck') {
+    return '困难难度闯关里，用 0 点牌收到牌'
+  }
+  if (roleKey == 'peachtide') {
+    return '困难难度闯关里，一局用 ♥ 牌收牌 ' + HARD_HEART_GOAL + ' 次'
+  }
+  if (roleKey == 'reckon') {
+    return '困难难度闯关里，一局收牌正好 ' + HARD_SCORE_GOAL + ' 张并赢下'
+  }
+  return ''
+}
+
+// 这个角色解锁了吗。bought：这一张用星开过没有（只对低档 / 中档有意义）；
+// hardDone：这一张自己的困难成就达成过没有（只对高档有意义）
+export function roleUnlocked(index : number, bought : boolean, hardDone : boolean) : boolean {
   // 两个长度都要查 —— ROLE_UNLOCK 是平行数组，漏加一格的话
-  // 这儿读到的是 undefined，而拿它跟 best 比大小在 UTS 里不会报错，
+  // 这儿读到的是 undefined，在 UTS 里不会报错，
   // 只会让那个角色的门槛变成一个说不清的值。锁着比那个好
   if (index < 0 || index >= DRAW_ROLES.length || index >= ROLE_UNLOCK.length) {
     return false
   }
   const need = ROLE_UNLOCK[index]
-  if (need == ROLE_UNLOCK_CLEAR) {
-    return cleared
+  if (need == ROLE_UNLOCK_START) {
+    return true
   }
-  if (need == ROLE_UNLOCK_ZERO) {
-    return zeroDone
+  if (need == ROLE_UNLOCK_SILVER || need == ROLE_UNLOCK_GOLD) {
+    return bought
   }
-  return best >= need
+  return need == ROLE_UNLOCK_HARD && hardDone
 }
 
 // 这儿原先有个 luckySlots（角色的幸运数字在点数槽里是第几格），

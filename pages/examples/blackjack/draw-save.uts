@@ -702,6 +702,10 @@ export function clearDrawAt(index : number) {
   uni.removeStorageSync(KEY_PREFIX + index)
   uni.removeStorageSync(KEY_GUIDE + index)
   uni.removeStorageSync(KEY_ZERO + index)
+  uni.removeStorageSync(KEY_STAR_EARN + index)
+  uni.removeStorageSync(KEY_STAR_MIG + index)
+  uni.removeStorageSync(KEY_ROLE_OPEN + index)
+  uni.removeStorageSync(KEY_HARD + index)
   uni.removeStorageSync(KEY_DIFF + index)
 }
 
@@ -742,18 +746,114 @@ export function setShopGuided(index : number) {
   uni.setStorageSync(KEY_GUIDE + index, '1')
 }
 
-// ---------- 布饵人的解锁：闯关里打出【收零】并成功收牌〔2026-11-02〕----------
-//
-// 跟新手引导同一个路子：单独一个键，不塞进存档那一串（那一串带版本号，改格式要迁移）。
-// 它是成就、跨轮的（跟 best 同一层），输了重开不丢；删档（clearDrawAt）时一起清
+// ---------- 〔撤了〕布饵人的成就解锁（闯关里打出【收零】并成功收牌）----------
+// 2026-11-04 角色解锁改成按强度三档（用户定「布饵人按档走银星」），这个成就键不再读写。
+// 键名留着只为删档时顺手清掉老数据（见 clearDrawAt）
 const KEY_ZERO : string = 'md_zero_'
 
-export function zeroTrapOpen(index : number) : boolean {
-  return readString(KEY_ZERO + index) == '1'
+// ---------- 星星：用角色通关换来的、用来解锁角色的「货币」〔2026-11-04 用户定〕----------
+//
+// 用户原话（三句合起来）：「简单难度通关获得 1 个银色星星，普通难度通关获得 1 个金色星星」
+// 「1 个星星解锁 1 个角色」「用 1 个角色通关一种难度给 1 颗星星。同一个角色同 1 难度无法连续获得星星」。
+//   · 发星：这一轮带着角色 R 通关难度 D → 1 颗星（简单 = 银星，普通 / 困难 = 金星）。
+//     **每个「角色 × 难度」只发一次**（「无法连续获得」按这个读；要是本意是「不能连着两轮」，改 awardClearStar 那一个判断）。
+//     不带角色通关不发（原话是「用 1 个角色通关」）。困难也发金星是代定的（原话没说困难）。
+//   · 花星：在选角界面点锁着的角色，花 1 颗星解锁那一张。银星只开低档、金星只开中档（代定：各开各的）。
+//     余额 = 拿过的星 − 已经用星开掉的角色（现算，不单独存，省得两份数对不上）。
+//   · 老存档（用户定「通关过就补 1 颗银星」）：第一次读到这个档时 best 已经到终点，补 1 颗不挂角色的银星（只补一次，见 starEarned）。
+// 都跟新手引导同一个路子：单独的键，不塞进存档那一串（那一串带版本号，改格式要迁移）。跨轮、输了重开不丢；删档时一起清
+const KEY_STAR_EARN : string = 'md_stars_'
+const KEY_STAR_MIG : string = 'md_starmig_'
+const KEY_ROLE_OPEN : string = 'md_roleopen_'
+// 老档补的那颗银星在列表里的记号（不是任何角色的 key）
+const STAR_LEGACY : string = '-'
+
+function textList(text : string) : string[] {
+  const out : string[] = []
+  const parts = text.split(',')
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] != '') {
+      out.push(parts[i])
+    }
+  }
+  return out
 }
 
-export function setZeroTrapOpen(index : number) {
-  uni.setStorageSync(KEY_ZERO + index, '1')
+// 拿过的星：每一项是「角色 key:难度」。第一次读时顺手做老档迁移（只做一次，记在 KEY_STAR_MIG）
+export function starEarned(index : number, best : number) : string[] {
+  const list = textList(readString(KEY_STAR_EARN + index))
+  if (readString(KEY_STAR_MIG + index) != '1') {
+    uni.setStorageSync(KEY_STAR_MIG + index, '1')
+    if (best >= DRAW_RUN_LENGTH) {
+      list.push(STAR_LEGACY + ':' + DIFF_EASY)
+      uni.setStorageSync(KEY_STAR_EARN + index, list.join(','))
+    }
+  }
+  return list
+}
+
+// 拿过几颗银星（gold = false）/ 金星（gold = true）
+export function starCount(index : number, best : number, gold : boolean) : number {
+  const list = starEarned(index, best)
+  let n = 0
+  for (let i = 0; i < list.length; i++) {
+    const parts = list[i].split(':')
+    const diff = toInt(parts[parts.length - 1], DIFF_EASY)
+    if ((diff == DIFF_EASY) != gold) {
+      n = n + 1
+    }
+  }
+  return n
+}
+
+// 通关时调：这一轮的角色 + 难度还没拿过星就发 1 颗。返回发的是哪种（'' = 这次不发）。
+// best 传**结算之前**的最远纪录 —— 结算之后它已经到终点，老档迁移那一条会误补一颗
+export function awardClearStar(index : number, best : number, roleKey : string, diff : number) : string {
+  if (roleKey == '') {
+    return ''
+  }
+  const list = starEarned(index, best)
+  const tag = roleKey + ':' + diff
+  if (list.indexOf(tag) >= 0) {
+    return ''
+  }
+  list.push(tag)
+  uni.setStorageSync(KEY_STAR_EARN + index, list.join(','))
+  return diff == DIFF_EASY ? '银色星星' : '金色星星'
+}
+
+// 这个角色用星开过没有
+export function roleBought(index : number, roleKey : string) : boolean {
+  return textList(readString(KEY_ROLE_OPEN + index)).indexOf(roleKey) >= 0
+}
+
+// 花星开角色（余额够不够由调用方先判，见 draw-levels 的 starLeft）
+export function buyRole(index : number, roleKey : string) {
+  const list = textList(readString(KEY_ROLE_OPEN + index))
+  if (list.indexOf(roleKey) >= 0) {
+    return
+  }
+  list.push(roleKey)
+  uni.setStorageSync(KEY_ROLE_OPEN + index, list.join(','))
+}
+
+// ---------- 高档角色的困难成就〔2026-11-04 用户定〕----------
+//
+// 三张高档角色各有一个条件，都要在**困难难度、闯关对局**里达成（见 ap-fishing 的 hardGoal）。
+// 存成达成过的角色 key 列表（逗号分隔）。跨轮、删档时一起清
+const KEY_HARD : string = 'md_hard_'
+
+export function hardGoalDone(index : number, roleKey : string) : boolean {
+  const list = readString(KEY_HARD + index).split(',')
+  return list.indexOf(roleKey) >= 0
+}
+
+export function setHardGoalDone(index : number, roleKey : string) {
+  if (hardGoalDone(index, roleKey)) {
+    return
+  }
+  const old = readString(KEY_HARD + index)
+  uni.setStorageSync(KEY_HARD + index, old == '' ? roleKey : old + ',' + roleKey)
 }
 
 export function drawSaveSlot() : number {

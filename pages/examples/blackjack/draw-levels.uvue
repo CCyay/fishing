@@ -8,7 +8,7 @@
     <view class="head">
       <view>
         <text class="title">摸打钓鱼</text>
-        <text id="md-slot-name" class="sub">{{ save.label }} · 最远 {{ save.best }}/{{ DRAW_RUN_LENGTH }}</text>
+        <text id="md-slot-name" class="sub">{{ save.label }} · 最远 {{ save.best }}/{{ DRAW_RUN_LENGTH }}{{ starText() }}</text>
       </view>
       <!-- 原生导航栏去掉了（pages.json 的 navigationStyle: custom），
            这一页本来全靠它左上角那颗返回，所以自己补一颗 -->
@@ -665,8 +665,10 @@
     // 现在闯关要选角色，它们才有了落点
     roleUnlocked,
     ROLE_UNLOCK,
-    ROLE_UNLOCK_CLEAR,
-    ROLE_UNLOCK_ZERO,
+    ROLE_UNLOCK_SILVER,
+    ROLE_UNLOCK_GOLD,
+    ROLE_UNLOCK_HARD,
+    roleHardGoal,
     // 实战对决摇技能池用（48 件里取 8 件不重复）
     rollSpots,
     // 角色专属技能（布饵人的空钩）：挑技能列表 / 实战技能池排掉它；固定槽不许换
@@ -695,7 +697,10 @@
     clearDrawAt,
     newDrawSave,
     drawSaveSlot,
-    zeroTrapOpen,
+    starCount,
+    roleBought,
+    buyRole,
+    hardGoalDone,
     setDrawSaveSlot,
     saveDraw,
     resetDrawRun,
@@ -1097,17 +1102,36 @@
   const parkedRole = ref<number>(-1)
   const parkedSlots = ref<number[]>([] as number[])
 
-  // 闯关模式的角色解锁：按最远纪录放（见 draw-skills 的 ROLE_UNLOCK）。
+  // 闯关模式的角色解锁：开局 / 银星 / 金星 / 困难成就（见 draw-skills 的 ROLE_UNLOCK，2026-11-04 起）。
   // 终局不设门槛 —— 它不记账，拦着没意义，而且那是「试配装」的地方
   function roleOpen(ri : number) : boolean {
     if (roleMode.value != 'run') {
       return true
     }
-    return roleUnlocked(ri, save.value.best, save.value.best >= DRAW_RUN_LENGTH, zeroTrapOpen(slotIndex.value))
+    const key = ri >= 0 && ri < DRAW_ROLES.length ? DRAW_ROLES[ri].key : ''
+    return roleUnlocked(ri, roleBought(slotIndex.value, key), hardGoalDone(slotIndex.value, key))
+  }
+
+  // 这一张要花哪种星：ROLE_UNLOCK_SILVER / ROLE_UNLOCK_GOLD；不靠星开的返回 −1
+  function roleStarKind(ri : number) : number {
+    const need = ri >= 0 && ri < ROLE_UNLOCK.length ? ROLE_UNLOCK[ri] : ROLE_UNLOCK_HARD
+    return need == ROLE_UNLOCK_SILVER || need == ROLE_UNLOCK_GOLD ? need : -1
+  }
+
+  // 手头还剩几颗银星（gold = false）/ 金星（gold = true）：拿过的 − 已经花掉的（用星开了几张那一档的角色）
+  function starLeft(gold : boolean) : number {
+    let spent = 0
+    const kind = gold ? ROLE_UNLOCK_GOLD : ROLE_UNLOCK_SILVER
+    for (let i = 0; i < DRAW_ROLES.length; i++) {
+      if (roleStarKind(i) == kind && roleBought(slotIndex.value, DRAW_ROLES[i].key)) {
+        spent = spent + 1
+      }
+    }
+    return starCount(slotIndex.value, save.value.best, gold) - spent
   }
 
   // 选角列表的顺序〔2026-11-02 · 用户定「可选角色要放前面」〕：解锁了的按表序排前面，
-  // 锁着的排后面、按门槛从近到远（第 3 关 → 6 → 9 → 成就 → 通关）。
+  // 锁着的排后面、按门槛从近到远（银星 → 金星 → 困难成就）。
   // 写成函数不写 computed：解锁看存档和成就键，跟 roleOpen 同一个口径，每次渲染现算
   function roleOrder() : number[] {
     const open : number[] = []
@@ -1120,11 +1144,22 @@
       }
     }
     locked.sort((a : number, b : number) : number => {
-      const na = a < ROLE_UNLOCK.length ? ROLE_UNLOCK[a] : ROLE_UNLOCK_CLEAR
-      const nb = b < ROLE_UNLOCK.length ? ROLE_UNLOCK[b] : ROLE_UNLOCK_CLEAR
+      const na = a < ROLE_UNLOCK.length ? ROLE_UNLOCK[a] : ROLE_UNLOCK_HARD
+      const nb = b < ROLE_UNLOCK.length ? ROLE_UNLOCK[b] : ROLE_UNLOCK_HARD
       return na != nb ? na - nb : a - b
     })
     return open.concat(locked)
+  }
+
+  // 存档抬头那一行的星星（2026-11-04）：拿到哪颗报哪颗，一颗没有就不报
+  // 报的是**手头剩的**（能拿去开角色的那几颗），两种都是 0 就不报
+  function starText() : string {
+    const silver = starLeft(false)
+    const gold = starLeft(true)
+    if (silver <= 0 && gold <= 0) {
+      return ''
+    }
+    return ' · 银星 ' + silver + ' · 金星 ' + gold
   }
 
   // 锁着的角色报门槛。报得出具体数字才叫目标，「未解锁」只是一堵墙
@@ -1132,18 +1167,43 @@
     if (roleOpen(ri)) {
       return ''
     }
-    const need = ROLE_UNLOCK[ri]
-    if (need == ROLE_UNLOCK_ZERO) {
-      return '闯关里打出【收零】并成功收牌才解锁'
+    const need = ri < ROLE_UNLOCK.length ? ROLE_UNLOCK[ri] : ROLE_UNLOCK_HARD
+    if (need == ROLE_UNLOCK_SILVER) {
+      return starLeft(false) > 0
+        ? '点一下，花 1 颗银色星星解锁'
+        : '要 1 颗银色星星（带一个角色通关简单难度，每个角色给一次）'
     }
-    return need == ROLE_UNLOCK_CLEAR
-      ? '通关一次才解锁'
-      : '打到第 ' + need + ' 关才解锁'
+    if (need == ROLE_UNLOCK_GOLD) {
+      return starLeft(true) > 0
+        ? '点一下，花 1 颗金色星星解锁'
+        : '要 1 颗金色星星（带一个角色通关普通或困难难度，每个角色每个难度给一次）'
+    }
+    const goal = roleHardGoal(DRAW_ROLES[ri].key)
+    return goal != '' ? goal + '才解锁' : '还没开放'
   }
 
   // 点一个角色。终局进第二步（看槽），闯关**当场定下来并开打**
   function tapRole(ri : number) {
     if (!roleOpen(ri)) {
+      // 用星开角色（2026-11-04）：这一张靠星开、手头又有那种星 —— 问一句再花
+      const kind = roleStarKind(ri)
+      const gold = kind == ROLE_UNLOCK_GOLD
+      if (kind >= 0 && starLeft(gold) > 0) {
+        const name = DRAW_ROLES[ri].name
+        uni.showModal({
+          title: '解锁【' + name + '】？',
+          content: '花 1 颗' + (gold ? '金色' : '银色') + '星星（手头 ' + starLeft(gold) + ' 颗）。',
+          confirmText: '解锁',
+          cancelText: '再想想',
+          success: (res) => {
+            if (res.confirm) {
+              buyRole(slotIndex.value, DRAW_ROLES[ri].key)
+              refresh()
+            }
+          }
+        })
+        return
+      }
       uni.showToast({ title: roleLock(ri), icon: 'none' })
       return
     }

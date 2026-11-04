@@ -555,6 +555,23 @@
         </view>
       </view>
     </view>
+    <!-- 送红（2026-11-04 · 散鱼人）：你摸到的红牌 —— 点一张塞给庄家（它一直亮着）、你再摸 1 张；可以接着送，或者不送了 -->
+    <view v-if="giftOpen && giftChoices().length > 0" class="tide-box">
+      <text class="tide-text">送红：你摸到这几张红牌 —— 点一张塞给庄家（它一直亮着）、你再摸 1 张，或者不送了</text>
+      <view class="tide-actions">
+        <view
+          v-for="(one, gi) in giftChoices()"
+          :key="'gf-' + gi"
+          :id="'ap-gift-' + gi"
+          class="tide-btn"
+          @click="onGiftPick(gi)">
+          <text class="tide-btn-text">{{ cardName(one) }}</text>
+        </view>
+        <view id="ap-gift-skip" class="tide-btn tide-btn-plain" @click="onGiftPick(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不送了</text>
+        </view>
+      </view>
+    </view>
     <!-- 甩货（2026-11-03 · 沉船打捞人）：你抽到 0 点牌 —— 点一张手牌给庄家（明置）、再摸 1 张，或者不给。抽到几次 0 问几次 -->
     <view v-if="giveOpen && giveLeft > 0 && hand.length > 0" class="tide-box">
       <text class="tide-text">{{ '甩货：你抽到了 0 点牌' + (giveLeft > 1 ? '（还能甩 ' + giveLeft + ' 次）' : '') + ' —— 点一张手牌给庄家（它一直亮着）、你再摸 1 张，或者不给' }}</text>
@@ -1359,6 +1376,7 @@
     SP_INSPECT,
     // 拣色（2026-11-03 · 新【夜钓客】）
     SP_COLORREDRAW,
+    SP_REDGIFT,
     SP_ZHANDGIVE,
     // 拣色判「跟花色槽同颜色」要读角色卡上印的槽标签
     slotLabels,
@@ -1370,6 +1388,9 @@
     SP_CYCLE,
     // 【归十】：你打出的 Q K 都算 10（见 valuesOf）
     SP_TENS,
+    HARD_HEART_GOAL,
+    HARD_SCORE_GOAL,
+    SP_CLUBEIGHT,
     // 【串钩】（串钩手）：命中任一个点数槽 → 所有点数槽一起响（见 skillsOf）
     SP_RANKLINK,
     // 【红钩】（桃汛客）：打出红桃 → 所有槽一起响（见 skillsOf）
@@ -1427,8 +1448,9 @@
     loadDrawSave,
     saveDraw,
     drawSaveSlot,
-    zeroTrapOpen,
-    setZeroTrapOpen,
+    awardClearStar,
+    hardGoalDone,
+    setHardGoalDone,
     difficultyOf,
     settleWin,
     resetDrawRun,
@@ -1568,6 +1590,9 @@
   const colorOpen = ref<boolean>(false)
   // 庄家那一侧这一回合用过没有（startFoeTurn 清）
   let colorUsedFoe : boolean = false
+  // 【送红】（2026-11-04 · 散鱼人）：你摸到的红牌（开局发牌不算）—— 回合开头问送不送（见 startMyTurn / onGiftPick）
+  const redGiftPending = ref<PlainCard[]>([] as PlainCard[])
+  const giftOpen = ref<boolean>(false)
   // 【甩货】（2026-11-03 · 沉船打捞人）：你抽到 0 点牌攒下的次数（开局发牌不算；不限次数，再抽到 0 接着加）。
   // 你补完牌、交回合给庄家之前问（passTurnTail）—— 跟模拟器「补牌那一刻送」同一个时点；
   // 别的时候摸到的（庄家回合里的抢牌补牌之类）到你回合开头问（startMyTurn）
@@ -2796,6 +2821,12 @@
   const held = ref<HeldEffect[]>([] as HeldEffect[])
   // 刚打出去的那张。挂效果要用它当锚
   let lastPlayed : PlainCard | null = null
+  // 你这一手打出的那张（高档角色的困难成就要读它：用 0 点牌收牌 / 用 ♥ 牌收牌）。
+  // lastPlayed 庄家出牌也会改，所以单独记一份「你的」
+  let myLastCard : PlainCard | null = null
+  // 【桃汛客】的困难成就：这一局用 ♥ 牌收牌几次。同一张牌那一手收两段（匹配 + 扫堆）只算一次
+  let heartCatches : number = 0
+  let heartCounted : PlainCard | null = null
 
   // ---------- 〔删了〕mergeCard / mergeGain（合流吃到的点数） ----------
   //
@@ -4235,7 +4266,8 @@
   function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
     // 【归十】〔2026-11-03 用户定「自己的 Q、K 都算 10 点，能触发 10 槽」〕：带它的一方的 Q、K 按 10 去查槽
     const tensRank = (card.rank == 'Q' || card.rank == 'K') && hasSpecial(byFoe, SP_TENS)
-    const rank = isDead(card) ? '0' : (tensRank ? '10' : card.rank)
+    // 【归八】〔2026-11-04 · 八爪渔夫〕：带它的一方的 ♣ 牌（J 除外）按 8 去查槽。花色槽照旧按 ♣
+    const rank = isDead(card) ? '0' : (tensRank ? '10' : (clubEight(byFoe, card) ? '8' : card.rank))
     const lo = loadoutOf(byFoe)
     const list = triggersOf(lo, card.suit, rank)
     // 【串钩】（串钩手）：命中任一个**被占**的点数槽 → **再响 1 件**（你选的那件，见 heartPick）。
@@ -6471,7 +6503,23 @@
         message.value = message.value + ' 庄家拣色：摸到的那张塞回牌库底，又摸了一张。'
       }
     }
+    // 【送红】庄家带、庄家抽（终局对决）：红牌、不是 J、对它没用（点不着它的槽、现在钓不中）、对你也没用 → 塞给你（明着），它再摸一张
+    if (dealt && byFoe && hasSpecial(true, SP_REDGIFT) && rest.length > 0 && isRedSuit(card.suit) && card.rank != JACK) {
+      const skF = skillsOf(true, card)
+      const skM = skillsOf(false, card)
+      if (skF.length == 0 && catchStart(card, true, skF, false) < 0
+        && skM.length == 0 && catchStart(card, false, skM, false) < 0) {
+        hand.value = hand.value.concat([card])
+        handSeen.value = handSeen.value.concat([true])
+        card = rest.pop()!
+        message.value = message.value + ' 庄家送红：塞给你一张红牌（它看得见），又摸了一张。'
+      }
+    }
     deck.value = rest
+    // 【送红】你带、你抽：红牌先记下来，轮到你出牌时问（见 startMyTurn / onGiftPick）
+    if (dealt && !byFoe && hasSpecial(false, SP_REDGIFT) && isRedSuit(card.suit)) {
+      redGiftPending.value = redGiftPending.value.concat([card])
+    }
     // 【拣色】你带、你抽：同色的先记下来，轮到你出牌时问（见 startMyTurn / onColorPick）
     if (dealt && !byFoe && hasSpecial(false, SP_COLORREDRAW) && sameColorAsSlot(false, card)) {
       colorPending.value = colorPending.value.concat([card])
@@ -6662,6 +6710,63 @@
       handSeen.value = keepS.concat([false])
       message.value = '拣色：' + cardName(card) + ' 塞回牌库底，你又摸了 ' + cardName(next) + '。'
     }
+    startMyTurn()
+  }
+
+  // 【送红】还能送的那几张：记下来的红牌里还在你手里的
+  function giftChoices() : PlainCard[] {
+    const out : PlainCard[] = []
+    for (let i = 0; i < redGiftPending.value.length; i++) {
+      const c = redGiftPending.value[i]
+      for (let k = 0; k < hand.value.length; k++) {
+        if (hand.value[k] == c) {
+          out.push(c)
+          break
+        }
+      }
+    }
+    return out
+  }
+
+  // 【送红】送一张：index = giftChoices 里第几张，−1 = 不送了。送 = 那张进庄家手里（明着）、你再摸 1 张（这张不能再送）。
+  // 还有能送的就接着问；不送 / 送完 / 牌库空了就往下走这个回合
+  function onGiftPick(index : number) {
+    const choices = giftChoices()
+    if (index < 0 || index >= choices.length || deck.value.length == 0) {
+      redGiftPending.value = [] as PlainCard[]
+      giftOpen.value = false
+      startMyTurn()
+      return
+    }
+    const card = choices[index]
+    const keepH : PlainCard[] = []
+    const keepS : boolean[] = []
+    for (let i = 0; i < hand.value.length; i++) {
+      if (hand.value[i] != card) {
+        keepH.push(hand.value[i])
+        keepS.push(i < handSeen.value.length ? handSeen.value[i] : false)
+      }
+    }
+    foeHand.value = foeHand.value.concat([card])
+    foeShown.value = foeShown.value.concat([true])
+    const rest = deck.value.slice(0)
+    const next = rest.pop()!
+    deck.value = rest
+    hand.value = keepH.concat([next])
+    handSeen.value = keepS.concat([false])
+    const left : PlainCard[] = []
+    for (let i = 0; i < redGiftPending.value.length; i++) {
+      if (redGiftPending.value[i] != card) {
+        left.push(redGiftPending.value[i])
+      }
+    }
+    redGiftPending.value = left
+    message.value = '送红：' + cardName(card) + ' 塞给了庄家，你又摸了 ' + cardName(next) + '。'
+    if (deck.value.length > 0 && giftChoices().length > 0) {
+      return
+    }
+    redGiftPending.value = [] as PlainCard[]
+    giftOpen.value = false
     startMyTurn()
   }
 
@@ -7472,7 +7577,8 @@
     //  **但「K 没有上家」这条判据没废** —— 开河工的 `K` 槽还踩着它〕
     const tens = hasSpecial(byFoe, SP_TENS)
       && (card.rank == 'Q' || card.rank == 'K')
-    const out = tens ? tenVals(card) : cardVals(card)
+    // 【归八】：♣ 牌（J、废牌除外 —— 废牌上面已经返回 [0]）算 8 点，覆盖牌面、点数卡贴的照旧（照归十）
+    const out = tens ? tenVals(card) : (clubEight(byFoe, card) ? eightVals(card) : cardVals(card))
     // 归深：**追加** 11 这个候选（不覆盖原来的）。
     //
     // 11 是 J 的数，而 J 打出就通吃走了、从不落堆 —— 所以堆里天生
@@ -7510,6 +7616,23 @@
     //     而这个玩法里「被钓走」的损失大于「钓到」的收益
     //    （收走的是一整段，从匹配那张到堆顶）。
     //     **这条是全表最容易犯的误算**，加任何「多一个点数」的技能都要过。〕
+    return out
+  }
+
+  // 【归八】（八爪渔夫）：这张牌是不是「带归八那一方的 ♣ 牌」。J 没有点数轴（照归十不收 J）；
+  // 失去花色的牌 suit 是 ''，自然不算
+  function clubEight(byFoe : boolean, card : PlainCard) : boolean {
+    return card.suit == '♣' && card.rank != JACK && hasSpecial(byFoe, SP_CLUBEIGHT)
+  }
+
+  // ♣ 算 8 点（【归八】走这条）。照 tenVals：换掉牌面那个数，点数卡贴的照旧
+  function eightVals(card : PlainCard) : number[] {
+    const out : number[] = [8]
+    for (let i = 0; i < card.extra.length; i++) {
+      if (!hasValue(out, card.extra[i])) {
+        out.push(card.extra[i])
+      }
+    }
     return out
   }
 
@@ -7814,6 +7937,9 @@
     }
     pendingSkills = skills
     lastPlayed = card
+    if (!byFoe) {
+      myLastCard = card
+    }
     // 匹配那一步要用的：这张带的技能、落没落堆底（见 resolveMatch）
     matchSkills = skills
     matchSink = sink
@@ -8616,6 +8742,7 @@
     } else {
       myScore.value = myScore.value + gained
       flashMe.value = true
+      noteHardCatch(caught)
     }
     // 【忍递】读的那一笔：**这一手拿到过牌**。记在计分点上而不是匹配点上，
     // 因为「忍手」在玩家眼里就是一张都没进自己这边（见 playFor 那段注释）。
@@ -10919,11 +11046,7 @@
     }
     const taken = harvestIndices(wanted)
     message.value = message.value + who + '收走 ' + taken.length + ' 张 0 点牌。'
-    // 布饵人的解锁条件：**闯关里你自己**打出【收零】并收到牌（终局不记账，所以不算）
-    if (!byFoe && !finalMode && !zeroTrapOpen(drawSaveSlot())) {
-      setZeroTrapOpen(drawSaveSlot())
-      message.value = message.value + ' 解锁了新角色【布饵人】！'
-    }
+    // 〔这儿原先是布饵人的解锁成就（闯关里你打出【收零】并收到牌）。2026-11-04 解锁改成星星 + 三档，布饵人走银星，成就撤了〕
     return startSweep(byFoe, taken, skills, TAIL_CAST)
   }
 
@@ -11628,6 +11751,7 @@
     } else {
       myScore.value = myScore.value + gained
       flashMe.value = true
+      noteHardCatch(taken)
     }
     // 扫堆这一摞也算「这一手拿到过牌」—— 忍递要的是四条路全盖住
     if (taken > 0) {
@@ -14453,6 +14577,47 @@
   //   平局 —— 存档不动，重打这一关；
   //   输了 —— 本轮马上作废（技能、金币全清），只留最远纪录。
   //     当场就写进存档，退出页面也逃不掉
+  // ---------- 高档角色的困难成就〔2026-11-04 用户定〕----------
+  // 都要在**困难难度的闯关对局**里达成（终局不记账，不算）。达成就写进存档旁边的键（draw-save 的 setHardGoalDone），
+  // 返回解锁的角色名（'' = 这次没新解锁）
+  function hardGoal(roleKey : string) : string {
+    if (finalMode || difficultyOf(drawSaveSlot()) != DIFF_HARD || hardGoalDone(drawSaveSlot(), roleKey)) {
+      return ''
+    }
+    setHardGoalDone(drawSaveSlot(), roleKey)
+    for (let i = 0; i < DRAW_ROLES.length; i++) {
+      if (DRAW_ROLES[i].key == roleKey) {
+        return DRAW_ROLES[i].name
+      }
+    }
+    return ''
+  }
+
+  // 你收到牌的那一下（匹配线、扫堆线两个计分点都调）：
+  //   沉船打捞人「用 0 点牌收到牌」—— 你这一手打出的是被置 0 的牌；
+  //   桃汛客「一局用 ♥ 牌收牌 HARD_HEART_GOAL 次」—— 你这一手打出的是 ♥（失去花色的不算），同一张只数一次
+  function noteHardCatch(n : number) {
+    if (n <= 0 || myLastCard == null) {
+      return
+    }
+    const card = myLastCard!
+    let got = ''
+    if (isDead(card)) {
+      got = hardGoal('zerodeck')
+    }
+    if (card.suit == '♥' && heartCounted != card) {
+      heartCounted = card
+      heartCatches = heartCatches + 1
+      if (heartCatches >= HARD_HEART_GOAL) {
+        const name = hardGoal('peachtide')
+        got = got == '' ? name : (name == '' ? got : got + '】【' + name)
+      }
+    }
+    if (got != '') {
+      message.value = message.value + ' 解锁了新角色【' + got + '】！'
+    }
+  }
+
   function settle() {
     const data = loadDrawSave()
     const id = level.value.id
@@ -14513,6 +14678,10 @@
     // 「上个商店我忍住没买」，而不是「我刚赢了一关」
     const interest = interestOf(data.gold)
     const gain = level.value.reward + margin + interest
+    // 星星要拿**结算之前**的最远纪录（老档迁移那一条要它，见 draw-save 的 awardClearStar）
+    const bestBefore = data.best
+    // 发星看的是**这一轮带的角色**（「用 1 个角色通关一种难度给 1 颗星星」）。在 settleWin 之前取，别让结算动了它
+    const runRole = data.role >= 0 && data.role < DRAW_ROLES.length ? DRAW_ROLES[data.role].key : ''
     settleWin(data, id, gain)
     saveDraw(data)
     save.value = data
@@ -14521,6 +14690,22 @@
     rewardText.value = (myScore.value == foeScore.value ? '平局算过关 · ' : '')
       + '获得 ' + gain + ' 金币（胜分 +' + margin
       + (interest > 0 ? '，利息 +' + interest : '') + '）'
+    // 赌船荷官的困难成就：一局收牌正好 HARD_SCORE_GOAL 张**并赢下**（平局不算）
+    if (myScore.value == HARD_SCORE_GOAL && myScore.value > foeScore.value) {
+      const name = hardGoal('reckon')
+      if (name != '') {
+        rewardText.value = rewardText.value + ' · 解锁了新角色【' + name + '】！'
+      }
+    }
+    // 通关发星（2026-11-04）：带着角色通关 → 简单给银星、普通 / 困难给金星；同一个角色同一个难度只给一次
+    if (id >= DRAW_RUN_LENGTH) {
+      const star = awardClearStar(drawSaveSlot(), bestBefore, runRole, difficultyOf(drawSaveSlot()))
+      if (star != '') {
+        rewardText.value = rewardText.value + ' · 获得 1 颗' + star + '，回选角界面能拿它解锁 1 个角色！'
+      } else if (runRole != '') {
+        rewardText.value = rewardText.value + ' · 这个角色在这个难度已经拿过星星了'
+      }
+    }
     outcome.value = id >= DRAW_RUN_LENGTH ? OUT_CLEAR : OUT_WIN
     if (outcome.value == OUT_WIN) {
       shopTimer = setTimeout(goShop, SHOP_DELAY_MS)
@@ -15175,6 +15360,14 @@
         return
       }
       colorPending.value = [] as PlainCard[]
+    }
+    // 【送红】：你上回合摸到的红牌，问送不送（不限次数；重摸的那张不再问。牌库空了 / 那几张都不在手里了就不问）
+    if (redGiftPending.value.length > 0) {
+      if (deck.value.length > 0 && giftChoices().length > 0) {
+        giftOpen.value = true
+        return
+      }
+      redGiftPending.value = [] as PlainCard[]
     }
     // 【甩货】：庄家回合里你摸到的 0 点牌（抢牌补牌之类），回合开头问
     if (hasSpecial(false, SP_ZHANDGIVE) && giveReady()) {
@@ -17006,9 +17199,14 @@
     colorPending.value = [] as PlainCard[]
     colorOpen.value = false
     colorUsedFoe = false
+    redGiftPending.value = [] as PlainCard[]
+    giftOpen.value = false
     giveLeft.value = 0
     giveOpen.value = false
     dealt = false
+    myLastCard = null
+    heartCatches = 0
+    heartCounted = null
     pile.value = []
     pileByFoe.value = []
     pileGuard.value = []

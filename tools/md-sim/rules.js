@@ -1068,6 +1068,18 @@ const SKILLS = [
   //   改牌对象（rank '0' / value 0，照 handReflectFor 的 HR_RANK 写法）。只放在〈zerodeck〉的花色槽里（专属，固定）
   // 〔同日上架为【锈锚】（沉船打捞人专属）：用户定「每次置 0 牌库顶 2 张」「牌库顶的 J 也置 0」→ DZ_N 默认 2〕
   { key: 'deckzero', name: '锈锚' },
+  // 〈copyfoe〉〔2026-11-03 · 用户「专属草花技：可以选择对方 1 个技能发动」〕：触发时从对方槽里的技能选 1 件，当作这张牌触发了那件。
+  //   选法 COPY_PICK=rank（默认：按 R8 全表 X 排名挑最高的）/ first。不能选自己这一件；对方的常驻技不算
+  { key: 'copyfoe', name: '〈copyfoe〉' },
+  // 〈zerofetchj〉〔2026-11-03 用户要评价「1 张手牌置 0，从牌组获取 1 张 J」〕：先置 0（自己最没用的那张，ai.swapPick），再取牌库里第一张 J（照〈fetchj〉）。
+  //   ZFJ_NEEDJ=1：牌库里没 J 就整件不发动（不付代价）；默认 = 照原文，代价照付
+  { key: 'zerofetchj', name: '〈zerofetchj〉' },
+  // 〈tojack〉〔2026-11-03 用户要评价「1 张手牌变成 J」〕：打出时把自己 1 张手牌永久变成 J（AI 挑最没用的那张 —— ai.swapPick；已经是 J 的不挑）。
+  //   照置 0 那一路直接改牌面（rank → 'J'、value → 11、点数卡清掉）。TOJ_PICK=best：挑最有用的那张（对照）
+  { key: 'tojack', name: '〈tojack〉' },
+  // 〈nosteal〉〔2026-11-03 用户要评价：机制 d「此牌不能抢牌」+ 技能「给对方 1 张手牌带上 d」〕
+  //   NOSTEAL_PICK=blind（默认，盲选）| view（看了挑：J 优先，其次现在钓得着的）。G.noSteal = 带 d 的牌（Set，按牌认）
+  { key: 'nosteal', name: '〈nosteal〉' },
   // 〈kwself〉/〈kwtag〉（2026-10-29 用户要「四种特殊匹配的单效果」写进速查第四节）：
   //   〈kwself〉 KW_SELF=suit|straight|order|draft —— 只有「【X 匹配】」这一句（它自己走那条线）
   //   〈kwtag〉  KW_TAG=suit|straight|order|draft  —— 只有「1 张手牌带上【X 匹配】」这一句
@@ -2077,7 +2089,7 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: skAt('boardself'), ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: skAt('fadeboard'), FADESPLIT: skAt('fadesplit'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: skAt('boardself'), ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: skAt('fadeboard'), FADESPLIT: skAt('fadesplit'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
   HEAP: skAt('heap'), HEAPDRAFT: skAt('heapdraft'), BOTHDRAFT: skAt('bothdraft'), HEAPKEY: skAt('heapkey'), WALLSUIT: skAt('wallsuit'), WALLSEAL: skAt('wallseal'),
@@ -4116,6 +4128,10 @@ const SP = {
   COLORREDRAW: 'colorredraw',
   // 【甩货】〔2026-11-03 上架 · 沉船打捞人〕：抽到 0 点牌时可以把 1 张手牌给对方（明置），再抽 1 张（drawFor 的〈zhandgive〉那一支）
   ZHANDGIVE: 'zhandgive',
+  // 【送红】〔2026-11-04 上架 · 散鱼人〕：摸到红牌时可以塞给对方（明置）、重摸 1 张；不限次数（重摸那张不再送）（drawFor）
+  REDGIFT: 'redgift',
+  // 【归八】〔2026-11-04 上架 · 八爪渔夫〕：你的 ♣ 牌都算 8 点，能触发 8 槽（J 不算）—— skillsOf / valuesOf 那条 CLUB8_MARK
+  CLUBEIGHT: 'clubeight',
   // 【零空】〔2026-11-01 上架 · 布饵人〕：点数为 0 的牌不占手牌数量（refill 那一支）
   ZEROFREE: 'zerofree'
 }
@@ -4802,6 +4818,19 @@ const DRAW_ROLES = [
   // 【鱼市验货人】〔2026-11-03 上架 · 用户定「创建角色加入游戏」〕♥ / Q · 常驻【安检】（源码 DRAW_ROLES 同 key）
   { key: 'inspector', name: '鱼市验货人', special: SP.INSPECT, slots: ['♥', 'Q'] },
   { key: 'redrawer', name: '〈redrawer〉', special: SP.REDRAW, slots: ['A', '2', '3', '4'] },
+  // 〔2026-11-04 · 用户问「可以将抽到的牌给对方，重抽 1 张」该怎么搭槽〕常驻技走〈redraw〉+ REDRAW_FATE=give；♣ 没人用，单点数 6 / 8 空着
+  { key: 'giver6', name: '〈giver6〉', special: SP.REDRAW, slots: ['♣', '6'] },
+  { key: 'giver8', name: '〈giver8〉', special: SP.REDRAW, slots: ['♣', '8'] },
+  { key: 'giverpt', name: '〈giverpt〉', special: SP.REDRAW, slots: ['6', '8'] },
+  { key: 'giverD2', name: '〈giverD2〉', special: SP.REDRAW, slots: ['♦', '2'] },
+  { key: 'giverC5', name: '〈giverC5〉', special: SP.REDRAW, slots: ['♣', '5'] },
+  { key: 'giver25', name: '〈giver25〉', special: SP.REDRAW, slots: ['2', '5'] },
+  { key: 'giver3', name: '〈giver3〉', special: SP.REDRAW, slots: ['6', '8', '3'] },
+  { key: 'giver3k', name: '〈giver3k〉', special: SP.REDRAW, slots: ['6', '8', 'K'] },
+  { key: 'giver256', name: '〈giver256〉', special: SP.REDRAW, slots: ['2', '5', '6'] },
+  { key: 'giverS', name: '〈giverS〉', special: SP.REDRAW, slots: ['♣'] },
+  { key: 'giver1', name: '〈giver1〉', special: SP.REDRAW, slots: ['6'] },
+  { key: 'giverH6', name: '〈giverH6〉', special: SP.REDRAW, slots: ['♥', '6'] },
   // 〈colorman〉（2026-11-03 · 用户「按特定颜色设计角色，颜色就是花色槽的颜色」）：♣ / 8（♣ 和 8 现行角色都没人用），
   // 常驻〈colorredraw〉=「你摸到跟你花色槽同颜色的牌时，可以把它置底、重摸 1 张（每回合一次）」
   // 〔同日上游戏：定名【夜钓客】（key night，复用旧夜钓客的名字 / key），常驻技暂名【拣色】（key colorredraw）。原型〈colorman〉就是它，改名〕
@@ -4869,6 +4898,14 @@ const DRAW_ROLES = [
   //   ZD_SP 留作对照旋钮：默认 = 游戏里的甩货，ZD_SP='' 不带。台账第五十七·戊〕
   // 〔同日改：甩货换成〈zhandgive〉「抽到 0 点牌时，可以把 1 张手牌给对方，再抽 1 张」（不限颜色、不限次数）—— 用户定稿，台账第五十七·辛。
   //   〈giveone〉（抽到的红色牌给对方）留作原型、不再是这张卡的默认〕
+  // 〈club3〉〔2026-11-04 原型〕常驻「你的 ♣ 牌都算 3 点（也触发 3 槽）」+ 只有一个 3 槽。C3_SLOTS 可换槽（逗号分隔）
+  // 〈redblack〉〔2026-11-04 原型〕常驻「你的红色牌都算 1 点（触发 A 槽）、黑色牌都算 0 点（触发 0 槽）」。RB_SLOTS 可换槽、RB_MODE=both|red|black 拆归因
+  { key: 'redblack', name: '〈redblack〉', special: 'redblack', slots: (process.env.RB_SLOTS || '').split(',').filter(Boolean) },
+  // 【八爪渔夫】〔2026-11-04 上架 · 用户定「自己的草花牌点数都变成 8，点数槽 4 8 Q，加入游戏」〕
+  { key: 'octopus', name: '八爪渔夫', special: SP.CLUBEIGHT, slots: ['4', '8', 'Q'] },
+  // 〔2026-11-04 上架（用户定「固定红牌，按 3 点数槽」）〕= 原型〈giver256〉+ REDRAW_FATE=give REDRAW_COLOR=red，不限次数
+  { key: 'giver', name: '散鱼人', special: SP.REDGIFT, slots: ['2', '5', '6'] },
+  { key: 'club3', name: '〈club3〉', special: process.env.C3_SP !== undefined ? process.env.C3_SP : 'club3', slots: (process.env.C3_SLOTS || '3').split(',') },
   { key: 'zerodeck', name: '沉船打捞人', special: process.env.ZD_SP !== undefined ? process.env.ZD_SP : SP.ZHANDGIVE, slots: ['♥', '0'] },
   // ---------- 「1 花色 + 1 点数」改卡试样〔2026-10-30 · 模拟器专属〕----------
   // 用户 10-30 定：这个形状要占玩家角色卡过半（原先只有镜湖占卜师）。
@@ -5534,12 +5571,63 @@ function isZero(card) {
 // `skillsOf(G, side, card)` 按那一侧算的，所以在这儿往列表里塞一个标记，valuesOf 读它，侧就对了。
 // TENS_MARK 不是任何技能的下标（负数），has() / hasTrigger 之外没人按下标去查它
 const TENS_MARK = -1010
+// 〈club3〉〔2026-11-04 · 用户「角色技能：自己的草花牌点数都变成 3；点数槽 3」〕：照归十 —— 你打出的 ♣（J、0 点除外）算 3 点、也触发 3 槽。
+// CLUB3_RANK 可换点数（默认 '3'）
+const CLUB3_MARK = -1003
+const CLUB3_RANK = process.env.CLUB3_RANK || '3'
+function club3On(G, side, card) { return clubRankOf(G, side, card) !== '' }
+// 【归八】〔2026-11-04 上架 · 八爪渔夫〕= 〈club3〉固定 8 点（源码 clubEight / eightVals）。返回这张 ♣ 按几点算，'' = 不改
+const CLUB8_MARK = -1008
+function clubRankOf(G, side, card) {
+  if (card.suit !== '♣' || card.rank === JACK || card.rank === ZERO_RANK) return ''
+  if (hasSpecial(G, side, SP.CLUBEIGHT)) return '8'
+  if (hasSpecial(G, side, 'club3')) return CLUB3_RANK
+  return ''
+}
+// 〈redblack〉：你打出的牌红算 1、黑算 0（J、已经是 0 点的除外）。照归十：只管打出那一刻，落堆存的就是这个点数
+const RB_MARK = -1100
+const RB_MODE = process.env.RB_MODE || 'both'
+function rbRank(G, side, card) {
+  if (card.rank === JACK || card.rank === ZERO_RANK || !hasSpecial(G, side, 'redblack')) return null
+  const red = isRedSuit(card.suit)
+  if (red && (RB_MODE === 'both' || RB_MODE === 'red')) return 'A'
+  if (!red && (RB_MODE === 'both' || RB_MODE === 'black')) return ZERO_RANK
+  return null
+}
+function rbVals(card, rk) {
+  const out = [rk === 'A' ? 1 : 0]
+  const extra = card.extra || []
+  for (let i = 0; i < extra.length; i++) if (out.indexOf(extra[i]) < 0) out.push(extra[i])
+  return out
+}
 function skillsOf(G, side, card) {
   const list = skillsOfCore(G, side, card)
+  const rb = rbRank(G, side, card)
+  if (rb !== null) { PROTO_STAT.redblack[rb === 'A' ? 'red' : 'black']++; return list.concat([rb === 'A' ? RB_MARK : RB_MARK - 1]) }
   if ((card.rank === 'Q' || card.rank === 'K') && hasSpecial(G, side, SP.TENS)) return list.concat([TENS_MARK])
+  if (club3On(G, side, card)) return list.concat([hasSpecial(G, side, SP.CLUBEIGHT) ? CLUB8_MARK : CLUB3_MARK])
   return list
 }
 
+// 〈copyfoe〉：把 out 里的 COPYFOE 换成对方槽里挑中的那件（没有可挑的就删掉 —— 空发）。诊断口 PROTO_STAT.copyfoe
+// R8 全表 X 排名（速查第一节的顺序，2026-11-03）
+const COPY_RANK = 'gift,suitify,kindle,zerodrop,zerodraft,orderins,flow,orderpile,pick,orderswap,dumpbait,peak,unhook,flowall,suited,wild,stonehue,pilereflect,suitcolor,icebomb,flowpass,stoneline,lockcolor,hue,stackdraft,traitor,stonefull,sift,backwater,cast,murk,swap,hook,lockdraw,fuel,tide,press,trapzero,deckzero,bleach'.split(',')
+function copyFoeSwap(G, side, out) {
+  const st = PROTO_STAT.copyfoe = PROTO_STAT.copyfoe || { calls: 0, empty: 0 }
+  st.calls++
+  const at = out.indexOf(SK.COPYFOE)
+  const lo = G.loadouts[side === ME ? FOE : ME]
+  const pool = []
+  const add = function (k) { if (k >= 0 && k !== SK.COPYFOE && pool.indexOf(k) < 0 && out.indexOf(k) < 0) pool.push(k) }
+  lo.suitOwner.forEach(add); lo.rankOwner.forEach(add); lo.rankOwner2.forEach(add); if (lo.zeroOwner !== undefined) add(lo.zeroOwner)
+  if (pool.length === 0) { out.splice(at, 1); st.empty++; return }
+  let best = pool[0]
+  if (process.env.COPY_PICK !== 'first') {
+    let br = 1e9
+    for (const k of pool) { const r = COPY_RANK.indexOf(SKILLS[k].key); const rr = r < 0 ? 999 : r; if (rr < br) { br = rr; best = k } }
+  }
+  out[at] = best
+}
 function skillsOfCore(G, side, card) {
   // 〔原先这儿有一行 `if (isDead(G, card)) return []` ——
   //   死水改成「把牌变成 0 点牌」之后不需要了：`triggersOf` 查
@@ -5554,8 +5642,13 @@ function skillsOfCore(G, side, card) {
   // 不这么做的话 AI 评估「打这张值不值」时读不到 ♦ 槽那一件
   const view0 = diaOn(G, side) ? { suit: diaSuitOf(lo, card), rank: card.rank } : card
   // 【归十】〔2026-11-03 用户定「自己的 Q、K 都算 10 点，能触发 10 槽」，照源码 skillsOf〕：Q、K 按 10 去查槽
-  const view = (card.rank === 'Q' || card.rank === 'K') && hasSpecial(G, side, SP.TENS) ? { suit: view0.suit, rank: '10' } : view0
+  const view1 = (card.rank === 'Q' || card.rank === 'K') && hasSpecial(G, side, SP.TENS) ? { suit: view0.suit, rank: '10' } : view0
+  // 〈club3〉：♣ 按 3 去查槽（花色槽照旧按 ♣）
+  const view2 = club3On(G, side, card) ? { suit: view1.suit, rank: clubRankOf(G, side, card) } : view1
+  const rbk = rbRank(G, side, card)
+  const view = rbk !== null && process.env.RB_VIEW !== 'off' ? { suit: view2.suit, rank: rbk } : view2
   const out = triggersOf(lo, view)
+  if (SK.COPYFOE >= 0 && out.indexOf(SK.COPYFOE) >= 0) copyFoeSwap(G, side, out)
   // 〔【白雪】原先在这儿展开成「花色匹配 + 石果」，而石果 2026-10-26 删了。
   //   贴石那一步搬到了 `afterPlay`（直接 `addStone`，同一个入口），
   //   所以这一层不用再管它 —— `SNOW_NOSTONE` 那个对照旋钮也跟着搬过去了。
@@ -6656,14 +6749,30 @@ function drawFor(G, side) {
         // 没放底 = 被确认的那张留在他手里 → 明置
         shownNow = true
       }
+    } else if (hasSpecial(G, side, SP.REDGIFT) && isRedSuit(card.suit) && card.rank !== JACK
+      && !drawUseful(G, side, card) && !drawUseful(G, other, card)) {
+      // 【送红】：红牌对我没用、对他也没用 → 塞进他手里（明着），我重摸 1 张（这张不再送）。不限次数
+      const st = PROTO_STAT.redgift = PROTO_STAT.redgift || { given: 0 }
+      st.given++
+      G.hands[other].push(card)
+      G.seen[other].push(true)
+      card = G.deck.pop()
     } else if ((hasSpecial(G, side, SP.REDRAW) || hasSpecial(G, side, 'colorredraw')) && G.redrawAt[side] !== G.stat.plays[side] && redrawMatch(card, G, side)
       && !(process.env.REDRAW_CAP && G.redrawUsed && G.redrawUsed[side] >= parseInt(process.env.REDRAW_CAP, 10))) {
       // 〈redraw〉：我自己的牌没用就放底、再摸 1 张；每个我的回合限 1 次（按出牌数认回合）
       // 削法旋钮 REDRAW_CAP=N：整局最多用 N 次（默认不限 = 用户原文）
       const st = PROTO_STAT.redraw
       st.fires++
-      if (!drawUseful(G, side, card)) {
-        if (process.env.REDRAW_FATE === 'shuffle') shuffleBack(G, card); else G.deck.unshift(card)
+      // 〔2026-11-03 · 用户要评价角色技「可以将抽到的牌给对方，重抽 1 张」〕REDRAW_FATE=give：
+      //   换下来的牌**塞进对方手牌**（明着 —— 是你当面给的），再摸 1 张。AI：这张对我没用、对他也没用、不是 J 才给
+      const foeSide = side === ME ? FOE : ME
+      const giveMode = process.env.REDRAW_FATE === 'give'
+      // REDRAW_COLOR=red|black：只有这个颜色的牌才能塞（2026-11-04 用户改「可以将抽到的颜色牌给对方」）
+      const rc = process.env.REDRAW_COLOR
+      const colorOk = !rc || (rc === 'red') === isRedSuit(card.suit)
+      if (colorOk && !drawUseful(G, side, card) && !(giveMode && (card.rank === JACK || drawUseful(G, foeSide, card)))) {
+        if (giveMode) { G.hands[foeSide].push(card); G.seen[foeSide].push(true); st.given = (st.given || 0) + 1 }
+        else if (process.env.REDRAW_FATE === 'shuffle') shuffleBack(G, card); else G.deck.unshift(card)
         card = G.deck.pop()
         G.redrawAt[side] = G.stat.plays[side]
         if (!G.redrawUsed) G.redrawUsed = [0, 0]
@@ -9566,6 +9675,12 @@ function ownerOf(G, card) {
   return G.turn === FOE ? FOE : ME
 }
 
+function club3Vals(card, rank) {
+  const out = [parseInt(rank, 10)]
+  const extra = card.extra || []
+  for (let i = 0; i < extra.length; i++) if (out.indexOf(extra[i]) < 0) out.push(extra[i])
+  return out
+}
 function tenValsSim(card) {
   const out = [10]
   const extra = card.extra || []
@@ -9780,7 +9895,7 @@ function valuesOf(G, card, skills) {
     if (top > 13) return [top]
   }
   // 【归十】：Q、K 算 10（照源码 tenVals：[10] + 点数卡贴上来的那几个）
-  const out = has(skills, TENS_MARK) ? tenValsSim(card) : cardVals(card)
+  const out = has(skills, RB_MARK) ? rbVals(card, 'A') : has(skills, RB_MARK - 1) ? rbVals(card, ZERO_RANK) : has(skills, TENS_MARK) ? tenValsSim(card) : (has(skills, CLUB8_MARK) ? club3Vals(card, '8') : has(skills, CLUB3_MARK) ? club3Vals(card, CLUB3_RANK) : cardVals(card))
   // 归深：**追加** 11 这个候选。11 是 J 的数，而 J 从不落堆 ——
   // 所以那是一个只有归深牌够得到的私有钓点
   if (has(skills, SK.DEEP) && out.indexOf(11) < 0) {
@@ -11501,6 +11616,8 @@ function stealTry(G, side, myCount) {
     const nSpecial = STEAL_SPECIAL === 'new' ? harvestCount(G, c, sk, foe, true) : 0
     const n = Math.max(nNormal, nSpecial)
     if (n <= 0) continue
+    // 〈nosteal〉机制 d：带它的牌不能拿去抢牌（诊断：本来抢得到的那几次）
+    if (G.noSteal && G.noSteal.has(c)) { if (n > myCount) PROTO_STAT.nosteal.blocked++; continue }
     if (n > myCount) over++
     if (n > bestN) { bestN = n; best = i }
   }
@@ -13724,6 +13841,75 @@ function afterPlay(G, side, skills, played, ai) {
     traitorFor(G, side)
     if (process.env.TRAITOR_ZERO !== '0') zeroKeyTag(G, side)
   }
+  if (has(skills, SK.NOSTEAL)) {
+    const st = PROTO_STAT.nosteal
+    st.fires++
+    const foe = side === ME ? FOE : ME
+    const hand = G.hands[foe]
+    G.noSteal = G.noSteal || new Set()
+    const pool = []
+    for (let k = 0; k < hand.length; k++) if (!G.noSteal.has(hand[k])) pool.push(k)
+    if (pool.length > 0) {
+      let at = -1
+      if (process.env.NOSTEAL_PICK === 'view') {
+        let best = -1
+        for (const k of pool) {
+          const v = hand[k].rank === JACK ? 3 : (canCatch(G, hand[k], foe) ? 2 : 1)
+          if (v > best) { best = v; at = k }
+        }
+      } else at = pool[randInt(G.rng, pool.length)]
+      G.noSteal.add(hand[at])
+      st.tagged++
+      if (hand[at].rank === JACK) st.jack++
+    }
+  }
+  if (has(skills, SK.TOJACK)) {
+    const st = PROTO_STAT.tojack
+    st.fires++
+    const hand = G.hands[side]
+    let at = -1
+    if (process.env.TOJ_PICK === 'best') {
+      let best = -1
+      for (let k = 0; k < hand.length; k++) {
+        if (hand[k].rank === JACK) continue
+        const v = canCatch(G, hand[k], side) ? 2 : 1
+        if (v > best) { best = v; at = k }
+      }
+    } else {
+      // 最没用的那张（swapPick 给 J 打最高分 —— 手里全是 J 时它也会挑 J，那时不变）
+      at = hand.length > 0 ? ai.swapPick(G, side) : -1
+    }
+    if (at >= 0 && hand[at].rank !== JACK) {
+      const c = hand[at]
+      if (isZero(c)) st.fromZero++
+      c.rank = JACK
+      c.value = 11
+      c.extra = []
+      st.made++
+    } else st.none++
+  }
+  if (has(skills, SK.ZEROFETCHJ)) {
+    const st = PROTO_STAT.zerofetchj
+    st.fires++
+    let jAt = -1
+    for (let k = G.deck.length - 1; k >= 0; k--) if (G.deck[k].rank === JACK) { jAt = k; break }
+    if (!(process.env.ZFJ_NEEDJ === '1' && jAt < 0)) {
+      // 置 0 自己 1 张：doDead 的 side 是「出手的一方」、置的是对方手里 —— 所以传对方，置的就是自己的
+      const other = side === ME ? FOE : ME
+      const pick = G.hands[side].length > 0 ? ai.swapPick(G, side) : -1
+      if (pick >= 0 && !isZero(G.hands[side][pick])) {
+        if (G.hands[side][pick].rank === JACK) st.zeroJack++
+        doDead(G, other, pick, true)
+        st.zeroed++
+      }
+      if (jAt >= 0) {
+        const c = G.deck.splice(jAt, 1)[0]
+        G.hands[side].push(c)
+        G.seen[side].push(process.env.FETCHJ_SEEN !== '0')
+        st.got++
+      } else st.none++
+    } else st.skipped++
+  }
   if (has(skills, SK.FETCHJ)) {
     const st = PROTO_STAT.fetchj
     st.fires++
@@ -15905,6 +16091,14 @@ const PROTO_STAT = {
   freezepay: { chances: 0, paid: 0, tookFrozen: 0, gainSum: 0, forced: 0 },
   // 【窄口】最后一张〔2026-11-03〕：blocked 带窄口那方想摸最后一张被拦了几次 / toFoe 最后一张真被对方摸走几次
   narrowLast: { blocked: 0, toFoe: 0, odd: 0, stuck: 0, stuckJack: 0 },
+  // 〈zerofetchj〉：发动 / 置 0 了几张（其中置掉的是 J）/ 拿到 J / 牌库没 J / ZFJ_NEEDJ 档不发动
+  zerofetchj: { fires: 0, zeroed: 0, zeroJack: 0, got: 0, none: 0, skipped: 0 },
+  // 〈tojack〉：发动 / 真变成 J 几张（其中原来是 0 点牌）/ 没得变（手里空或全是 J）
+  tojack: { fires: 0, made: 0, fromZero: 0, none: 0 },
+  // 〈redblack〉：skillsOf 判到红→1 / 黑→0 的次数（含 AI 试算，只看比例）
+  redblack: { red: 0, black: 0 },
+  // 〈nosteal〉：发动 / 贴上 d 几张（其中 J）/ 带 d 的牌本来抢得到、被拦下几次
+  nosteal: { fires: 0, tagged: 0, jack: 0, blocked: 0 },
 
   // 抢牌后补牌诊断〔2026-11-03〕：被抢方坐先手 / 后手各几次；牌库不够两边补满（short）几次；那几次双方各拿到几张（新 / 旧顺序）
   stealRefill: { steals: 0, victim: { first: 0, second: 0 }, short: { first: 0, second: 0 }, gainNew: { first: 0, second: 0 }, gainOld: { first: 0, second: 0 }, thiefNew: { first: 0, second: 0 }, thiefOld: { first: 0, second: 0 } },
