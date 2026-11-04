@@ -640,6 +640,7 @@ const SIM_ONLY = {
   nosteal: '〈nosteal〉（原型 · 2026-11-03：机制 d「此牌不能抢牌」；给对方 1 张手牌带上 d。NOSTEAL_PICK=blind|view）',
   redblack: '〈redblack〉（原型 · 2026-11-04：常驻「红算 1 / 黑算 0」。RB_SLOTS / RB_MODE）',
   copyfoe: '〈copyfoe〉（原型 · 2026-11-03：专属草花技「可以选择对方 1 个技能发动」。COPY_PICK=rank|first。台账第六十一节）',
+  rankzero: '〈rankzero〉（原型 · 2026-11-04：庄家点数槽「玩家手牌跟玩家点数槽相同点数的卡牌置 0」。效果同源码的【封点】pinrank（另一会话同日做的渔政巡查员那件），台账第六十四·甲）',
   club3: '〈club3〉（原型角色 · 2026-11-04：常驻「你的 ♣ 牌都算 N 点（也触发 N 槽）」。CLUB3_RANK / C3_SLOTS / C3_SP。上架的是八爪渔夫（固定 8 点 · 4/8/Q），台账第六十二节）',
   tojack: '〈tojack〉（原型 · 2026-11-03：1 张手牌变成 J（永久）。TOJ_PICK=best 是挑最有用那张的对照）',
   zerofetchj: '〈zerofetchj〉（原型 · 2026-11-03：1 张手牌置 0，从牌组获取 1 张 J。ZFJ_NEEDJ=1 = 没 J 不付代价）',

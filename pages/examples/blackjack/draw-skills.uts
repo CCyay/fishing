@@ -3619,6 +3619,34 @@ export const DRAW_SKILLS : DrawSkill[] = [
     desc: '将牌库顶 2 张牌置 0'
   },
   {
+    // 封点〔2026-11-04 · 用户设计，庄家专属：渔政巡查员H / S 的花色槽〕。「玩家点数槽」= 玩家角色卡上印着的点数槽（0 点槽也算）；
+    // 本来就是 0 点的牌不动（置 0 等于没变化）；没选角色时空发。实现在 ap-fishing 的 slotRankHits。unlock 0：不卖
+    key: 'pinrank', name: '封点', unlock: 0,
+    first: false,
+    desc: '玩家手牌跟玩家点数槽相同点数的牌置 0'
+  },
+  {
+    // 褪点〔2026-11-04 · 用户设计，庄家专属：渔政巡查员D / S 的点数槽〕。挑牌口径同封点；失去花色照【漂白】（永久，落堆后也没有）
+    key: 'fadepoint', name: '褪点', unlock: 0,
+    first: false,
+    desc: '玩家手牌跟玩家点数槽相同点数的牌【失去花色】'
+  },
+  {
+    // 照花〔2026-11-04 · 用户设计，庄家专属：镜魔H / S 的花色槽〕：打出触发它的牌时，从**玩家花色槽**里装着的技能挑 1 件，
+    // 当作这张牌触发了那件（效果归庄家）。玩家花色槽空着就空发。庄家 AI 挑标价最高那件（标价按 X 定，见 ee2aa71）——
+    // 模拟器〈copysuit〉按 R8 全表 X 排名挑，两边口径一致。实现在 ap-fishing 的 copyPick。unlock 0：不卖
+    // 闯关实测（第 10 关位置）：镜魔H 让那一关玩家胜率 −11 ~ −20 个点（台账第六十四·丙）
+    key: 'copysuit', name: '照花', unlock: 0,
+    first: false,
+    desc: '选择玩家 1 个花色槽技能发动'
+  },
+  {
+    // 照点〔2026-11-04 · 用户设计，庄家专属：镜魔D / S 的点数槽〕：同照花，从**玩家点数槽**（含 0 点槽）里挑。unlock 0：不卖
+    key: 'copyrank', name: '照点', unlock: 0,
+    first: false,
+    desc: '选择玩家 1 个点数槽技能发动'
+  },
+  {
     // 漂白（2026-11-02 · 用户：「对方手牌失去花色 加入游戏」）：一次性、永久 —— 对方**此刻**手里的牌失去花色
     //（也就没有颜色：不触发花色槽、不算同花色 / 同颜色），落堆、被收走以后也一直没有；之后新摸的牌不受影响。
     // 它是**反制件**：值多少全看对方花色槽上坐着什么。全表口径（对手槽空着）量出来正好 0.00，
@@ -4931,6 +4959,12 @@ export const SK_BLEACH : number = skillIndexOf('bleach')
 // 这几件只在某张角色卡的固定槽里出现：商店不卖、技能池不抽、插槽弹层不列（各处调 isRoleOnlySkill 过滤）
 // 锈锚（2026-11-03）：沉船打捞人专属
 export const SK_DECKZERO : number = skillIndexOf('deckzero')
+// 庄家专属〔2026-11-04 · 渔政巡查员〕
+export const SK_PINRANK : number = skillIndexOf('pinrank')
+export const SK_FADEPOINT : number = skillIndexOf('fadepoint')
+// 照花 / 照点（2026-11-04 · 镜魔一族，庄家专属）
+export const SK_COPYSUIT : number = skillIndexOf('copysuit')
+export const SK_COPYRANK : number = skillIndexOf('copyrank')
 export const ROLE_ONLY_SKILLS : string[] = ['trapzero', 'deckzero']
 export function isRoleOnlySkill(k : number) : boolean {
   if (k < 0 || k >= DRAW_SKILLS.length) {
@@ -5786,6 +5820,13 @@ export const SPECIAL_SKILLS : SpecialSkill[] = [
     // 实现：ap-fishing 的 clubEight / eightVals（skillsOf、valuesOf 各一处）。模拟器〈club3〉（CLUB3_RANK 默认 8）。台账第六十二节
     key: 'clubeight', name: '归八',
     desc: '你的 ♣ 牌都算 8 点，能触发 8 槽（J 不算）'
+  },
+  {
+    // 轻装（2026-11-04 · 双帆客的常驻技，名字代起）：用户「点数大于 10 的不发动技能」—— 拿来换「两个花色槽」的负面常驻技。
+    // 「大于 10」= J / Q / K，而 J 本来就不触发技能，所以实际管的是 Q、K。按牌面判：被置 0 的 Q、K 牌面已经是 0，不受它管。
+    // 实现：ap-fishing 的 skillsOf 开头。模拟器〈highmute〉。满配里它让双帆客 −3.3（+20.79 → +17.44，台账第六十七节）
+    key: 'highmute', name: '轻装',
+    desc: '你点数大于 10 的牌不发动技能'
   }
 ]
 
@@ -5835,6 +5876,8 @@ export const SP_REDGIFT : number = specialIndexOf('redgift')
 export const SP_ZHANDGIVE : number = specialIndexOf('zhandgive')
 // 归八（2026-11-04 · 八爪渔夫）
 export const SP_CLUBEIGHT : number = specialIndexOf('clubeight')
+// 轻装（2026-11-04 · 双帆客）
+export const SP_HIGHMUTE : number = specialIndexOf('highmute')
 // 【稳钩】删了（2026-10-13，连带「护饵」那一类效果）。
 // 常量留着是因为 specialIndexOf 查不到会返回 **-1**，而 hasSpecial 拿 -1
 // 比任何角色的 special 都不会相等 —— 所以读它的那几处自动失效、不用改。
@@ -6429,6 +6472,13 @@ export const DRAW_ROLES : DrawRole[] = [
     // R8 · `rolesmed -n 8000`（6 套轮换配装中位）**+17.95**（17.39 ~ 18.83）/ D +0.06 / 胜率中位 91.7%；槽全空单量（只塞红牌、不限次数）+9.16。同批锚点夜钓客 17.09 / 江口闸官 16.75 逐位复现。台账第六十一节 ⇒ 排在开河工 18.47 和夜钓客 17.09 之间，跟八爪渔夫 17.93 同一档
     key: 'giver', name: '散鱼人', special: 'redgift', slots: ['2', '5', '6'],
     desc: '三个小槽；摸到红牌没用就塞给对方，再摸一张'
+  },
+  {
+    // ---------- 【双帆客】（2026-11-04 · 用户设计，名字代起）：♣ / ♦ 两个花色槽，常驻【轻装】 ----------
+    // 用户没指定哪两门：♣ + ♦ / ♠ + ♣ / ♥ + ♦ 三种量出来差不到 0.2（分不开），按槽位规划挑了还缺的 ♣、♦。
+    // 满配中位（R8 · rolesmed · 6 套）+17.44（16.37 ~ 19.39）/ D −0.26 / 胜率 92.0% → 中档、金星解锁；不带轻装是 +20.79。台账第六十七节
+    key: 'twinsail', name: '双帆客', special: 'highmute', slots: ['♣', '♦'],
+    desc: '两门花色都进槽，可 Q、K 一件技能都不发动'
   }
 ]
 
@@ -6867,7 +6917,8 @@ export const ROLE_UNLOCK_START : number = 0
 export const ROLE_UNLOCK_SILVER : number = 1
 export const ROLE_UNLOCK_GOLD : number = 2
 export const ROLE_UNLOCK_HARD : number = 3
-export const ROLE_UNLOCK : number[] = [1, 1, 0, 1, 1, 3, 2, 1, 3, 0, 1, 0, 2, 3, 2, 2]
+// 〔2026-11-04 补第 17 格：【双帆客】满配中位 +17.44 → 中档 ⇒ 金星（ROLE_UNLOCK_GOLD）〕
+export const ROLE_UNLOCK : number[] = [1, 1, 0, 1, 1, 3, 2, 1, 3, 0, 1, 0, 2, 3, 2, 2, 2]
 
 // 高档的困难成就要数到几〔2026-11-04 用户定〕：桃汛客「一局里用 ♥ 牌收牌 5 次」、赌船荷官「一局收牌正好 21 张并赢下」
 export const HARD_HEART_GOAL : number = 5

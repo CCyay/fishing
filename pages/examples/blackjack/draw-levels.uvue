@@ -39,9 +39,8 @@
       <view id="md-open-skills" class="top-btn" @click="openSkills">
         <text class="top-btn-text">技能</text>
       </view>
-      <!-- 角色图鉴：**三段都列** —— 共用池（你和终局庄家）、闯关那十二位、
-           以及还没挂关卡的素材池。
-           所以这一页回答三个问题：我能挑谁、第 N 关是谁、还有谁没上场 -->
+      <!-- 角色图鉴：两段 —— 玩家角色、庄家角色（2026-11-04 用户定：两者分开，庄家不再分「闯关 / 素材池」）。
+           这一页回答两个问题：我能挑谁、闯关每一章可能碰到谁 -->
       <view id="md-open-roles" class="top-btn" @click="showRoles = true">
         <text class="top-btn-text">角色</text>
       </view>
@@ -410,7 +409,7 @@
     </view>
 
 
-    <!-- ---------- 角色图鉴：三段 ---------- -->
+    <!-- ---------- 角色图鉴：两段 ---------- -->
     <!--
       全表都列，只读。
 
@@ -419,10 +418,12 @@
       「留着 J」这个准备已经来不及做了。而角色化的全部意义就是**可学**
       （「它是谁查得到」），所以查得到的地方必须有一个。
 
-      三段各回答一个问题：
-        **共用池**   —— 我能挑谁 / 终局对面可能是谁（你在终局挑的就是它们）；
-        **闯关庄家** —— 第 N 关是谁、带什么（关号定死，所以背得住）；
-        **素材池**   —— 设计好了但还没挂到关卡上的那几张。
+      两段各回答一个问题〔2026-11-04 用户定：玩家角色和庄家角色分开，庄家只要一段〕：
+        **玩家角色** —— 我能挑谁（闯关里庄家不用这张表；终局庄家还是从这儿挑）；
+        **庄家角色** —— 闯关每一章可能碰到谁、带什么。按章节排、每张标章名，
+                        同一章的庄家每轮重新洗（rollFoeOrder），不进闯关的标「暂不上场」。
+      原先是三段（共用池 / 闯关庄家 · 关号定死 / 素材池 · 还没挂到任何一关上），
+      后两个标题早就过期了：10-10 起庄家按章节洗、备选池有三张进了章节的随机池。
 
       每张报四样，缺一样就看不出它的性格：名字 · 特殊技 · 技能名单 · 覆盖面。
       庄家那两段**不报具体标签**（那是摇的，见 foeSlotsText 上面那段）
@@ -432,12 +433,12 @@
         <view class="skill-box-head">
           <text class="skill-box-title">角色</text>
           <text class="skill-box-sub"
-            >{{ DRAW_ROLES.length + DRAW_FOE_ROLES.length + DRAW_FOE_POOL.length }} 张 · 三段</text
+            >{{ DRAW_ROLES.length + foeBookNums().length }} 张</text
           >
         </view>
         <!-- 卡片跟选角色那一步同一个样子（见 showCustom 的第一步） -->
         <scroll-view class="skill-box-body sv-out" direction="vertical">
-          <text class="rolebook-sect">共用池 · 你和终局庄家挑的都是这 {{ DRAW_ROLES.length }} 张</text>
+          <text class="rolebook-sect">玩家角色 · {{ DRAW_ROLES.length }} 张</text>
           <view
             v-for="(role, ri) in DRAW_ROLES"
             :key="'rb-' + ri"
@@ -455,50 +456,29 @@
             <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
           </view>
 
-          <!-- 第二段：闯关那十二位。**关号印在最前面** ——
-               这一段的用处就是「第 8 关是谁」，没有关号它只是一串名字 -->
-          <text class="rolebook-sect">闯关庄家 · 十二关各一位，关号定死</text>
+          <!-- 第二段：庄家角色，一段〔2026-11-04 用户定「不用分 3 段」「把庄家角色和玩家角色分开」〕。原先分「闯关庄家 · 关号定死」和
+               「素材池 · 还没挂到任何一关上」—— 两个标题都过期了：同一章的庄家每轮重新洗，
+               备选池里也有三张在章节的随机池里。所以按章节排、每张标它出现在哪一章（见 foeBookNums / foeBookTag）。
+               特殊技**给全文不给名字** —— 名字背不出规则（「硬壳」看不出「它打的 ♠ 钓不上」），
+               而那正是要你改打法的地方。带两条的那几张会印成两行（见 foeSpecialDescsOf） -->
+          <text class="rolebook-sect">庄家角色</text>
           <view
-            v-for="(role, fi) in DRAW_FOE_ROLES"
-            :key="'fb-' + fi"
+            v-for="(num, fi) in foeBookNums()"
+            :key="'fb-' + num"
             :id="'md-foebook-' + fi"
-            class="my-skill">
+            class="my-skill"
+            :class="{ 'my-skill-off': foeBookTag(num) == FOE_OFF_TAG }">
             <view class="my-skill-head">
-              <text class="my-skill-key">第 {{ fi + 1 }} 关</text>
-              <text class="my-skill-name">{{ role.name }}</text>
-              <text class="my-skill-key">{{ foeSpecialNamesOf(role) }}</text>
+              <!-- 〔2026-11-04 用户定「角色弹窗不用显示在哪关出现」：原先这儿印 foeBookTag（第几关固定 / 三个难度各在哪一档），删了〕 -->
+              <text class="my-skill-name">{{ foeRoleAt(num).name }}</text>
+              <text class="my-skill-key">{{ foeSpecialNamesOf(foeRoleAt(num)) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-cover">{{ foeCoverRole(role) }} 张</text>
+              <text class="my-skill-cover">{{ foeCoverRole(foeRoleAt(num)) }} 张</text>
             </view>
-            <text class="my-skill-level">技能：{{ foeSlotsText(role) }}</text>
-            <!-- 特殊技**给全文不给名字** —— 名字背不出规则（「硬壳」看不出
-                 「它打的 ♠ 钓不上」），而那正是这一关要你改打法的地方。
-                 带两条的那几张会印成两行（见 foeSpecialDescsOf） -->
-            <text v-if="foeSpecialDescsOf(role) != ''" class="my-skill-desc"
-              >{{ foeSpecialDescsOf(role) }}</text
+            <text class="my-skill-level">技能：{{ foeSlotsText(foeRoleAt(num)) }}</text>
+            <text v-if="foeSpecialDescsOf(foeRoleAt(num)) != ''" class="my-skill-desc"
+              >{{ foeSpecialDescsOf(foeRoleAt(num)) }}</text
             >
-            <!-- 〔2026-11-03 用户定：这儿原先还有一行氛围文字（role.desc），删了 —— 只留规矩的客观说明〕 -->
-          </view>
-
-          <!-- 第三段：素材池。**标明还没挂关卡** ——
-               不标的话玩家会在前十二关里找它们，找不着只会以为是 bug -->
-          <text class="rolebook-sect">素材池 · 设计好了，还没挂到任何一关上</text>
-          <view
-            v-for="(role, pi) in DRAW_FOE_POOL"
-            :key="'pb-' + pi"
-            :id="'md-poolbook-' + pi"
-            class="my-skill my-skill-off">
-            <view class="my-skill-head">
-              <text class="my-skill-name">{{ role.name }}</text>
-              <text class="my-skill-key">{{ foeSpecialNamesOf(role) }}</text>
-              <view class="my-skill-gap"></view>
-              <text class="my-skill-cover">{{ foeCoverRole(role) }} 张</text>
-            </view>
-            <text class="my-skill-level">技能：{{ foeSlotsText(role) }}</text>
-            <text v-if="foeSpecialDescsOf(role) != ''" class="my-skill-desc"
-              >{{ foeSpecialDescsOf(role) }}</text
-            >
-            <!-- 〔2026-11-03 用户定：这儿原先还有一行氛围文字（role.desc），删了 —— 只留规矩的客观说明〕 -->
           </view>
         </scroll-view>
       </view>
@@ -633,8 +613,8 @@
     DIFF_EASY,
     DIFF_NORMAL,
     DIFF_HARD,
-    // 庄家角色：闯关那十二位 + 还没挂到关卡上的素材池。
-    // 「角色」图鉴现在三段都列 —— 从前它只列玩家那张表，
+    // 庄家角色：闯关那十二位 + 备选池（foeBookNums 按章节排在一起）。
+    // 「角色」图鉴现在玩家 / 庄家两段 —— 从前它只列玩家那张表，
     // 于是**整套庄家角色在游戏里压根看不到**（只有打到那一关才见得着，
     // 而那时候已经来不及准备了）
     FoeRole,
@@ -642,7 +622,12 @@
     DRAW_FOE_POOL,
     foeCoverRole,
     foeSpecialNamesOf,
-    foeSpecialDescsOf
+    foeSpecialDescsOf,
+    foeRoleAt,
+    foeBookNums,
+    foeBookTag,
+    foeSkillPool,
+    FOE_OFF_TAG
   } from '@/pages/examples/blackjack/draw-levels.uts'
   import {
     DRAW_SKILLS,
@@ -1446,8 +1431,17 @@
     let text = ''
     for (let i = 0; i < r.slots.length; i++) {
       const s = r.slots[i]
-      const name = s.skill >= 0 && s.skill < DRAW_SKILLS.length
+      // 系列庄家的槽（skill < 0）每一轮从技能池里挑一件 —— 图鉴报池子（「引火 / 野火 / 薪潮 挑一」）
+      let name = s.skill >= 0 && s.skill < DRAW_SKILLS.length
         ? DRAW_SKILLS[s.skill].name : '?'
+      if (s.skill < 0) {
+        const pool = foeSkillPool(r)
+        let names = ''
+        for (let k = 0; k < pool.length; k++) {
+          names = names + (k == 0 ? '' : ' / ') + DRAW_SKILLS[pool[k]].name
+        }
+        name = names == '' ? '?' : names + ' 挑一'
+      }
       text = text + (text == '' ? '' : ' · ') + name
         + '（' + (s.suit ? '花色' : '点数') + ' ×' + s.count + '）'
     }
@@ -2446,7 +2440,7 @@
     opacity: 0.45;
   }
 
-  /* 角色图鉴的分段标题（共用池 / 闯关庄家 / 素材池）。
+  /* 角色图鉴的分段标题（玩家角色 / 庄家角色）。
      三段混在一个滚动列表里，没有这一行就分不清手上这张是谁家的 */
   .rolebook-sect {
     color: #ffd98a;

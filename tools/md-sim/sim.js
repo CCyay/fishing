@@ -3408,7 +3408,7 @@ function cmdRolesd(args) {
 // 每套三格（基线共用 / 我带 / 对手带），报：back（单侧，= 速查「满配」的定义）的中位数 + 最低 / 最高、
 // D 的中位数、我带那一格胜率的中位数。默认只跑游戏里那些角色（ROLESD_KEYS 可覆写）
 function cmdRolesmed(args) {
-  const keys = (process.env.ROLESD_KEYS || 'basket,lock,upstream,mirror,pond,night,reckon,surgeman,rigger,peachtide,flowkey,zerotrap,inspector,zerodeck,octopus').split(',')
+  const keys = (process.env.ROLESD_KEYS || 'basket,lock,upstream,mirror,pond,night,reckon,surgeman,rigger,peachtide,flowkey,zerotrap,inspector,zerodeck,octopus,giver,twinsail').split(',')
   const pool = (process.env.ROLESMED_POOL ? process.env.ROLESMED_POOL.split(',') : KIT_ORDER).map(function (k) { return skillIndexOf(k) })
   const empty = R.emptyLoadout()
   const C = run(args.n, args.seed, empty, empty, { myRole: -1, foeRole: -1 })

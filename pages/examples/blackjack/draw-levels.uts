@@ -18,6 +18,9 @@ import {
   SK_HOOK,
   SK_TIDE,
   SK_SUITED,
+  SK_TRAITOR,
+  SK_UNHOOK,
+  SK_GIFT,
   SK_DEAD,
   // 浑水（2026-10-30）：雾港守灯人那一格从死水换过来
   SK_MURK,
@@ -52,6 +55,7 @@ import {
   SK_LOCKDRAW,
   SK_ICEBOMB,
   SK_KINDLE,
+  SK_FUEL,
   SK_PILEREFLECT,
   SK_STONEFULL,
   SK_STONEHUE,
@@ -59,6 +63,10 @@ import {
   SK_FLOW,
   SK_FLOWALL,
   SK_FLOWPASS,
+  SK_PINRANK,
+  SK_FADEPOINT,
+  SK_COPYSUIT,
+  SK_COPYRANK,
   // 原先这儿还引着：
   //   SK_FLOOD —— 洪水。技能 2026-10-15 删了（X 超档而且限幅治不了，
   //     见 draw-skills 那块履历）。靠它撑「铺设」那一半的【漫江拉网人】
@@ -1060,11 +1068,11 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
     desc: '庄家起手和手牌上限都 +1 张' } as FoeSpecial,
   { key: 'silt', name: '淤滩',
     desc: '开局庄家先从牌库顶往堆上垫 2 张，都置 0' } as FoeSpecial,
-  // 〔2026-11-02 desc「你每回合只补到 3 张」→「你的手牌上限 −1」（用户定）：
+  // 〔2026-11-02 desc「你每回合只补到 3 张」→「你的手牌上限 −1」（用户定）：〔11-04 再改「你」→「玩家」〕
   //   实现一直是 HAND_SIZE − 1（ap-fishing 的 handLimitOf，跟窄口同一个减法），
   //   照 11-01 窄口那次改成相对写法 —— 满篓 / 涨落叠上来时「3 张」那个数就不对了〕
   { key: 'pinch', name: '掐口',
-    desc: '你的手牌上限 −1' } as FoeSpecial,
+    desc: '玩家的手牌上限 −1' } as FoeSpecial,
   // 枯水：跟掐口是**同一条轴的两头** —— 掐口削「补到几张」（上限），
   // 枯水削「什么时候补」（频率）。两条能叠，叠起来相当难受，
   // 所以别放同一关（一关只有一条规矩，见文件头那段）。
@@ -1094,14 +1102,14 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   // > 删 `SP_CYCLE` 那半边是可以的，但 `|| hasFoeSpecial('dryup')` 那半边
   // > **是第 9 关的全部规矩**，删了那一关就没题目了。
   { key: 'dryup', name: '枯水',
-    desc: '你手里没有能打出的牌时才补牌' } as FoeSpecial,
+    desc: '玩家手里没有能打出的牌时才补牌' } as FoeSpecial,
   { key: 'drift', name: '偏流',
     desc: '庄家打出的牌落堆底，不落堆顶' } as FoeSpecial,
   // 「钓不上」说的是**它当不了匹配的那一张**，不是「永远拿不走」——
   // 从更深处钓起的时候它照旧被连带收走（跟护饵一个待遇，见 shelled）。
   // 初稿写的是「只有 J 收得走」，那跟实现不符：J 只是最省事的那条解
   { key: 'shell', name: '硬壳',
-    desc: '你不能直接匹配庄家打出的 ♠；匹配到它下面的牌时，它照样一起收走' } as FoeSpecial,
+    desc: '玩家不能直接匹配庄家打出的 ♠；匹配到它下面的牌时，它照样一起收走' } as FoeSpecial,
   { key: 'pick', name: '挑潮',
     desc: '庄家回合末补牌时从库顶 2 张挑 1 张（另一张沉底）' } as FoeSpecial,
   { key: 'guard', name: '守滩',
@@ -1110,7 +1118,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
     desc: '庄家钓到牌时可以再打一张（一回合最多连两次）' } as FoeSpecial,
   // ↑〔再钩 2026-11-02 起**没有载体**：深渊君主换成了逆钩 —— 它让双方出牌数对不齐〕
   { key: 'seal', name: '封竿',
-    desc: '每一关随机封一个点数，你打出这个点数的牌算 0 点' } as FoeSpecial,
+    desc: '每一关随机封一个点数，玩家打出这个点数的牌算 0 点' } as FoeSpecial,
   // ---- 下面两条**现在没有载体，所以也没有实现** ----
   //
   // 当初是给终局留的（那一局不记账，可以上最凶的）。可终局的庄家摇的是
@@ -1122,7 +1130,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   // 对应的效果代码一行都没写 —— 加的时候记得
   //（落点见庄家文档『实现落点』那张表）
   { key: 'rev', name: '逆钩',
-    desc: '你打 J 只收堆顶 3 张，不通吃（庄家的 J 照旧通吃）' } as FoeSpecial,
+    desc: '玩家打 J 只收堆顶 3 张，不通吃（庄家的 J 照旧通吃）' } as FoeSpecial,
   // ---- 阈值从 10 改成了 8 ----
   //
   // 原稿写「堆超过 10 张」，那个数**没算过堆有多厚**：52 张牌几乎全被收走
@@ -1134,7 +1142,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   //   而阈值 8 也跟着比设计时更难触发：实测厚度 ≥8 只占 **0.6%**。
   //   〔这是「上界很低」那一类引用 —— 结论不反转，只是力度变大〕
   { key: 'murk', name: '浊水',
-    desc: '堆超过 8 张时你只看得见最上面 5 张（庄家照旧全看得见）' } as FoeSpecial,
+    desc: '堆超过 8 张时玩家只看得见最上面 5 张（庄家照旧全看得见）' } as FoeSpecial,
   // ---------- 下面三条是「角色素材池」那一批带出来的（见 DRAW_FOE_POOL）----------
   //
   // 【炙水】是**硬壳的状态版**：硬壳认花色（♠ 印死，所以是定额），
@@ -1144,7 +1152,7 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   // 只管**庄家打出的牌**（照硬壳的边界）—— 你自己的牌带火不受影响，
   // 不然沸水 × 炙水 会变成「堆上所有牌你都钓不走」，那不是题目是墙。
   { key: 'char', name: '炙水',
-    desc: '你不能直接匹配庄家打出、带着【燃烧】的牌；匹配到它下面的牌时，它照样一起收走' } as FoeSpecial,
+    desc: '玩家不能直接匹配庄家打出、带着【燃烧】的牌；匹配到它下面的牌时，它照样一起收走' } as FoeSpecial,
   // ---- 走水 / 过闸：**同一条轴的两头**，照掐口 × 枯水那一对的做法 ----
   //
   //   走水 —— 按**堆的厚度**触发：罚你养厚堆（顺色、收色、J 全靠厚堆）；
@@ -1191,7 +1199,16 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   { key: 'leak', name: '走水',
     desc: '堆超过 7 张时，每回合末堆底那张离场，算庄家的分' } as FoeSpecial,
   { key: 'toll', name: '过闸',
-    desc: '你每次钓到牌之后，堆上还有牌的话堆底那张离场，算庄家的分' } as FoeSpecial
+    desc: '玩家每次钓到牌之后，堆上还有牌的话堆底那张离场，算庄家的分' } as FoeSpecial,
+  // 〔2026-11-04 · 用户设计：渔政巡查员四张都带〕实现在 ap-fishing 的 hasSpecial（玩家那一侧一律 false）——
+  // 玩家角色的常驻技全部失效（含满篓 / 窄口这类改手牌上限的）；槽照旧能用
+  { key: 'ban', name: '禁渔',
+    desc: '玩家的角色技能无效' } as FoeSpecial,
+  // 〔2026-11-04 · 用户设计：镜魔四张都带〕实现在 ap-fishing 的 hasSpecial（庄家那一侧：玩家带的常驻技也算庄家的）。
+  // ⚠ 读角色卡上印的槽的那几件（拣色 / 串钩 / 红钩 / 流钥），庄家没有角色卡 ⇒ 借过去会变弱或不起作用（用户定不补强）。
+  // 闯关实测：单这一条几乎不加难度，玩家是赌船荷官（归十）时甚至更好打（台账第六十四·丙）
+  { key: 'mirror', name: '照镜',
+    desc: '庄家拥有跟玩家相同的角色技能' } as FoeSpecial
 ]
 
 // 【逆钩】：你打 J 只收堆顶这么多张。
@@ -1317,48 +1334,85 @@ export function foeCoverRole(r : FoeRole) : number {
 //
 // 每一轮开局洗一次（见 draw-save 的 foeOrder）：同一章节的四个庄家打乱顺序，
 // 章节之间不串 —— 难度曲线还是浅滩 → 河湾 → 深海一路往上，只是每一轮
-// 碰到的先后不一样。第 1 关固定试竿学徒（新手关，不能一上来就碰滩头老翁）。
+// 碰到的先后不一样。第 1、2 关固定白板庄家（试竿学徒 / 游荡钓客 —— 新手关，不能一上来就碰带规矩的；2026-11-04 起两关都固定）。
 //
 // 返回长度 = 关数，第 i 个是第 i+1 关的庄家「卡号」（DRAW_FOE_ROLES 下标 + 1，
 // 跟 foeRoleAt 收的那个数同一个口径）
-export function rollFoeOrder() : number[] {
+// 开头固定的关数（这几关的庄家照关号，不洗）
+const FOE_FIXED_LEVELS : number = 2
+// ---------- 按强度分档抽〔2026-11-04 用户定〕----------
+//
+// 第 1、2 关固定白板；之后 3~5 / 6~8 / 9~11 / 12 四档，每一档从「强度落在这一档区间里」的卡里随机抽（不放回、同一张卡一轮只出一次）。
+// 区间由通关率目标（简单 40% / 普通 20% / 困难 5%）反推，见速查五·甲；每张卡的强度是实测（鱼塘老板当玩家，速查五·乙 / 台账第六十九节）。
+// **按难度分开** —— 同一张卡在不同难度下可以进不同的档，也可以哪一档都进不去（太弱 / 太强 / 夹缝 → 那个难度下不出场）。
+// 某一档落进来的卡不够关数时，用离这一档区间最近的卡补齐（用户定），补位的也写在这张表里。
+//
+// FOE_TIER_POOL[难度][档] = 卡号（DRAW_FOE_ROLES 下标 + 1；备选池接在 12 后面）。由 tools/md-sim/out-foestr-pond/tiers.js --uts 生成，**改了庄家就要重量、重生成**
+export const FOE_TIER_LEVELS : number[][] = [[3, 4, 5], [6, 7, 8], [9, 10, 11], [12]]
+export const FOE_TIER_NAMES : string[] = ['3~5', '6~8', '9~11', '12']
+const FOE_TIER_POOL : number[][][] = [
+  [[3, 4, 6, 8, 25, 29, 34, 37, 42], [5, 7, 10, 15, 36, 39, 44], [9, 11, 31, 33, 41], [35, 46]],
+  [[3, 4, 5, 6, 8, 10], [11, 31, 36], [9, 15, 24, 33, 39, 44], [16, 17, 26, 28, 35, 41, 46]],
+  [[3, 4, 5, 8, 10, 36, 39], [9, 15, 24, 33, 44], [17, 26, 28, 35, 46], [13, 30, 43]]
+]
+// 返回长度 = 关数 + 1：前面每一位是第 i+1 关的庄家卡号，**最后一位是 FOE_ORDER_DIFF_BASE + 难度** ——
+// 难度不进存档那一串（见 draw-save 的 KEY_DIFF），而这一轮是按哪个难度抽的得记住（开打前换了难度就要重抽，见 ensureFoeOrder）
+export const FOE_ORDER_DIFF_BASE : number = 100
+export function rollFoeOrder(diff : number) : number[] {
   const out : number[] = []
   for (let i = 0; i < DRAW_LEVELS.length; i++) {
     out.push(i + 1)
   }
-  let start = 0
-  while (start < DRAW_LEVELS.length) {
-    let end = start
-    while (end < DRAW_LEVELS.length && DRAW_LEVELS[end].chapter == DRAW_LEVELS[start].chapter) {
-      end = end + 1
-    }
-    // 这一章的候选：本章那几关原来的庄家 + 备选池里分到这一章的（见 FOE_POOL_CHAPTER）。
-    // 第 1 关固定试竿学徒，不进候选
-    const from = start == 0 ? 1 : start
+  const d = diff >= 0 && diff < FOE_TIER_POOL.length ? diff : 0
+  const used : number[] = []
+  for (let t = 0; t < FOE_TIER_LEVELS.length; t++) {
     let pool : number[] = []
-    for (let i = from; i < end; i++) {
-      pool.push(i + 1)
-    }
-    for (let k = 0; k < DRAW_FOE_POOL.length && k < FOE_POOL_CHAPTER.length; k++) {
-      if (FOE_POOL_CHAPTER[k] == DRAW_LEVELS[start].chapter) {
-        pool.push(DRAW_FOE_ROLES.length + k + 1)
+    for (let k = 0; k < FOE_TIER_POOL[d][t].length; k++) {
+      if (used.indexOf(FOE_TIER_POOL[d][t][k]) < 0) {
+        pool.push(FOE_TIER_POOL[d][t][k])
       }
     }
-    // 不放回地抽，抽满这一章的关数（候选比关多的话，有几个这一轮碰不到）
-    for (let i = from; i < end && pool.length > 0; i++) {
+    for (let j = 0; j < FOE_TIER_LEVELS[t].length; j++) {
+      const lv = FOE_TIER_LEVELS[t][j]
+      // 池子抽空了（都在前几档用掉了）就留原来那一关的庄家 —— 不会发生在现行这张表上，兜底
+      if (pool.length == 0 || lv > out.length) {
+        continue
+      }
       const at = Math.floor(Math.random() * pool.length)
-      out[i] = pool[at]
+      out[lv - 1] = pool[at]
+      used.push(pool[at])
       const rest : number[] = []
-      for (let j = 0; j < pool.length; j++) {
-        if (j != at) {
-          rest.push(pool[j])
+      for (let k = 0; k < pool.length; k++) {
+        if (k != at) {
+          rest.push(pool[k])
         }
       }
       pool = rest
     }
-    start = end
   }
+  out.push(FOE_ORDER_DIFF_BASE + d)
   return out
+}
+
+// 这一轮是按哪个难度抽的（老档没记 → −1）
+export function foeOrderDiff(order : number[]) : number {
+  if (order.length > DRAW_LEVELS.length) {
+    return order[DRAW_LEVELS.length] - FOE_ORDER_DIFF_BASE
+  }
+  return -1
+}
+
+// 这张卡在某个难度下进哪一档（−1 = 那个难度下不出场）
+export function foeTierOf(num : number, diff : number) : number {
+  if (diff < 0 || diff >= FOE_TIER_POOL.length) {
+    return -1
+  }
+  for (let t = 0; t < FOE_TIER_POOL[diff].length; t++) {
+    if (FOE_TIER_POOL[diff][t].indexOf(num) >= 0) {
+      return t
+    }
+  }
+  return -1
 }
 
 // 备选池（DRAW_FOE_POOL）里每张卡进哪一章的随机池，按那张表上标的档位分：
@@ -1378,7 +1432,9 @@ export function rollFoeOrder() : number[] {
 // 赤礁烧炭工从 8 张掉到 4、赤潮巡海人从 16 掉到 8 ——
 // 而那张曲线（8→12→16→21）是刻意排的，塌了两格就不该继续上场。
 // 重新设计之后再放回来（见 DRAW_FOE_POOL 里它们那两条）
-const FOE_POOL_CHAPTER : string[] = ['', '', '河湾', '深海', '深海', '']
+// 〔2026-11-04〕末尾四格 = 渔政巡查员 / H / D / S（用户定：浅滩 / 河湾 / 河湾 / 深海）
+// 〔2026-11-04〕再四格 = 镜魔 / H / D / S（用户定：河湾 / 深海 / 河湾 / 深海）
+const FOE_POOL_CHAPTER : string[] = ['', '', '河湾', '深海', '深海', '', '浅滩', '河湾', '河湾', '深海', '河湾', '深海', '河湾', '深海']
 
 // 这一关的庄家卡号：按洗好的顺序查；没洗过（老档）就是关号本身（原来的固定顺序）
 export function foeNumIn(order : number[], level : number) : number {
@@ -1404,7 +1460,83 @@ export function foeRoleAt(level : number) : FoeRole {
   return DRAW_FOE_ROLES[level - 1]
 }
 
+// ---- 角色图鉴里的庄家：一段，按章节排〔2026-11-04 用户定「不用分 3 段」〕----
+//
+// 原先分「闯关庄家 · 关号定死」和「素材池 · 还没挂到任何一关上」两段 —— 两个标题都过期了：
+// 每一轮同一章的庄家会重新洗（rollFoeOrder），而备选池里有三张也在章节的随机池里（FOE_POOL_CHAPTER）。
+// 所以图鉴改成：每章先列本章原来那几位、再列分进这一章的备选卡；不进闯关的排最后。
+// 返回卡号（跟 foeRoleAt 同一个口径）
+// 〔2026-11-04 用户定「角色弹窗只用显示角色 S」〕渔政巡查员四张只列 S —— 备选池下标 6 / 7 / 8（不带技能 / H / D）不进图鉴，闯关照旧会抽到
+// 〔同日：镜魔一族照同一条，只列镜魔S —— 下标 10 / 11 / 12（镜魔 / H / D）不进图鉴〕
+// 〔同日：四个系列的基础 / H / D / HD / DD（下标 14 ~ 33）也不进图鉴，只列 S〕
+const FOE_BOOK_HIDE : number[] = [6, 7, 8, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]
+export function foeBookNums() : number[] {
+  // 〔2026-11-04 改成按档排：开头固定的几关 → 普通档 3~5 / 6~8 / 9~11 / 12 → 普通档不出场的〕
+  const out : number[] = []
+  for (let n = 1; n <= FOE_FIXED_LEVELS; n++) {
+    out.push(n)
+  }
+  const total = DRAW_FOE_ROLES.length + DRAW_FOE_POOL.length
+  for (let t = -1; t < FOE_TIER_LEVELS.length; t++) {
+    // t = −1 那一轮放最后：先跑 0..3，再跑 −1
+    const want = t < FOE_TIER_LEVELS.length - 1 ? t + 1 : -1
+    for (let n = FOE_FIXED_LEVELS + 1; n <= total; n++) {
+      const k = n - DRAW_FOE_ROLES.length - 1
+      if (k >= 0 && FOE_BOOK_HIDE.indexOf(k) >= 0) {
+        continue
+      }
+      if (foeTierOf(n, DIFF_NORMAL) == want) {
+        out.push(n)
+      }
+    }
+  }
+  return out
+}
+
+// 这张庄家卡在闯关里会出现在哪：开头固定的报关号；其余报三个难度各在哪一档（「简 3~5 · 普 6~8 · 困 6~8」），三档都不出场就是「暂不上场」
+export function foeBookTag(num : number) : string {
+  if (num >= 1 && num <= FOE_FIXED_LEVELS) {
+    return '第 ' + num + ' 关固定'
+  }
+  const short : string[] = ['简', '普', '困']
+  let text = ''
+  let any = false
+  for (let d = 0; d < short.length; d++) {
+    const t = foeTierOf(num, d)
+    if (t >= 0) {
+      any = true
+    }
+    text = text + (d == 0 ? '' : ' · ') + short[d] + ' ' + (t >= 0 ? FOE_TIER_NAMES[t] : '—')
+  }
+  return any ? text : FOE_OFF_TAG
+}
+export const FOE_OFF_TAG : string = '暂不上场'
+
 const NO_SLOTS : FoeSlot[] = []
+
+// ---------- 系列庄家的技能池〔2026-11-04〕----------
+// 槽里写 FOE_POOL_SKILL 的，每一轮从这张卡所属系列的池里随机挑一件（同一张卡上不重复）。
+// 系列按卡名前缀认（「深渊君主HD」属于「深渊君主」）—— 名字就是这张卡的身份，图鉴也按它列
+export const FOE_POOL_SKILL : number = -1
+export type FoeSeries = {
+  name : string
+  pool : number[]
+}
+export const FOE_SERIES : FoeSeries[] = [
+  { name: '赤礁烧炭工', pool: [SK_KINDLE, SK_WILD, SK_FUEL] } as FoeSeries,
+  { name: '沙垒筑堤工', pool: [SK_STONEFULL, SK_STONEHUE, SK_STONELINE] } as FoeSeries,
+  { name: '深渊君主', pool: [SK_LOCKCOLOR, SK_LOCKDRAW, SK_ICEBOMB] } as FoeSeries,
+  { name: '东海龙王', pool: [SK_FLOW, SK_FLOWALL, SK_FLOWPASS] } as FoeSeries
+]
+// 这张卡的技能池（不属于任何系列 → 空）
+export function foeSkillPool(r : FoeRole) : number[] {
+  for (let i = 0; i < FOE_SERIES.length; i++) {
+    if (r.name.indexOf(FOE_SERIES[i].name) == 0) {
+      return FOE_SERIES[i].pool
+    }
+  }
+  return [] as number[]
+}
 // 不带特殊技的那三关用它。空数组字面量在表项里写不得（照 NO_SLOTS 那条）
 const NO_SP : string[] = []
 
@@ -1422,9 +1554,16 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
     desc: '刚摸到竿的。随手出牌，什么都不带' } as FoeRole,
   { name: '游荡钓客', specials: NO_SP, slots: NO_SLOTS,
     desc: '闲逛的。会挑饵了，但还不记牌' } as FoeRole,
-  { name: '守河老汉', specials: NO_SP, slots: NO_SLOTS,
+  // 〔2026-11-04 用户定「守河老汉调整下（加入技能？）」：原先白板，第 1、2 关固定白板之后它比 3~5 那档还弱很多（不出场）。
+  //   加点数槽【摘钩】×2（现在没有庄家带它）→ 鱼塘老板过关率 简单 79.3 / 普通 71.7 / 困难 69.3，三档都落 3~5（台账第七十节）。仍然没有庄家规矩〕
+  { name: '守河老汉', specials: NO_SP, slots: [
+      { skill: SK_UNHOOK, count: 2, suit: false } as FoeSlot
+    ],
     desc: '守了半辈子河的。**它开始记牌了** —— 这一关的全部内容' } as FoeRole,
-  { name: '滩头老翁', specials: ['hand'], slots: NO_SLOTS,
+  // 〔2026-11-04 用户定「太弱的庄家调整下」：按强度分档（速查五·甲），这位原先比 3~5 那档还弱（鱼塘老板普通档过关率 80.4）。加一个点数槽【分饵】→ 简单 78.6 / 普通 71.5 / 困难 69.0，三档都落 3~5（台账第六十八节）〕
+  { name: '滩头老翁', specials: ['hand'], slots: [
+      { skill: SK_GIFT, count: 1, suit: false } as FoeSlot
+    ],
     desc: '滩头的老人。手里比别人多一张牌' } as FoeRole,
   // ---------- 河湾：一关一个主题，而且两两成对 ----------
   //
@@ -1435,7 +1574,9 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // 一个点数槽 = 4 张。磁钩是最基础那件，第一关有技能的庄家配它正好
       // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：置 0 · 收零（回水收淤滩垫的 0 点牌） ----
-      { skill: SK_BACKWATER, count: 1, suit: false } as FoeSlot
+      // 〔2026-11-04 用户定「太弱的庄家调整下」：按强度分档（速查五·甲），这位原先比 3~5 那档还弱（鱼塘老板普通档过关率 79.7）。加一个点数槽【策反】（同是收零那一族）→ 简单 74.7 / 普通 71.9 / 困难 69.2：普通 / 困难落 3~5，简单落 6~8（台账第六十八节）〕
+      { skill: SK_BACKWATER, count: 1, suit: false } as FoeSlot,
+      { skill: SK_TRAITOR, count: 1, suit: false } as FoeSlot
     ], desc: '水在这儿打转。开局堆上就压着两张死牌 —— 它教你 J 有多值' } as FoeRole,
   { name: '礁石海女', specials: ['pinch'], slots: [
       // ---- 压邻 → 冻结〔2026-10-14，压邻那一族全删了〕----
@@ -1470,7 +1611,8 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // 那是湾口税吏这一关的全部内容
       // 〔2026-10-29 调难度〕顺色 花色槽 → 点数槽 ×2（13 张 → 8 张）
       // 〔2026-11-03 R8 调难度（用户定方案 A：生命最多 4、降庄家强度）：2 个标签 → 1 个。台账第五十八·戊〕
-      { skill: SK_SUITED, count: 1, suit: false } as FoeSlot
+      // 〔2026-11-04 用户定「太弱的庄家调整下」：按强度分档（速查五·甲），这位原先比 3~5 那档还弱（鱼塘老板普通档过关率 77.6）。顺色 1 个标签 → 2 个 → 简单 76.7 / 普通 71.8 / 困难 68.5，三档都落 3~5（台账第六十八节）〕
+      { skill: SK_SUITED, count: 2, suit: false } as FoeSlot
     ], desc: '守着湾口收税。它打出的黑桃钓不走，而那门花色正是它的技能' } as FoeRole,
   // ---------- 深海：每关换一种压力 ----------
   { name: '雾港守灯人', specials: ['dryup'], slots: [
@@ -1659,7 +1801,8 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
   // 〔2026-11-02 规矩【再钩】→【逆钩】（用户定）：再钩让它一回合打两张，
   //   双方出牌数对不齐，收摊那条「少的一方补一手」只补得了 1 张、补不平。
   //   再钩从此没有载体（表里留着，见 FoeSpecial 那段）〕
-  { name: '深渊君主', specials: ['rev'], slots: [
+  // 〔2026-11-04 用户定「HDS 加进游戏」：这张就是结冰系列的 S（技能池全装），改名深渊君主S；基础 / H / D / HD / DD 在备选池末尾〕
+  { name: '深渊君主S', specials: ['rev'], slots: [
       // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // ---- 主题：沉进深渊的死牌，都被它吃掉（2026-10-10 改） ----
       //
@@ -1829,10 +1972,14 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   //    活着的方向只有三个：新的读取方、更好的收割、牌不在堆上时火就起作用。
   //
   // 槽位现在只留野火，纯粹是为了编得过 —— 别把它当设计
-  { name: '赤礁烧炭工', specials: ['char'], slots: [
+  // 〔2026-11-04 用户定「HDS 加进游戏」：燃烧系列 = 赤礁 + 赤潮合成一位，这张就是它的 S —— 引火 · 野火 ×2 · 薪潮全装（赤潮巡海人那张退场，条目留着：存档按卡号存）〕
+  { name: '赤礁烧炭工S', specials: ['char'], slots: [
       // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：燃烧 ----
-      { skill: SK_KINDLE, count: 1, suit: false } as FoeSlot
+      { skill: SK_KINDLE, count: 1, suit: false } as FoeSlot,
+      { skill: SK_WILD, count: 2, suit: false } as FoeSlot,
+      { skill: SK_FUEL, count: 1, suit: false } as FoeSlot
     ], desc: '礁石烧红了。它打出的牌一着火你就钓不上' } as FoeRole,
+  // 〔2026-11-04 退场：并进燃烧系列（赤礁烧炭工）。不在任何一档的抽签池里（FOE_TIER_POOL），条目留着 —— 存档按卡号存〕
   { name: '赤潮巡海人', specials: ['pick'], slots: [
       { skill: SK_WILD, count: 2, suit: false } as FoeSlot
     ], desc: '整片水红了。它一动手，烧着的牌就成片地没' } as FoeRole,
@@ -1901,7 +2048,8 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // 于是「叠放的完整展示」现在只剩**两样**（埋 → 垫），第三槽是净水的重复。
   // **覆盖面一张没动**：净水♦ 13 + 抬水 4 + 净水 4 = 21。
   // desc 里「加上一层护」那半句跟着删 —— 它指的就是凝水，留着是假情报。
-  { name: '沙垒筑堤工', specials: ['toll'], slots: [
+  // 〔2026-11-04：石墙系列的 S，改名沙垒筑堤工S〕
+  { name: '沙垒筑堤工S', specials: ['toll'], slots: [
       // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // 〔2026-11-03 抬水下架（用户定）：这一格换成垫吃，覆盖面不变（21 张）。desc 本来就只说垫吃，不用改〕
       // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：石墙 ----
@@ -1946,12 +2094,106 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   // 一侧在点数槽 —— 所以标签摇得巧的时候它会在某张牌上真的触发组合
   //（顺带记一笔：**深渊君主现在就有这个可能**，它也同时带着顺色和磁钩，
   //  而设计稿和代码注释里从没提过这件事）
-  { name: '东海龙王', specials: ['rev', 'murk'], slots: [
+  // 〔2026-11-04：顺子系列的 S，改名东海龙王S〕
+  { name: '东海龙王S', specials: ['rev', 'murk'], slots: [
       // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：顺子匹配 ----
       { skill: SK_FLOW, count: 1, suit: true } as FoeSlot,
       { skill: SK_FLOWALL, count: 1, suit: false } as FoeSlot,
       { skill: SK_FLOWPASS, count: 1, suit: false } as FoeSlot
-    ], desc: '渊底那位。你的 J 掀不动整堆，而堆一厚你就看不见底下' } as FoeRole
+    ], desc: '渊底那位。你的 J 掀不动整堆，而堆一厚你就看不见底下' } as FoeRole,
+  // ---------- 渔政巡查员四张〔2026-11-04 · 用户设计〕----------
+  // 都带【禁渔】；H 花色槽【封点】、D 点数槽【褪点】、S 两样都有。名字带字母是用户定的。
+  // 进闯关：不带技能那张 → 浅滩、H / D → 河湾、S → 深海（FOE_POOL_CHAPTER 末尾四格）。
+  // **追加在表尾** —— 卡号 = 12 + 下标 + 1，存档按卡号存（foeNumOf），插在中间会让老档错位
+  { name: '渔政巡查员', specials: ['ban'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '渔政巡查员H', specials: ['ban'], slots: [
+      { skill: SK_PINRANK, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '渔政巡查员D', specials: ['ban'], slots: [
+      { skill: SK_FADEPOINT, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '渔政巡查员S', specials: ['ban'], slots: [
+      { skill: SK_PINRANK, count: 1, suit: true } as FoeSlot,
+      { skill: SK_FADEPOINT, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  // ---------- 镜魔一族〔2026-11-04 · 用户设计〕：都带【照镜】（跟玩家同一件角色技能），槽照渔政巡查员那一族的 H / D / S ----------
+  // 闯关实测（换掉第 10 关、PLAYER_SP=1；台账第六十四·丙）：强弱 S > H ≫ D ≳ 镜魔。花色槽是主力 —— 借的是玩家花色槽那件，在庄家 13 张牌上响。
+  // 分章（用户定）：镜魔 / 镜魔D → 河湾，镜魔H / 镜魔S → 深海（见 FOE_POOL_CHAPTER）
+  { name: '镜魔', specials: ['mirror'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '镜魔H', specials: ['mirror'], slots: [
+      { skill: SK_COPYSUIT, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '镜魔D', specials: ['mirror'], slots: [
+      { skill: SK_COPYRANK, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '镜魔S', specials: ['mirror'], slots: [
+      { skill: SK_COPYSUIT, count: 1, suit: true } as FoeSlot,
+      { skill: SK_COPYRANK, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  // ---------- 四个系列的 基础 / H / D / HD / DD〔2026-11-04 · 用户定「赤礁烧炭工、沙垒筑堤工、深渊君主、东海龙王这几个的 HDS 要加进游戏」〕----------
+  // 卡名后缀就是槽形：H = 1 个花色槽、D = 1 个点数槽（DD = 两个）；S（全装）是各系列原来那张卡。
+  // 槽里的技能是 FOE_POOL_SKILL（−1）= **每一轮从这个系列的技能池里随机挑**（FOE_SERIES；同一张卡不重复），摇到哪件存进存档（见 draw-save 的 rollFoeKit）。
+  // 抽不抽得到看 FOE_TIER_POOL（按实测强度分档，台账第六十九节）；图鉴只列 S（FOE_BOOK_HIDE）。**追加在表尾** —— 卡号 = 12 + 下标 + 1
+  { name: '赤礁烧炭工', specials: ['char'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '赤礁烧炭工H', specials: ['char'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '赤礁烧炭工D', specials: ['char'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '赤礁烧炭工HD', specials: ['char'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '赤礁烧炭工DD', specials: ['char'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole
+  { name: '沙垒筑堤工', specials: ['toll'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '沙垒筑堤工H', specials: ['toll'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '沙垒筑堤工D', specials: ['toll'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '沙垒筑堤工HD', specials: ['toll'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '沙垒筑堤工DD', specials: ['toll'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole
+  { name: '深渊君主', specials: ['rev'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '深渊君主H', specials: ['rev'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '深渊君主D', specials: ['rev'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '深渊君主HD', specials: ['rev'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '深渊君主DD', specials: ['rev'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole
+  { name: '东海龙王', specials: ['rev', 'murk'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '东海龙王H', specials: ['rev', 'murk'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '东海龙王D', specials: ['rev', 'murk'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '东海龙王HD', specials: ['rev', 'murk'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '东海龙王DD', specials: ['rev', 'murk'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole
 ]
 
 // ---------- 摇这一关庄家的配装：这儿没有，在 draw-save ----------
@@ -2057,6 +2299,10 @@ const DIFF_REWARD_RATE : number[] = [4.0, 3.6, 1.4]
 // 〔2026-11-03 起不用了：简单档不再有随机关（见 levelForDiff）。原先「简单前 4 关随机出牌」〕
 // 困难档从第几关起庄家随机出牌〔2026-11-03 用户定〕
 const HARD_RANDOM_FROM : number = 7
+// 困难档从第几关起庄家记牌〔2026-11-04 用户定「困难档前两关要调整」「所有难度的第一关都要一样简单」〕：
+//   第 1、2 关不记牌（跟简单 / 普通一样）。原先困难全程记牌，前两关过关率只有 60%（鱼塘老板实测），3 条命在开头就丢掉 1.3 条
+//   —— 改了之后 72.7 / 71.9（台账第六十七节）
+const HARD_SMART_FROM : number = 3
 // 普通档从第几关起庄家随机出牌〔2026-11-03 用户定「普通再往下调，20% 左右」：扫了第 7 / 9 / 10 / 11 关起随机，
 //  7 → 20.0%、9 → 22.0%、10 → 23.3%、11 → 23.5%（不随机 27.7%）。台账第五十九·乙〕
 const NORMAL_RANDOM_FROM : number = 7
@@ -2074,7 +2320,7 @@ export function levelForDiff(lv : DrawLevel, diff : number) : DrawLevel {
     smart = false
   } else if (diff == DIFF_HARD) {
     random = lv.id >= HARD_RANDOM_FROM
-    smart = true
+    smart = lv.id >= HARD_SMART_FROM
   } else {
     // 普通：记牌照关卡表（第 3 关起），第 1 关不再随机（DRAW_LEVELS 第 1 关的 random 还写着 true）；
     // 第 NORMAL_RANDOM_FROM 关起随机出牌（2026-11-03 用户定，把普通档压到 20% 左右）

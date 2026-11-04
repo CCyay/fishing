@@ -1194,6 +1194,10 @@
     // 空钩（2026-11-01）：布饵人 ♠ 槽的专属技能
     SK_TRAPZERO,
     SK_DECKZERO,
+    SK_PINRANK,
+    SK_FADEPOINT,
+    SK_COPYSUIT,
+    SK_COPYRANK,
     // 漂白（2026-11-02）：对方的手牌都【失去花色】
     SK_BLEACH,
     isRoleOnlySkill,
@@ -1391,6 +1395,7 @@
     HARD_HEART_GOAL,
     HARD_SCORE_GOAL,
     SP_CLUBEIGHT,
+    SP_HIGHMUTE,
     // 【串钩】（串钩手）：命中任一个点数槽 → 所有点数槽一起响（见 skillsOf）
     SP_RANKLINK,
     // 【红钩】（桃汛客）：打出红桃 → 所有槽一起响（见 skillsOf）
@@ -1457,6 +1462,7 @@
     settleLoss,
     ensureLives,
     ensureFoeKit,
+    ensureFoeOrder,
     foeKitOf,
     // 【封竿】封的那个点数（庄家特殊技）
     foeSealRank,
@@ -3940,6 +3946,7 @@
     chipHead.value = (ofFoe ? '庄家 · ' : '') + DRAW_ROLES[r].name
       + ' · ' + SPECIAL_SKILLS[sp].name + ' 〔常驻〕'
     chipBody.value = SPECIAL_SKILLS[sp].desc
+      + (!ofFoe && hasFoeSpecial('ban') ? '\n〔这一关庄家带【禁渔】：你的角色技能无效〕' : '')
   }
 
   function closeChip() {
@@ -3993,6 +4000,15 @@
     // 下面那个比较也是 −1 == −1、成立。跟【退潮】那次「已删 SK 撞上空闲 −1」同一个坑，在这儿一次挡住
     if (sp < 0) {
       return false
+    }
+    // 【禁渔】（庄家规矩，2026-11-04 · 渔政巡查员）：玩家的角色技能无效 —— 玩家那一侧的常驻技一律不算。
+    // 全文件读常驻技都走这一个函数，所以挡在这儿就全挡住了（含满篓 / 窄口改手牌上限、归十改点数）
+    if (!byFoe && hasFoeSpecial('ban')) {
+      return false
+    }
+    // 【照镜】（庄家规矩，2026-11-04 · 镜魔一族）：庄家拥有跟玩家相同的角色技能 —— 玩家那张卡的常驻技也算庄家的
+    if (byFoe && hasFoeSpecial('mirror') && hasSpecial(false, sp)) {
+      return true
     }
     const r = byFoe ? foeRole.value : myRole.value
     if (r < 0 || r >= DRAW_ROLES.length) {
@@ -4263,13 +4279,25 @@
   // 〔原先这儿是 `if (isDead(card)) return []`（「废牌一件都不触发」）—— 10-14 之前死水「废牌」那一版的遗留，
   //  跟词条和模拟器都对不上：**花色槽也被一起掐了**〕
   // 串钩 / 红钩也读同一个 rank：置 0 的牌串钩不认（不是点数槽的牌），红钩照旧认（它认花色）
-  function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
+  // 这张牌按哪个点数去查槽（skillsOf 和【照花】【照点】的播报共用 —— 两处必须同一个口径）
+  function skillRank(byFoe : boolean, card : PlainCard) : string {
     // 【归十】〔2026-11-03 用户定「自己的 Q、K 都算 10 点，能触发 10 槽」〕：带它的一方的 Q、K 按 10 去查槽
     const tensRank = (card.rank == 'Q' || card.rank == 'K') && hasSpecial(byFoe, SP_TENS)
     // 【归八】〔2026-11-04 · 八爪渔夫〕：带它的一方的 ♣ 牌（J 除外）按 8 去查槽。花色槽照旧按 ♣
-    const rank = isDead(card) ? '0' : (tensRank ? '10' : (clubEight(byFoe, card) ? '8' : card.rank))
+    return isDead(card) ? '0' : (tensRank ? '10' : (clubEight(byFoe, card) ? '8' : card.rank))
+  }
+
+  function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
+    // 【轻装】（双帆客，2026-11-04）：你点数大于 10 的牌不发动技能 —— J 本来就不触发，实际管 Q、K。
+    // 按牌面判，被置 0 的（牌面已是 0）不受它管
+    if (!isDead(card) && (card.rank == 'Q' || card.rank == 'K') && hasSpecial(byFoe, SP_HIGHMUTE)) {
+      return [] as number[]
+    }
+    const rank = skillRank(byFoe, card)
     const lo = loadoutOf(byFoe)
     const list = triggersOf(lo, card.suit, rank)
+    // 【照花】【照点】（镜魔一族的庄家专属）：换成对方槽里挑中的那件
+    copySwap(byFoe, list)
     // 【串钩】（串钩手）：命中任一个**被占**的点数槽 → **再响 1 件**（你选的那件，见 heartPick）。
     // 闸和追加顺序都在 addRankLink 里，这儿只问「这一侧带没带」——
     // 而那正是它不能写进 triggersOf 的原因（那个函数不知道是谁在出牌）。
@@ -4286,6 +4314,40 @@
       return addHeartWild(lo, card.suit, rank, list, byFoe ? -1 : heartPick.value)
     }
     return list
+  }
+
+  // ---------- 【照花】【照点】〔2026-11-04 · 镜魔一族，庄家专属〕----------
+  // 「选择玩家 1 个花色槽 / 点数槽技能发动」：list 里的照花 / 照点换成**对方**那种槽里挑中的那件；对方那种槽空着就去掉（空发）。
+  // 挑法：标价最高那件（标价按 X 定）—— 模拟器〈copysuit〉〈copyrank〉按 R8 全表 X 排名挑，两边同一个口径。
+  // 已经在 list 里的不重复挑（照花挑走一件之后，照点从剩下的里挑）。返回借到的那几件的名字（播报用，'' = 没借到）
+  function copySwap(byFoe : boolean, list : number[]) : string {
+    let names = ''
+    const marks : number[] = [SK_COPYSUIT, SK_COPYRANK]
+    for (let m = 0; m < marks.length; m++) {
+      const at = marks[m] >= 0 ? list.indexOf(marks[m]) : -1
+      if (at < 0) {
+        continue
+      }
+      const theirs = loadoutOf(!byFoe)
+      const pool : number[] = m == 0 ? theirs.suitOwner.slice(0) : theirs.rankOwner.concat([theirs.zeroOwner])
+      let best = -1
+      for (let i = 0; i < pool.length; i++) {
+        const k = pool[i]
+        if (k < 0 || k >= DRAW_SKILLS.length || k == SK_COPYSUIT || k == SK_COPYRANK || list.indexOf(k) >= 0) {
+          continue
+        }
+        if (best < 0 || DRAW_SKILLS[k].unlock > DRAW_SKILLS[best].unlock) {
+          best = k
+        }
+      }
+      if (best >= 0) {
+        list[at] = best
+        names = names == '' ? DRAW_SKILLS[best].name : names + '】【' + DRAW_SKILLS[best].name
+      } else {
+        list.splice(at, 1)
+      }
+    }
+    return names
   }
 
   // 「换一件」那颗钮轮的名单 —— 【红钩】和【串钩】共用一颗钮、一个选择
@@ -8841,6 +8903,16 @@
       trapPile = trapPile.concat([lastPlayed!])
       message.value = message.value + (byFoe ? ' 庄家空钩：' : ' 空钩：') + '它成了陷阱 —— 谁收走它，谁的手牌全部置 0。'
     }
+    // 【照花】【照点】的播报：照这张牌原本的触发（skillsOf 已经换过了，读不出借的是哪件）重算一遍
+    if (lastPlayed != null) {
+      const raw = triggersOf(loadoutOf(byFoe), lastPlayed!.suit, skillRank(byFoe, lastPlayed!))
+      if (raw.indexOf(SK_COPYSUIT) >= 0 || raw.indexOf(SK_COPYRANK) >= 0) {
+        const got = copySwap(byFoe, raw)
+        message.value = message.value + (got != ''
+          ? (byFoe ? ' 庄家照镜：借了你的【' : ' 照镜：借了庄家的【') + got + '】。'
+          : (byFoe ? ' 庄家照镜：你那种槽空着，没借到。' : ' 照镜：庄家那种槽空着，没借到。'))
+      }
+    }
     // 【锈锚】（沉船打捞人专属）：牌库顶 2 张置 0
     if (hasTrigger(skills, SK_DECKZERO)) {
       deckZero(byFoe)
@@ -9866,6 +9938,39 @@
         message.value = message.value + (byFoe
           ? ' 庄家漂白：你手里的 ' + n + ' 张牌失去花色。'
           : ' 漂白：庄家手里的 ' + n + ' 张牌失去花色。')
+      }
+    }
+    // 【封点】（庄家专属，2026-11-04）：对方手里跟对方点数槽同点数的牌都置 0。本来就是 0 点的不动
+    //（布饵人的 0 点槽：置 0 等于没变化 —— 而走 markDead 会让它不再触发 0 点槽，那就不是「没变化」了）
+    if (hasTrigger(skills, SK_PINRANK) && askFirst(SK_PINRANK)) {
+      const hits = slotRankHits(byFoe)
+      const theirs = byFoe ? hand.value : foeHand.value
+      for (let k = 0; k < hits.length; k++) {
+        if (theirs[hits[k]].rank != '0') {
+          markDead(byFoe, hits[k], true, '封点')
+        }
+      }
+    }
+    // 【褪点】（庄家专属，2026-11-04）：同一批牌【失去花色】，照漂白改牌面
+    if (hasTrigger(skills, SK_FADEPOINT) && askFirst(SK_FADEPOINT)) {
+      const hits = slotRankHits(byFoe)
+      const theirs = byFoe ? hand.value : foeHand.value
+      let n = 0
+      for (let k = 0; k < hits.length; k++) {
+        if (theirs[hits[k]].suit != '') {
+          theirs[hits[k]].suit = ''
+          n = n + 1
+        }
+      }
+      if (byFoe) {
+        hand.value = hand.value.slice(0)
+      } else {
+        foeHand.value = foeHand.value.slice(0)
+      }
+      if (n > 0) {
+        message.value = message.value + (byFoe
+          ? ' 庄家褪点：你手里的 ' + n + ' 张牌失去花色。'
+          : ' 褪点：庄家手里的 ' + n + ' 张牌失去花色。')
       }
     }
     if ((hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_UNHOOK)
@@ -13432,6 +13537,33 @@
 
   // 置 0 的唯一入口（死水 / 浑水两条来路共用）〔2026-10-30 从 doDead 抽出来〕。
   // `jackOk`：浑水要「J 也算」。**不用默认参数**（uts 各端编译器表现不一致，见 playFor 那条）
+  // 【封点】/【褪点】挑的那几张：对方手里「点数 = 对方角色卡上印着的点数槽」的牌（0 点槽也算）。
+  // byFoe = 发动的是庄家，「对方」就是玩家（myRole）。对方没选角色（或是闯关庄家，不在 DRAW_ROLES 里）→ 一张没有
+  function slotRankHits(byFoe : boolean) : number[] {
+    const out : number[] = []
+    const r = byFoe ? myRole.value : foeRole.value
+    if (r < 0 || r >= DRAW_ROLES.length) {
+      return out
+    }
+    const ranks : string[] = []
+    const slots = DRAW_ROLES[r].slots
+    for (let s = 0; s < slots.length; s++) {
+      const labels = slotLabels(slots[s])
+      for (let k = 0; k < labels.length; k++) {
+        if (SUITS.indexOf(labels[k]) < 0) {
+          ranks.push(labels[k])
+        }
+      }
+    }
+    const theirs = byFoe ? hand.value : foeHand.value
+    for (let i = 0; i < theirs.length; i++) {
+      if (ranks.indexOf(theirs[i].rank) >= 0) {
+        out.push(i)
+      }
+    }
+    return out
+  }
+
   function markDead(byFoe : boolean, index : number, jackOk : boolean, name : string) {
     const theirs = byFoe ? hand.value : foeHand.value
     if (index < 0 || index >= theirs.length) {
@@ -17126,6 +17258,10 @@
       //
       // ensureFoeKit 是兜底：万一哪条路漏了摇就按关号补一次**并落盘** ——
       // 不落盘的话这一关每次进来都是新的一套，预告就成了假的
+      // 〔2026-11-04〕这一轮的庄家是按难度分档抽的（draw-levels 的 rollFoeOrder）—— 开打前换过难度就按现在的难度重抽（只在第 1、2 关，那两关固定白板）
+      if (ensureFoeOrder(data, difficultyOf(drawSaveSlot()))) {
+        saveDraw(data)
+      }
       if (ensureFoeKit(data)) {
         saveDraw(data)
       }

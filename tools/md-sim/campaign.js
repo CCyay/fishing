@@ -122,12 +122,13 @@ const FOE_ROLES = [
 const FOE_ROLES_THEMED = [
   { name: '试竿学徒', specials: [], slots: [] },
   { name: '游荡钓客', specials: [], slots: [] },
-  { name: '守河老汉', specials: [], slots: [] },
-  { name: '滩头老翁', specials: ['hand'], slots: [] },
-  { name: '回漩摆渡人', specials: ['silt'], slots: [['backwater', 1, false]] },
+  { name: '守河老汉', specials: [], slots: [['unhook', 2, false]] },
+  // 〔2026-11-04 照 draw-levels：太弱的三位加强（台账第六十八节）〕
+  { name: '滩头老翁', specials: ['hand'], slots: [['gift', 1, false]] },
+  { name: '回漩摆渡人', specials: ['silt'], slots: [['backwater', 1, false], ['traitor', 1, false]] },
   { name: '礁石海女', specials: ['pinch'], slots: [['press', 1, false]] },
   { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 1, false], ['pick', 1, false]] },
-  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, false]] },
+  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 2, false]] },
   { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['bleach', 1, false]] },
   { name: '涡心祭司', specials: ['guard'], slots: [['orderpile', 1, false]] },
   { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false], ['zerodrop', 1, false]] },
@@ -141,6 +142,22 @@ const MODELED_SP = ['hand', 'pinch']
 if (process.env.FOE_OVERRIDE) {
   const ov = JSON.parse(process.env.FOE_OVERRIDE)
   for (const k in ov) FOE_ROLES[parseInt(k, 10) - 1].slots = ov[k]
+}
+
+// 〔2026-11-04 · 量测开关〕`FOE_SP_EXTRA`：按关号（1 起）给庄家**额外**挂规矩（rules.js 里实现了的 key），JSON。
+//   例：FOE_SP_EXTRA='{"10":["lend"]}'。只加这一份，庄家原有规矩照旧（只模了添手 / 掐口），所以别的关逐位不动
+const FOE_SP_EXTRA = process.env.FOE_SP_EXTRA ? JSON.parse(process.env.FOE_SP_EXTRA) : {}
+// 〔2026-11-04 · 量测开关〕`FOE_PROBE`：把一张试样庄家**整张**换到 `FOE_PROBE_LEVELS`（默认 3,7,10 = 浅滩 / 河湾 / 深海各一关）上 ——
+//   槽换掉、原来那位的规矩（含模了的添手 / 掐口）一律去掉、只挂试样的规矩（rules = rules.js 认的 key：
+//   jsurge = 逆钩、toll = 过闸、char = 炙水、ban = 禁渔）。量「这张卡放在哪一章合适」用：跟那一章原来几位的胜率比。
+//   槽里的技能可以写成数组 = 技能池：每局从池里随机挑一件（同一张卡上不重复），照 draw-save 的 rollFoeKit。
+//   例：FOE_PROBE='{"name":"深渊君主HD","rules":["jsurge"],"slots":[[["lockcolor","lockdraw","icebomb"],1,true],[["lockcolor","lockdraw","icebomb"],1,false]]}'
+if (process.env.FOE_PROBE) {
+  const probe = JSON.parse(process.env.FOE_PROBE)
+  for (const lv of (process.env.FOE_PROBE_LEVELS || '3,7,10').split(',')) {
+    // 规矩写庄家表里的 key（rev / toll / hand …）—— 跟庄家原卡同一条路走（foeRulesOf / handAdj）
+    FOE_ROLES[parseInt(lv, 10) - 1] = { name: probe.name, specials: probe.rules || [], slots: probe.slots }
+  }
 }
 
 // ---------- 难度：照 draw-levels 的 levelForDiff ----------
@@ -168,13 +185,18 @@ const DIFFS = [
 // 〔2026-11-03 照 draw-levels 的 levelForDiff 重配（用户定）：简单全不记牌、普通第 1~2 关不记牌之后记牌、
 //   困难第 1~6 关记牌之后随机。ease 只留在普通档（「开始记牌」推迟 ease 关），简单 / 困难不吃它〕
 const HARD_RANDOM_FROM = 7
+const HARD_SMART_FROM = 3
 function foeMode(diff, level, ease) {
   const id = level + 1
   if (diff === 'easy') {
     return { random: false, smart: false }
   }
   if (diff === 'hard') {
-    return { random: id >= HARD_RANDOM_FROM, smart: true }
+    // 〔2026-11-04 量具（用户：「困难档前两关要调整」）〕HARD_L12=random（第 1、2 关随机出牌）。不设 = 现行（第 1、2 关不记牌，见下面 HARD_SMART_FROM）
+    if (id <= 2 && process.env.HARD_L12 === 'random') return { random: true, smart: false }
+    // 〔2026-11-04 照 draw-levels 的 HARD_SMART_FROM〕困难第 1、2 关不记牌（HARD_L12=smart 复现旧口径：全程记牌）
+    if (process.env.HARD_L12 === 'smart') return { random: id >= HARD_RANDOM_FROM, smart: true }
+    return { random: id >= HARD_RANDOM_FROM, smart: id >= HARD_SMART_FROM }
   }
   // 〔2026-11-03 量具（用户：「普通可以再往下调，20% 左右」）〕NORMAL_SMART_FROM / NORMAL_RANDOM_FROM：
   //   普通档从第几关起记牌 / 随机出牌（不设 = 现行：第 3 关起记牌、不随机）
@@ -364,17 +386,32 @@ function playerKit(rng, size) {
 // 〔2026-10-29 · 量测开关〕`FOE_BARE=1`：庄家技能全清空、模了的两条特殊技也关 ——
 //   量「只靠削庄家配装」最多能把通关率推到哪（天花板），不是任何一档游戏里的样子
 const FOE_BARE = process.env.FOE_BARE === '1'
+// 庄家规矩 key → rules.js 认的 key（逆钩跟玩家侧【逆涌】同一个效果）。添手 / 掐口走 handAdj，不在这儿
+function foeRulesOf(specials) {
+  return specials.filter(function (k) { return k !== 'hand' && k !== 'pinch' }).map(function (k) { return k === 'rev' ? 'jsurge' : k })
+}
+// 【封竿】封的点数 = 庄家第一个点数槽摇到的那个标签（照 draw-save 的 foeSealRank）；foeKit 顺手记下
+let foeKitSeal = ''
 function foeKit(rng, level) {
   const lo = R.emptyLoadout()
+  foeKitSeal = ''
   if (FOE_BARE) return lo
   const takenS = []
   const takenR = []
   const role = FOE_ROLES[level]
+  const picked = []
   for (let i = 0; i < role.slots.length; i++) {
-    const key = role.slots[i][0]
+    let key = role.slots[i][0]
     const count = role.slots[i][1]
     const suit = role.slots[i][2]
+    // 技能池（FOE_PROBE 那种写法）：从池里挑一件这张卡上还没用过的
+    if (Array.isArray(key)) {
+      const free = key.filter(function (k) { return picked.indexOf(k) < 0 })
+      key = R.pickOne(rng, free)
+    }
+    picked.push(key)
     const skill = R.SKILLS.findIndex(function (s) { return s.key === key })
+    if (skill < 0) throw new Error('庄家技能 key 查不到：' + key)
     for (let n = 0; n < count; n++) {
       if (suit) {
         const free = R.SUITS.filter(function (s) { return takenS.indexOf(s) < 0 })
@@ -385,6 +422,7 @@ function foeKit(rng, level) {
         const free = R.SKILL_RANKS.filter(function (r) { return takenR.indexOf(r) < 0 })
         const r = R.pickOne(rng, free)
         takenR.push(r)
+        if (foeKitSeal === '' && FOE_ROLES[level].specials.indexOf('seal') >= 0) foeKitSeal = r
         lo.rankOwner[R.SKILL_RANKS.indexOf(r)] = skill
       }
     }
@@ -428,7 +466,11 @@ function levelOdds(diff, level, opt) {
       // `myRole` 不传 = −1 = `hasSpecial` 恒 false = **一件常驻技都不模**，
       // 那是 2026-10-20 之前的样子，也是默认档（PLAYER_SP 关着）
       myRole: PLAYER_SP ? PLAYER_ROLE_AT : -1,
-      handAdj: adj
+      handAdj: adj,
+      // 〔2026-11-04〕庄家自己那张卡上的规矩也挂上（rules.js 补齐了淤滩 / 偏流 / 硬壳 / 枯水 / 守滩 / 封竿 / 走水 / 挑潮 / 再钩 / 炙水 / 过闸；
+      //   逆钩 = jsurge）。FOE_RULES=off 退回旧口径（只模添手 / 掐口）
+      foeRules: (process.env.FOE_RULES === 'off' || FOE_BARE ? [] : foeRulesOf(FOE_ROLES[level].specials)).concat(FOE_SP_EXTRA[String(level + 1)] || []),
+      sealRank: foeKitSeal
     }, AI)
     const diffScore = G.score[R.ME] - G.score[R.FOE]
     margin += diffScore
@@ -553,3 +595,11 @@ function main() {
 }
 
 main()
+
+// 〔2026-11-04〕渔政巡查员那两件的诊断口（CLAUDE.md 第四节：新机制配「它做了几次」）—— 只有挂上了才打
+process.on('exit', function () {
+  const p = R.PROTO_STAT.patrol
+  const fr = R.PROTO_STAT.foeRule
+  if (fr) console.log('诊断（庄家规矩，三档合计）：炙水挡 ' + fr.charLocked + ' · 硬壳挡 ' + fr.shellLocked + '（都含 AI 试算）· 过闸 ' + fr.toll + ' 张 · 走水 ' + fr.leak + ' 张 · 守滩垫 ' + fr.guard + ' · 再钩 ' + fr.again + ' · 挑潮 ' + fr.pick + ' · 枯水不补 ' + fr.dryup)
+  if (p) console.log('诊断：封点发动 ' + p.pinFires + ' 次、置 0 ' + p.pinned + ' 张 · 褪点发动 ' + p.fadeFires + ' 次、失去花色 ' + p.faded + ' 张（三档难度合计）')
+})

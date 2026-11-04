@@ -44,6 +44,8 @@ import {
   // 庄家角色：按关号查哪一张卡（技能名单印在卡上，标签这边摇）
   foeRoleAt,
   rollFoeOrder,
+  foeOrderDiff,
+  foeSkillPool,
   foeNumIn,
   foeRoleHas,
   DIFF_EASY,
@@ -302,7 +304,7 @@ export function newDrawSave(label : string) : DrawSave {
   data.label = label
   // 第 1 关的庄家当场摇好 —— 第 1 关不带技能，所以摇出来是空的，
   // 可这条路得走一遍，不然 ensureFoeKit 每次都以为「还没摇过」
-  data.foeOrder = rollFoeOrder()
+  data.foeOrder = rollFoeOrder(difficultyOf(drawSaveSlot()))
   rollFoeKit(data, 1)
   return data
 }
@@ -338,7 +340,7 @@ export function resetDrawRun(data : DrawSave) {
   // 庄家那一套也重摇 —— 新一轮就是新的十二道题。
   // 不重摇的话上一轮第 12 关那套会跟到新一轮的第 1 关。
   // 先按章节重洗这一轮碰到哪些庄家（见 rollFoeOrder）
-  data.foeOrder = rollFoeOrder()
+  data.foeOrder = rollFoeOrder(difficultyOf(drawSaveSlot()))
   rollFoeKit(data, 1)
 }
 
@@ -364,6 +366,10 @@ export function rollFoeKit(data : DrawSave, level : number) {
   const slots : string[] = []
   const takenRanks : string[] = []
   const takenSuits : string[] = []
+  // 〔2026-11-04〕系列庄家的槽写着 FOE_POOL_SKILL（−1）：从技能池里挑一件（同一张卡不重复），
+  // 挑到的 key 跟标签存在同一格里：「♣@lockcolor」（FOE_SKILL_MARK 后面是 key）—— 照「摇完就存住」那条，商店预告和对局读到的是同一件
+  const pool = foeSkillPool(role)
+  const picked : number[] = []
   for (let i = 0; i < role.slots.length; i++) {
     const one = role.slots[i]
     const taken = one.suit ? takenSuits : takenRanks
@@ -373,10 +379,53 @@ export function rollFoeKit(data : DrawSave, level : number) {
       taken.push(labels[j])
       text = text + (j == 0 ? '' : ' ') + labels[j]
     }
+    if (one.skill < 0) {
+      const free : number[] = []
+      for (let k = 0; k < pool.length; k++) {
+        if (picked.indexOf(pool[k]) < 0) {
+          free.push(pool[k])
+        }
+      }
+      if (free.length > 0) {
+        const sk = free[Math.floor(Math.random() * free.length)]
+        picked.push(sk)
+        text = text + FOE_SKILL_MARK + DRAW_SKILLS[sk].key
+      }
+    }
     slots.push(text)
   }
   data.foeSlots = slots
 }
+
+// 存档里一格庄家槽：「标签」或者「标签@技能 key」（系列庄家摇到的那件）
+const FOE_SKILL_MARK : string = '@'
+function foeSlotLabelText(cell : string) : string {
+  const at = cell.indexOf(FOE_SKILL_MARK)
+  return at < 0 ? cell : cell.substring(0, at)
+}
+// 第 i 个槽里是哪件技能：卡上印死的，或者存档里摇到的那件（摇丢了 / 老档 → −1 = 空槽）
+export function foeSlotSkillOf(data : DrawSave, role : FoeRole, i : number) : number {
+  if (role.slots[i].skill >= 0) {
+    return role.slots[i].skill
+  }
+  if (i >= data.foeSlots.length) {
+    return -1
+  }
+  const cell = data.foeSlots[i]
+  const at = cell.indexOf(FOE_SKILL_MARK)
+  return at < 0 ? -1 : skillIndexOf(cell.substring(at + 1))
+}
+
+// 开打之前对一次难度〔2026-11-04〕：这一轮的庄家是按哪个难度抽的记在 foeOrder 末尾（见 rollFoeOrder）。
+// 难度只能在第 1 关开打前换（runFresh），而第 1、2 关固定白板 —— 所以还在前两关、难度又对不上，就按现在的难度重抽，不影响已经摇好的那一关
+export function ensureFoeOrder(data : DrawSave, diff : number) : boolean {
+  if (foeOrderDiff(data.foeOrder) == diff || data.runLevel > FOE_FIXED_LEVELS_SAVE) {
+    return false
+  }
+  data.foeOrder = rollFoeOrder(diff)
+  return true
+}
+const FOE_FIXED_LEVELS_SAVE : number = 2
 
 // 这一关庄家摇出来的那套配装。角色从关号查，标签从存档读 ——
 // 所以**同一关每次读到的是同一套**（那正是「摇完存住」的全部意义）
@@ -385,8 +434,8 @@ export function foeKitOf(data : DrawSave, level : number) : DrawKit {
   const slots : KitSlot[] = []
   for (let i = 0; i < role.slots.length && i < data.foeSlots.length; i++) {
     slots.push({
-      skill: role.slots[i].skill,
-      labels: slotLabels(data.foeSlots[i])
+      skill: foeSlotSkillOf(data, role, i),
+      labels: slotLabels(foeSlotLabelText(data.foeSlots[i]))
     } as KitSlot)
   }
   // role 传关号 - 1（DRAW_FOE_ROLES 的下标）。
@@ -416,7 +465,7 @@ export function foeSealRank(data : DrawSave, level : number) : string {
     if (role.slots[i].suit) {
       continue
     }
-    const labels = slotLabels(data.foeSlots[i])
+    const labels = slotLabels(foeSlotLabelText(data.foeSlots[i]))
     if (labels.length > 0) {
       return labels[0]
     }
