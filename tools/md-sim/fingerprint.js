@@ -231,17 +231,8 @@ const CONSTS = [
   //   所以它跟 SURGE_LAYERS 不同级：改它等于改技能文案。
   // **模拟器那边是 rules.js 的 JSURGE_HEAP，两个数必须一样**
   { file: 'draw-skills.uts', name: 'JSURGE_HEAP' },
-  // 薪潮自带的【堆牌】给**自己**取几张〔2026-10-28 从 FUEL_TAG 改名而来，
-  // 同日从 2 改成 1〕。同上，这个数也写在 desc 原文里
-  //（现行 desc：「自带【燃烧】；堆牌1，对方堆牌1」）。
-  // 模拟器那边是 rules.js 的 FUEL_HEAP
-  { file: 'draw-skills.uts', name: 'FUEL_HEAP' },
-  // 薪潮自带的【对方堆牌】给**对方**堆几张〔2026-10-28 加〕。
-  // ⚠ **两个数必须分开跟踪** —— 它们相加相等的档位（比如 2+0）
-  //   跟现行档（1+1）实测差 1.64 分，而「和」一样。
-  //   盯住和不盯住两项，正好漏掉这件技能最值钱的那一半。
-  // 模拟器那边是 rules.js 的 FUEL_HEAP_FOE
-  { file: 'draw-skills.uts', name: 'FUEL_HEAP_FOE' },
+  // 〔FUEL_HEAP / FUEL_HEAP_FOE 2026-11-05 删：薪潮换成「抽 1 张牌，给手牌全部带上【燃烧】」，不再堆牌。
+  //   模拟器那边两个旋钮默认翻成 0（留着复现旧版用）。留着只会每次报 MISSING〕
   // 〔DECK_PLAY 撤掉了（2026-10-15 当天加、当天删）——「一局只进场 52 张」
   //   那道上限随终局规则一起退场。模拟器那边对应的 DECK_SIZE 也删了。
   //   留着只会每次报一条 MISSING〕

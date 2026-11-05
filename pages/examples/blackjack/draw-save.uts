@@ -71,6 +71,8 @@ import {
   skillKeyAt,
   // 角色专属技能（布饵人的空钩）：商店不上；固定槽不许换（见 equipSkill / embedSkill）
   isRoleOnlySkill,
+  // 专属 = 角色专属 + 庄家专属〔2026-11-05〕：商店不上、不许嵌
+  isExclusiveSkill,
   roleFixedSkill
   // 原先还引着一串旧模型的东西（rollPlace / rollKitFor / rankCapOf /
   // emptyLoadout / isEquipped / coverageText / SUIT_COUNT /
@@ -1200,7 +1202,7 @@ export function rollShelf(data : DrawSave, keepFix : boolean) {
   let freeSkills : number[] = []
   for (let k = 0; k < DRAW_SKILLS.length; k++) {
     // 角色专属的不卖
-    if (!hasSkill(data, k) && !isRoleOnlySkill(k)) {
+    if (!hasSkill(data, k) && !isExclusiveSkill(k)) {
       freeSkills.push(k)
     }
   }
@@ -1632,7 +1634,7 @@ export function equipSkill(data : DrawSave, skill : number, at : number) : strin
     return ''
   }
   // 固定槽（专属技能）不许换；专属技能也不许装去别的槽
-  if (roleFixedSkill(data.role, at) >= 0 || isRoleOnlySkill(skill)) {
+  if (roleFixedSkill(data.role, at) >= 0 || isExclusiveSkill(skill)) {
     return ''
   }
   const from = slotOfSkill(data, skill)
@@ -1740,7 +1742,7 @@ export function embedSkill(data : DrawSave, skill : number, at : number) : strin
     return ''
   }
   // 固定槽（专属技能）不许换；专属技能也不许嵌去别的槽
-  if (roleFixedSkill(data.role, at) >= 0 || isRoleOnlySkill(skill)) {
+  if (roleFixedSkill(data.role, at) >= 0 || isExclusiveSkill(skill)) {
     return ''
   }
   const was = data.slotSkills[at]

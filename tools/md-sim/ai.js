@@ -448,6 +448,10 @@ const JACK_HOLD = process.env.JACK_HOLD ? parseInt(process.env.JACK_HOLD, 10) : 
 //      所以这一翻把后两个的默认侧也改了 —— 它们默认是 0 / 0，
 //      不设就没区别，可**一旦设了就是双侧**，跟 10-22 之前的同名命令不同口径。
 const HOLD_BOTH = process.env.HOLD_BOTH !== '0'
+// 「屯」打法：技能表项带 hold 的那几件（rules.js holdStateOf）。见 pickCardCore 挑饵那一段。
+// 〔2026-11-04 用户定：**默认开** —— 【升钩】定价按屯的数（A +3.03）。SKILL_HOLD=0 关掉（复现不屯的数，升钩 +1.51）；
+//   旧名 NJ_HOLD=0 也认〕
+const SKILL_HOLD = process.env.SKILL_HOLD !== '0' && process.env.NJ_HOLD !== '0'
 // 哪一侧按这套打法走。**默认两侧**（2026-10-23 起；之前是只有 ME）
 function holdSide(side) { return HOLD_BOTH || side === R.ME }
 
@@ -1372,41 +1376,9 @@ function comboTally(G, side, at) {
   }
 }
 
-// ---------- 【上牌区】：被迫从这一区出牌时挑哪张〔2026-10-26〕 ----------
-//
-// **不复用 `pickCard`**，而这是个有意的取舍，不是偷懒：
-// `pickCardCore` 从头到尾按「手牌下标」在做事 —— 养堆忍 J、攒组合、
-// 映照借脸、挑饵、`randomFree` 兜底，每一条都读 `G.hands[side]`。
-// 把它改成「下标可能指向另一个数组」要动七条 return 路径，
-// 而那正是这个项目反复栽的那个形状（「复制一份逻辑，两份必然分叉」——
-// 只不过这次分叉的会是现役那份）。
-//
-// 所以这儿只实现**这一区真正需要的那条判据**：规则说「必须出 1 张」，
-// 所以没有「忍不忍」的决策空间，只剩「哪张收得最多」。
-// 用的尺子是 `pickCardCore` 主循环那把**同一把**（`catchStart` +
-// `catchCountAt`），不另写一份。
-//
-// ⚠ 已知的欠缺，**记下来别当成它量准了**：
-//   上牌区的牌不过 `JACK_HOLD`（养堆忍 J）那道闸 —— 被迫出牌时没得忍，
-//   所以那是规则本身的后果，不是 AI 的缺口；
-//   但「平手时花掉哪张更便宜」（映照那条 `spend`）这儿**没接** ——
-//   真要有技能往这一区塞牌，这是第一个要补的地方。
-//   `return 0` 的兜底（全都收不到时出第一张）同理：它是**可复现**的，
-//   不是最优的
-function boardPick(G, side) {
-  const zone = G.boardZone[side]
-  let best = 0
-  let bestCaught = -1
-  for (let i = 0; i < zone.length; i++) {
-    const card = zone[i]
-    const skills = R.skillsOf(G, side, card)
-    const at = R.catchStart(G, card, side, skills, false)
-    const caught = at >= 0 ? R.catchCountAt(G, card, side, skills, at) : 0
-    if (caught > bestCaught) { bestCaught = caught; best = i }
-  }
-  return best
-}
+// 〔【上牌区】被迫出牌时挑哪张（`boardPick`）2026-11-05 跟上牌区一起撤了〕
 
+const MARK_AI = process.env.MARK_AI !== 'off'
 function pickCardCore(G, side) {
   // 关卡表的 random：连钓都不挑（照源码 foePickCard 开头那一支）
   if (G.random[side]) return randomFree(G, side)
@@ -1579,8 +1551,26 @@ function pickCardCore(G, side) {
       caught = harvest
       spend = harvest
     }
+    // 〈marktag〉【A】：打出时先收走堆上带【A】的牌，再判匹配 —— 按两笔相加估
+    //（重叠的那几张会重算，偏乐观）。MARK_AI=off = AI 不懂这件（量下限用）
+    if (MARK_AI) {
+      const marked = R.markCount(G, card, skills)
+      if (marked > 0) {
+        // v3 + take：它自己被收走、不再判普通匹配 → 收成**就是**这一笔（顶替，不相加）
+        if (R.MARK_RULE === 'v3' && R.MARK_SELF === 'take') { caught = marked; spend = marked }
+        else { caught += marked; spend += marked }
+      }
+    }
+    // 新版【燃烧】（BURN_RULE=mark）：会收走的话，收成**就是**那一笔（它自己被收走、不再判匹配 → 顶替不相加）
+    const burnTake = R.burnMarkCount(G, card, skills)
+    if (burnTake > 0) { caught = burnTake; spend = burnTake }
+    // 〈burnall〉：堆上有火 → 收走那一摞、它自己也走、不再匹配 → 顶替
+    const allTake = R.burnAllCount(G, card, skills)
+    if (allTake > 0) { caught = allTake; spend = allTake }
     // 〈trapzero〉这一手会收到陷阱（它自己就是陷阱、或者那一段里压着一张）→ 折成负收成（TRAP_AI=0 关掉）
     caught = caught - R.trapPenalty(G, side, card, skills, at, caught)
+    // 〈burnbait〉打法（用户）：「不要自己去匹配此卡」—— 这一段里有它（或打出的就是它）就当收不到
+    caught = caught - R.burnBaitPenalty(G, side, card, skills, at, caught)
     // ⚠ **比的是分数，不是张数**〔2026-10-22〕。`SCORE_BANDS` 关着时
     //   `scoreOf` 逐字返回 n，所以这一行等价于原来的 `caught > bestCaught`；
     //   开着时 f(2)=f(3) 会打平，而**平手取张数多的那张** ——
@@ -1740,6 +1730,27 @@ function pickCardCore(G, side) {
       fewest = Math.min(fewest, baitRisk(G, side, hand[i]))
     }
   }
+  // ---------- 「屯」打法〔2026-11-04 用户：「屯在手牌直到条件符合或堆上有匹配才打出」；同日改成通用标注〕 ----------
+  //   走到挑饵这一步 = 这一手没牌钓得着。带 hold 标注的牌条件成立就先打它（钓得着的那一支在上面主循环里照常比收成）；
+  //   条件不成立就不当饵扔 —— 手里只剩这种牌时 pick = −1，由 randomFree 兜底（= 忍不住，记 forced）。
+  //   装配里没有要屯的技能就整段跳过（不多调 skillsOf —— 它里面有原型计数口，多调会多记）
+  const heldAt = []
+  if (SKILL_HOLD && R.loHasHold(lo)) {
+    const st = R.PROTO_STAT.hold
+    let readyAt = -1, readyScore = 99
+    let anyHeld = false
+    for (let i = 0; i < hand.length; i++) {
+      const card = hand[i]
+      if (card.rank === R.JACK || R.isFrozen(G, card)) continue
+      const hs = R.holdStateOf(G, side, i)
+      if (hs === 'ready') {
+        const s = baitRisk(G, side, card)
+        if (s < readyScore) { readyScore = s; readyAt = i }
+      } else if (hs === 'hold') { heldAt[i] = true; anyHeld = true }
+    }
+    if (readyAt >= 0) { st.readyPlay++; return readyAt }
+    if (anyHeld) st.held++
+  }
   let pick = -1
   // ---------- 【养堆】忍了之后挑饵，**要优先挑钓不着的那张**〔2026-10-22 补的漏〕 ----------
   //
@@ -1789,8 +1800,11 @@ function pickCardCore(G, side) {
     // 理由见 `comboHeldAt` 那一行的 ⚠（`COMBO_HOLD_IDLE` 要读 `caught`，
     // 而这个循环算不出 `caught`）
     if (comboHeldAt[i]) continue
+    if (heldAt[i]) continue
     let score = baitRisk(G, side, card) * 1.0
     const skills = R.skillsOf(G, side, card)
+    // 〈burnbait〉打法「不要自己去匹配此卡」：当饵扔出去也会钓到它的话排到最后（分层不过滤：全是这种牌时照样得打一张）
+    if (R.burnBaitPenalty(G, side, card, skills, R.catchStart(G, card, side, skills, false), 1) > 0) score += 50
     // ---------- 【窥视】【照水】【染水】要**带条件**才算「想发动」 ----------
     //
     // 这张列表里其余十几件都是**无条件有用**的（收牌、动手牌、改上限…），
@@ -1998,6 +2012,7 @@ function pickCardCore(G, side) {
     if (pickKeys > 0) G.stat.anchorBury[side]++
     else G.stat.anchorNone[side]++
   }
+  if (pick < 0 && heldAt.length > 0) R.PROTO_STAT.hold.forced++
   return pick >= 0 ? pick : randomFree(G, side)
 }
 
@@ -2218,7 +2233,7 @@ function surgePick(G, side) {
 }
 
 module.exports = {
-  pickCard, boardPick, swapPick, pickDeck, tideSink, freezePick, takePick, twinPick,
+  pickCard, swapPick, pickDeck, tideSink, freezePick, takePick, twinPick,
   deadPick, surgePick, outsideCount, baitRisk, faceOfValue,
   // 打印用：`sim.js` 那一行要标「已拆 / 没拆」。**从这儿取，别在 sim.js 里
   // 再写一遍 `process.env.HOLD_EV_SPLIT === '1'`** —— 默认值一翻那份副本就说谎了

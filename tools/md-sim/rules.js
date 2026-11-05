@@ -295,7 +295,8 @@ function ruleTag() {
   return (now ? '现行' : '⚠ 非现行') + '（' + flags.join(' · ') + '）'
 }
 
-const TIDE_LOOK = 2
+// 〔2026-11-05 用户「提升下观潮，查看 N 张」：改成可调，默认 2 = 现行 desc〕
+const TIDE_LOOK = process.env.TIDE_LOOK ? parseInt(process.env.TIDE_LOOK, 10) : 2
 const PICK_LOOK = 5
 // 〔2026-11-03 用户定换新版，默认翻成 on = 游戏里那一版；PICK_HAND=0 复现旧版〕
 const PICK_HAND = process.env.PICK_HAND !== '0'
@@ -491,7 +492,8 @@ const SKILLS = [
   // 估 ≈+8~9（超档一倍），所以这一轮是**量它该削到哪一档**，不是量它能不能过。」
   // ⚠ 那个「估 ≈+8~9」实测只有 +1.72（v1），**差 5 倍且方向相反** ——
   //   它是这个项目「禁止估算」那条规矩的原始出处之一，留着当证据
-  { key: 'fuel', name: '薪潮' },
+  // 〔2026-11-05 换效果：「抽 1 张牌，给手牌全部带上【燃烧】」—— 量具默认值已翻成这一版（FUEL_* 那几段）〕
+  // 〔🪦 薪潮 2026-11-05 下架（用户定）—— 条目删掉、SK.FUEL 钉 SK_GONE。上面那几段讲它的注释过去时读；FUEL_* 那几段旋钮留着也不会跑〕
   // 【分饵】（原型，2026-10-16 · **模拟器专属**）：
   // 看牌库顶 GIFT_LOOK 张，**给自己和对手各选 1 张加进手牌**，其余放回牌库底。
   //
@@ -1088,6 +1090,23 @@ const SKILLS = [
   // 〈tojack〉〔2026-11-03 用户要评价「1 张手牌变成 J」〕：打出时把自己 1 张手牌永久变成 J（AI 挑最没用的那张 —— ai.swapPick；已经是 J 的不挑）。
   //   照置 0 那一路直接改牌面（rank → 'J'、value → 11、点数卡清掉）。TOJ_PICK=best：挑最有用的那张（对照）
   { key: 'tojack', name: '〈tojack〉' },
+  // 〈keyjack〉〔2026-11-04 用户要评价「给全部手牌带上【钥匙】；【钥匙】：带【钥匙】的牌再次带上【钥匙】时变成 J」〕：
+  //   打出时手里每张：已带钥匙 → 变成 J（照〈tojack〉改牌面）；没带 → 带上。G.keyTag = 带钥匙的牌（Set，按牌认）
+  { key: 'keyjack', name: '〈keyjack〉' },
+  // 〈nextjack〉〔2026-11-04 用户要评价「将手牌 1 张大此牌 1 个顺位（跳过 J）的牌变成 J」〕：顺位 A→2→…→10→Q→K→A（J 跳过，0 不算 —— 用户定）。
+  //   打出 J / 0 点 / 无点数不发动；有几张挑「现在钓不到东西」的那张（照〈tojack〉对子版）。NJ_WRAP=0：K 不接 A（对照）。NJ_DIR=both：差 1 个顺位（大小都算）
+  // 〔2026-11-04 用户定上架为【升钩】（单向、K 接 A、变成的 J 明置）—— 默认档 = desc 那一档；NJ_DIR=both / NJ_WRAP=0 是没选的对照〕
+  //   打法要屯（hold 标注，见 holdStateOf）：留着它，等手里凑上大 1 个顺位的牌或者堆上有匹配再打
+  { key: 'nextjack', name: '升钩', hold: nextJackReady },
+  // 〈givejack〉〔2026-11-04 用户要评价「将顺位差 1（跳过 J）的手牌给对方，从牌组获取 1 张 J」〕：顺位表跟升钩共用（J 跳过、0 不算、K 接 A），默认双向。
+  //   给哪张：照倒饵 foe 那把尺子（对方钓不着的优先，同分给点数小的）；给法照倒饵（他知道是哪张）。拿 J 照〈fetchj〉（牌库顶往下找第一张，明置）。
+  //   〔用户定「没给不能拿」〕默认：没有能给的牌就整件不发动（不拿 J）—— 要屯，所以挂 hold。GJ_NEED=0 = 两句各自结算、给不出也照拿 J（对照，不挂 hold）。GJ_DIR=up：只算大 1 个顺位
+  // 〈flipjack〉〔2026-11-05 用户：「从牌组翻 N 张，如果有 J 则全部拿走。否则……」按这个设计并跑分〕：
+  //   翻牌库顶 FJ_N 张（明的）。有 J → FJ_TAKE=all 翻出的全部拿进手牌（默认）/ jack 只拿 J；
+  //   没 J → FJ_ELSE=none 什么都不拿（对照）/ draw 洗回后摸 1 张 / pick 挑 1 张拿走（照择饵的 ai.pickDeck）。
+  //   没拿走的一律洗回（不放底 —— 免得牌库底一直是已知的牌）
+  { key: 'flipjack', name: '〈flipjack〉' },
+  { key: 'givejack', name: '〈givejack〉', hold: process.env.GJ_NEED !== '0' ? giveJackReady : undefined },
   // 〈nosteal〉〔2026-11-03 用户要评价：机制 d「此牌不能抢牌」+ 技能「给对方 1 张手牌带上 d」〕
   //   NOSTEAL_PICK=blind（默认，盲选）| view（看了挑：J 优先，其次现在钓得着的）。G.noSteal = 带 d 的牌（Set，按牌认）
   { key: 'nosteal', name: '〈nosteal〉' },
@@ -1144,17 +1163,9 @@ const SKILLS = [
   //     **N 是死旋钮**：归零 0.77 → 1.91 张/次，凑成 66.1% → 60.2%，够着恒 2.05 张 —— 两头正好抵掉。
   //     N=0 就是零吃本身。比零吃高 0.1~0.4，单格都没过 2σ_diff
   { key: 'minus2n', name: '〈minus2n〉' },
-  // ---------- 2026-10-29 夜 · 用户要量：「选 1 张手牌放进你的上牌区」（进《速查》第四节单效果）----------
-  //〈boardself〉【上牌区】第一件「进自己的区」的载体（顶钩是进对方的，已删）。
-  //   挪在 afterPlay（回合末补牌之前）→ 补牌补回一张 = **多一张牌**；代价是下一手被锁（强制从区里出）。
-  //   局长不变：多摸的那张，下一手不出手牌就抵回来（按整回合算）。
-  //   挑哪张 BS_PICK：rand / worst（现在打收得最少）/ best（现在打收得最多）/ jack（有 J 先放 J，否则 best）
-  //   ⚠ 两项量不准：①区里的牌**公开**，对手看得见 —— ai.js 不读明牌，**工具量不出**；
-  //     ②「锁时机」—— AI 一步贪心没有持牌时机这一维，数是**下限**（顶钩那节同一条）
-  //   诊断口 PROTO_STAT.boardself + 现成的 PROTO_STAT.board（forced / gotSum = 被锁那一手实际收几张）
-  //   2026-10-29 夜实测（R6 · one · A 槽 · 20000 局 · se 0.15）：worst +0.57 / rand +0.30 / best −1.08 / jack −1.07；
-  //     K 槽 rand +0.21 / jack −1.00。锁好牌是负的、锁废牌才是正的；最好一档低于下限 0.6。台账第六节
-  { key: 'boardself', name: '〈boardself〉' },
+  // 〔原型〈boardself〉「选 1 张手牌放进你的上牌区」（R6 A 最好一档 worst +0.57，台账第六节）和
+  //  〈boardfoe〉「查看对方手牌，选 1 张加入对方上牌区」（11-05 复活的顶钩，配 BOARD_HOLD 量）
+  //  跟【上牌区】一起撤了 〔2026-11-05 用户定「去掉上牌区」，游戏和模拟器一起撤〕。常量钉成 SK_GONE〕
   // ---------- 2026-10-29 深夜 · 用户要评价的三件（围绕「收走 0 点牌」）----------
   // 三件都「置 0」（它自己落下就是 0 点，valuesOf 给 [0]）。K = 落堆后堆上 0 点牌的张数（含它自己，所以 K ≥ 1）。
   // 【置 0，收 0】= 〈atag〉的【b】（G.zeroKey）：特殊匹配（用户 10-29 确认），判在普通匹配之前、不能被抢、
@@ -1195,14 +1206,8 @@ const SKILLS = [
   //     = 〈fadesplit〉那一套（FS_PICK 默认 rand）。key / 名字不动（照薪潮重做）。旧效果的数 A +3.10 作废；
   //     旧效果要复现走〈bottomharvest〉BZH_REF=firstlive BZH_CASH=tag。新效果 R7 A +3.69 / 7 +3.90 / K +4.12 / ♥ +13.27
   // 〔【褪递】`fadetag` 2026-10-30 下架（用户定）〕
-  //〈fadeboard〉「【褪色】；0 点数数量的对方手牌置 0 并加入上牌区」〔2026-10-29 深夜 · 用户要评价〕
-  //   它置 0 → fadeLand → K = 堆上 0 点牌张数（含它）→ 对方 K 张手牌（挑法照死水 ai.deadPick，J 不挑）
-  //   置 0（doDead）并挪进**他自己的**上牌区 —— 他之后每回合必须先从那儿出一张。
-  //   FB_CAP 上限（默认不设；2 = 死水那把尺子）· FB_BOARD=0 只置 0 不挪（对照：「挪上牌区」那半句值多少）
-  //   诊断口 PROTO_STAT.fadeboard：fires / kSum / killed / boarded；被锁那几手收几张看现成的 PROTO_STAT.board
-  //   🔴 2026-10-29 深夜实测（R7 · one · 20000 局）：A −1.90 / 7 −2.00 / K −2.01 / ♥ −8.91；FB_CAP=2 A −1.38；FB_BOARD=0 A +0.84。
-  //     挪出他的手 = 回合末补牌补回来 → 废牌不再卡他的手牌位，还白送他 K 次摸牌。台账二十五·辛
-  { key: 'fadeboard', name: '〈fadeboard〉' },
+  // 〔原型〈fadeboard〉「【褪色】；0 点数数量的对方手牌置 0 并加入上牌区」（R7 A −1.90，台账二十五·辛）
+  //  跟【上牌区】一起撤了 〔2026-11-05 用户定「去掉上牌区」，游戏和模拟器一起撤〕。常量钉成 SK_GONE〕
   //〈fadesplit〉「对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】」〔2026-10-29 深夜 · 用户要评价〕
   //   【褪色】标签（G.fadeKey，不分主人）：带它的牌打出时置 0（valuesOf），落堆后走 fadeLand。打出那一手用掉（endPlay 的 dropKeys），
   //   洗回 / 换主人也摘（dropKeys）。对方那张：desc 没写「翻开」→ **随机**（FS_PICK=rand，默认；照塞墙）/ best（ai.deadPick，= 多一个「翻开」）。
@@ -1441,6 +1446,20 @@ const SKILLS = [
   { key: 'extraturn', name: '〈extraturn〉' },
   { key: 'jointag', name: '〈jointag〉' },
   { key: 'solotag', name: '〈solotag〉' },
+  // 〈marktag〉【A】〔2026-11-05 · 用户提〕「【A】，1 张手牌带上【A】」。见 markStep
+  { key: 'marktag', name: '〈marktag〉' },
+  // 〈burnif〉〔2026-11-05 · 用户「评价 堆上有【燃烧】时此牌带上【燃烧】，否则手牌2张带上【燃烧】」〕见 burnIfFor
+  { key: 'burnif', name: '〈burnif〉' },
+  // 〈burnnext〉〔2026-11-05 · 用户「评价 【燃烧】，获取下一张」→ 改口「【燃烧】，如果没有收牌则获取下一张」〕见 burnNextFor
+  { key: 'burnnext', name: '〈burnnext〉' },
+  // 〈burnall〉〔2026-11-05 · 用户「评价 堆上有【燃烧】则全部收走，否则1张手牌带上【燃烧】。这个要屯牌」〕见 burnAllFor。屯：堆上有火才打
+  // ⚠ 屯的是**带火的手牌**，不是它（用户同日纠正：「要屯的是带【燃烧】的牌」）—— 见 holdStateOf 里 BURNALL_HOLD 那一支。
+  //   BURNALL_HOLD=self 复现第一版（屯它自己、堆上有火才打：A −1.44，屯死了）
+  // 〈burnbait〉〔2026-11-05 · 用户「评价 此牌不是因燃烧被收走时，给对方手牌带上燃烧」〕见 burnBaitFire；打法「不要自己去匹配此卡」= burnBaitPenalty
+  { key: 'burnbait', name: '〈burnbait〉' },
+  // 〈burnswap〉〔2026-11-05 · 用户「评价 无点数，1张手牌带上燃烧。此牌被带上【燃烧】时换成给1张手牌带上【燃烧】」〕见 burnTagAfter
+  { key: 'burnswap', name: '〈burnswap〉' },
+  { key: 'burnall', name: '〈burnall〉', hold: process.env.BURNALL_HOLD === 'self' ? burnAllReady : undefined },
   // 〈rangematch〉【区间匹配】〔2026-11-01 · 用户要量〕见 rangeWanted
   { key: 'rangematch', name: '〈rangematch〉' },
   // 〈rangetag〉「置 0，1 张手牌带上【区间匹配】」〔2026-11-02 · 用户要量〕见 rangeTagFor
@@ -2103,7 +2122,7 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: skAt('boardself'), ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: skAt('fadeboard'), FADESPLIT: skAt('fadesplit'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
   HEAP: skAt('heap'), HEAPDRAFT: skAt('heapdraft'), BOTHDRAFT: skAt('bothdraft'), HEAPKEY: skAt('heapkey'), WALLSUIT: skAt('wallsuit'), WALLSEAL: skAt('wallseal'),
@@ -2214,7 +2233,8 @@ const SK = {
   // 引潮 2026-10-28 删（见 SKILLS 表那段墓碑）。⚠ 钉死的只是**这一件**，
   // `surgeFor` / `surgeLayer` 那套机制还被六件在用
   SURGE: SK_GONE,
-  FUEL: skAt('fuel'),
+  // 〔薪潮 2026-11-05 下架 → SK_GONE〕
+  FUEL: SK_GONE,
   GIFT: skAt('gift'),
   BRIM: SK_GONE, SWAPFLOW: skAt('swapflow'),
   ICESURGE: skAt('icesurge'),
@@ -2252,6 +2272,12 @@ const SK = {
   REFLECTX: skAt('reflectx'),
   EXTRATURN: skAt('extraturn'),
   JOINTAG: skAt('jointag'),
+  MARKTAG: skAt('marktag'),
+  BURNIF: skAt('burnif'),
+  BURNNEXT: skAt('burnnext'),
+  BURNALL: skAt('burnall'),
+  BURNBAIT: skAt('burnbait'),
+  BURNSWAP: skAt('burnswap'),
   SOLOTAG: skAt('solotag'),
   RANGEMATCH: skAt('rangematch'),
   RANGETAG: skAt('rangetag'),
@@ -4271,8 +4297,9 @@ const JSURGE_HEAP = process.env.JSURGE_HEAP
 //   （+0.11~+0.49）—— 也就是「我先捞」真值钱，只是付不起加厚的钱。
 //   「双方各 1 张」把那个先捞权**对半分**，总搬牌量不变（还是 2 张 = 局长
 //   成本不变），所以它量的正是「**先捞权到底值多少**」这一件事。
+// 〔2026-11-05 默认 1 → 0：薪潮换成「抽 1 张牌，给手牌全部带上【燃烧】」，不再堆牌。旧版复现：FUEL_HEAP=1 FUEL_HEAP_FOE=1 FUEL_SELF=1 FUEL_HAND=0 FUEL_DRAW=0〕
 const FUEL_HEAP = process.env.FUEL_HEAP
-  ? parseInt(process.env.FUEL_HEAP, 10) : 1
+  ? parseInt(process.env.FUEL_HEAP, 10) : 0
 
 // 【薪潮】**给对方**堆几张〔2026-10-28 第二回改时加〕。
 //
@@ -4292,8 +4319,9 @@ const FUEL_HEAP = process.env.FUEL_HEAP
 //   但牌库只剩 1 张那一刻会只堆掉 1 张（第二笔被闸挡）→ **那一刻奇偶翻一次**。
 //   旧档（一笔 2 张）没有这个边界。诊断口 `toFoeWant` / `toFoeStaged`
 //   就是为了看它出现得多不多
+// 〔2026-11-05 默认 1 → 0，同上〕
 const FUEL_HEAP_FOE = process.env.FUEL_HEAP_FOE
-  ? parseInt(process.env.FUEL_HEAP_FOE, 10) : 1
+  ? parseInt(process.env.FUEL_HEAP_FOE, 10) : 0
 
 // 各自那个数（照 SPECIAL_SKILLS 表里挑定的值）
 // ---------- 【清水】对方几张手牌明着（2026-10-16 开成旋钮） ----------
@@ -6028,20 +6056,18 @@ function newGame(opts) {
     // 【推牌】：手里带着它的那几张（对象引用，照 burnHand）。
     // 打出时摘掉、匹配完之后兑现（见 surgeFor）
     surgeHand: [],
-    // ---- 【堆牌】+【上牌区】两个新区〔2026-10-26〕，整段说明见 heapStage 上面 ----
+    // ---- 【堆牌】区〔2026-10-26〕，整段说明见 heapStage 上面（【上牌区】2026-11-05 撤了）----
     //
     // `heapHand` —— 手里带【堆牌】的那几张（对象引用、可叠加，照 surgeHand）。
     // `heapZone[side]` —— 出牌者的**堆牌区**：盖着的牌，下一个自己的回合
     //   按推牌规则落到牌堆。⚠ 这两个区的牌**既不在牌库也不在堆上**，
     //   所以 `check.js` 的守恒桶认了它们（BUCKETS 那一行）。
-    // `boardZone[side]` —— **上牌区**：有牌时这一方必须从这儿出 1 张。
     heapHand: [],
     heapZone: [[], []],
     // 〈heapwall〉HW_WALL=heap：堆牌区里哪几张落堆时要成墙（牌对象引用）
     heapWallCards: [],
     // 〈zeroheap〉堆牌区里落堆时要置 0 的那几张
     heapZeroCards: [],
-    boardZone: [[], []],
     // 「这一回合**刚从堆牌区落下去**的那几张」—— 纯诊断用，规则一个字不读它。
     // 它是〈heapdraft〉唯一一个只看 X 查不到的口：21 匹配吃到的那一段里
     // 有几张是自己刚铺下去的（`tagdraft.freshSum`）。每回合开头在
@@ -6666,10 +6692,6 @@ function newGame(opts) {
   if (foeRule(G, 'silt')) for (let i = 0; i < 2 && G.deck.length > 0; i++) pushPile(G, G.deck.pop(), FOE, GUARD_NONE, [0])
   // 开局发牌到此为止 —— 【安检】/〈redraw〉只管这之后的抽牌（用户定「开局发牌不用」）
   G.dealt = true
-  // 【上牌区】的开局填充旋钮（`BOARD_TEST=N`，默认 0 = 关）。
-  // 这一区现在没有任何技能往里放牌，而**没人走过的规则等于没写** ——
-  // 留这个口是为了让 `check.js` 的守恒和 `sim.js` 的对局真的走一遍它。
-  // ⚠ 它不是技能，别把它的分当谁的强度。双方各塞同样多，口径才对称
   // 〔2026-11-03 量具〕PILE_START=N：发完牌从牌库顶翻 N 张到堆上 —— 先手第一手就有得钓（量「谁先面对空堆」那条）
   // 〔2026-11-03 量具〕SCORE_START=N：发完牌，后手从牌库顶拿 N 张直接计分（让分，张=分照旧成立）
   for (let i = 0; i < SCORE_START && G.deck.length > 0; i++) {
@@ -6682,12 +6704,6 @@ function newGame(opts) {
   for (let i = 0; i < PILE_START && G.deck.length > 0; i++) {
     const c = G.deck.pop()
     pushPile(G, c, G.first === ME ? FOE : ME, GUARD_NONE, landVals(G, c, [], false))
-  }
-  if (BOARD_TEST > 0) {
-    for (let i = 0; i < BOARD_TEST; i++) {
-      if (G.deck.length > 0) G.boardZone[FOE].push(G.deck.pop())
-      if (G.deck.length > 0) G.boardZone[ME].push(G.deck.pop())
-    }
   }
   return G
 }
@@ -7881,35 +7897,6 @@ const DRAFT_TAG_OFFSLOT = process.env.DRAFT_TAG_OFFSLOT === '1'
 const ZT_PICK = process.env.ZT_PICK || 'min'
 // 〈minus2n〉的 N
 const M2N_N = process.env.M2N_N ? parseInt(process.env.M2N_N, 10) : 2
-// 〈boardself〉挑哪张
-const BS_PICK = process.env.BS_PICK || 'rand'
-if (['rand', 'worst', 'best', 'jack'].indexOf(BS_PICK) < 0) throw new Error('BS_PICK 只能是 rand / worst / best / jack，收到：' + BS_PICK)
-function boardSelfFor(G, side) {
-  const st = PROTO_STAT.boardself
-  st.fires++
-  const hand = G.hands[side]
-  if (hand.length === 0) { st.none++; return }
-  let at = -1
-  if (BS_PICK === 'rand') at = randInt(G.rng, hand.length)
-  else {
-    if (BS_PICK === 'jack') for (let i = 0; i < hand.length; i++) if (hand[i].rank === JACK) { at = i; break }
-    if (at < 0) {
-      // 尺子照 boardPick / pickCardCore：catchStart + catchCountAt（现在打收几张）
-      let bestV = BS_PICK === 'worst' ? Infinity : -1
-      for (let i = 0; i < hand.length; i++) {
-        const c = hand[i]
-        const sk = skillsOf(G, side, c)
-        const a = catchStart(G, c, side, sk, false)
-        const v = a >= 0 ? catchCountAt(G, c, side, sk, a) : 0
-        if (BS_PICK === 'worst' ? v < bestV : v > bestV) { bestV = v; at = i }
-      }
-    }
-  }
-  const card = takeFromHand(G, side, at)
-  if (card.rank === JACK) st.jacks++
-  G.boardZone[side].push(card)
-  st.placed++
-}
 if (['min', 'max', 'offslot'].indexOf(ZT_PICK) < 0) throw new Error('ZT_PICK 只能是 min / max / offslot，收到：' + ZT_PICK)
 function zeroTagFor(G, side) {
   const st = PROTO_STAT.zerotag
@@ -8736,58 +8723,21 @@ function heapFreshOn(G, card) {
   return false
 }
 
-// ---------- 【上牌区】 ----------
-//
-// 这是一条**规则层**（不是技能）：这一方的上牌区有牌，这一回合就必须从
-// 这儿出 1 张。往里放牌的来路**现在只有一条** ——
-//
-//   `BOARD_TEST=N` 自检 / 量测用的旋钮，给**双方**开局各塞 N 张
-//                 （从牌库顶取，所以不破坏守恒）：
-//
-//                   BOARD_TEST=2 node tools/md-sim/check.js
-//
-// 〔这段来回改过两次：2026-10-26 原文是「这一区**现在没有任何东西往里放**」，
-//   当天下午 `boardgive` 把它变成了假话；10-27 那件删了，于是又改回来。
-//   desc / 注释跟实现对不上本身就是 bug，所以每次都同一次改掉〕
-// ⚠ `BOARD_TEST` **不是一件技能**，别拿它的数当谁的强度
-const BOARD_TEST = process.env.BOARD_TEST ? parseInt(process.env.BOARD_TEST, 10) : 0
-
-function takeFromBoard(G, side, index) {
-  const card = G.boardZone[side][index]
-  G.boardZone[side].splice(index, 1)
-  PROTO_STAT.board.played++
-  return card
-}
-
-// 〔**〈boardgive〉/【顶钩】2026-10-27 删了**，实现（`boardGiveYield` /
-//   `doBoardGive`）跟这段注释一起撤。死因在 `draw-skills.uts` 的
-//   `DEAD_SKILLS` 那一行：X −1.14，张 = 分之下「逼对手打出他最差的牌」
-//   反过来帮他养厚堆。
-//
-//   ⚠ **上牌区这一区还在**（它是规则层，不是技能），而现在
-//   **又没有任何技能往里放牌了** —— 唯一的来路是下面 `BOARD_TEST` 那道
-//   量测旋钮。所以上面那段「`BOARD_TEST` 之外还有一条来路」的话
-//   同一次改回去了。往里放牌的下一件技能要重读 `canAct` 和 `playGame`
-//   里 `canFill` 那两处（它们都已经认上牌区，不用再改）〕
+// 〔【上牌区】的规则层（BOARD_TEST / BOARD_HOLD / takeFromBoard）〔2026-11-05 用户定「去掉上牌区」，游戏和模拟器一起撤〕〕
 
 // 这一方这一回合还做得了事吗 —— `playableCount`（只看手牌）**之外**
-// 还要认两个新区。
+// 还要认堆牌区（【上牌区】2026-11-05 撤了）。
 //
 // ⚠ **不去改 `playableCount` 本身**：那个函数还被 `refill` 的【循环】支
 //   和终局补一手那道闸读着，混进两个区会顺手改掉两件不相干的事
 //（「不扩大范围」）。所以新开一个口，现在**只有 `checkOver` 一处用它**。
 //
-// ⚠ 终局那道「补一手」的闸（`playGame` 里那个 `canFill`）**2026-10-26 跟着改了**。
-//   〔这段原先写着「故意没改：上牌区现在没有任何技能往里放牌」—— 而同一天
-//     `boardgive` 就把那半句变成了假话，于是那道闸也补上了 `|| boardZone`。
-//     原文留在这儿是因为**它解释了为什么当初可以不改**：那时这一区确实没来路〕
-//   那道闸认上牌区（有牌 = 他真能再出一手，而且是必须出），
-//   **但不认堆牌区**（落牌不是出牌，认了会白送一个回合）。
+// ⚠ 终局那道「补一手」的闸（`playGame` 里那个 `canFill`）只认手牌（原先还认【上牌区】，2026-11-05 撤了），
+//   **不认堆牌区**（落牌不是出牌，认了会白送一个回合）。
 //   注意它跟这儿的 `canAct` **故意不同口径**：`canAct` 问的是「这局还活着吗」，
 //   堆牌区有牌 = 下回合堆会变，所以算活；那道闸问的是「他还能再出一手吗」。
 function canAct(G, side) {
   return playableCount(G, side) > 0
-    || G.boardZone[side].length > 0
     || G.heapZone[side].length > 0
 }
 
@@ -9816,7 +9766,6 @@ function valuesOf(G, card, skills) {
   if (has(skills, SK.WALLZERO)) return [0]
   if (has(skills, SK.BOTTOMHARVEST)) return [0]
   // 〔【褪递】10-29 深夜换效果之后载体不再置 0 —— 这一行撤了〕
-  if (has(skills, SK.FADEBOARD)) return [0]
   // 【褪色】标签：带它的牌打出时置 0
   if (G && G.fadeKey && G.fadeKey.indexOf(card) >= 0) return [0]
   if (has(skills, SK.BOTTOMZERO) && BZ_SELF === 'always') return [0]
@@ -9829,7 +9778,8 @@ function valuesOf(G, card, skills) {
   // 〈zerodrop〉/【缩水】的「收零」照词条原文：**带它的牌打出时置 0**（2026-10-30 补 —— 第一版漏了这一句）
   if (has(skills, SK.ZERODROP)) return [0]
   // 〈rangetag〉「置 0，…」—— 它自己置 0（0 不匹配任何牌）
-  if (has(skills, SK.RANGETAG)) return [0]
+  // RT_ZERO=0〔2026-11-05 用户「1 张手牌带上【区间匹配】」—— 去掉「置 0」那半句〕
+  if (has(skills, SK.RANGETAG) && process.env.RT_ZERO !== '0') return [0]
   // 〈cmark〉：它自己就是【b】—— 置 0
   if (has(skills, SK.CMARK)) return [0]
   if (has(skills, SK.FLOOD) || has(skills, SK.HUE) || has(skills, SK.SNOW)
@@ -9840,6 +9790,10 @@ function valuesOf(G, card, skills) {
     || kwSelf(skills, 'suit')
     // 〈rangematch〉`RANGE_BLANK=1`：「【无点数】；【区间匹配】」—— 范围读牌面点数（rangeWanted 里），它自己无点数
     || (has(skills, SK.RANGEMATCH) && RANGE_BLANK)
+    // 〈marktag〉MARK_VOID（默认）：「无点数，【A】，…」—— 它自己无点数
+    || (MARK_VOID && has(skills, SK.MARKTAG))
+    // 〈burnswap〉「无点数，…」
+    || has(skills, SK.BURNSWAP)
     // ⚠ **〈huetag〉色递不在这儿**，而它差一点就进来了 —— 立项时的第一稿是
     //  「载体自带【花色匹配】+ 贴 1 张【21 匹配】」，接法就是往这一行加一个 key。
     //   跑之前逐句核实现（CLAUDE.md 那条）才发现那一稿**自己把自己堵死**：
@@ -10706,20 +10660,10 @@ function reflectPick(G, side, card, skills, sink) {
   return { at: best, score: bestScore, own: own, jScore: jScore, cands: cands }
 }
 
-// `fromBoard` = 这一手打的是**上牌区**那张，不是手牌〔2026-10-26〕。
-//
-// 只换「牌从哪儿来」这一行，下游一个字不改 —— 规则原文是
-// 「必须选择上牌区的 1 张牌**打出作为自己的本轮出牌**」，
-// 所以它就是一次正常出牌：技能照触发、匹配照判、`endPlay` 照走。
-//
-// ⚠ 一条真实的连带后果，不是 bug：手牌没少一张 → `refill` 这一回合
-//   **补不到牌**（它只补到下限 4）。于是「从上牌区出牌」= 省下一次摸牌，
-//   而不是白赚一张。CLAUDE.md 第四节那条「给对手资源要先算它替代了什么」
-//   的同一枚硬币 —— 这一区的强弱全在这上面，设计填充技能时先看这句
-function playFor(G, side, index, ai, fromBoard) {
-  if (!fromBoard) noteHandStat(G, side, index)
+function playFor(G, side, index, ai) {
+  noteHandStat(G, side, index)
   // 〈traitor〉：打的是叛变牌 → 记在持有人名下，这一手结算完（resolveMatch 外包里）兑现置 0
-  if (!fromBoard && G.traitor && index >= 0 && index < G.hands[side].length && G.traitor.has(G.hands[side][index])) {
+  if (G.traitor && index >= 0 && index < G.hands[side].length && G.traitor.has(G.hands[side][index])) {
     G.traitor.delete(G.hands[side][index])
     G.traitorPending = side
     const st = PROTO_STAT.traitor
@@ -10730,7 +10674,7 @@ function playFor(G, side, index, ai, fromBoard) {
   }
   // 〈turncoat〉：这一手打的是叛变牌 → 这一手所有收牌改归对方（harvestAt 入口换收牌方）；不是就清掉
   G.turncoatPlay = null
-  if (!fromBoard && G.turncoat && index >= 0 && index < G.hands[side].length && G.turncoat.has(G.hands[side][index])) {
+  if (G.turncoat && index >= 0 && index < G.hands[side].length && G.turncoat.has(G.hands[side][index])) {
     const c = G.hands[side][index]
     G.turncoatPlay = { from: side, to: G.turncoat.get(c) }
     G.turncoat.delete(c)
@@ -10742,7 +10686,7 @@ function playFor(G, side, index, ai, fromBoard) {
   // 那几个「跨层传一手状态」的先例。
   // ⚠ `|| G.aiRef` 是为了不被某条不传 ai 的调用路径清成 undefined
   G.aiRef = ai || G.aiRef
-  const card = fromBoard ? takeFromBoard(G, side, index) : takeFromHand(G, side, index)
+  const card = takeFromHand(G, side, index)
   // 石顺 / 石色的钥匙在这一手用掉（endPlay 里摘），记下是哪张
   G.keyNow = card
   // 【归方】（原型）：**真改牌**，而且必须在 `skillsOf` 之前 ——
@@ -11553,6 +11497,8 @@ function endPlay(G, side) {
 // 原先不返回，**又一处静默漂移**。补上它是为了【传火】的 `noburn` 档
 //（没燃尽才连锁），而那一档需要在 burnStep **之后**才知道结果。
 function burnStep(G, side) {
+  // 新版【燃烧】没有蔓延、没有燃尽
+  if (BURN_RULE === 'mark') return false
   spreadFire(G)
   const size = G.pile.length
   // **堆空不触发** —— 空堆「全带火」是真空真，得显式挡。
@@ -11751,6 +11697,8 @@ function stealTry(G, side, myCount) {
     const nJack = sjOk ? (sjTop > 0 ? Math.min(G.pile.length, sjTop) + 1 : catchCountAt(G, c, foe, sk, 0)) : 0
     const n = Math.max(nNormal, nSpecial, nJack)
     if (n <= 0) continue
+    // 〈burnbait〉打法「不要自己去匹配此卡」：这一抢会收走它就不抢（BAIT_AI=0 关）
+    if (burnBaitPenalty(G, foe, c, sk, at >= 0 ? at : 0, n) > 0) { PROTO_STAT.burnmark.baitStealSkip++; continue }
     // 〈nosteal〉机制 d：带它的牌不能拿去抢牌（诊断：本来抢得到的那几次）
     if (G.noSteal && G.noSteal.has(c)) { if (n > myCount) PROTO_STAT.nosteal.blocked++; continue }
     if (n > myCount) over++
@@ -11867,6 +11815,10 @@ function zeroHarvestStep(G, side, card, skills) {
 // 〈pilereflect〉诊断外包：对子那一支发动后，这一手结算完那张还在堆上 = 当手漏收（pairMissed）
 function resolveMatch(G, side, card, cardSkills, sink) {
   resolveMatchCore(G, side, card, cardSkills, sink)
+  // 〈marktag〉第三版：「（无论是否收牌）之后给堆上的牌带上【A】」
+  markTagAfter(G, card)
+  burnTagAfter(G, card, side)
+  burnNextAfter(G, card)
   // 〈rockself〉：结算完还在堆上 = 落堆了，贴上【顽石】
   if (G.rockPending) {
     if (G.pile.indexOf(G.rockPending) >= 0) { if (!G.rock) G.rock = new Set(); G.rock.add(G.rockPending); if (!G.rockAt) G.rockAt = new Map(); G.rockAt.set(G.rockPending, G.stat.plays[0] + G.stat.plays[1]); PROTO_STAT.rock.landed++ }
@@ -11888,6 +11840,10 @@ function resolveMatchCore(G, side, card, cardSkills, sink) {
   //（叠放那条路一个、主路一个）—— 下在调用点上必然漏一个，而那是静默的。
   // 照 `iceBlind` 那条判据：闸下在判定入口，贴石的路一个字不动
   if (stoneHandTake(G, card)) return
+  // 〈marktag〉第三版（MARK_RULE=v3）：收牌那一半在这儿 —— 打出那张**还在堆上**，它自己被收走的话下面 at0 < 0 直接返回（不再判普通匹配）
+  markStep3(G, side, card, cardSkills)
+  // 【燃烧】新版（BURN_RULE=mark）：同一个位置、同一个形状（见 burnMarkStep）
+  burnMarkStep(G, side, card, cardSkills)
   const at0 = pileIndexOf(G, card)
   if (at0 < 0) return
   const vals = pileValsAt(G, at0)
@@ -11896,6 +11852,8 @@ function resolveMatchCore(G, side, card, cardSkills, sink) {
   const burn = pileBurnAt(G, at0)
   const suit = pileSuitAt(G, at0)
   removePileAt(G, at0)
+  // 〈marktag〉【A】：**先【A】后匹配**（用户定）。打出那张此刻不在堆上，所以「除它以外」自然成立
+  markStep(G, side, card, cardSkills)
   //〔量水删了，这儿原先把它从 skills 里剔掉（它已经在 afterPlay 里结算过，
   //  匹配这一步不该再算一次）。那条**判据还在管事**：
   //  凡是在 afterPlay 里就结算完的收牌件，匹配这一步都得把它排除，
@@ -12436,6 +12394,8 @@ function dropLeaveTags(G, card) {
   G.draftHand = G.draftHand.filter(function (c) { return c !== card })
   if (G.chainTag) G.chainTag = G.chainTag.filter(function (c) { return c !== card })
   if (G.joinTag) G.joinTag.delete(card)
+  if (G.markHand) G.markHand.delete(card)
+  if (G.prioHand) G.prioHand.delete(card)
   if (G.betray) G.betray.delete(card)
   if (G.turncoat) G.turncoat.delete(card)
   if (G.traitor) G.traitor.delete(card)
@@ -12854,6 +12814,8 @@ function harvestAt(G, side, wanted) {
     for (let i = 0; i < G.pile.length; i++) if (wanted[i]) n++
     st[key] = (st[key] || 0) + n
   }
+  // 〈burnbait〉：这一下收走了它（而且不是新【燃烧】收火那一下）→ 收完给收牌方的对手全手上火
+  const baitHit = burnBaitHits(G, side, wanted)
   // 〈trapzero〉：这一下收到了陷阱 → 收走它的人（side）手牌全部明置置 0（收完再置，照「被收走时」）
   let sprung = 0
   if (G.trap && G.trap.size > 0) {
@@ -12878,9 +12840,12 @@ function harvestAt(G, side, wanted) {
       doDead(G, opp, i, true)
       if (isZero(c)) { PROTO_STAT.trapzero.zeroed++; G.seen[side][i] = true }
     }
+    burnBaitFire(G, side, baitHit)
     return res
   }
-  return harvestAtCore(G, side, wanted)
+  const res0 = harvestAtCore(G, side, wanted)
+  burnBaitFire(G, side, baitHit)
+  return res0
 }
 function harvestAtCore(G, side, wanted) {
   // 〈夹层〉诊断：被保住过的牌这一下被收走了 —— 记是贴标签那一方还是对手收的
@@ -13762,6 +13727,339 @@ function joinTagFor(G, side) {
   G.joinTag.set(hand[randInt(G.rng, hand.length)], side)
   st.tagged++
 }
+// ---------- 〈marktag〉【A】〔2026-11-05 · 用户提〕----------
+// 词条（用户原话）：「打出后使全堆带上【A】，已带上【A】的牌再次带上【A】则收走」；技能「【A】，1 张手牌带上【A】」。
+// 用户逐句定的三处：
+//   ① 它自己落堆**不算**「再次带上」—— 只给别的牌贴，它带着【A】留在堆上（成为下一张【A】的收割对象）；
+//   ② **先【A】后匹配** —— 挂在 resolveMatchCore 摘下打出那张之后、catchStart 之前；
+//   ③ 只收**重复带上**的那几张（散收，走 harvestPile —— 冰 / 保护那些挡法照它的规矩）。
+// 收牌方 = 打出它的一方（出牌那一刻定，不读堆上归属）。这一下不是匹配，**不开放【抢牌】**（harvestAt 不问抢）。
+// 表示：G.markHand（手里带【A】的牌）/ G.markPile（堆上带【A】的牌），都按牌对象记。
+//   手牌那张离手时在 dropLeaveTags 摘；markPile 里已被收走的牌留着无害（收走的牌不回场），
+//   而从堆上回到手里又打出来的那张在 markStep 开头摘掉旧记号。
+// AI 贴法：随机 1 张非 J 手牌（J 打出不触发技能，贴上等于白贴）；挑牌估值见 ai.js 的 MARK_AI
+// 〔2026-11-05 同日第二版 · 用户：「技能：无点数，【A】，1张手牌带上【无点数】【A】」〕
+//   MARK_VOID=1（默认 = 第二版）：它无点数（valuesOf 那一行）；被贴【A】的那张手牌同时变成无点数
+//  （照 doDead 三个字段一起改：rank / value / extra —— 只改一个的话点数槽照旧触发、或者点数卡还留着）。
+//   MARK_VOID=0 复现第一版（台账第八十一节）
+const MARK_VOID = process.env.MARK_VOID === '1'
+// 〔2026-11-05 同日第三版 · 用户：「[A]：若堆上有其他牌带A，则收走所有带A的牌。（无论是否收牌）之后给堆上的牌带上A。技能：[A]，N张手牌带上A」〕
+//   MARK_RULE=v3（默认）：打出时堆上有**其他**带【A】的牌 → 收走所有带【A】的牌（MARK_SELF=take 默认：**含它自己**，照字面「所有」，
+//     于是这一手不再判普通匹配；MARK_SELF=stay：它留在堆上照常判匹配）；这一手结算完之后（不管收没收到）堆上剩下的牌全带上【A】。
+//   MARK_RULE=v1：第一 / 第二版（先【A】后匹配、匹配前贴、它自己不算再次带上）。
+//   ⚠ 默认值跟着第三版翻了：MARK_VOID 默认 0（第三版没有无点数）。复现第八十一节 = MARK_RULE=v1；八十一·乙 = MARK_RULE=v1 MARK_VOID=1
+const MARK_RULE = process.env.MARK_RULE || 'v3'
+const MARK_SELF = process.env.MARK_SELF || 'take'
+if (['v1', 'v3'].indexOf(MARK_RULE) < 0) throw new Error('MARK_RULE 只能是 v1 / v3')
+if (['take', 'stay'].indexOf(MARK_SELF) < 0) throw new Error('MARK_SELF 只能是 take / stay')
+function markStep3(G, side, card, skills) {
+  if (MARK_RULE !== 'v3') return
+  if (G.markPile) G.markPile.delete(card)
+  if (!markOn(G, card, skills)) return
+  const st = PROTO_STAT.marktag
+  st.played++
+  if (G.markHand && G.markHand.has(card)) { G.markHand.delete(card); st.handPlayed++; if (MARK_CARD && has(skills, SK.MARKTAG)) st.both++ }
+  if (!G.markPile) G.markPile = new Set()
+  if (!G.markPending) G.markPending = new Set()
+  G.markPending.add(card)
+  st.pileSum += G.pile.length - 1
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) if (G.pile[i] !== card && G.markPile.has(G.pile[i])) n++
+  if (n === 0) return
+  const wanted = []
+  for (let i = 0; i < G.pile.length; i++) {
+    wanted.push(G.pile[i] === card ? MARK_SELF === 'take' : G.markPile.has(G.pile[i]))
+  }
+  st.harvests++
+  st.taken += harvestPile(G, side, wanted)
+  if (MARK_SELF === 'take' && G.pile.indexOf(card) < 0) st.selfTaken++
+}
+// ---------- 【燃烧】新版〔2026-11-05 · 用户：「把【燃烧】改成 给堆上其他牌带上【燃烧】，若已有【燃烧】牌则将他们连同此牌一起收走」〕----------
+// 同时改两件（用户同一句给的）：引火「手牌跟堆底同颜色的牌带上【燃烧】」/ 野火「【燃烧】，1 张手牌带上【燃烧】」。薪潮 desc 不变，吃新词条。
+// BURN_RULE=spread（默认 = 现行游戏：蔓延 + 燃尽）/ mark（新版）。mark 下：burnStep 不蔓延不燃尽；
+//   带火的牌**打出时**（手里带火落堆 → pileBurn 已经是 1；或者新野火自带）：堆上**其他**带火的牌有的话 → 连它自己一起收走（散收，
+//   于是这一手不再判普通匹配）；这一手结算完之后堆上没带火的牌都带上火。读法照【A】第三版（八十一·丙）。
+//   ⚠ 「遇到【结冰】，两个一起消失」新句没提 —— **这儿保留**（点火走 iceMeltsFire，碰上冰两个一起消失），待用户确认。
+//   收走不是匹配，不开放【抢牌】
+// ⚠ 2026-11-05 用户定「整包一起改」进游戏 → **默认翻成 mark**（旋钮默认值 = 游戏里）。复现旧档：
+//   BURN_RULE=spread KINDLE_MATCH=color KINDLE_DRAW=0 FUEL_EMPTY=0
+// KINDLE_MATCH：eachsuit（**默认 = 游戏里**：手牌每种花色各 1 张）/ offbottom（跟堆底不同花色）/ color（旧：跟堆底同颜色，走 KINDLE_HUE 那一支）
+const KINDLE_MATCH = process.env.KINDLE_MATCH || 'eachsuit'
+if (['eachsuit', 'offbottom', 'color'].indexOf(KINDLE_MATCH) < 0) throw new Error('KINDLE_MATCH 只能是 eachsuit / offbottom / color')
+const BURN_RULE = process.env.BURN_RULE || 'mark'
+if (['spread', 'mark'].indexOf(BURN_RULE) < 0) throw new Error('BURN_RULE 只能是 spread / mark')
+function burnMarkOn(G, card, skills, at) {
+  return (at >= 0 && pileBurnAt(G, at) > 0) || has(skills, SK.WILD) || has(skills, SK.BURNNEXT)
+}
+function burnMarkStep(G, side, card, skills) {
+  if (BURN_RULE !== 'mark') return
+  const at = pileIndexOf(G, card)
+  if (at < 0 || !burnMarkOn(G, card, skills, at)) return
+  const st = PROTO_STAT.burnmark
+  // 新野火自带的火：走 lightAt（跟源码同一道闸 —— 已着火 / 冰相消）。点不着（被冰消掉）= 它不带火，这一手不发动
+  if (pileBurnAt(G, at) === 0) lightAt(G, at)
+  if (pileBurnAt(G, at) === 0) return
+  st.played++
+  if (!G.burnPending) G.burnPending = new Set()
+  G.burnPending.add(card)
+  st.pileSum += G.pile.length - 1
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) if (i !== at && pileBurnAt(G, i) > 0) n++
+  if (n === 0) return
+  const wanted = []
+  for (let i = 0; i < G.pile.length; i++) wanted.push(i === at || pileBurnAt(G, i) > 0)
+  st.harvests++
+  G.burnHarvesting = true
+  st.taken += harvestPile(G, side, wanted)
+  G.burnHarvesting = false
+}
+// 〈burnswap〉：堆上的它将要被点上火时不带火，改成点火方（side）1 张手牌带上火（照 burnTagOne 挑）—— 「给谁」原文没写，按点火的一方读（不认出处）
+function burnTagAfter(G, card, side) {
+  if (!G.burnPending || !G.burnPending.has(card)) return
+  G.burnPending.delete(card)
+  const st = PROTO_STAT.burnmark
+  for (let i = 0; i < G.pile.length; i++) {
+    if (pileBurnAt(G, i) > 0) continue
+    if (G.burnSwap && G.burnSwap.has(G.pile[i])) { st.swapFired++; burnTagOne(G, side, true); continue }
+    // 走 lightAt（照源码）：冰相消 / 保护点不着
+    if (frostAt(G, i)) st.melted++
+    if (lightAt(G, i)) st.lit++
+  }
+}
+// 新野火的「1 张手牌带上【燃烧】」：随机 1 张非 J、还没带火的（照〈marktag〉的贴法）
+// 〈burnnext〉「【燃烧】；（这一手没收到牌的话）获取下一张会触发它的牌」。
+//   自带火在 burnMarkOn 里认（照新野火）；取牌挂在 resolveMatch 外包、这一手结算完之后。
+//   「没收到牌」= G.stat.caught[side] 跟 afterPlay 时一样（收火 / 普通匹配 / 特殊匹配都走 noteCatch，照忍递口径）。
+//   「会触发它的牌」= 从牌库顶往下第一张 skillsOf 含 SK.BURNNEXT 的（点数槽 / 花色槽通用），走 pullFromDeck（取完洗牌，照词条）。
+//   BURNNEXT_COND=0：无条件获取（用户第一句那一版）
+const BURNNEXT_COND = process.env.BURNNEXT_COND !== '0'
+function burnNextAfter(G, card) {
+  if (!G.burnNext || G.burnNext.length === 0) return
+  const k = G.burnNext.findIndex(function (e) { return e.card === card })
+  if (k < 0) return
+  const e = G.burnNext[k]
+  G.burnNext.splice(k, 1)
+  const st = PROTO_STAT.burnmark
+  if (BURNNEXT_COND && G.stat.caught[e.side] !== e.was) { st.nextCaught++; return }
+  for (let i = G.deck.length - 1; i >= 0; i--) {
+    if (has(skillsOf(G, e.side, G.deck[i]), SK.BURNNEXT)) {
+      if (pullFromDeck(G, e.side, G.deck[i])) st.nextGot++
+      return
+    }
+  }
+  st.nextMiss++
+}
+// 〈burnbait〉「此牌不是因燃烧被收走时，给对方手牌带上燃烧」—— 用户定：对方 = **收走它那一方的对手**（不认出处）、**手牌全部**（J 也贴，照字面）。
+//   打出时记进 G.burnBait（Map 的值是打出它的一方，**只给诊断口用**，规则不读）。harvestAt 入口认（所有收牌路的总闸），
+//   新【燃烧】收火那一下（burnMarkStep 立 G.burnHarvesting）不算。⚠ 它打出当手就匹配上 = 被自己收走 → 对方全手上火（照字面）。
+//   打法（用户）：「不要自己去匹配此卡」→ burnBaitPenalty（ai.js 收成折负；BAIT_AI=0 关掉对照）
+function burnBaitHits(G, side, wanted) {
+  if (!G.burnBait || G.burnBait.size === 0 || G.burnHarvesting) return 0
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    if (!wanted[i] || !G.burnBait.has(G.pile[i])) continue
+    const st = PROTO_STAT.burnmark
+    st.baitTaken++
+    if (G.burnBait.get(G.pile[i]) === side) {
+      st.baitSelf++
+      // 诊断：自己收走它的来路 —— 当场（打出的就是它）/ J / 抢牌 / 其余
+      if (G.pile[i] === G.keyNow) st.baitSelfNow++
+      else if (G.jackPlay) st.baitSelfJ++
+      else if (G.stealing) st.baitSelfSteal++
+      else st.baitSelfOther++
+    }
+    G.burnBait.delete(G.pile[i])
+    n++
+  }
+  return n
+}
+function burnBaitFire(G, side, hits) {
+  if (hits <= 0) return
+  const foe = side === ME ? FOE : ME
+  for (let i = 0; i < G.hands[foe].length; i++) {
+    if (!burnOnHand(G, G.hands[foe][i])) { addBurnHand(G, G.hands[foe][i]); PROTO_STAT.burnmark.baitLit++ }
+  }
+}
+const BAIT_AI = process.env.BAIT_AI !== '0'
+function burnBaitPenalty(G, side, card, skills, at, caught) {
+  if (!BAIT_AI || caught <= 0 || at < 0 || !loadoutHasSkill(G, side, SK.BURNBAIT)) return 0
+  let hit = has(skills, SK.BURNBAIT)
+  if (!hit && G.burnBait && G.burnBait.size > 0) {
+    for (let i = at; i < G.pile.length; i++) if (G.burnBait.has(G.pile[i])) { hit = true; break }
+  }
+  return hit ? 99 : 0
+}
+// 〈burnall〉「堆上有【燃烧】则全部收走，否则 1 张手牌带上【燃烧】」。挂在 afterPlay（收火之前，照收色 / 撒网的位置）。
+//   BURNALL_MODE：fire（默认）= 收走带火的牌和它自己 / pile = 收走整堆（「全部」的两种读法，用户没定）。
+//   它自己不带火 → 收完不点剩下的；它被收走了 → resolveMatchCore 里 at0 < 0，这一手不再判普通匹配。
+//   没火那一支照 burnTagOne（随机 1 张非 J、没带火的）。屯：hold = burnAllReady（堆上有火才算成立）
+const BURNALL_MODE = process.env.BURNALL_MODE || 'fire'
+if (['fire', 'pile'].indexOf(BURNALL_MODE) < 0) throw new Error('BURNALL_MODE 只能是 fire / pile')
+// 这一方配装里有没有这件技能（任一槽）
+function loadoutHasSkill(G, side, sk) {
+  const lo = G.loadouts[side]
+  if (!lo) return false
+  return lo.suitOwner.indexOf(sk) >= 0 || lo.rankOwner.indexOf(sk) >= 0 || (lo.rankOwner2 && lo.rankOwner2.indexOf(sk) >= 0) || (lo.zeroOwner !== undefined && lo.zeroOwner === sk)
+}
+function burnAllReady(G, side, idx) {
+  for (let i = 0; i < G.pile.length; i++) if (pileBurnAt(G, i) > 0) return true
+  return false
+}
+function burnAllFor(G, side, played) {
+  const st = PROTO_STAT.burnmark
+  st.allFires++
+  const at = pileIndexOf(G, played)
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) if (i !== at && pileBurnAt(G, i) > 0) n++
+  if (n === 0 || at < 0) {
+    st.allHand++
+    burnTagOne(G, side, true)
+    return
+  }
+  const wanted = []
+  for (let i = 0; i < G.pile.length; i++) wanted.push(BURNALL_MODE === 'pile' || i === at || pileBurnAt(G, i) > 0)
+  st.allTake++
+  st.allTaken += harvestPile(G, side, wanted)
+}
+// AI 估值：打出它会收走几张（0 = 走「贴手牌」那一支、照常匹配）。card 还在手里
+function burnAllCount(G, card, skills) {
+  if (!has(skills, SK.BURNALL)) return 0
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) if (pileBurnAt(G, i) > 0) n++
+  if (n === 0) return 0
+  return (BURNALL_MODE === 'pile' ? G.pile.length : n) + 1
+}
+// 〈burnif〉：堆上（除它以外）有带火的牌 → 它带上火（于是 burnMarkStep 连它一起收走）；否则 2 张手牌带上火（照 burnTagOne 的挑法）。
+// 挂在 afterPlay（收火之前）。BURNIF_N = 「否则」那一支贴几张（默认 2）
+const BURNIF_N = process.env.BURNIF_N ? parseInt(process.env.BURNIF_N, 10) : 2
+function burnIfFor(G, side, played) {
+  const st = PROTO_STAT.burnmark
+  st.ifFires++
+  const at = pileIndexOf(G, played)
+  let lit = false
+  for (let i = 0; i < G.pile.length; i++) if (i !== at && pileBurnAt(G, i) > 0) { lit = true; break }
+  if (lit && at >= 0) {
+    if (lightAt(G, at)) st.ifSelf++
+    return
+  }
+  st.ifHand++
+  for (let k = 0; k < BURNIF_N; k++) burnTagOne(G, side, true)
+}
+function burnTagOne(G, side, quiet) {
+  const st = PROTO_STAT.burnmark
+  if (!quiet) st.wildFires++
+  const hand = G.hands[side]
+  const pool = []
+  for (let i = 0; i < hand.length; i++) if (hand[i].rank !== JACK && !burnOnHand(G, hand[i])) pool.push(hand[i])
+  if (pool.length === 0) { st.noHand++; return }
+  addBurnHand(G, pool[randInt(G.rng, pool.length)])
+  st.handTagged++
+}
+// AI 估值：打出这张会收走几张（含它自己；0 = 不发动）。card 还在手里
+function burnMarkCount(G, card, skills) {
+  if (BURN_RULE !== 'mark') return 0
+  // 〈burnif〉：堆上有火时它自带火 —— 没火时下面那个 n 是 0，自然返回 0
+  if (!burnOnHand(G, card) && !has(skills, SK.WILD) && !has(skills, SK.BURNIF) && !has(skills, SK.BURNNEXT)) return 0
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) if (pileBurnAt(G, i) > 0) n++
+  return n > 0 ? n + 1 : 0
+}
+function markTagAfter(G, card) {
+  if (!G.markPending || !G.markPending.has(card)) return
+  G.markPending.delete(card)
+  const st = PROTO_STAT.marktag
+  for (let i = 0; i < G.pile.length; i++) {
+    if (!G.markPile.has(G.pile[i])) { G.markPile.add(G.pile[i]); st.marked++ }
+  }
+}
+// 〔同日第四版 · 用户：「抽1张牌，手牌N张带上【A】。n<5」〕—— 技能牌**自己不带**【A】，贴之前先抽：
+//   MARK_CARD=0 = 它自己不带（默认 1 = 前三版）；MARK_DRAW=k = 贴之前先抽 k 张（默认 0）。默认值不翻，复现前几节不用改命令
+const MARK_CARD = process.env.MARK_CARD !== '0'
+// 〔同日第五版 · 用户：「盲选对方1张手牌带上【优先打出、A】，自己1张手牌带上【A】」〕
+//   MARK_PRIO=k：盲选对方 k 张手牌带上【优先打出】+【A】（默认 0）。盲选照字面**不排除 J**（PROTO_STAT.marktag.foeJ 记几次挑中 J）。
+//  【优先打出】（新词，读法待用户确认）：持有人下一次出牌**必须**打带它的牌（冻住打不出时除外）—— 挂在出牌循环 pickCard 之后
+const MARK_PRIO = process.env.MARK_PRIO ? parseInt(process.env.MARK_PRIO, 10) : 0
+const MARK_DRAW = process.env.MARK_DRAW ? parseInt(process.env.MARK_DRAW, 10) : 0
+function markOn(G, card, skills) {
+  return (MARK_CARD && has(skills, SK.MARKTAG)) || (!!G.markHand && G.markHand.has(card))
+}
+// 打出这张会收走几张（AI 估值用，纯读）
+function markCount(G, card, skills) {
+  if (!G.markPile || !markOn(G, card, skills)) return 0
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) if (G.pile[i] !== card && G.markPile.has(G.pile[i])) n++
+  // v3 + take：收成会就它自己那一张（而且这一手不再判普通匹配 —— ai.js 那边按「顶替」处理）
+  if (MARK_RULE === 'v3' && MARK_SELF === 'take' && n > 0) n++
+  return n
+}
+function markStep(G, side, card, skills) {
+  if (MARK_RULE !== 'v1') return
+  if (G.markPile) G.markPile.delete(card)
+  if (!markOn(G, card, skills)) return
+  const st = PROTO_STAT.marktag
+  st.played++
+  if (G.markHand && G.markHand.has(card)) { G.markHand.delete(card); st.handPlayed++; if (MARK_CARD && has(skills, SK.MARKTAG)) st.both++ }
+  if (!G.markPile) G.markPile = new Set()
+  st.pileSum += G.pile.length
+  const wanted = []
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    const hit = G.markPile.has(G.pile[i])
+    wanted.push(hit)
+    if (hit) n++
+  }
+  if (n > 0) {
+    st.harvests++
+    st.taken += harvestPile(G, side, wanted)
+  }
+  // 剩下的一律带上（被冰挡下、没走的那几张本来就带着，照旧带着）
+  for (let i = 0; i < G.pile.length; i++) {
+    if (!G.markPile.has(G.pile[i])) { G.markPile.add(G.pile[i]); st.marked++ }
+  }
+  G.markPile.add(card)
+}
+// MARK_N：一次贴几张手牌（默认 1 = desc 原文；同日用户「量一下 N 张手牌，直到 4」）。手里不够 N 张就贴到没得贴为止
+const MARK_N = process.env.MARK_N ? parseInt(process.env.MARK_N, 10) : 1
+function markTagFor(G, side) {
+  PROTO_STAT.marktag.fires++
+  for (let k = 0; k < MARK_DRAW; k++) if (drawFor(G, side) !== null) PROTO_STAT.marktag.drawn++
+  for (let k = 0; k < MARK_N; k++) markTagOne(G, side)
+  if (MARK_PRIO > 0) {
+    const st = PROTO_STAT.marktag
+    const foeHand = G.hands[side === ME ? FOE : ME]
+    if (!G.markHand) G.markHand = new Set()
+    if (!G.prioHand) G.prioHand = new Set()
+    for (let k = 0; k < MARK_PRIO; k++) {
+      const pool = foeHand.filter(function (c) { return !G.prioHand.has(c) })
+      if (pool.length === 0) break
+      const c = pool[randInt(G.rng, pool.length)]
+      G.markHand.add(c)
+      G.prioHand.add(c)
+      st.foeTagged++
+      if (c.rank === JACK) st.foeJ++
+    }
+  }
+}
+function markTagOne(G, side) {
+  const st = PROTO_STAT.marktag
+  const hand = G.hands[side]
+  const pool = []
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i].rank !== JACK && !(G.markHand && G.markHand.has(hand[i]))) pool.push(hand[i])
+  }
+  if (pool.length === 0) { st.noHand++; return false }
+  if (!G.markHand) G.markHand = new Set()
+  const c = pool[randInt(G.rng, pool.length)]
+  G.markHand.add(c)
+  st.handTagged++
+  if (MARK_VOID && c.rank !== BLANK_RANK) {
+    c.rank = BLANK_RANK
+    c.value = 0
+    c.extra = []
+    st.voided++
+  }
+  return true
+}
 // ---------- 〈solotag〉机制二「被收走时，只收走此牌」〔2026-11-01〕----------
 // 读法：带它的那张**被钓中**（连续收牌的锚）时，只收它这一张，上面那一段留在堆上（打出那张也照常落堆留下）。
 // 它夹在别人那一段中间被带走时照常走（那不是「它被钓中」）。兑现在 resolveMatchCore 算出 at 之后。
@@ -13984,7 +14282,10 @@ function rangeTagFor(G, side, played) {
   for (let k = 0; k < hand.length; k++) {
     const c = hand[k]
     if (c === played || c.rank === JACK || G.rangeKey.indexOf(c) >= 0) continue
-    const d = Math.abs(c.value - 7)
+    // RT_PICK=noslot〔2026-11-05 诊断用〕：不贴会触发这件技能的牌（查「贴到同槽牌上 → 连锁」是不是 A / K 槽比 7 槽高的原因）
+    if (process.env.RT_PICK === 'noslot' && has(skillsOf(G, side, c), SK.RANGETAG)) continue
+    // RT_PICK=slotfirst：同槽牌优先贴（连锁），没有才照离 7 最远挑
+    const d = Math.abs(c.value - 7) + (process.env.RT_PICK === 'slotfirst' && has(skillsOf(G, side, c), SK.RANGETAG) ? 100 : 0)
     if (d > far) { far = d; best = k }
   }
   if (best < 0) { st.noHand++; return }
@@ -14014,6 +14315,64 @@ function rangeMatchFor(G, side, played, skills) {
   st.hits++
   st.widthSum += r.width
   st.gotSum += harvestPile(G, side, r.wanted)
+}
+// 〈nextjack〉打出 card 时要找的点数（rules 的结算和 ai 的「屯」共用这一份 —— 两份必然分叉）。
+// 〔2026-11-04 用户：「0 不算在顺位内」—— 打出 0 点牌不发动，A 往下只有 K（K 接 A 时）〕
+const NJ_ORD = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
+function nextJackWants(card, both) {
+  const i = isZero(card) ? -1 : NJ_ORD.indexOf(card.rank)
+  const wrap = process.env.NJ_WRAP !== '0'
+  const wants = []
+  if (i < 0) return wants
+  if (i < NJ_ORD.length - 1) wants.push(NJ_ORD[i + 1]); else if (wrap) wants.push('A')
+  // both〔2026-11-04 用户「顺位差 1（跳过 J）」〕：小 1 个顺位的也算（A 往下只有 K，且要 K 接 A）。升钩传 NJ_DIR=both，〈givejack〉默认双向
+  if (both) { if (i > 0) wants.push(NJ_ORD[i - 1]); if (NJ_ORD[i] === 'A' && wrap) wants.push('K') }
+  return wants
+}
+function nextJackTarget(wants, c) { return wants.indexOf(c.rank) >= 0 && !isZero(c) }
+// 打出 hand[idx] 时〈nextjack〉的条件成不成立（手里别的牌里有没有目标）
+function nextJackReady(G, side, idx) {
+  const hand = G.hands[side]
+  const wants = nextJackWants(hand[idx], process.env.NJ_DIR === 'both')
+  for (let k = 0; k < hand.length; k++) if (k !== idx && nextJackTarget(wants, hand[k])) return true
+  return false
+}
+// ---------- 「屯」标注〔2026-11-04 用户：「标注只给 AI 看」「后续有的技能要用屯牌打法测」〕 ----------
+// 技能表项带 `hold: (G, side, idx) => bool` = 这件技能要屯着打：条件不成立就留在手里，不当饵扔；
+// 条件成立了、这一手又没牌钓得着，就先打它（ai.js pickCardCore 挑饵那一段）。钓得着的照常比收成。
+// **只给 AI 看**：玩家那边不提示（desc 只写规则）。加一件要屯的技能 = 在它的表项里填 hold，别的地方不用动。
+// 返回 '' = 这张牌不带要屯的技能；'hold' = 带了、条件没成立；'ready' = 条件成立
+function loHasHold(lo) {
+  // 〈burnall〉屯的是带火的手牌（holdStateOf 那一支），表项上没有 hold —— 在这儿单独放行
+  if ((process.env.BURNALL_HOLD || 'key') === 'key' && (lo.suitOwner.indexOf(SK.BURNALL) >= 0 || lo.rankOwner.indexOf(SK.BURNALL) >= 0 || (lo.rankOwner2 && lo.rankOwner2.indexOf(SK.BURNALL) >= 0))) return true
+  for (const v of lo.suitOwner) if (v >= 0 && SKILLS[v] && SKILLS[v].hold) return true
+  for (const v of lo.rankOwner) if (v >= 0 && SKILLS[v] && SKILLS[v].hold) return true
+  return false
+}
+function holdStateOf(G, side, idx) {
+  let has = false
+  // 〈burnall〉BURNALL_HOLD=key（默认）：带【燃烧】的手牌要等手里也有一张会触发〈burnall〉的牌才打（先打它点满堆、下一手〈burnall〉全收）。
+  //   只管配装里带〈burnall〉的一方；它自己不屯
+  if ((process.env.BURNALL_HOLD || 'key') === 'key' && burnOnHand(G, G.hands[side][idx]) && loadoutHasSkill(G, side, SK.BURNALL)) {
+    for (let k = 0; k < G.hands[side].length; k++) {
+      if (k !== idx && skillsOf(G, side, G.hands[side][k]).indexOf(SK.BURNALL) >= 0) return 'ready'
+    }
+    has = true
+  }
+  for (const s of skillsOf(G, side, G.hands[side][idx])) {
+    const e = s >= 0 ? SKILLS[s] : null
+    if (!e || !e.hold) continue
+    has = true
+    if (e.hold(G, side, idx)) return 'ready'
+  }
+  return has ? 'hold' : ''
+}
+// 〈givejack〉：打出 hand[idx] 时手里有没有能给的牌（默认那一档「没给不能拿」的屯条件）
+function giveJackReady(G, side, idx) {
+  const hand = G.hands[side]
+  const wants = nextJackWants(hand[idx], process.env.GJ_DIR !== 'up')
+  for (let k = 0; k < hand.length; k++) if (k !== idx && nextJackTarget(wants, hand[k])) return true
+  return false
 }
 function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.RANGEMATCH)) rangeMatchFor(G, side, played, skills)
@@ -14089,6 +14448,109 @@ function afterPlay(G, side, skills, played, ai) {
       st.made++
     } else st.none++
   }
+  if (has(skills, SK.KEYJACK)) {
+    const st = PROTO_STAT.keyjack
+    st.fires++
+    G.keyTag = G.keyTag || new Set()
+    for (const c of G.hands[side]) {
+      if (!G.keyTag.has(c)) { G.keyTag.add(c); st.tagged++; continue }
+      G.keyTag.delete(c)
+      if (c.rank === JACK) { st.wasJack++; continue }
+      if (isZero(c)) st.fromZero++
+      c.rank = JACK
+      c.value = 11
+      c.extra = []
+      st.made++
+    }
+  }
+  if (has(skills, SK.NEXTJACK)) {
+    const st = PROTO_STAT.nextjack
+    st.fires++
+    const wants = nextJackWants(played, process.env.NJ_DIR === 'both')
+    const want = wants.length > 0
+    const hand = G.hands[side]
+    let at = -1, best = -1
+    if (want) for (let k = 0; k < hand.length; k++) {
+      if (!nextJackTarget(wants, hand[k])) continue
+      const v = canCatch(G, hand[k], side) ? 1 : 2
+      if (v > best) { best = v; at = k }
+    }
+    if (!want) st.noRank++
+    else if (at < 0) st.none++
+    else {
+      const c = hand[at]
+      c.rank = JACK
+      c.value = 11
+      c.extra = []
+      // 明置（用户定）—— AI 不读明牌，所以不动数；照〈tojack〉对子版写进 G.seen
+      if (G.seen && G.seen[side]) G.seen[side][at] = true
+      st.made++
+    }
+  }
+  if (has(skills, SK.FLIPJACK)) {
+    const st = PROTO_STAT.flipjack
+    st.fires++
+    const n = process.env.FJ_N ? parseInt(process.env.FJ_N, 10) : 3
+    const mode = process.env.FJ_ELSE || 'none'
+    const tops = topCards(G, n)
+    if (tops.length === 0) st.empty++
+    else {
+      let hasJ = false
+      for (const c of tops) if (c.rank === JACK) hasJ = true
+      const take = []
+      if (hasJ) {
+        st.hit++
+        for (const c of tops) if (process.env.FJ_TAKE !== 'jack' || c.rank === JACK) take.push(c)
+      } else if (mode === 'pick') {
+        take.push(tops[ai.pickDeck(G, tops)])
+      }
+      for (const c of take) {
+        const at = G.deck.indexOf(c)
+        if (at < 0) continue
+        G.deck.splice(at, 1)
+        giveTo(G, side, c, true)
+        st.taken++
+        if (c.rank === JACK) st.jacks++
+      }
+      G.deck = shuffle(G.rng, G.deck)
+      if (!hasJ && mode === 'draw' && drawFor(G, side)) st.drew++
+    }
+  }
+  if (has(skills, SK.GIVEJACK)) {
+    const st = PROTO_STAT.givejack
+    st.fires++
+    const other = side === ME ? FOE : ME
+    const wants = nextJackWants(played, process.env.GJ_DIR !== 'up')
+    const hand = G.hands[side]
+    let at = -1, best = 1e9
+    for (let k = 0; k < hand.length; k++) {
+      if (!nextJackTarget(wants, hand[k])) continue
+      // 照倒饵 BAIT_PICK=foe：对他钓不着的优先，同分给点数小的
+      const sc = (canCatch(G, hand[k], other) ? 2 : 1) * 1000 + hand[k].value
+      if (sc < best) { best = sc; at = k }
+    }
+    if (at < 0 && process.env.GJ_NEED !== '0') st.skipped++
+    else {
+      if (at >= 0) {
+        const give = takeFromHand(G, side, at)
+        if (canCatch(G, give, other)) st.gaveUseful++
+        dropFrostHandSim(G, give)
+        dropKeys(G, give)
+        dropLeaveTags(G, give)
+        giveTo(G, other, give, true)
+        st.gave++
+      } else st.noGive++
+      let jAt = -1
+      for (let k = G.deck.length - 1; k >= 0; k--) if (G.deck[k].rank === JACK) { jAt = k; break }
+      if (jAt < 0) st.noJ++
+      else {
+        const c = G.deck.splice(jAt, 1)[0]
+        G.hands[side].push(c)
+        G.seen[side].push(true)
+        st.gotJ++
+      }
+    }
+  }
   if (has(skills, SK.ZEROFETCHJ)) {
     const st = PROTO_STAT.zerofetchj
     st.fires++
@@ -14146,6 +14608,12 @@ function afterPlay(G, side, skills, played, ai) {
   }
   if (has(skills, SK.EXTRATURN)) extraTurnFor(G, side)
   if (has(skills, SK.JOINTAG)) joinTagFor(G, side)
+  if (has(skills, SK.MARKTAG)) markTagFor(G, side)
+  if (has(skills, SK.BURNIF)) burnIfFor(G, side, played)
+  if (has(skills, SK.BURNALL)) burnAllFor(G, side, played)
+  if (has(skills, SK.BURNSWAP) && played) { if (!G.burnSwap) G.burnSwap = new Set(); G.burnSwap.add(played); PROTO_STAT.burnmark.swapPlayed++; burnTagOne(G, side, true) }
+  if (has(skills, SK.BURNBAIT) && played) { if (!G.burnBait) G.burnBait = new Map(); G.burnBait.set(played, side); PROTO_STAT.burnmark.baitPlayed++ }
+  if (has(skills, SK.BURNNEXT) && played) { PROTO_STAT.burnmark.nextFires++; if (!G.burnNext) G.burnNext = []; G.burnNext.push({ card: played, side: side, was: G.stat.caught[side] }) }
   if (has(skills, SK.SOLOTAG)) soloTagFor(G, side, played)
   if (has(skills, SK.PILEREFLECT)) pileReflectFor(G, side, played)
   if (has(skills, SK.ROCKSELF) && played) { PROTO_STAT.rock.fires++; G.rockPending = played }
@@ -14190,11 +14658,16 @@ function afterPlay(G, side, skills, played, ai) {
   // 而燃尽在匹配之前判（见 burnStep）。排到后面就赶不上这一手的燃尽，
   // 那会让三件各差一整拍 —— 而一拍就是对手的一个回合
   if (has(skills, SK.KINDLE)) {
+    // 〔同日 · 用户「加上抽1张牌，再量」〕KINDLE_DRAW=k：贴火之前先抽 k 张（默认 0）—— 抽来的那张也算手牌、也可能被贴
+    // 〔默认 1 = 游戏里（2026-11-05 用户定「抽 1 + 各花色一张」进游戏）〕
+    const kd = process.env.KINDLE_DRAW ? parseInt(process.env.KINDLE_DRAW, 10) : 1
+    for (let k = 0; k < kd; k++) if (drawFor(G, side) !== null) PROTO_STAT.kindle.drawn = (PROTO_STAT.kindle.drawn || 0) + 1
     // 〔2026-11-03 量具 · 引火 R8 下 D 偏先手〕KINDLE_SELF=0：去掉「【燃烧】」那半句（打出的这张不自带火）
     // KINDLE_LIGHT=self（默认，现行）/ alone0（它落在空堆上时不点 —— 量「空堆上当场燃尽自己」那一支）/ bottom（点堆底那张，不点自己）
     // 〔2026-11-03 用户定：默认翻成 bottom = 游戏里那一版；KINDLE_LIGHT=self 复现旧版「【燃烧】」〕
     const kl = process.env.KINDLE_LIGHT || 'bottom'
-    if (process.env.KINDLE_SELF !== '0') {
+    // 新版引火（BURN_RULE=mark）：「手牌跟堆底同颜色的牌带上【燃烧】」—— 去掉「堆底的牌带上【燃烧】」那半句（= KINDLE_SELF=0）
+    if (process.env.KINDLE_SELF !== '0' && BURN_RULE !== 'mark') {
       if (kl === 'bottom') { if (G.pile.length > 0) lightAt(G, 0) }
       else if (!(kl === 'alone0' && G.pile.length === 1)) lightAt(G, pileIndexOf(G, played))
     }
@@ -14203,6 +14676,30 @@ function afterPlay(G, side, skills, played, ai) {
     const hand = G.hands[side]
     // KINDLE_HAND=0：去掉「手里跟堆底同颜色的牌都带上【燃烧】」那半句（量具）
     if (process.env.KINDLE_HAND === '0') { /* 不贴手牌 */ }
+    // 〔2026-11-05 · 用户「引火改成 手牌不同花色的牌各一张」〕KINDLE_MATCH=eachsuit：手里每种花色各挑 1 张带上【燃烧】
+    //（同花色几张时随机挑一张；J 不排除，照现行引火）。默认不开 = 现行「跟堆底同颜色」
+    // 〔同日 · 用户「引火：跟堆底不同花色的牌带上【燃烧】」〕KINDLE_MATCH=offbottom：手里跟堆底**不同花色**的牌都带上【燃烧】
+    //（堆底按落堆之后算 —— 堆原本空的话堆底就是它自己）
+    else if (KINDLE_MATCH === 'offbottom') {
+      const st = PROTO_STAT.kindle
+      st.fires++
+      if (G.pile.length > 0) {
+        if (G.pile.length === 1) st.bottomSelf++
+        const bs = pileSuitAt(G, 0)
+        for (let i = 0; i < hand.length; i++) if (hand[i].suit !== bs) { addBurnHand(G, hand[i]); st.tagged++ }
+      } else st.noPile++
+    }
+    else if (KINDLE_MATCH === 'eachsuit') {
+      const st = PROTO_STAT.kindle
+      st.fires++
+      const bySuit = {}
+      for (let i = 0; i < hand.length; i++) (bySuit[hand[i].suit] = bySuit[hand[i].suit] || []).push(hand[i])
+      for (const su in bySuit) {
+        const g = bySuit[su]
+        addBurnHand(G, g[randInt(G.rng, g.length)])
+        st.tagged++
+      }
+    }
     else if (KINDLE_HUE === 'bottom') {
       // 定稿（2026-10-30）：跟堆底同颜色。堆空（它被别的效果拿走了）→ 没有堆底，一张不贴
       const st = PROTO_STAT.kindle
@@ -14745,8 +15242,6 @@ function afterPlay(G, side, skills, played, ai) {
       else kd.none++
     }
   }
-  // 〈boardself〉选 1 张手牌放进你的上牌区（补牌之前挪 → 回合末补回一张）
-  if (has(skills, SK.BOARDSELF)) boardSelfFor(G, side)
   // 〈trapzero〉它落堆就成陷阱
   // TRAP_ARM=after（对照档）：当场钓中不算，这一手结算完它还在堆上才成陷阱（见 resolveMatch 后面那一行）。默认 land = 用户定的「当场钓中也算」
   if (TRAP_ARM === 'land' && has(skills, SK.TRAPZERO) && inPile(G, played)) { G.trap.set(played, side); PROTO_STAT.trapzero.armed++ }
@@ -15013,8 +15508,10 @@ function afterPlay(G, side, skills, played, ai) {
   // 野火：排在收色、撒网**后面** —— 它们先把该收的收掉，
   // 野火再给剩下的点火。反过来野火刚点着的会被收色当场端走
   if (has(skills, SK.WILD)) {
+    // 新版野火（BURN_RULE=mark）：「【燃烧】，1 张手牌带上【燃烧】」—— 自带那半句在 burnMarkStep 里认
+    if (BURN_RULE === 'mark') burnTagOne(G, side)
     // 带上 played：连锁要知道「同点数」是哪个点数（见 wildfireFor 开头）
-    wildfireFor(G, side, played)
+    else wildfireFor(G, side, played)
   }
   // 动对方手牌那几件，排在冻结**前面**（照「贵的赢」，见源码 afterPlayTail 那段）。
   //
@@ -15218,7 +15715,8 @@ function afterPlay(G, side, skills, played, ai) {
   //   用户 2026-10-28：「用堆牌 取代 推牌」/「薪潮： 自带【燃烧】，堆牌2」。
   //   留下的数在 `FUEL_HEAP` 上面那张表里 —— ⚠ 那些**全是推牌版的**，
   //   换完一个数都没有。
-  if (has(skills, SK.FUEL)) {
+  // 〔2026-11-05 用户定「薪潮 效果先置空」〕FUEL_EMPTY=1（默认 = 游戏里）：整段不跑。FUEL_EMPTY=0 复现上一版
+  if (has(skills, SK.FUEL) && process.env.FUEL_EMPTY === '0') {
     // ---- 自带【燃烧】：火落在**我打出的这张**上 ----
     //
     // 照传火 / 引火那一行（`lightAt(pileIndexOf(played))`）。
@@ -15231,7 +15729,16 @@ function afterPlay(G, side, skills, played, ai) {
     //
     // 挪到自己这张之后：堆薄时**我**燃尽；而要他吃到火，得「我这一手结束时
     // 全堆带火」—— 可那种局面我自己那一手就先燃尽收走了。自伤基本关掉。
-    lightAt(G, pileIndexOf(G, played))
+    // 〔2026-11-05〕FUEL_SELF=1：旧版「自带【燃烧】」。**默认关 = 游戏里那版**（自带火 R8 下偏先手，引火旧版同病，台账五十八·丁 / 七十九）
+    if (process.env.FUEL_SELF === '1') lightAt(G, pileIndexOf(G, played))
+    // 〔2026-11-05 量具 · 用户要评价「【燃烧】，手牌 N 张带上燃烧」〕FUEL_HAND=N：手里**剩下的**牌前 N 张预约上火
+    //（照引火 KINDLE_N 那一支：手牌顺序就是摸牌顺序，等于随手挑）。默认 0 = 游戏里那一版
+    // 〔2026-11-05 量具〕FUEL_DRAW=1：上火之前先抽 1 张（「抽 1 张牌，给手牌全部带上【燃烧】」）。⚠ 抽的那张被回合末补牌抹平，只多一张上火
+    // **默认开 = 游戏里那版**（FUEL_DRAW=0 关）
+    if (process.env.FUEL_DRAW !== '0') { const d = drawFor(G, side); if (d !== null) PROTO_STAT.fuelDraw = (PROTO_STAT.fuelDraw || 0) + 1 }
+    // **默认 99 = 手牌全部 = 游戏里那版**
+    const fh = process.env.FUEL_HAND ? parseInt(process.env.FUEL_HAND, 10) : 99
+    for (let i = 0; i < fh && i < G.hands[side].length; i++) addBurnHand(G, G.hands[side][i])
   }
   // ---- 【唤潮】的**造料支**：场上没有 >13 → 双方各 N 张手牌贴【涨潮】 ----
   //
@@ -15856,23 +16363,6 @@ const PROTO_STAT = {
   //   共用函数自己记，调用点只记自己那一句条件）。
   //   所以两件同时在场时 heap 那几个数是**合计**，别当成单件的。
   jsurge: { fires: 0 },
-  // ---------- 【上牌区】的诊断口〔2026-10-26〕 ----------
-  //
-  //   forced   有几个回合是「上牌区有牌 → 被迫从这儿出」
-  //   played   从上牌区真打出去几张。**该跟 `forced` 逐位相等**
-  //            （规则是「必须出 1 张」），不等就是某条路绕过去了
-  //   left     终局时还卡在上牌区的张数（守恒桶认得它，但它一分不值）
-  //   gotSum   被迫出的那一手**实际收了几张**〔2026-10-26 加〕。
-  //            `gotSum / played` 跟全局的「每手平均收几张」一比，
-  //            就是「被迫出牌亏了多少」
-  //
-  // ⚠ 往这一区放牌的**只有** `BOARD_TEST` 这个自检旋钮，所以默认跑里
-  //   这几个数全是 0 ——**那个 0 的意思是「没有技能用它」，不是「机制没接上」**。
-  //   〔唯一用过它的技能是〈boardgive〉/【顶钩】，2026-10-27 删了。
-  //     `gotSum` 当初是为它加的兑现口，而它**只能在这儿记** ——
-  //     塞牌的那一方看不到对手下一手的结果。留着：下一件往上牌区
-  //     放牌的技能要的就是这个口〕
-  board: { forced: 0, played: 0, left: 0, gotSum: 0 },
   // ---------- 【石化】那一套（原型，2026-10-25；诊断口 2026-10-26 才接上） ----------
   // **先看 tags 再看 X**：tags=0 就是一张毒都没贴上，这一格跑的是原版
   //（同色闸那次的教训 —— bug 档 4.89、修好 4.88，单看 X 永远查不出）
@@ -16278,6 +16768,8 @@ const PROTO_STAT = {
   // 【冰雷】〔2026-11-01〕：引爆几次 / 其中埋雷的一方自己收 / 被对方贴冰收走
   icebomb: { fired: 0, byOwner: 0, byOther: 0 },
   jointag: { fires: 0, noHand: 0, tagged: 0, joined: 0, joinedMine: 0, joinedFoe: 0 },
+  burnmark: { swapPlayed: 0, swapFired: 0, baitStealSkip: 0, baitSelfNow: 0, baitSelfJ: 0, baitSelfSteal: 0, baitSelfOther: 0, baitPlayed: 0, baitTaken: 0, baitSelf: 0, baitLit: 0, allFires: 0, allHand: 0, allTake: 0, allTaken: 0, nextFires: 0, nextCaught: 0, nextGot: 0, nextMiss: 0, ifFires: 0, ifSelf: 0, ifHand: 0, played: 0, pileSum: 0, harvests: 0, taken: 0, lit: 0, melted: 0, wildFires: 0, handTagged: 0, noHand: 0 },
+  marktag: { fires: 0, foeTagged: 0, foeJ: 0, prioPlayed: 0, prioForced: 0, drawn: 0, both: 0, voided: 0, selfTaken: 0, noHand: 0, handTagged: 0, played: 0, handPlayed: 0, pileSum: 0, harvests: 0, taken: 0, marked: 0 },
   solotag: { fires: 0, noPile: 0, tagged: 0, hits: 0, saved: 0, hitsMine: 0, hitsFoe: 0 },
   handreflect: { fires: 0, noTarget: 0, changed: 0, mineTook: 0, foeTook: 0 },
   // 〈reflectx〉：fires / changed（映照真改了）/ forLine（改了是为了这一手的顺子 / 顺序）/ fallback（退回镜水打法）/ none（没改）
@@ -16295,14 +16787,11 @@ const PROTO_STAT = {
   // 〈stackdraft〉：叠了几次 / 21 匹配凑成几次 / 凑成时收几张（含锚，不含垫的那张）/ 退回普通匹配几次 / 什么都没收几次
   stackdraft: { fires: 0, drafted: 0, got: 0, normal: 0, none: 0 },
   minus2n: { fires: 0, zeroed: 0, dropped: 0 },
-  // 〈boardself〉：发动 / 手里没牌 / 真放进去几张 / 其中 J
-  boardself: { fires: 0, none: 0, placed: 0, jacks: 0 },
   zerotrio: { fires: 0, kSum: 0, killed: 0, dropped: 0, tagged: 0, heapZeros: 0 },
   bottomzero: { fires: 0, zeroed: 0, selfZero: 0, kSum: 0, killed: 0, noRef: 0 },
   bottomharvest: { fires: 0, zeroed: 0, cashed: 0, hits: 0, got: 0, builds: 0, noRef: 0, tagged: 0 },
   // 【褪递】：发动 / 褪色新置 0 几张 / 没有参照几次 / 贴出【收零】几张（兑现看 atag.cashed / hits / got —— 【收零】走那一支）
   fadetag: { fires: 0, zeroed: 0, noRef: 0, tagged: 0 },
-  fadeboard: { fires: 0, kSum: 0, killed: 0, boarded: 0 },
   fadesplit: { fires: 0, foeTagged: 0, myTagged: 0, fadeLands: 0, fadeZeroed: 0 },
   backwater: { fires: 0, killed: 0, jack: 0, tagged: 0 },
   foeflow: { fires: 0, handUsed: 0 },
@@ -16315,6 +16804,16 @@ const PROTO_STAT = {
   zerofetchj: { fires: 0, zeroed: 0, zeroJack: 0, got: 0, none: 0, skipped: 0 },
   // 〈tojack〉：发动 / 真变成 J 几张（其中原来是 0 点牌）/ 没得变（手里空或全是 J）
   tojack: { fires: 0, made: 0, fromZero: 0, none: 0 },
+  // 〈keyjack〉：发动 / 贴上钥匙几张 / 变成 J 几张（其中原是 0 点牌）/ 本来就是 J
+  // 〈nextjack〉：发动 / 变成 J / 手里没有下一顺位 / 打出的牌没有下一顺位（J、无点数、K 在 NJ_WRAP=0 时）
+  nextjack: { fires: 0, made: 0, none: 0, noRank: 0 },
+  // 〈givejack〉：发动 / 给出几张（其中对方当场钓得着的）/ 没得给 / 拿到 J / 牌库没 J / GJ_NEED=1 时整件不发动
+  // 〈flipjack〉：发动 / 翻到 J（全拿那一档）/ 拿进手几张（其中 J）/ 没 J 时摸了几张 / 牌库空
+  flipjack: { fires: 0, hit: 0, taken: 0, jacks: 0, drew: 0, empty: 0 },
+  givejack: { fires: 0, gave: 0, gaveUseful: 0, noGive: 0, gotJ: 0, noJ: 0, skipped: 0 },
+  // 「屯」标注（所有带 hold 的技能合计）：条件成立就先打 / 屯住几手 / 手里只剩要屯的牌、忍不住打出去几手
+  hold: { readyPlay: 0, held: 0, forced: 0 },
+  keyjack: { fires: 0, tagged: 0, made: 0, fromZero: 0, wasJack: 0 },
   // 庄家规矩（campaign 的 FOE_SP_EXTRA 挂上的）：炙水挡下几次「直接匹配」、过闸拿走几张
   foeRule: { charLocked: 0, toll: 0, shellLocked: 0, guard: 0, again: 0, leak: 0, pick: 0, dryup: 0 },
   // 〈redblack〉：skillsOf 判到红→1 / 黑→0 的次数（含 AI 试算，只看比例）
@@ -16428,8 +16927,6 @@ const CMARK_CAP = process.env.CMARK_CAP ? parseInt(process.env.CMARK_CAP, 10) : 
 const ZF_CAP = process.env.ZF_CAP ? parseInt(process.env.ZF_CAP, 10) : Infinity
 // 拆解用（用户 10-29：「死水的分数都合格」）：ZF_NOZERO=1 它不置 0 / ZF_FIX=N 固定废 N 张（不看 K）
 const ZF_NOZERO = process.env.ZF_NOZERO === '1'
-const FB_CAP = process.env.FB_CAP ? parseInt(process.env.FB_CAP, 10) : Infinity
-const FB_BOARD = process.env.FB_BOARD !== '0'
 const FS_PICK = process.env.FS_PICK || 'rand'
 if (['rand', 'best'].indexOf(FS_PICK) < 0) throw new Error('FS_PICK 只能是 rand / best')
 const BZ_MODE = process.env.BZ_MODE || 'suit'
@@ -16569,26 +17066,6 @@ function protoOnLand(G, side, skills, card, ai) {
     }
     if (at >= 0 && G.fadeKey.indexOf(theirs[at]) < 0) { G.fadeKey.push(theirs[at]); st.foeTagged++ }
     if (zeroKeyTag(G, side)) st.myTagged++
-  }
-  // ---- 〈fadeboard〉：【褪色】→ 对方 K 张手牌置 0 并挪进他的上牌区 ----
-  if (has(skills, SK.FADEBOARD) && at0 >= 0) {
-    const st = PROTO_STAT.fadeboard
-    st.fires++
-    fadeLand(G, at0)
-    const k = zeroCountPile(G)
-    st.kSum += k
-    const other = side === ME ? FOE : ME
-    const n = Math.min(k, FB_CAP)
-    for (let t = 0; t < n; t++) {
-      const at = ai.deadPick(G, side)
-      if (at < 0) break
-      doDead(G, side, at)
-      st.killed++
-      if (FB_BOARD) {
-        G.boardZone[other].push(takeFromHand(G, other, at))
-        st.boarded++
-      }
-    }
   }
   // 〔【褪递】10-29 深夜换效果：原先这儿是「fadeLand → 1 张手牌带上【收零】」。现在走下面〈fadesplit〉那一支〕
   // ---- 〈bottomharvest〉：跟堆底同颜色 / 同花色的置 0（收 0 在 resolveMatch 那一支）----
@@ -19765,6 +20242,7 @@ function pullFromDeck(G, side, card) {
 //   落在哪一格（沉底 → 堆底，否则堆顶）—— 蔓延是位置敏感的；
 //   野火点**哪一张** —— 所以这儿调 `pickBurnAt`，跟 wildfireFor 同一个函数
 function burnSweepCount(G, card, skills, side) {
+  if (BURN_RULE === 'mark') return 0
   const size = G.pile.length
   // 空堆：落下去就 1 张。自带火的话当场闭合收走自己（兜底那条），
   // 但门槛 > 1 时那条兜底不响
@@ -19812,8 +20290,20 @@ function burnSweepCount(G, card, skills, side) {
     else if (CHAIN_HUE !== 'least') chainSelf = true
   }
   // 〔2026-10-30〕野火 `WILD_SELF=1` 那一档自带燃烧 —— 不写进来 AI 会低估它的燃尽（默认档不走这一支）
-  const selfBurn = has(skills, SK.KINDLE) || chainSelf
-    || has(skills, SK.FUEL) || (canFire && WILD_SELF)
+  // 〔2026-11-05 修：引火 11-03 起点的是**堆底**、不点自己（KINDLE_LIGHT 默认 bottom），这儿却恒算它自带火 ——
+  //   改成：self / alone0 档才算自带（alone0 落空堆不点，但空堆上面 size === 0 已经先 return 了）；bottom 档在下面单点堆底那一格。
+  //   KINDLE_AI_SELF=always 退回旧预估（对照用）。台账第八十节〕
+  const kindleLight = process.env.KINDLE_LIGHT || 'bottom'
+  const kindleSelf = has(skills, SK.KINDLE) && process.env.KINDLE_SELF !== '0'
+    && (process.env.KINDLE_AI_SELF === 'always' || kindleLight !== 'bottom')
+  const kindleBottom = has(skills, SK.KINDLE) && process.env.KINDLE_SELF !== '0'
+    && process.env.KINDLE_AI_SELF !== 'always' && kindleLight === 'bottom'
+  // 〔2026-11-05 修：**手里已经带火的牌**（引火 / 薪潮贴的，`burnHandOnLand`）落堆就着，这儿原先没算 ——
+  //   AI 因此看不见「打这张带火的牌能燃尽」。BURN_AI_HAND=0 退回旧预估（对照用）〕
+  const handBurn = process.env.BURN_AI_HAND !== '0' && burnOnHand(G, card) && !frostOnHand(G, card)
+  const selfBurn = kindleSelf || chainSelf || handBurn
+    // 〔2026-11-05〕薪潮换效果后不再自带火（FUEL_SELF=1 才是旧版）—— 原来这儿恒算它点自己
+    || (has(skills, SK.FUEL) && process.env.FUEL_SELF === '1') || (canFire && WILD_SELF)
   if (sink) {
     burn.unshift(selfBurn ? 1 : 0)
     blocked.unshift(false)
@@ -19822,6 +20312,8 @@ function burnSweepCount(G, card, skills, side) {
     blocked.push(false)
   }
   const n = burn.length
+  // 引火 bottom 档：点堆底那一格（落堆底时就是它自己）。保护 / 冰那格点不着（照 lightAt）
+  if (kindleBottom && !blocked[0]) burn[0] = 1
   // 〔【接火】的区间预估和【布火】的落点预估都删了（两件技能都删了）。
   //
   //   它们留下一条**还在管事的**，而**引火现在就在吃这个亏**：
@@ -20422,12 +20914,8 @@ function playGame(opts, ai) {
         const short = G.stat.plays[ME] < G.stat.plays[FOE] ? ME
           : (G.stat.plays[FOE] < G.stat.plays[ME] ? FOE : -1)
         const room = G.stat.plays[ME] + G.stat.plays[FOE] - G.tailFrom < TAIL + 1
-        // 〔`|| boardZone` 2026-10-26 加 —— `canAct` 上面那段预告的那一行。
-        //   上牌区有牌 = 他**真能再出一手**（而且是必须出），所以这道闸
-        //   认它。**堆牌区照旧不认**：落牌不是出牌，认了会白送一个回合。
-        //   TAIL 默认 Infinity，所以这一支在现行跑动里一个字节都不走〕
         const canFill = short >= 0
-          && (playableCount(G, short) > 0 || G.boardZone[short].length > 0)
+          && playableCount(G, short) > 0
         if (!(EVEN && room && canFill)) {
           G.over = true
           break
@@ -20452,22 +20940,6 @@ function playGame(opts, ai) {
     //   它**不算一次出牌** —— 落完接着照常走下面的出牌阶段。
     heapFlush(G, side)
     betrayClaim(G, side)
-    // ---- 【上牌区】：「有牌时必须选择上牌区的 1 张牌打出作为自己的本轮出牌」 ----
-    //
-    // 排在手牌空那道岔**之前**：手里一张没有、上牌区有牌时照样要出
-    //（规则说的是「本轮出牌」，没说「手牌出牌」）
-    if (G.boardZone[side].length > 0) {
-      PROTO_STAT.board.forced++
-      // 被迫这一手**实际**收了几张〔2026-10-26 加〕—— 往上牌区塞牌那一类
-      // 技能的兑现口。塞牌的那一方在自己的回合里看不到这个结果，
-      // 所以只能在这儿记（首例〈boardgive〉10-27 删了，这个口留着）
-      const wasCaught = G.stat.caught[side]
-      playFor(G, side, ai.boardPick(G, side), ai, true)
-      PROTO_STAT.board.gotSum += G.stat.caught[side] - wasCaught
-      // 「连跳」计数照打出牌那条路清零（见下面 playFor 后面那一行）
-      if (G.stat.lockRun) G.stat.lockRun[side] = 0
-      continue
-    }
     if (G.hands[side].length === 0) {
       // 手里没牌：这回合什么也做不了（照 startMyTurn / foeTurn 那道岔）
       passTurn(G, side)
@@ -20493,6 +20965,17 @@ function playGame(opts, ai) {
       if (zk >= 0 && zk !== index && (process.env.ZERO_FIRST === 'strict' || betrayGain(G, hand[index], side) <= 0)) {
         index = zk
         PROTO_STAT.zeroTail.swapped++
+      }
+    }
+    // 〈marktag〉【优先打出】：手里有带它的牌（没被冻住）就必须打它
+    if (index >= 0 && G.prioHand && G.prioHand.size > 0) {
+      const hand = G.hands[side]
+      const pk = hand.findIndex(function (c) { return G.prioHand.has(c) && !isFrozen(G, c) })
+      if (pk >= 0) {
+        if (pk !== index) PROTO_STAT.marktag.prioForced++
+        PROTO_STAT.marktag.prioPlayed++
+        G.prioHand.delete(hand[pk])
+        index = pk
       }
     }
     // 〈traitor〉turn2 档：贴上之后持有人自己的第 2 个回合（之前已经打过 1 手）必定打它
@@ -20569,8 +21052,6 @@ function playGame(opts, ai) {
     if (G.stat.lockRun) G.stat.lockRun[side] = 0
   }
   tailDiag(G)
-  // 终局还卡在上牌区的张数（诊断口；它们一分不值，但守恒桶认得它们）
-  PROTO_STAT.board.left += G.boardZone[ME].length + G.boardZone[FOE].length
   // 削后手优势的那两条「终局剩堆」规则。走 harvestPile 而不是直接加分 ——
   // 叠放、gone、六条数组的账都在那儿算，自检的「分数 == gone」才对得上
   // 〔2026-11-03 量具〕pileSecond：剩堆归后手（按 G.first 认，CUT 开着也对）
@@ -20631,6 +21112,7 @@ module.exports = {
   //   导出一个已经不存在的 const 是 ReferenceError，整个模拟器加载即崩。
   //   `ai.js` 要的是 `surgeLayersOf`（按层数放大回避折扣）〕
   surgePool, surgeOnHand, surgeLayersOf, SURGE_N, SURGE_LAYERS,
+  loHasHold, holdStateOf,
   has, cardVals, valuesOf, anyEquals, canCatch, catchStart,
   // 【映照】的挑牌：`ai.js` 的 `pickCard` 要读它〔2026-10-21〕。
   //
@@ -20648,7 +21130,7 @@ module.exports = {
   // 会让别的技能也带上映照，两边各写一份必然分叉〔2026-10-21〕
   reflectOn,
   sinkComboOpen, sinkTagOn,
-  isFrozen, heldOn, opponentOpen, inPile, topCards, handLimit, harvestCount,
+  isFrozen, heldOn, opponentOpen, inPile, topCards, handLimit, harvestCount, markCount, burnMarkCount, burnAllCount, burnBaitPenalty, BURN_RULE, MARK_RULE, MARK_SELF,
   // 阶梯计分：**只此一份**。`ai.js` 要拿它比价（AI 得按分数挑，不是按张数），
   // 在那边再写一遍就是「复制一份逻辑，两份必然分叉」
   scoreOf, scoreWith, bandOf, SCORE_BANDS,
@@ -20664,7 +21146,7 @@ module.exports = {
   // `doHeapTag` 导出是给将来「贴给谁」那种技能用的（照 doSurgeTag）；
   // `canAct` 导出是因为它是「这一方还做得了事吗」的唯一口径，
   // 别处要问同一个问题就接它，别再写一份 `playableCount || zone.length`
-  HEAP_N, BOARD_TEST, doHeapTag, canAct,
+  HEAP_N, doHeapTag, canAct,
   // 【抢牌】两个旋钮〔2026-10-27〕。导出的理由跟 `ruleTag` / `SM_MIN` 那几条
   // 一样：`sim.js` 的抬头要印「这一跑开没开抢牌」，而**在那边写一份
   // `process.env.STEAL_ON === '1'` 今天跟这儿相等**，默认值哪天一翻

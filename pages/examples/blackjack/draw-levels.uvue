@@ -535,8 +535,13 @@
         <scroll-view class="skill-box-body sv-out" direction="vertical">
           <!-- key 用**技能下标**不用数组下标 —— 查询框一筛数组就重排了
                （见 MySkill.skill 那段） -->
+          <!-- 〔2026-11-05 用户定：专属技能跟普通技能分开〕两栏：普通技能（商店卖的，按价排）/
+               专属技能（角色专属 + 庄家专属，不出售）。哪一栏筛空了就连标题一起不印 -->
+          <text v-if="normalSkills.length > 0" id="md-skill-sect-normal" class="rolebook-sect"
+            >普通技能 · {{ normalSkills.length }} 种</text
+          >
           <view
-            v-for="one in mySkills"
+            v-for="one in normalSkills"
             :key="'ms-' + one.skill"
             :id="'md-skill-' + one.skill"
             class="my-skill"
@@ -545,6 +550,23 @@
               <text class="my-skill-cover">{{ one.cover }}</text>
               <text class="my-skill-name">{{ one.name }}</text>
               <!-- 「优先」关键字：效果在钓牌判定之前结算 -->
+              <text v-if="one.first" class="my-skill-key">{{ KEYWORD_FIRST }}</text>
+              <text class="my-skill-level">{{ one.level }}</text>
+            </view>
+            <text class="my-skill-desc">{{ one.desc }}</text>
+          </view>
+          <text v-if="exclusiveSkills.length > 0" id="md-skill-sect-exclusive" class="rolebook-sect"
+            >专属技能 · {{ exclusiveSkills.length }} 种（不出售）</text
+          >
+          <view
+            v-for="one in exclusiveSkills"
+            :key="'ms-' + one.skill"
+            :id="'md-skill-' + one.skill"
+            class="my-skill"
+            :class="{ 'my-skill-off': !one.owned }">
+            <view class="my-skill-head">
+              <text class="my-skill-cover">{{ one.cover }}</text>
+              <text class="my-skill-name">{{ one.name }}</text>
               <text v-if="one.first" class="my-skill-key">{{ KEYWORD_FIRST }}</text>
               <text class="my-skill-level">{{ one.level }}</text>
             </view>
@@ -658,6 +680,9 @@
     rollSpots,
     // 角色专属技能（布饵人的空钩）：挑技能列表 / 实战技能池排掉它；固定槽不许换
     isRoleOnlySkill,
+    // 庄家专属 / 专属总判断〔2026-11-05〕：插槽不列；技能图鉴把专属的单列一栏
+    isFoeOnlySkill,
+    isExclusiveSkill,
     roleFixedSkill
   } from '@/pages/examples/blackjack/draw-skills.uts'
   // 名词解释。**这张表从本文件搬出去了**（2026-10-14）——
@@ -890,18 +915,19 @@
         //   真正的原因是 `draw-skills.uts` 的 DRAW_SKILLS 表里漏下了一个
         //   孤立的 `{`（删霜降时留的），数组因此多出一个空对象项。
         //   见那儿的墓碑注释。这一行按惯例写成这样，但别拿它解释那个 bug〕
-        // 角色专属的不标价（商店不卖），改标归谁
-        cover: isRoleOnlySkill(k) ? '专属' : '' + DRAW_SKILLS[k].unlock + ' 金币',
+        // 专属的（角色专属 + 庄家专属）不标价（商店不卖），改标归谁
+        cover: isExclusiveSkill(k) ? '专属' : '' + DRAW_SKILLS[k].unlock + ' 金币',
         name: DRAW_SKILLS[k].name,
-        level: isRoleOnlySkill(k) ? roleOnlyTag(k) : '',
+        level: isRoleOnlySkill(k) ? roleOnlyTag(k) : (isFoeOnlySkill(k) ? foeOnlyTag(k) : ''),
         desc: DRAW_SKILLS[k].desc,
         first: DRAW_SKILLS[k].first
       } as MySkill)
     }
-    // 按价格从低到高；同价的照技能表的先后。角色专属的（价 0、不卖）排最后
+    // 按价格从低到高；同价的照技能表的先后。专属的（价 0、不卖）排最后 ——
+    // 弹层里它们另起一栏（exclusiveSkills），这个排序管的是栏内先后和「匹配 N 件」那个总数
     out.sort((x : MySkill, y : MySkill) : number => {
-      const ox = isRoleOnlySkill(x.skill) ? 1 : 0
-      const oy = isRoleOnlySkill(y.skill) ? 1 : 0
+      const ox = isExclusiveSkill(x.skill) ? 1 : 0
+      const oy = isExclusiveSkill(y.skill) ? 1 : 0
       if (ox != oy) {
         return ox - oy
       }
@@ -922,6 +948,40 @@
     }
     return '角色专属 · 不出售'
   }
+
+  // 庄家专属的那几件挂在哪几个庄家的槽上（照 roleOnlyTag 报归谁）
+  function foeOnlyTag(k : number) : string {
+    const names : string[] = []
+    for (let r = 0; r < DRAW_FOE_ROLES.length; r++) {
+      const slots = DRAW_FOE_ROLES[r].slots
+      for (let i = 0; i < slots.length; i++) {
+        if (slots[i].skill == k && names.indexOf(DRAW_FOE_ROLES[r].name) < 0) {
+          names.push(DRAW_FOE_ROLES[r].name)
+        }
+      }
+    }
+    return (names.length > 0 ? names.join('、') : '庄家') + '专属 · 不出售'
+  }
+
+  // 技能图鉴的两栏〔2026-11-05〕：从 mySkills（已筛、已排）里按「专属不专属」分开
+  const normalSkills = computed<MySkill[]>(() : MySkill[] => {
+    const out : MySkill[] = []
+    for (let i = 0; i < mySkills.value.length; i++) {
+      if (!isExclusiveSkill(mySkills.value[i].skill)) {
+        out.push(mySkills.value[i])
+      }
+    }
+    return out
+  })
+  const exclusiveSkills = computed<MySkill[]>(() : MySkill[] => {
+    const out : MySkill[] = []
+    for (let i = 0; i < mySkills.value.length; i++) {
+      if (isExclusiveSkill(mySkills.value[i].skill)) {
+        out.push(mySkills.value[i])
+      }
+    }
+    return out
+  })
 
 
   // 这一轮的角色有几个槽、嵌了几件（弹层抬头报「槽 N/M」）
@@ -1227,7 +1287,7 @@
   function pickableSkills() : number[] {
     const out : number[] = []
     for (let k = 0; k < DRAW_SKILLS.length; k++) {
-      if (!isRoleOnlySkill(k)) {
+      if (!isExclusiveSkill(k)) {
         out.push(k)
       }
     }
@@ -1260,7 +1320,7 @@
       return
     }
     // 固定槽 / 专属技能都不许动（列表里本来就不列，这儿再挡一道）
-    if (roleFixedSkill(roleAt.value, slotPick.value) >= 0 || isRoleOnlySkill(k)) {
+    if (roleFixedSkill(roleAt.value, slotPick.value) >= 0 || isExclusiveSkill(k)) {
       return
     }
     if (usedElsewhere(k)) {

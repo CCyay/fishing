@@ -1347,13 +1347,13 @@ const FOE_FIXED_LEVELS : number = 2
 // **按难度分开** —— 同一张卡在不同难度下可以进不同的档，也可以哪一档都进不去（太弱 / 太强 / 夹缝 → 那个难度下不出场）。
 // 某一档落进来的卡不够关数时，用离这一档区间最近的卡补齐（用户定），补位的也写在这张表里。
 //
-// FOE_TIER_POOL[难度][档] = 卡号（DRAW_FOE_ROLES 下标 + 1；备选池接在 12 后面）。由 tools/md-sim/out-foestr-pond/tiers.js --uts 生成，**改了庄家就要重量、重生成**
+// FOE_TIER_POOL[难度][档] = 卡号（DRAW_FOE_ROLES 下标 + 1；备选池接在 12 后面）。由 tools/md-sim/out-foestr-1105/tiers.js --uts 生成〔2026-11-05 新【燃烧】+ 薪潮下架后整表重跑，台账第八十九节；11-04 那一版在 out-foestr-pond/〕，**改了庄家就要重量、重生成**
 export const FOE_TIER_LEVELS : number[][] = [[3, 4, 5], [6, 7, 8], [9, 10, 11], [12]]
 export const FOE_TIER_NAMES : string[] = ['3~5', '6~8', '9~11', '12']
 const FOE_TIER_POOL : number[][][] = [
-  [[3, 4, 6, 8, 25, 29, 34, 37, 42], [5, 7, 10, 15, 36, 39, 44], [9, 11, 31, 33, 41], [35, 46]],
-  [[3, 4, 5, 6, 8, 10], [11, 31, 36], [9, 15, 24, 33, 39, 44], [16, 17, 26, 28, 35, 41, 46]],
-  [[3, 4, 5, 8, 10, 36, 39], [9, 15, 24, 33, 44], [17, 26, 28, 35, 46], [13, 30, 43]]
+  [[3, 4, 6, 25, 29, 34, 37, 42], [5, 7, 8, 10, 36, 39, 44], [9, 11, 15, 41], [24, 31, 33, 46]],
+  [[3, 4, 5, 6, 8, 10, 29, 34, 37, 42], [11, 36, 3], [9, 17, 24, 31, 33, 39, 44], [15, 16, 26, 35, 41, 46]],
+  [[3, 4, 5, 8, 10, 29, 36, 39], [9, 15, 24, 31, 44], [17, 26, 33, 35, 41, 46], [13, 16, 28, 43]]
 ]
 // 返回长度 = 关数 + 1：前面每一位是第 i+1 关的庄家卡号，**最后一位是 FOE_ORDER_DIFF_BASE + 难度** ——
 // 难度不进存档那一串（见 draw-save 的 KEY_DIFF），而这一轮是按哪个难度抽的得记住（开打前换了难度就要重抽，见 ensureFoeOrder）
@@ -1523,7 +1523,8 @@ export type FoeSeries = {
   pool : number[]
 }
 export const FOE_SERIES : FoeSeries[] = [
-  { name: '赤礁烧炭工', pool: [SK_KINDLE, SK_WILD, SK_FUEL] } as FoeSeries,
+  // 〔2026-11-05 薪潮下架（用户定），池子去掉它：原 [SK_KINDLE, SK_WILD, SK_FUEL]。HD / DD 抽 2 件，2 件刚好够不重复〕
+  { name: '赤礁烧炭工', pool: [SK_KINDLE, SK_WILD] } as FoeSeries,
   { name: '沙垒筑堤工', pool: [SK_STONEFULL, SK_STONEHUE, SK_STONELINE] } as FoeSeries,
   { name: '深渊君主', pool: [SK_LOCKCOLOR, SK_LOCKDRAW, SK_ICEBOMB] } as FoeSeries,
   { name: '东海龙王', pool: [SK_FLOW, SK_FLOWALL, SK_FLOWPASS] } as FoeSeries
@@ -1976,8 +1977,8 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   { name: '赤礁烧炭工S', specials: ['char'], slots: [
       // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：燃烧 ----
       { skill: SK_KINDLE, count: 1, suit: false } as FoeSlot,
-      { skill: SK_WILD, count: 2, suit: false } as FoeSlot,
-      { skill: SK_FUEL, count: 1, suit: false } as FoeSlot
+      { skill: SK_WILD, count: 2, suit: false } as FoeSlot
+      // 〔2026-11-05 薪潮下架（用户定），这一槽删掉：原 `{ skill: SK_FUEL, count: 1, suit: false }`〕
     ], desc: '礁石烧红了。它打出的牌一着火你就钓不上' } as FoeRole,
   // 〔2026-11-04 退场：并进燃烧系列（赤礁烧炭工）。不在任何一档的抽签池里（FOE_TIER_POOL），条目留着 —— 存档按卡号存〕
   { name: '赤潮巡海人', specials: ['pick'], slots: [

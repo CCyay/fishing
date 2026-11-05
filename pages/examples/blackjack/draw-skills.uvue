@@ -456,6 +456,9 @@
     specialIndexOf,
     // 角色专属技能（布饵人的空钩）：技能包不摇、货架不卖；固定槽不许换
     isRoleOnlySkill,
+    // 庄家专属 / 专属总判断〔2026-11-05〕：不卖、技能包不摇
+    isFoeOnlySkill,
+    isExclusiveSkill,
     roleFixedSkill
     // 原先这儿还引着一片旧模型的东西（rankCapOf / isEquipped / hasRankRoom /
     // rollExpand / washSkill / canUpgrade / removeSkill / levelText /
@@ -992,6 +995,8 @@
     let block = ''
     if (isRoleOnlySkill(k)) {
       block = '角色专属 · 不出售'
+    } else if (isFoeOnlySkill(k)) {
+      block = '庄家专属 · 不出售'
     } else if (noSlots.value) {
       block = '还没选角色 —— 没有槽可嵌'
     } else if (save.value.gold < one.unlock) {
@@ -1174,7 +1179,7 @@
   // 名额那道闸没了（槽满照样买得动，只是会换掉里头那件）。
   // 唯一还拦的是「一个槽都没有」—— 那说明这一轮还没选角色
   function buySkill(at : number, k : number) {
-    if (isNaN(k) || k >= DRAW_SKILLS.length || isRoleOnlySkill(k)) {
+    if (isNaN(k) || k >= DRAW_SKILLS.length || isExclusiveSkill(k)) {
       return
     }
     if (noSlots.value) {
@@ -1806,7 +1811,7 @@
     const free : number[] = []
     for (let k = 0; k < DRAW_SKILLS.length; k++) {
       // 角色专属的不进包
-      if (!hasSkill(save.value, k) && !isRoleOnlySkill(k)) {
+      if (!hasSkill(save.value, k) && !isExclusiveSkill(k)) {
         // 关键词包只摊这一族：desc 原文里带【这个关键词】的（理由见 draw-levels 的 packKeyword）
         if (kw != '' && DRAW_SKILLS[k].desc.indexOf('【' + kw + '】') < 0) {
           continue

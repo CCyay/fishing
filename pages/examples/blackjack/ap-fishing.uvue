@@ -70,10 +70,8 @@
              压舱 / 摘钩 / 对换 —— 「挑这一张」。这三件把它的手牌全翻开
              （见 foeOpen 里认 takeSkill 那条），所以你是看着挑的 -->
       <view class="foe-row">
-        <!-- 庄家的两个区，顺序跟你那排一致（堆牌 │ 上牌 │ 手牌）。
-             **堆牌盖着、上牌正面** —— 上牌区是公开信息，而且它是**你要用的**：
-             庄家下一手必定从那几张里出，所以你看得见它就等于提前知道它下一手。
-             这是这条规则在对局里最有意思的那一半，藏起来就白设计了 -->
+        <!-- 庄家的堆牌区，顺序跟你那排一致（堆牌 │ 手牌）。堆牌盖着。
+             〔上牌区 2026-11-05 去掉了（用户定）〕 -->
         <view v-if="foeHeapZone.length > 0" class="zone-group">
           <text class="zone-label">堆牌</text>
           <view
@@ -82,22 +80,6 @@
             class="card card-small card-back">
             <view class="card-back-art card-back-art-small">
               <view class="card-back-gem card-back-gem-small"></view>
-            </view>
-          </view>
-          <view class="zone-split"></view>
-        </view>
-        <view v-if="foeBoardZone.length > 0" class="zone-group">
-          <text class="zone-label">上牌</text>
-          <view
-            v-for="(card, index) in foeBoardZone"
-            :key="'fbz-' + index"
-            class="card card-small card-board">
-            <view class="card-head card-head-small">
-              <text class="card-suit card-suit-small" :class="{ 'card-red': isRed(card), 'card-suit-dia': card.suit == '♦' }">{{ suitFace(card.suit) }}</text>
-              <text class="card-rank card-rank-small card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
-            </view>
-            <view class="card-tags">
-              <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
             </view>
           </view>
           <view class="zone-split"></view>
@@ -608,6 +590,11 @@
       </view>
     </view>
 
+    <!-- 升钩：手里有 2 张以上比它大 1 个顺位的牌，点一张变成 J（明置）。强制，没有「不变」钮 -->
+    <view v-if="nextJackPending" class="tide-box">
+      <text class="tide-text">{{ '升钩：点一张 ' + nextJackRank + ' 变成 J（明置）' }}</text>
+    </view>
+
     <!-- 褪递：对方那张褪色已经贴完，等你挑一张手牌贴【收零】（照零递那块的形制） -->
     <view v-if="fadeTagPending" class="tide-box">
       <text class="tide-text">褪递：庄家手里 1 张已经带上褪色；点一张你的手牌贴上收零（打出时置 0，堆上另有 0 点牌就全收走）· J 和无点数的点不动</text>
@@ -653,6 +640,16 @@
       <text class="tide-text">石影：它已经带上石墙；点一张手牌贴上花色匹配（打出它时按花色收，不受石墙拦）· J 点不动</text>
       <view class="tide-actions">
         <view id="ap-stonekey-skip" class="tide-btn tide-btn-plain" @click="onStoneKey(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 新【野火】〔2026-11-05〕：它已经带上燃烧，等你挑一张手牌也带上（照石影那块的形制） -->
+    <view v-if="burnKeyPending" class="tide-box">
+      <text class="tide-text">野火：它已经带上燃烧；点一张手牌也带上燃烧（打出它时，堆上已有的火连同它一起收走）· J 点不动</text>
+      <view class="tide-actions">
+        <view id="ap-burnkey-skip" class="tide-btn tide-btn-plain" @click="onBurnKey(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
         </view>
       </view>
@@ -856,15 +853,15 @@
     <view class="hand-area">
       <scroll-view class="hand-scroll" direction="horizontal">
         <view class="hand-row">
-          <!-- ---------- 【堆牌区】·【上牌区】·手牌区，**横着并排** ---------- -->
+          <!-- ---------- 【堆牌区】·手牌区，**横着并排** ---------- -->
           <!--
-            版面是用户定的（2026-10-26）：三个区在同一个位置横排，
+            版面是用户定的（2026-10-26）：几个区在同一个位置横排，
             **没有牌的区整组不渲染** —— 所以「空了就不显示」是 v-if 免费给的，
             不用再写一套显隐逻辑。
 
-            顺序（左 → 右）：堆牌 │ 上牌 │ 手牌。
-            按「离你的决策有多远」排：堆牌区你碰都碰不着（下回合开头自动落堆），
-            上牌区**强制**要你从里头挑一张，手牌区是平时打的那个。
+            顺序（左 → 右）：堆牌 │ 手牌。
+            按「离你的决策有多远」排：堆牌区你碰都碰不着（下回合开头自动落堆），手牌区是平时打的那个。
+            〔中间原先还有一个【上牌区】（有牌就强制从里头出），2026-11-05 去掉了（用户定）〕
 
             ⚠ 堆牌区是**盖着的，双方都看不见**（词条原文：「盖在自己的堆牌区
             （双方都看不见）」）。所以这儿只画牌背，连 `card` 的点数花色都不取 ——
@@ -885,29 +882,6 @@
             </view>
             <view class="zone-split"></view>
           </view>
-          <!-- 【上牌区】：正面，双方都看得见。有牌时这一轮**必须**从这儿出 -->
-          <view v-if="boardZone.length > 0" class="zone-group">
-            <text class="zone-label">上牌</text>
-            <view
-              v-for="(card, index) in boardZone"
-              :key="'bz-' + index"
-              :id="'ap-board-' + index"
-              class="card card-hand card-board"
-              :class="{
-                'card-hint': canPlay && canCatch(card, false),
-                'card-frozen': isFrozen(card)
-              }"
-              @click="onPlayBoard(index)">
-              <view class="card-head card-head-hand">
-                <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card), 'card-suit-dia': card.suit == '♦' }">{{ suitFace(card.suit) }}</text>
-                <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
-              </view>
-              <view class="card-tags">
-                <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
-              </view>
-            </view>
-            <view class="zone-split"></view>
-          </view>
           <view
             v-for="(card, index) in hand"
             :key="'h-' + index"
@@ -917,7 +891,6 @@
               'card-hint': canPlay && canCatch(card, false),
               'card-new': index == newIndex,
               'card-frozen': isFrozen(card),
-              'card-locked': boardPlayable(false) > 0,
               'card-steal': stealPending && canStealWith(card)
             }"
             @click="onPlay(index)">
@@ -1172,6 +1145,8 @@
     SK_HUE,
     SK_SUITCOLOR,
     SK_ZERODRAFT,
+    // 升钩〔2026-11-04 上架〕：比它大 1 个顺位的 1 张手牌明置变成 J
+    SK_NEXTJACK,
     // 褪递〔2026-10-29 深夜上架〕：【褪色】；1 张手牌带上【收零】
     SK_FADETAG,
     // 顺递：给 1 张手牌贴【顺子匹配】（照零递那套挑牌）
@@ -1280,16 +1255,10 @@
     // ⚠ 去掉乘法之后 `heapTag` 不再读它，于是它在这个文件里**只剩这一处引用** ——
     //   这一处是**有意留着**的（将来的载体要拿它当默认 N），别当成死引用删掉
     HEAP_TAKE,
-    // 【薪潮】：自带【燃烧】+ **自带【堆牌1】+【对方堆牌1】**
-    //〔2026-10-28 从推牌换成堆牌，同日第二次改成「双方各 1 张」，
-    //  用户原话「**薪潮：改成 燃烧 + 双方各堆1张**」〕。
-    // 两个常量**玩家都看得见**（写在 desc 原文里）—— 改它们等于改技能文案。
-    // ⚠ **两笔必须分开**（一笔盖自己的区、一笔盖对方的区），并成一个数
-    //   就退回上一档「堆牌2 全给自己」—— 那一档实测 X ≈ 0，而现行档 +1.59。
-    //   为什么差这么多：`FUEL_HEAP_FOE` 那段注释里有机制和五格矩阵
+    // 【薪潮】：抽 1 张牌，给手牌全部带上【燃烧】
+    //〔2026-11-05 用户定，原「自带【燃烧】；堆牌1，对方堆牌1」。
+    //  `FUEL_HEAP` / `FUEL_HEAP_FOE` 跟着删了，墓碑在 draw-skills.uts 原处〕
     SK_FUEL,
-    FUEL_HEAP,
-    FUEL_HEAP_FOE,
     // 【分饵】：看牌库顶 `GIFT_LOOK` 张，给自己和对手各 1 张（2026-10-16）
     SK_GIFT,
     GIFT_LOOK,
@@ -1609,9 +1578,9 @@
   const inspectOpen = ref<boolean>(false)
   // 开局发牌不算（用户定「开局发牌不用」）：发完牌才置真，每局开头清掉
   let dealt : boolean = false
-  // ---------- 手牌区旁边那两个区〔2026-10-26 加〕 ----------
+  // ---------- 手牌区旁边的堆牌区〔2026-10-26 加；上牌区 2026-11-05 去掉〕 ----------
   //
-  // 规则在 draw-terms 的『手牌区旁边那两个区』那一节，**这儿只记实现上的事**。
+  // 规则在 draw-terms 的『手牌区旁边的堆牌区』那一节，**这儿只记实现上的事**。
   //
   // ---- 堆牌区：盖着的暂存，下回合开头落堆 ----
   //
@@ -1620,22 +1589,17 @@
   // 对手看不见你下回合要往堆上落什么，也就算不出那几张会不会撞点数置 0。
   // 所以庄家 AI（`foePickCard` / `pickTopFor`）**一个字都不许读这两个数组**。
   //
-  // ---- 上牌区：正面朝上的暂存，有牌就强制从里头出 ----
+  // 〔原先这儿还有【上牌区】（正面朝上、有牌就强制从里头出）的两个 ref ——
+  //   2026-11-05 用户定去掉。它从来没有技能往里放牌，删的是一整套空着的规则层〕
   //
-  // **现在没有任何东西往上牌区放牌** —— 这一轮只搬规则层，入口留给以后的技能。
-  // 所以默认跑动下这两个数组恒空、那条分支一次也不走。
-  // 模拟器那边有个自检开关 `BOARD_TEST=N`（开局往双方区里各塞 N 张）专门验它。
-  //
-  // ---- 为什么是四个独立的 ref，不是 `[[], []]` ----
+  // ---- 为什么是两个独立的 ref，不是 `[[], []]` ----
   //
   // 照这个文件里 `hand`/`foeHand`、`handSeen`/`foeShown` 的成例：
   // 模板里 `v-if` / `v-for` 直接读得到，不用在每处写 `[side]` 下标。
   // ⚠ 它们**不是**谁的并行数组 —— 里头的牌从来没进过手牌，
-  //   所以 `handSeen` / `foeShown` 在这两个区上一个字都不该动（见 `takeFromBoard`）
+  //   所以 `handSeen` / `foeShown` 在这个区上一个字都不该动
   const heapZone = ref<PlainCard[]>([])
   const foeHeapZone = ref<PlainCard[]>([])
-  const boardZone = ref<PlainCard[]>([])
-  const foeBoardZone = ref<PlainCard[]>([])
   const pile = ref<PlainCard[]>([])
   // 和 pile 下标对齐：这张**现在算哪几个点数**。
   //
@@ -2279,6 +2243,8 @@
   const bombPending = ref<boolean>(false)
   // 零递等你挑自己的手牌贴【21 匹配】
   const zeroDraftPending = ref<boolean>(false)
+  // 升钩等你挑哪张变成 J（符合的有 2 张以上才停；只有 1 张直接变）
+  const nextJackPending = ref<boolean>(false)
   // 褪递等你挑自己的一张手牌贴【收零】
   const fadeTagPending = ref<boolean>(false)
   // 回水等你盲选庄家一张手牌（照浑水：挑位置、不翻开整手），选完接着等你贴收零
@@ -2292,6 +2258,9 @@
   const flowDraftSk = ref<number>(-1)
   // 石影等你挑自己的一张手牌贴【花色匹配】（石顺走上面 flowDraftPending 那块，flowDraftSk = SK_STONELINE）
   const stoneKeyPending = ref<boolean>(false)
+  // 新【野火】〔2026-11-05〕：等你挑一张手牌带上【燃烧】；挑完要从 TAIL_REST 接着走，所以存下技能表（照 pickSkills）
+  const burnKeyPending = ref<boolean>(false)
+  let burnKeySkills : number[] = []
   // 满墙「手牌跟堆底同颜色」的堆底：**匹配之前**那张（照传色）。afterPlayTail 入口每手记一次 ——
   // 满墙那一段在 TAIL_REST，前面的收色 / 收零 / 撒网可能已经把堆改了
   let stoneBottomCard : PlainCard | null = null
@@ -2627,6 +2596,7 @@
   let stealTailTook : boolean[] = []
   let stealTailHold : boolean[] = []
   let stealTailChain : boolean[] = []
+  let stealTailBurn : boolean[] = []
 
   // 玩家正被问「要不要抢」。立着的时候**不是你的回合**（庄家刚打完那一手），
   // 所以 `canPlay` 必然是 false —— 点手牌那条路要抢在 canPlay 那道闸**前面**，
@@ -3146,6 +3116,8 @@
   const tookThisHand : boolean[] = [false, false]
   const holdArmed : boolean[] = [false, false]
   const chainArmed : boolean[] = [false, false]
+  // 新【燃烧】〔2026-11-05〕：这一手打出的牌带火 → 结算完要给堆上其他牌点火（burnStep 立、burnTagAfter 清）。按侧存，照 chainArmed
+  const burnPending : boolean[] = [false, false]
 
   // 这张牌手里带着冰吗（打出时的豁免、以及落堆要不要转成堆上的冰，都读它）
   function frostOnHand(card : PlainCard) : boolean {
@@ -3646,7 +3618,8 @@
   const canPlay = computed<boolean>(() : boolean => {
     return myTurn.value && !over.value && !catching.value && !tidePending.value
       && !swapPending.value && !freezePending.value && !pickPending.value && !murkPending.value && !shrinkPending.value
-      && !bombPending.value && !zeroDraftPending.value && !flowDraftPending.value && !stoneKeyPending.value
+      && !bombPending.value && !zeroDraftPending.value && !nextJackPending.value && !flowDraftPending.value && !stoneKeyPending.value
+      && !burnKeyPending.value
       && !fadeTagPending.value && !backPending.value && !backTagPending.value
       // 21 匹配那三件的五个挑牌位〔2026-10-28〕。
       // ⚠ 后两个（连递续贴 / 忍递）**停在收牌之后**，而那会儿 `myTurn`
@@ -3727,6 +3700,9 @@
     if (zeroDraftPending.value) {
       return '你的回合 · 零递'
     }
+    if (nextJackPending.value) {
+      return '你的回合 · 升钩'
+    }
     if (fadeTagPending.value) {
       return '你的回合 · 褪递'
     }
@@ -3746,6 +3722,9 @@
     }
     if (stoneKeyPending.value) {
       return '你的回合 · 石影'
+    }
+    if (burnKeyPending.value) {
+      return '你的回合 · 野火'
     }
     if (hueKeyPending.value) {
       return '你的回合 · 色递（挑拿花色匹配的）'
@@ -6512,27 +6491,6 @@
     return card
   }
 
-  // 从某一方的**上牌区**拿走一张〔2026-10-26〕
-  //
-  // ⚠ **不碰 `handSeen` / `foeShown`** —— 那两张是**手牌的并行数组**
-  //   （`hand[i]` ↔ `handSeen[i]`），而上牌区的牌从来没进过手牌，
-  //   在那两张表里压根没有对应位。动它们就是经典的并行数组错位：
-  //   下标全体前移一格，之后每一张手牌的「被看过」标记都挂到了别人身上。
-  //   `check.js` 那条并行数组断言盯的正是这类。
-  //
-  // 上牌区**本来就是公开的**（双方都看得见，见词条），所以它也不需要
-  // 「被看过」这类标记 —— 没有对应物可维护，不是「省了一步」。
-  function takeFromBoard(byFoe : boolean, index : number) : PlainCard {
-    if (byFoe) {
-      const card = foeBoardZone.value[index]
-      foeBoardZone.value = withoutCard(foeBoardZone.value, index)
-      return card
-    }
-    const card = boardZone.value[index]
-    boardZone.value = withoutCard(boardZone.value, index)
-    return card
-  }
-
   // 从牌库顶摸一张进对应的手牌。牌库空了返回 null
   function drawFor(byFoe : boolean) : PlainCard | null {
     if (deck.value.length == 0) {
@@ -7824,19 +7782,13 @@
   // 〔2026-10-21 修：原先两个调用处无条件接 afterPlay —— 你打凝水还没挑，
   //   这一手就结算完、交了回合，庄家当场出牌；庄家打叠放牌则整手结算两次〕
   //
-  // 第三个参数 `fromBoard`〔2026-10-26 加〕：这张是从**上牌区**挑的，
-  // 不是手牌。**有意做成必填、不给默认值** —— uts 的默认参数在各端编译器上
-  // 表现不一致，而漏传一个默认 `false` 的后果是「从上牌区打牌时去手牌里
-  // 按同一个下标抽了一张」，那是**静默**的串位。宁可多敲四个 `false`。
-  function playFor(byFoe : boolean, index : number, fromBoard : boolean) : boolean {
+  // 〔原先有第三个参数 `fromBoard`（从【上牌区】出牌），2026-11-05 上牌区去掉，参数跟着删〕
+  function playFor(byFoe : boolean, index : number) : boolean {
     // 牌打出去了，「要不要加打」那个问题就有答案了 —— 收旗。
     // 放在这儿而不是玩家点牌那个 handler 里：出牌的路不止一条
     //（你点、庄家打、技能逼着打），这儿是共同的那一条
     againWaiting.value = false
-    // 两个区**只有「从哪儿把牌抽出来」这一步不同**，之后整条结算链
-    // （技能、匹配、落堆、计分、交回合）一个字不分叉 —— 规则原文说的是
-    //「选择上牌区的 1 张牌打出**作为自己的本轮出牌**」，它就是一次正常出牌
-    const card = fromBoard ? takeFromBoard(byFoe, index) : takeFromHand(byFoe, index)
+    const card = takeFromHand(byFoe, index)
     const skills = skillsOf(byFoe, card)
     // 数一下这一方打到第几张了 —— 【稳钩】要「前 N 张」，
     // 而两个数加起来是终局那两手的计数器（见 TAIL_PLAYS）。
@@ -7903,23 +7855,14 @@
     // 兑现要晚（词条写的是「这一手结算完之后」，而它改牌库张数）。
     // 兑现点在 endPlay，跟上面那件并排。
     //
-    // ---- 自带【堆牌】的技能在这儿加进来〔2026-10-28〕 ----
+    // ---- 自带【堆牌】的技能原先在这儿加进来〔2026-10-28 ~ 11-05〕 ----
     //
-    // 【薪潮】（「自带【燃烧】；堆牌1，对方堆牌1」）走这儿，**不走 afterPlay** ——
-    // 那会儿牌早离手了，而标签那条路（`heapHand`）存的是对象引用。
-    // 它自带燃烧那一半仍在 afterPlay 里（搜 `SK_FUEL`），两半分在两处是对的：
-    // 火要等落堆之后才点得着，堆牌要在离手那一刻就记数。
-    //
-    // ⚠ **每件技能读自己的常量，不共用一个** —— 薪潮读 `FUEL_HEAP`
-    //   / `FUEL_HEAP_FOE`，原型那件读 `HEAP_TAKE`
-    //  （理由写在 draw-skills.uts 的 FUEL_HEAP 那段）。
-    // ⚠ 别把两笔并成一个数 —— 并起来就是「给自己堆 2 张」，
-    //   也就是上一档（X ≈ 0，而拆开之后 +1.59）。两笔**各自判牌库那道闸**，
-    //   所以「牌库只剩 1 张」那一刻只盖得出 1 张，**会翻一次牌库奇偶**
-    //   （「牌库张数 = 局长」），单看分查不出来
+    // 唯一的载体【薪潮】2026-11-05 换成「抽 1 张牌，给手牌全部带上【燃烧】」，
+    // 不再堆牌（R8 实测堆牌那一半只在薪潮里值分，单拿出来 ≤ +0.43，台账七十八、七十九）。
+    // 于是自带堆牌**零载体**，`heapPendingFoe` 也零来路 —— 管线（`heapStage` 两笔、
+    // 抢牌时的 `stealTailHeapFoe`）留着，下一个「对方堆牌 N」的载体直接接这一行
     heapPending = dropHeapHand(card)
-      + (hasTrigger(skills, SK_FUEL) ? FUEL_HEAP : 0)
-    heapPendingFoe = hasTrigger(skills, SK_FUEL) ? FUEL_HEAP_FOE : 0
+    heapPendingFoe = 0
     // ---- 【沉降】：摘掉标签，**当场**把堆压 SINK_TAG_STEP 点 ----
     //
     // 跟上面推牌那一件的时机**正好相反**，而两边都是故意的：
@@ -8369,8 +8312,7 @@
     }
     // 被问的是**对方** —— byFoe 是刚打牌那一方
     const thief = !byFoe
-    // ⚠ 只扫**手牌**，不扫上牌区：照模拟器（它只看 `G.hands[foe]`），
-    // 而且上牌区那条规则管的是「本轮出牌」，抢牌不是谁的本轮出牌
+    // 只扫**手牌**：照模拟器（它只看 `G.hands[foe]`）
     const mine = thief ? foeHand.value : hand.value
     let best = -1
     let bestN = 0
@@ -8393,7 +8335,7 @@
       const lead = '庄家抢牌，打出 ' + cardName(card) + '（收 ' + bestN
         + ' 张，比你的 ' + caught + ' 张多）。'
       logPlay(true, card, lead)
-      const handed = playFor(true, best, false)
+      const handed = playFor(true, best)
       message.value = message.value + ' ' + lead
       if (!handed) {
         afterPlay(true)
@@ -8430,6 +8372,7 @@
     stealTailTook.push(tookThisHand[vs])
     stealTailHold.push(holdArmed[vs])
     stealTailChain.push(chainArmed[vs])
+    stealTailBurn.push(burnPending[vs])
     surgePending = 0
     heapPending = 0
     heapPendingFoe = 0
@@ -8479,6 +8422,7 @@
         tookThisHand[vsi] = stealTailTook[i]
         holdArmed[vsi] = stealTailHold[i]
         chainArmed[vsi] = stealTailChain[i]
+        burnPending[vsi] = stealTailBurn[i]
         stealTailDrop[i] = true
       }
       // ---- 被抢那一方的「收牌之后」挂点〔2026-10-28〕----
@@ -8503,6 +8447,7 @@
       stealTailTook.pop()
       stealTailHold.pop()
       stealTailChain.pop()
+      stealTailBurn.pop()
       if (surge > 0) {
         surgeFor(side, surge)
       }
@@ -8566,7 +8511,7 @@
     newIndex.value = -1
     const lead = '你抢牌，打出 ' + cardName(card) + '（收 ' + n + ' 张）。'
     logPlay(false, card, lead)
-    const handed = playFor(false, index, false)
+    const handed = playFor(false, index)
     message.value = lead
     if (!handed) {
       afterPlay(false)
@@ -9367,44 +9312,52 @@
     // 换成异色之后贴的永远是槽外的牌。结冰族量过同一条：
     // 冰色（同色）♥ 槽 +4.18 → 隔凌（异色）+8.33。
     // 实现照【隔凌】那一段（下面）的异色写法，两件同一个形状
+    // 〔2026-11-05 用户定（随【燃烧】改形状，整包）：「抽 1 张牌；手牌每种花色各 1 张带上【燃烧】」。
+    //   原「堆底的牌带上【燃烧】；你手里跟堆底同颜色的牌都带上【燃烧】」—— 那一版的实现（点堆底 + 同颜色贴）整段换掉，
+    //   上面讲它的注释过去时读。同花色几张时随机挑一张（J 不排除）—— 照模拟器 KINDLE_MATCH=eachsuit / KINDLE_DRAW=1。
+    //   R8 新【燃烧】下 A 槽 X +4.00 / D −0.09、♥ 槽 +10.83 / −0.01（台账第八十二·庚节）〕
+    //   先摸后贴（照薪潮旧版），所以摸上来那张也算进花色
     if (hasTrigger(skills, SK_KINDLE) && lastPlayed != null) {
-      // 〔2026-11-03 用户定：「【燃烧】」→「**堆底的牌**带上【燃烧】」（点堆底，不再点自己）。
-      //   R8 下现行版偏先手（A 槽 D +0.58、♥ 槽 +1.64，换种子 +1.86），偏差全在「自带【燃烧】」那半句；点堆底 A 槽 X +3.88 / D +0.07、♥ 槽 +12.26 / +0.35。台账第五十八·丁节。
-      //   堆上只有它一张时，堆底就是它自己 —— 那一格照旧点着、当场燃尽〕
-      const hasBottom = pile.value.length > 0
-      const lit = hasBottom && lightAt(0)
+      const got = drawFor(byFoe)
       const mine = byFoe ? foeHand.value : hand.value
+      const seen : string[] = []
       let fired = 0
-      // 〔2026-10-30 用户改：参照从「它」换成**堆底**，「不同颜色」→「同颜色」。
-      //   技能在匹配之前结算，它已落在堆顶 → 堆上只有它一张时堆底就是它自己。
-      //   上面那段「别顺手改回同色」说的是**跟它**同色；跟堆底同色读的是局面、跟槽无关，不撞那条〕
-      const bottomSuit = hasBottom ? pileSuitAt(0) : ''
-      // 〔2026-11-03 补：下面播报读的 bottomRed 原先没定义（编译不过）。走 isRedSuit 照 pileRed 那条〕
-      const bottomRed = hasBottom && isRedSuit(bottomSuit)
       for (let i = 0; i < mine.length; i++) {
-        if (hasBottom && sameColor(mine[i].suit, bottomSuit)
-          && !burnOnHand(mine[i])) {
-          addBurnHand(mine[i])
+        const su = mine[i].suit
+        if (seen.indexOf(su) >= 0) {
+          continue
+        }
+        seen.push(su)
+        const group : number[] = []
+        for (let k = i; k < mine.length; k++) {
+          if (mine[k].suit == su) {
+            group.push(k)
+          }
+        }
+        const pickAt = group[Math.floor(Math.random() * group.length)]
+        if (!burnOnHand(mine[pickAt])) {
+          addBurnHand(mine[pickAt])
           fired = fired + 1
         }
       }
       message.value = message.value + (byFoe ? ' 庄家引火：' : ' 引火：')
-        + (lit ? '堆底那张点着了；' : (hasBottom ? '堆底那张没点着；' : ''))
-        + (!hasBottom ? '堆空着，没有堆底。'
-          : fired > 0
-            ? '堆底是' + (bottomRed ? '红' : '黑') + '的，手里 ' + fired + ' 张同颜色的带上了燃烧。'
-            : '堆底是' + (bottomRed ? '红' : '黑') + '的，手里没有同颜色的牌。')
+        + (got != null ? '摸了 1 张，' : '牌库空了，没摸到；')
+        + (fired > 0 ? '手里每种花色各 1 张，共 ' + fired + ' 张带上了燃烧。' : '手里没牌可贴。')
     }
-    // ---------- 【薪潮】：自带【燃烧】；堆牌1，对方堆牌1 ----------
+    // ---------- 【薪潮】：抽 1 张牌，给手牌全部带上【燃烧】 ----------
     //
-    // 〔2026-10-28 改的，用户原话「用堆牌 取代 推牌」/
-    //   「薪潮： 自带【燃烧】，堆牌2」/「**薪潮：改成 燃烧 + 双方各堆1张**」〕
+    // 〔2026-11-05 用户定，原「自带【燃烧】；堆牌1，对方堆牌1」。台账第七十九节：
+    //   自带火那半句在 R8 下偏先手（跟引火旧版同病，♥ 槽 D +0.67~0.85），去掉它、只给手牌上火 D 归零；
+    //   「抽 1 张」被回合末补牌抹平、不改局长，它的作用是让摸上来那张也赶上上火（整手 4 张都带火）。
+    //   R8 · A 槽 X +3.17 / D −0.03、♥ 槽 +11.10 / −0.00〕
     //
-    // **堆牌那两笔不在这儿**，它们在 `playFor` 开头并排两行
-    //（搜 `FUEL_HEAP`）—— 理由是堆牌必须在**这张牌离手那一刻**就记下张数，
-    // 而这儿已经是 afterPlay、牌早离手了。这一段现在只剩自带燃烧那一半。
+    // 先摸后贴（照【隔凌】），所以摸上来的那张也带火。火在手里什么也不做，
+    // 落堆那一下才点着（`burnHandOnLand`）—— 而落堆的都是**自己的**回合，
+    // 所以这件不会出现「他当场燃尽」那种自伤（下面 v1 那段说的是贴在**对手**手里）。
     //
-    // ---- 自带燃烧：它是这件技能的主要收益，而**那条规则跟它的名字不一样** ----
+    // 下面到 `if` 之前是**旧版的注释**，原文留着（燃烧闭合竞赛那条判据仍然成立）。
+    //
+    // ---- 〔旧版〕自带燃烧：它是这件技能的主要收益，而**那条规则跟它的名字不一样** ----
     //
     // 【燃烧】不是「烧掉」：全堆带火的那一刻，**整堆归当时的出牌方**，
     // 而火还会蔓延 —— 所以堆上有火之后是一场「谁先凑满全堆带火谁拿整堆」的
@@ -9434,11 +9387,9 @@
     // ⚠ 这一段现在**不再有 `return`** —— 旧版玩家侧要停下来等点牌，
     //   所以它中途 return、由 `onFuel` 接着调 `resolveMatch`。
     //   换成自带效果之后它必须一路走到底，别把那个 return 补回去
-    if (hasTrigger(skills, SK_FUEL) && lastPlayed != null) {
-      const lit = inPile(lastPlayed!) && lightAt(pileIndexOf(lastPlayed!))
-      message.value = message.value + (byFoe ? ' 庄家薪潮：' : ' 薪潮：')
-        + (lit ? '它自带燃烧。' : '它没点着。')
-    }
+    // 〔🪦 2026-11-05 用户定「薪潮 效果先置空」（随【燃烧】改形状）。desc 改成「暂无效果」。
+    //   删掉的那段：摸 1 张（drawFor）→ 手里没带火的牌全部 addBurnHand → 播报「薪潮：摸了 1 张，手里 N 张带上了燃烧」。
+    //   上面那几段注释讲的是它的历代形状，过去时读。模拟器 FUEL_EMPTY=0 复现上一版〕
     if (hasTrigger(skills, SK_HIDE)) {
       const mine = byFoe ? foeHand.value : hand.value
       let iced = 0
@@ -9753,8 +9704,11 @@
     // **排在收色、撒网后面**：它们先把该收的收掉，野火再给剩下的点火。
     // 反过来的话野火刚点着的那几张会被收色当场收走 ——
     // 而野火的卖点恰恰是「这一轮标记、下一轮收」，当场被端走就没了
+    // 〔2026-11-05 新【野火】「【燃烧】；1 张手牌带上【燃烧】」（用户定，整包）：自带火那半句在 burnStep 认；
+    //   这儿只做「1 张手牌带上」—— 你挑（burnKeyPending，照石影那块），庄家随机挑一张非 J（照模拟器 burnTagOne）。
+    //   旧版「选择 1 张牌带上【燃烧】」（wildfireFor + 挑堆牌那条 pilePick）不再调用，函数留着没删〕
     if (from <= TAIL_WILD && hasTrigger(skills, SK_WILD)) {
-      if (wildfireFor(byFoe, skills)) {
+      if (burnKeyFor(byFoe, skills)) {
         return
       }
     }
@@ -10168,6 +10122,18 @@
         if (got > 0) {
           message.value = message.value + ' 庄家零递：手里 ' + got + ' 张带上了 21 匹配。'
         }
+      }
+    }
+    // 【升钩】〔2026-11-04〕：比它大 1 个顺位的 1 张手牌明置变成 J。符合的只有 1 张就直接变；
+    // 你有 2 张以上要挑，停下来等（照零递）；庄家挑现在钓不到东西的那张（照模拟器 nextjack）
+    if (hasTrigger(skills, SK_NEXTJACK) && lastPlayed != null && askFirst(SK_NEXTJACK)) {
+      const hits = nextJackHits(byFoe, lastPlayed!)
+      if (hits.length == 1 || (hits.length > 1 && byFoe)) {
+        doNextJack(byFoe, byFoe ? foeNextJackPick(hits) : hits[0])
+      } else if (hits.length > 1) {
+        nextJackRank.value = nextJackWant(lastPlayed!)
+        nextJackPending.value = true
+        return
       }
     }
     // 【褪递】〔2026-10-29 深夜，同晚换效果〕：对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】。
@@ -11040,6 +11006,21 @@
     askNext()
   }
 
+  // 升钩：你挑中了自己第 index 张变成 J。没有「不变」那条路（desc 是强制的），点错了接着等
+  function onNextJack(index : number) {
+    if (!nextJackPending.value) {
+      return
+    }
+    if (index < 0 || index >= hand.value.length || !nextJackTarget(hand.value[index], nextJackRank.value)) {
+      return
+    }
+    message.value = ''
+    doNextJack(false, index)
+    nextJackPending.value = false
+    nextJackRank.value = ''
+    askNext()
+  }
+
   // 褪递：你挑中了自己第 index 张贴【收零】（-1 表示不贴）
   function onFadeTag(index : number) {
     if (!fadeTagPending.value) {
@@ -11224,6 +11205,55 @@
       message.value = message.value + ' 花色匹配那张你没贴。'
     }
     askNext()
+  }
+
+  // 新【野火】的「1 张手牌带上【燃烧】」能贴哪张：非 J、还没带火（照模拟器 burnTagOne）
+  function burnKeyable(card : PlainCard) : boolean {
+    return card.rank != JACK && !burnOnHand(card)
+  }
+
+  // 返回 true = 停下来等你点手牌了（onBurnKey 接着从 TAIL_REST 走）。庄家当场随机挑一张
+  function burnKeyFor(byFoe : boolean, skills : number[]) : boolean {
+    const mine = byFoe ? foeHand.value : hand.value
+    const pool : number[] = []
+    for (let i = 0; i < mine.length; i++) {
+      if (burnKeyable(mine[i])) {
+        pool.push(i)
+      }
+    }
+    if (pool.length == 0) {
+      message.value = message.value + (byFoe ? ' 庄家野火：' : ' 野火：') + '手里没有能带火的牌。'
+      return false
+    }
+    if (byFoe) {
+      const at = pool[Math.floor(Math.random() * pool.length)]
+      addBurnHand(foeHand.value[at])
+      message.value = message.value + ' 庄家野火：手里 1 张带上了燃烧。'
+      return false
+    }
+    burnKeySkills = skills
+    burnKeyPending.value = true
+    return true
+  }
+
+  // 野火：你挑中了自己第 index 张贴【燃烧】（-1 表示不贴）。挑完从 TAIL_REST 接着走（照旧版挑堆牌那条的接法）
+  function onBurnKey(index : number) {
+    if (!burnKeyPending.value) {
+      return
+    }
+    if (index >= 0 && (index >= hand.value.length || !burnKeyable(hand.value[index]))) {
+      return
+    }
+    burnKeyPending.value = false
+    if (index >= 0) {
+      addBurnHand(hand.value[index])
+      message.value = message.value + ' 野火：' + cardName(hand.value[index]) + ' 带上了燃烧。'
+    } else {
+      message.value = message.value + ' 野火：手牌那张你没贴。'
+    }
+    const skills = burnKeySkills
+    burnKeySkills = []
+    afterPlayTail(false, skills, TAIL_REST)
   }
 
   // 石影：你挑中了自己第 index 张贴【花色匹配】（-1 表示不贴）
@@ -11591,6 +11621,69 @@
       }
     }
     return best
+  }
+
+  // ---------- 【升钩】〔2026-11-04〕----------
+  // 顺位 A 2 … 10 Q K A：J 跳过，K 接 A，0 不算（0 点 / 无点数 / J 打出不发动，也不能被变）。
+  // 跟模拟器 rules.js 的 nextJackWants 同一张表（NJ_ORD）
+  const NEXTJACK_ORD : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
+  // 挑你等的那个点数（停下来时记住，点牌时比它）
+  const nextJackRank = ref<string>('')
+  function nextJackOk(card : PlainCard) : boolean {
+    return card.rank != JACK && card.rank != '0' && !isDead(card) && cardVals(card).length > 0
+  }
+  // 打出 card 时要找的点数；不发动是 ''
+  function nextJackWant(card : PlainCard) : string {
+    if (!nextJackOk(card)) {
+      return ''
+    }
+    const i = NEXTJACK_ORD.indexOf(card.rank)
+    if (i < 0) {
+      return ''
+    }
+    return i < NEXTJACK_ORD.length - 1 ? NEXTJACK_ORD[i + 1] : NEXTJACK_ORD[0]
+  }
+  function nextJackTarget(card : PlainCard, want : string) : boolean {
+    return want != '' && card.rank == want && nextJackOk(card)
+  }
+  // 出手那一方手里符合的那几张（下标）
+  function nextJackHits(byFoe : boolean, played : PlainCard) : number[] {
+    const want = nextJackWant(played)
+    const mine = byFoe ? foeHand.value : hand.value
+    const out : number[] = []
+    for (let i = 0; i < mine.length; i++) {
+      if (nextJackTarget(mine[i], want)) {
+        out.push(i)
+      }
+    }
+    return out
+  }
+  // 变成 J + 明置。改牌面照 markDead 那条（这副牌是每局的副本，改它不碰存档）
+  function doNextJack(byFoe : boolean, index : number) {
+    const mine = byFoe ? foeHand.value : hand.value
+    if (index < 0 || index >= mine.length) {
+      return
+    }
+    const card = mine[index]
+    const was = cardName(card)
+    card.rank = JACK
+    card.value = 11
+    card.extra = [] as number[]
+    if (byFoe) {
+      foeShown.value = withFlag(foeShown.value, index)
+    } else {
+      handSeen.value = withFlag(handSeen.value, index)
+    }
+    message.value = message.value + (byFoe ? ' 庄家升钩：' : ' 升钩：') + '手里的 ' + was + ' 明置变成了 J。'
+  }
+  // 庄家挑哪张：现在钓不到东西的优先（照模拟器 nextjack 的 canCatch ? 1 : 2）
+  function foeNextJackPick(hits : number[]) : number {
+    for (let k = 0; k < hits.length; k++) {
+      if (!canCatch(foeHand.value[hits[k]], true)) {
+        return hits[k]
+      }
+    }
+    return hits[0]
   }
 
   function foeIceKeyPick() : number {
@@ -14515,9 +14608,9 @@
 
   // 这一方还有牌打得出去吗（被冻住的不算）
   //
-  // ⚠ **这个函数一个字不动，上牌区不进来**〔2026-10-26〕。
+  // ⚠ **这个函数只数手牌**〔2026-10-26〕。
   //   `refill`（往上找 `playableCount`）拿它判【涨落】/【枯水】那道闸 ——
-  //   往里塞上牌区就等于顺手改了那两件技能的行为。
+  //   往里塞别的区就等于顺手改了那两件技能的行为。
   //   要「这一方动不动得了」问下面的 `canAct`。
   //   模拟器那边是同一个决定（`rules.js` 的 `playableCount` 同样不碰）。
   function playableCount(byFoe : boolean) : number {
@@ -14531,25 +14624,8 @@
     return n
   }
 
-  // 上牌区里打得出去的张数。**所有「上牌区有牌吗」的判断都走这儿，
-  // 别直接读 `.length`** —— 两者在「区里全被冻住」那一格会分叉，
-  // 而那一格正好是死锁：既不让打手牌、上牌区又打不动。
-  //（现行的【冻结】只挑对手手牌，所以今天这两个值恒等 ——
-  //  正因为「今天恰好相等」，才不能接 `.length`，照 CLAUDE.md
-  //  那条「别接一个今天刚好相等的量」。）
-  function boardPlayable(byFoe : boolean) : number {
-    const zone = byFoe ? foeBoardZone.value : boardZone.value
-    let n = 0
-    for (let i = 0; i < zone.length; i++) {
-      if (!isFrozen(zone[i])) {
-        n = n + 1
-      }
-    }
-    return n
-  }
-
   // 这一方这一回合还做得了事吗 —— `playableCount`（只看手牌）**之外**
-  // 还要认**两个**新区。
+  // 还要认堆牌区。〔原先还认【上牌区】，2026-11-05 去掉〕
   //
   // ---- 堆牌区为什么也要算〔2026-10-26 改过一次，记原因〕 ----
   //
@@ -14565,16 +14641,9 @@
   // 放过去。算上之后那几张会先落堆，下一次 checkOver 再收摊 —— 多一个回合，
   // 画面干净。
   //
-  // 模拟器 `rules.js` 的 `canAct` 是同一个形状（手牌 + 上牌区 + 堆牌区）。
-  //
-  // ⚠ 一处**有意的差异**：这儿上牌区走 `boardPlayable`（数没冻住的），
-  //   模拟器走 `.length`。两边今天**行为完全相同** —— 现行【冻结】只挑对手
-  //   手牌，上牌区的牌冻不上。分开写是因为源码这边多一条模拟器没有的路：
-  //   上牌区有牌时手牌被 toast 按着（onPlay），区里要是全冻住，
-  //   `.length` 会让这一局既出不了牌又判不了死锁，真的卡住。
+  // 模拟器 `rules.js` 的 `canAct` 是同一个形状（手牌 + 堆牌区；模拟器那边还认着上牌区，它那儿没有往里放牌的现行技能，恒空）。
   function canAct(byFoe : boolean) : boolean {
     return playableCount(byFoe) > 0
-      || boardPlayable(byFoe) > 0
       || (byFoe ? foeHeapZone.value.length : heapZone.value.length) > 0
   }
 
@@ -14613,9 +14682,7 @@
     if (justEmptied) {
       tailFrom = myPlayed + foePlayed
     }
-    // 〔2026-10-26：从 `playableCount(…)==0 && …` 换成 `canAct` ——
-    //   上牌区里的牌也是「打得出的牌」，不算进来的话「手牌全空 / 全冻住、
-    //   可上牌区还有一张」会被判成死锁、提前收摊，而那一张本来打得出去。〕
+    // 〔2026-10-26：从 `playableCount(…)==0 && …` 换成 `canAct` —— 堆牌区里压着牌时也算做得了事〕
     const dead = !canAct(false) && !canAct(true)
     if (!dead) {
       // 终局那几手还没打够（TAIL_PLAYS=6 → 各 3 手）
@@ -14930,6 +14997,8 @@
   //   · `drainStealTails` —— 被抢那一方（他的 endPlay 根本不会被调到）
   function endPlayTag(byFoe : boolean) : boolean {
     const si = byFoe ? 1 : 0
+    // 新【燃烧】：这一手结算完 → 堆上其他牌都带上火（不停人，所以排最前）
+    burnTagAfter(byFoe)
     // ---- 【连递】：链上那张凑成了 → 再贴 1 张，新的那张也进链 ----
     //
     // `chainArmed` 在 resolveMatch 里立（那儿才判得了「凑成」），
@@ -15287,24 +15356,80 @@
   //
   // 返回 **true = 开演收牌特效了**，调用处就别再走匹配 ——
   // 演完由 finishSweep 认 TAIL_BURN 直接接到 resolveMatch
+  // ---- 🔴 2026-11-05 新【燃烧】（用户定，整包一起改）：上面那段讲蔓延 / 燃尽的注释是旧形状的，过去时读 ----
+  //
+  // 「带它的牌打出时：堆上若已有其他带【燃烧】的牌，就把它们连同这张一起收走；
+  //   这一手结算完之后，堆上其他的牌都带上【燃烧】。遇到【结冰】，两个一起消失。」
+  //
+  // 这儿只管**收**那一半；**点**那一半在 burnTagAfter（endPlayTag 开头 —— 「这一手结算完」的唯一挂点）。
+  // 「带它」= 手里带火的牌落堆时已经由 burnHandOnLand 点着；新【野火】自带火，这儿用 lightAt 补点
+  //（走 lightAt 那道闸 = 跟模拟器 burnMarkStep 一致：被冰消掉的话它就不带火，这一手不发动）。
+  // 收走的那一摞走扫堆特效（TAIL_BURN），演完 finishSweep 直接接 resolveMatch ——
+  // 它自己也被收走了，所以 resolveMatch 找不着它、直接 endPlay（不再判普通匹配）。
+  // 这一下不是匹配，不开放【抢牌】（扫堆那条路本来就不问抢）。
+  // 蔓延（spreadFire）不再调用；函数留着没删。模拟器对应 BURN_RULE=mark
   function burnStep(byFoe : boolean, skills : number[]) : boolean {
-    spreadFire()
-    const size = pile.value.length
-    if (size == 0) {
+    if (lastPlayed == null) {
       return false
     }
-    for (let i = 0; i < size; i++) {
-      if (pileBurnAt(i) == 0) {
-        return false
+    const at = pileIndexOf(lastPlayed!)
+    if (at < 0) {
+      return false
+    }
+    if (pileBurnAt(at) == 0 && hasTrigger(skills, SK_WILD)) {
+      lightAt(at)
+    }
+    if (pileBurnAt(at) == 0) {
+      return false
+    }
+    burnPending[byFoe ? 1 : 0] = true
+    const taken : number[] = []
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i == at || pileBurnAt(i) > 0) {
+        taken.push(i)
       }
     }
-    const all : number[] = []
-    for (let i = 0; i < size; i++) {
-      all.push(i)
+    if (taken.length < 2) {
+      return false
     }
-    message.value = message.value + (byFoe ? ' 庄家燃尽：' : ' 燃尽：')
-      + '场上全烧着了，整堆 ' + size + ' 张收走。'
-    return startSweep(byFoe, all, skills, TAIL_BURN)
+    message.value = message.value + (byFoe ? ' 庄家的火：' : ' 火：')
+      + '堆上已经有 ' + (taken.length - 1) + ' 张带火，连同这张一起收走。'
+    return startSweep(byFoe, taken, skills, TAIL_BURN)
+  }
+
+  // 新【燃烧】的后一半：这一手结算完之后，堆上没带火的牌都带上【燃烧】（lightAt：冰相消）。
+  // 只在 endPlayTag 开头调 —— 那是「这一手的收牌结算完了」的两个调用点（endPlay / drainStealTails）共用的入口。
+  // 先清记号再点：endPlayTag 停下来等玩家点牌后会原样再进一次，不能点两遍
+  function burnTagAfter(byFoe : boolean) {
+    const si = byFoe ? 1 : 0
+    if (!burnPending[si]) {
+      return
+    }
+    burnPending[si] = false
+    let lit = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pileBurnAt(i) == 0 && lightAt(i)) {
+        lit = lit + 1
+      }
+    }
+    if (lit > 0) {
+      message.value = message.value + (byFoe ? ' 庄家的火：' : ' 火：')
+        + '堆上 ' + lit + ' 张带上了燃烧。'
+    }
+  }
+
+  // 庄家挑牌用：打出这张会被新【燃烧】收走几张（含它自己；0 = 不发动）。照模拟器 burnMarkCount
+  function burnMarkCount(card : PlainCard, skills : number[]) : number {
+    if (!burnOnHand(card) && !hasTrigger(skills, SK_WILD)) {
+      return 0
+    }
+    let n = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (pileBurnAt(i) > 0) {
+        n = n + 1
+      }
+    }
+    return n > 0 ? n + 1 : 0
   }
 
   // ---------- 〔删了〕fillPond（填塘）：堆被清空时从牌库补一张 0 点牌 ----------
@@ -15516,9 +15641,8 @@
     //       手牌空而堆牌区有牌的那个回合会先被跳过，区里的牌永远落不下去。
     // 庄家那头（foeTurn）是同一对理由、同一个位置
     heapFlush(false)
-    if (hand.value.length == 0 && boardPlayable(false) == 0) {
+    if (hand.value.length == 0) {
       // 牌库空了、手里也没牌：这回合什么也做不了。
-      // **上牌区也要空才算** —— 手牌空但上牌区有牌时你照样出得了一手
       message.value = '你没牌可打，跳过这回合。'
       passTurn(false)
       return
@@ -15530,12 +15654,7 @@
     // 剩一张冻着的牌，它在等「打不出牌」，而那正是现在。
     // refill 只数能打的牌（见 playableCount），所以枯水下这儿也补得上。
     // 牌库空了补不上，才跳过这回合（双方都动不了由 checkOver 收摊）。
-    //
-    // **上牌区有牌时整段跳过**〔2026-10-26〕：这一轮你本来就只能从上牌区出，
-    // 手牌冻不冻跟这个回合一点关系都没有 —— 不挡的话会白报一句
-    //「你的牌全被冻住了」，更糟的是上一支会**直接 passTurn**，
-    // 把一个明明出得了牌的回合跳掉
-    if (boardPlayable(false) == 0 && playableCount(false) == 0) {
+    if (playableCount(false) == 0) {
       const before = hand.value.length
       refill(false)
       if (playableCount(false) == 0) {
@@ -15618,6 +15737,11 @@
       onZeroDraft(index)
       return
     }
+    // 升钩同理：点手牌是「把这张变成 J」
+    if (nextJackPending.value) {
+      onNextJack(index)
+      return
+    }
     // 褪递同理：点手牌是「给这张贴收零」
     if (fadeTagPending.value) {
       onFadeTag(index)
@@ -15647,6 +15771,10 @@
     }
     if (stoneKeyPending.value) {
       onStoneKey(index)
+      return
+    }
+    if (burnKeyPending.value) {
+      onBurnKey(index)
       return
     }
     if (hueKeyPending.value) {
@@ -15687,21 +15815,6 @@
     if (!canPlay.value || index >= hand.value.length) {
       return
     }
-    // ---- 【上牌区】有牌时，手牌整排锁住〔2026-10-26〕 ----
-    //
-    // 这一道摆在**那一串 pending 分支之后**：换水 / 滤饵 / 冰雷 / 零递 /
-    // 对换 / 退潮 那几件正等你点手牌挑一张，而**那不是出牌** ——
-    // 挡在它们前面会让那几件技能在上牌区有牌的回合里卡死。
-    //
-    // 为什么不用 `v-if` 把手牌藏起来（这个文件里「入口的 v-if 就是第一道
-    // 校验」是条成例）：**手牌还得看得见**，不然你没法判断上牌区那几张
-    // 值不值得出。所以走「灰显 + 点了弹一句」那一档
-    // 用 `boardPlayable` 不用 `.length`：区里的牌**全被冻住**时，
-    // 强制出牌这条规则就不该再按着手牌 —— 否则两边都动不了
-    if (boardPlayable(false) > 0) {
-      uni.showToast({ title: '上牌区有牌，这轮必须从上牌区出', icon: 'none' })
-      return
-    }
     // 被冻住的打不出去
     if (isFrozen(hand.value[index])) {
       uni.showToast({ title: '这张被冻住了，打不出去', icon: 'none' })
@@ -15713,43 +15826,10 @@
     // 两处的 lead 要跟下面那句赋值**一字不差** —— logBody 靠它摘开头
     const lead = '你打出 ' + cardName(card) + '。'
     logPlay(false, card, lead)
-    const handed = playFor(false, index, false)
+    const handed = playFor(false, index)
     message.value = lead
     // 先结算技能，最后匹配（见 resolveMatch）。
     // playFor 已经接管了后续（叠放那三件在等你点堆）就别接 —— 见它那段
-    if (!handed) {
-      afterPlay(false)
-    }
-  }
-
-  // ---------- 点上牌区的一张：打出它〔2026-10-26〕 ----------
-  //
-  // 尾段跟 `onPlay` 逐句同构（预约 lead → playFor → afterPlay），
-  // 唯一的差别是 `fromBoard = true`，牌从上牌区取而不是从手牌取。
-  //
-  // **前面那一串 pending 分支一条都不抄** —— 那几件技能等的全是「点一张**手牌**」，
-  // 上牌区不在它们的选择范围里（`onSwap` / `onSift` / `onBomb` 那几个
-  // 读的都是 `hand.value[index]`，拿上牌区的下标进去就是串台）。
-  //
-  // `lead` 跟 onPlay 那句**一字不差**：logBody 靠它摘开头，
-  // 而出牌记录不该因为「这张是从哪个区出的」而换个说法 —— 对读记录的人来说
-  // 那就是打出了一张牌
-  function onPlayBoard(index : number) {
-    if (!canPlay.value || index >= boardZone.value.length) {
-      return
-    }
-    // 上牌区的牌**也可能被冻住**（【冻结】挑的是位置，而以后真有技能
-    // 往这儿放牌时，那几张照样在场上）。全冻住的死局由 checkOver 收摊
-    if (isFrozen(boardZone.value[index])) {
-      uni.showToast({ title: '这张被冻住了，打不出去', icon: 'none' })
-      return
-    }
-    const card = boardZone.value[index]
-    newIndex.value = -1
-    const lead = '你打出 ' + cardName(card) + '。'
-    logPlay(false, card, lead)
-    const handed = playFor(false, index, true)
-    message.value = lead
     if (!handed) {
       afterPlay(false)
     }
@@ -15768,27 +15848,6 @@
     // 【堆牌区】落堆，**排在所有别的事前面** —— 跟 startMyTurn 那条是一对，
     // 同样的两条理由（出牌阶段之前 / 跳过回合那条之前）
     heapFlush(true)
-    // ---- 【上牌区】：有牌就必须从里头出，手牌这一轮碰都不碰 ----
-    //
-    // 排在「手里没牌就跳过」**前面**：庄家手牌空而上牌区有牌时，
-    // 它照样出得了一手。
-    //
-    // `foePickBoard` 跟 `foePickCard` **同一个口径**（catchStart 问
-    //「这张现在打出去能钓几张」）—— 两处口径不同的话庄家会在两个区
-    // 用两套标准挑牌，而那在玩家看来就是它忽强忽弱
-    //
-    // 闸用 `boardPlayable` 不用 `.length`：区里全被冻住时这条分支要让路，
-    // 否则 `foePickBoard` 返回 -1 → `foeBoardZone.value[-1]` 是 undefined
-    // → `cardName(undefined)` 当场崩。那正是下面那条 `index < 0` 拦的同一类。
-    if (boardPlayable(true) > 0) {
-      const bi = foePickBoard()
-      // 第一次用某件技能：先停下来给你看（见 foeShowcase），点了才打
-      if (foeShowcase(foeBoardZone.value[bi], SHOW_BOARD, bi, '')) {
-        return
-      }
-      foePlayBoard(bi)
-      return
-    }
     if (foeHand.value.length == 0) {
       message.value = '庄家没牌可打，跳过。'
       passTurn(true)
@@ -15821,19 +15880,7 @@
     foePlayHand(index, note)
   }
 
-  // 庄家从上牌区打出第 bi 张（foeTurn 那一支原样搬出来，好让「先给你看」那道闸接回来）
-  function foePlayBoard(bi : number) {
-    const bcard = foeBoardZone.value[bi]
-    const blead = '庄家打出 ' + cardName(bcard) + '。'
-    logPlay(true, bcard, blead)
-    const bhanded = playFor(true, bi, true)
-    message.value = blead
-    if (!bhanded) {
-      afterPlay(true)
-    }
-  }
-
-  // 庄家从手里打出第 index 张（同上）
+  // 庄家从手里打出第 index 张（foeTurn 那一支原样搬出来，好让「先给你看」那道闸接回来）
   function foePlayHand(index : number, note : string) {
     const card = foeHand.value[index]
     // 照 onPlay 那头：先预约、再 playFor。
@@ -15841,7 +15888,7 @@
     // 所以 lead 不在句首 —— logBody 是摘中间那一段，不是摘前缀
     const lead = '庄家打出 ' + cardName(card) + '。'
     logPlay(true, card, lead)
-    const handed = playFor(true, index, false)
+    const handed = playFor(true, index)
     message.value = note + lead
     if (!handed) {
       afterPlay(true)
@@ -15857,7 +15904,7 @@
   //
   // 停住的方式是**不往下走**：foeTurn 直接 return，庄家的计时链断在这儿，
   // 你那边 myTurn 是 false 出不了牌；点一下 onShowcase 把那一手接回去
-  const SHOW_BOARD : number = 1
+  // 〔SHOW_BOARD = 1（从上牌区出）2026-11-05 跟上牌区一起删了，编号不挪〕
   const SHOW_HAND : number = 2
   const showcaseOn = ref<boolean>(false)
   const showcaseSuit = ref<string>('')
@@ -15907,9 +15954,7 @@
     showcaseOn.value = false
     const kind = showcaseKind
     showcaseKind = 0
-    if (kind == SHOW_BOARD) {
-      foePlayBoard(showcaseIndex)
-    } else if (kind == SHOW_HAND) {
+    if (kind == SHOW_HAND) {
       foePlayHand(showcaseIndex, showcaseNote)
     }
   }
@@ -16745,6 +16790,11 @@
       if (harvest > caught) {
         caught = harvest
       }
+      // 新【燃烧】〔2026-11-05〕：会收走的话它自己也被收走、不再匹配 → 收成**就是**那一笔（顶替，不取 max）。照模拟器 ai.js 那一行
+      const burnTake = burnMarkCount(card, skills)
+      if (burnTake > 0) {
+        caught = burnTake
+      }
       // 【空钩】这一段压着陷阱 → 折成负收成（照模拟器 trapPenalty）
       caught = caught - trapPenaltyFoe(at, sink, card, skills)
       // ---- ⚠ 这条贪心**比的是张数，不是分**〔R4，2026-10-23 登记〕 ----
@@ -16923,60 +16973,6 @@
     return pick >= 0 ? pick : randomFree()
   }
 
-  // 庄家要从**上牌区**打的那张。一张都打不出去（空的 / 全冻住）返回 -1。
-  //
-  // ⚠ **口径跟 `foePickCard` 的前半段是同一条**：`catchStart` 问「这张现在
-  //   打出去能钓几张」，收色 / 撒网那两类再过一次 `harvestCount` 兜底。
-  //   两处口径不同的话庄家会在两个区按两套标准挑牌 —— 而上牌区是**强制**出牌区，
-  //   玩家看到的就是「它在这个区突然变笨 / 变聪明了」。
-  //   判据抄 `pickTopFor` 那条注释：**别另写一套估值**。
-  //
-  // 跟 `foePickCard` 的三处差别，每一处都有理由：
-  //   ① **没有挑饵那一整段**（`baitRisk` / `wants` / 沉底躲避）。那一段的前提是
-  //      「手里还有别的选择，所以挑一张最不亏的下饵」；上牌区是强制出牌，
-  //      钓不到也必须打一张，挑无可挑 —— 退到第一张没冻住的就是了。
-  //   ② 新手关（`level.value.random`）照旧完全随机，跟 `randomFree` 同一条规矩。
-  //   ③ 冻结在这儿**理论上碰不到**（现行的【冻结】只挑对手**手牌**），
-  //      留着这道闸是为了以后真有东西冻上牌区时不至于死锁 —— 调用点看见 -1
-  //      会退回手牌那条路。
-  function foePickBoard() : number {
-    const zone = foeBoardZone.value
-    const free : number[] = []
-    for (let i = 0; i < zone.length; i++) {
-      if (!isFrozen(zone[i])) {
-        free.push(i)
-      }
-    }
-    if (free.length == 0) {
-      return -1
-    }
-    if (level.value.random) {
-      return free[Math.floor(Math.random() * free.length)]
-    }
-    let best = -1
-    let bestCaught = 0
-    for (let k = 0; k < free.length; k++) {
-      const i = free[k]
-      const card = zone[i]
-      const skills = skillsOf(true, card)
-      const sink = hasTrigger(skills, SK_SINK)
-      const at = catchStart(card, true, skills, sink)
-      let caught = catchCountCut(at, sink, card)
-      const harvest = harvestCount(card, skills, true, false)
-      if (harvest > caught) {
-        caught = harvest
-      }
-      // 【空钩】这一段压着陷阱 → 折成负收成（照模拟器 trapPenalty）
-      caught = caught - trapPenaltyFoe(at, sink, card, skills)
-      // 比的是**张数不是分**，理由跟 foePickCard 那条逐字相同
-      //（`scoreOf` 对 n 单调不减 → argmax 一致，换成分反而丢掉同档的 tie-break）
-      if (caught > bestCaught) {
-        bestCaught = caught
-        best = i
-      }
-    }
-    return best >= 0 ? best : free[0]
-  }
 
   // 没被冻住的里头随机挑一张。一张都没有就返回 -1（这回合它打不出牌）
   function randomFree() : number {
@@ -17071,6 +17067,8 @@
     shrinkPending.value = false
     flowKey.value = [] as PlainCard[]
     zeroDraftPending.value = false
+    nextJackPending.value = false
+    nextJackRank.value = ''
     traitorKey.value = [] as PlainCard[]
     reflectHandPending.value = false
     reflectTarget = -1
@@ -17085,6 +17083,8 @@
     flowDraftPending.value = false
     flowDraftSk.value = -1
     stoneKeyPending.value = false
+    burnKeyPending.value = false
+    burnKeySkills = []
     stoneBottomCard = null
     stoneBottomSuit = ''
     trapPile = [] as PlainCard[]
@@ -17104,6 +17104,8 @@
     holdArmed[1] = false
     chainArmed[0] = false
     chainArmed[1] = false
+    burnPending[0] = false
+    burnPending[1] = false
     // 【引火】预约的手牌火跟手冰表一起清（同一个理由：它按牌对象认身份，
     // 而新一局是新一副牌）
     burnHand = [] as PlainCard[]
@@ -17122,10 +17124,6 @@
     heapPendingFoe = 0
     heapZone.value = [] as PlainCard[]
     foeHeapZone.value = [] as PlainCard[]
-    // 【上牌区】两个区同样开局清。现在还没有东西往里放牌，这几行是
-    // **先把地基打对** —— 等哪天有技能往里塞，漏清就是一个静默的跨局残留
-    boardZone.value = [] as PlainCard[]
-    foeBoardZone.value = [] as PlainCard[]
     againPending = false
     againUsed.value = false
     againWaiting.value = false
@@ -17149,6 +17147,7 @@
     stealTailTook = []
     stealTailHold = []
     stealTailChain = []
+    stealTailBurn = []
     // 庄家连忍了几手〔2026-10-27〕。**清它不是为了正确性，是为了可复现**：
     // 上一局结束时它可能停在 1 上，于是新一局庄家的第一个忍牌机会会被
     // `foeHoldRun >= HOLD_RUN` 静默吃掉 —— 一次，而且只在某些局出现
@@ -18126,8 +18125,7 @@
   }
 
   /* 【堆牌】：报**盖几张**（2026-10-28 起没有层级、不乘）。紫 —— 跟推牌那个青色分得开，
-     两件虽是同一族（都是从牌库往堆上送牌），可时机相反，颜色撞了就白标了。
-     跟上牌区那圈边框（.card-board）同一个色系：两样都是「区」那条线上的东西 */
+     两件虽是同一族（都是从牌库往堆上送牌），可时机相反，颜色撞了就白标了 */
   .hand-heap-tag {
     color: #9b6fd6;
     font-size: 9px;
@@ -18807,8 +18805,8 @@
     height: 72px;
   }
 
-  /* ---------- 【堆牌区】/【上牌区】：跟手牌区横着并排 ---------- */
-  /* 〔2026-10-26，用户定的版面：「3 个区 横着排列」〕
+  /* ---------- 【堆牌区】：跟手牌区横着并排 ---------- */
+  /* 〔2026-10-26，用户定的版面：「3 个区 横着排列」；中间那个【上牌区】2026-11-05 去掉了〕
      整组塞进 .hand-row / .foe-row 这个**横排**里，所以标签**不能摆在牌上方** ——
      .hand-row 是写死的 72px（= 牌 64 + 上下余量），上方加一行字就把牌挤掉了。
      改成摆在**左边**、宽 13px 让两个字竖着折行，吃掉牌旁边那点空白 */
@@ -18825,33 +18823,12 @@
     margin-right: 3px;
   }
 
-  /* 竖分隔线：没有它的话三个区连成一排，看着就是「一手特别多的手牌」——
-     而「这几张是强制出的、那几张不是」正是这条规则的全部内容 */
+  /* 竖分隔线：没有它的话堆牌区跟手牌连成一排，看着就是「一手特别多的手牌」 */
   .zone-split {
     width: 1px;
     height: 46px;
     background-color: rgba(255, 255, 255, 0.18);
     margin-right: 6px;
-  }
-
-  /* 上牌区的牌：垫一层淡紫底，提示「这一轮只能从这儿出」。
-     ⚠ **有意不动 border-color** —— 这张牌上还有两圈边要抢：
-     能钓的金边（.card-hint，判断值不值得出的全部依据）和冻住的蓝边
-     （.card-frozen）。`.card-frozen` 在这条规则**前面**定义，
-     动边框的话它会被这一条盖掉，而那正是「看起来合理、实际丢了信息」的那类。
-     底色不跟任何一条抢 */
-  .card-board {
-    background-color: #f3ecff;
-  }
-
-  /* 上牌区有牌时手牌整排压暗 —— 点了会弹一句「必须从上牌区出」（见 onPlay）。
-     为什么不用 v-if 把手牌藏起来（这个文件里「入口的 v-if 就是第一道校验」
-     是条成例）：**手牌还得看得见**，不然你没法判断上牌区那几张值不值得出。
-     所以走「灰显 + 点了弹一句」这一档。
-     不改 border-color —— 能钓的那圈金边（.card-hint）要留着，
-     它正是你判断「这一轮亏不亏」的依据 */
-  .card-locked {
-    opacity: 0.45;
   }
 
   /* 这回合刚摸到的那张：描绿边。排在 .card-hint 前面 ——

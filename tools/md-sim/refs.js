@@ -522,14 +522,18 @@ const SIM_ONLY = {
   rangematch: '〈rangematch〉（原型 · 2026-11-01【区间匹配】：收走堆上点数在它和堆顶那张之间的牌，另外至少 1 张才算成功。RANGE_MIN）',
   extraturn: '〈extraturn〉（原型 · 2026-11-01 用户要评价：自己再进行 2 回合。EXTRA_N）',
   jointag: '〈jointag〉（原型 · 2026-11-01 机制一：堆上有匹配则一起被收走，载体＝对方 1 张手牌带上）',
+  burnswap: '〈burnswap〉（原型 · 2026-11-05 用户要评价：无点数，1 张手牌带上燃烧；它被带上燃烧时换成给（点火方）1 张手牌带上燃烧）',
+  burnbait: '〈burnbait〉（原型 · 2026-11-05 用户要评价：此牌不是因燃烧被收走时，给对方（收走它那一方的对手）手牌全部带上燃烧。BAIT_AI=0 关掉「不要自己去匹配」）',
+  burnall: '〈burnall〉（原型 · 2026-11-05 用户要评价：堆上有【燃烧】则全部收走，否则 1 张手牌带上【燃烧】；屯牌。BURNALL_MODE=fire|pile）',
+  burnnext: '〈burnnext〉（原型 · 2026-11-05 用户要评价：【燃烧】；如果没有收牌则获取下一张（会触发它的牌）。BURNNEXT_COND=0 无条件）',
+  burnif: '〈burnif〉（原型 · 2026-11-05 用户要评价：堆上有【燃烧】时此牌带上【燃烧】，否则手牌 2 张带上【燃烧】。BURNIF_N）',
+  marktag: '〈marktag〉（原型 · 2026-11-05 用户提【A】：打出后先收走堆上带【A】的牌、其余带上【A】，再判匹配；载体＝它带上【A】，1 张手牌带上【A】。MARK_AI=off）',
   solotag: '〈solotag〉（原型 · 2026-11-01 机制二：被收走时只收走此牌，载体＝堆上 1 张牌带上）',
   handreflect: '〈handreflect〉（原型 · 2026-10-30 用户要评价：选择堆上一张牌，手牌 1 张跟它相同花色的牌变成它的点数。HR_RANK）',
   chain: '〈chain〉（原型 · 2026-10-30 从游戏撤下的【传火】：跟堆底同颜色的牌带上【燃烧】。CHAIN_HUE / CHAIN_BOTTOM_SELF / CHAIN_PHASE / CHAIN_WINDOW / CHAIN_SKIP_OPEN。墓碑在 DEAD_SKILLS）',
   flowdraft: '〈flowdraft〉（原型 · 2026-10-30 从游戏撤下的【顺递】：堆上 1 张牌带上【通配】；1 张手牌带上【顺子匹配】。墓碑在 DEAD_SKILLS）',
   swapflow: '〈swapflow〉（原型 · 2026-10-29 从游戏撤下的【易流】：它带上【通配】；可以把 1 张手牌跟堆上 1 张替换；【顺子匹配】。SWAPFLOW_SELF / SWAPFLOW_N）',
   minus2n: '〈minus2n〉（原型 · 堆上其他牌 −N，它的点数变成 2N；【21 匹配】。M2N_N）',
-  boardself: '〈boardself〉（原型 · 选 1 张手牌放进你的上牌区。BS_PICK=rand|worst|best|jack）',
-  fadeboard: '〈fadeboard〉（原型 · 【褪色】；0 点数数量的对方手牌置 0 并加入上牌区。FB_CAP / FB_BOARD）',
   fadesplit: '〈fadesplit〉（原型 · 对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】。FS_PICK=rand|best）',
   zerofoe: '〈zerofoe〉（原型 · 置 0；对方 K 张手牌置 0，K = 堆上 0 点牌数。ZF_CAP）',
   zerominus: '〈zerominus〉（原型 · 置 0；堆上所有牌 −K；1 张手牌带上【置 0，收 0】）',
@@ -607,10 +611,7 @@ const SIM_ONLY = {
   // 故意只有「自带【堆牌2】」这一句，量出来的就是机制本身，不是一件技能的价。
   // 〔原话是「自带【堆牌】1 层」—— 2026-10-28 用户删了层级概念（「一次就是1张」），
   //   旧的「1 层」= 现在的「堆牌2」，**行为逐位没变**，改的是叫法〕
-  // 配套的【上牌区】是**规则层**（`boardZone` + `playFor(…, fromBoard)`），
-  // 不是技能，所以不在这张表里；现在**没有任何技能往上牌区放牌**，
-  // 默认跑动下 `PROTO_STAT.board` 三个数全是 0 —— 那个 0 是「没人用它」，
-  // 不是「没接上」。自检走 `BOARD_TEST=N`（开局往双方上牌区各塞 N 张）。
+  // 〔配套的【上牌区】规则层 2026-11-05 撤了（用户定「去掉上牌区」），连同〈boardself〉〈boardfoe〉〈fadeboard〉三件原型〕
   heap: '〈heap〉（原型 · 自带【堆牌2】—— 打出后从牌库取 2 张盖在自己的堆牌区，下回合自己先把它们按推牌规则打到堆上。HEAP_N / HEAP_SHORT）',
   // 2026-10-26 用户要评价的两件之一。锚在表里：heapdraft 对零递
   //（`zerodraft`，已上架 100，后半句一字不差）—— 所以它的数**天生带同批锚**，
@@ -644,6 +645,9 @@ const SIM_ONLY = {
   rankzero: '〈rankzero〉（原型 · 2026-11-04：庄家点数槽「玩家手牌跟玩家点数槽相同点数的卡牌置 0」。效果同源码的【封点】pinrank（另一会话同日做的渔政巡查员那件），台账第六十四·甲）',
   club3: '〈club3〉（原型角色 · 2026-11-04：常驻「你的 ♣ 牌都算 N 点（也触发 N 槽）」。CLUB3_RANK / C3_SLOTS / C3_SP。上架的是八爪渔夫（固定 8 点 · 4/8/Q），台账第六十二节）',
   tojack: '〈tojack〉（原型 · 2026-11-03：1 张手牌变成 J（永久）。TOJ_PICK=best 是挑最有用那张的对照）',
+  keyjack: '〈keyjack〉（原型 · 2026-11-04：给全部手牌带上【钥匙】；带钥匙的牌再带钥匙时变成 J）',
+  flipjack: '〈flipjack〉（原型 · 2026-11-05：从牌组翻 N 张，有 J 则全部拿走，否则……。FJ_N / FJ_TAKE=all|jack / FJ_ELSE=none|draw|pick）',
+  givejack: '〈givejack〉（原型 · 2026-11-04：将顺位差 1（跳过 J）的手牌给对方，从牌组获取 1 张 J。默认没得给就不发动（用户定「没给不能拿」，带屯）；GJ_NEED=0 = 给不出也照拿；GJ_DIR=up = 只算大 1 位）',
   zerofetchj: '〈zerofetchj〉（原型 · 2026-11-03：1 张手牌置 0，从牌组获取 1 张 J。ZFJ_NEEDJ=1 = 没 J 不付代价）',
   nestman: '〈nestman〉（量具角色 · ♥ / 7，常驻〈nestproof〉「你的普通匹配不受【夹层】影响」）',
   // 〔trapzero / zerotrap 2026-11-01 上架为【空钩】/【布饵人】，从这张表撤掉〕

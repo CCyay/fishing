@@ -1867,7 +1867,7 @@ function cmdOne(args) {
   }
 }
 
-// ---------- 【堆牌】/【上牌区】的诊断口〔2026-10-26〕 ----------
+// ---------- 【堆牌】的诊断口〔2026-10-26；【上牌区】那一块 2026-11-05 撤了〕 ----------
 //
 // 照 `printStoneDiag` 那三条先例：**问计数器别问旋钮**、**不印「每局」**
 //（`PROTO_STAT` 跨 `measureBoth` 的三格累加，绝对数不可读、比值可读）、
@@ -1881,9 +1881,8 @@ function cmdOne(args) {
 //         → **最后才看分**。
 function printHeapDiag() {
   const h = R.PROTO_STAT.heap
-  const b = R.PROTO_STAT.board
-  if (h.fires === 0 && h.tags === 0 && b.forced === 0) return
-  console.log('\n  ---- 诊断：【堆牌】/【上牌区】 ----')
+  if (h.fires === 0 && h.tags === 0) return
+  console.log('\n  ---- 诊断：【堆牌】 ----')
   if (h.fires > 0 || h.tags > 0) {
     // 「该 ≈ 几」读 `want/fires`，**不读 `R.HEAP_N`**〔2026-10-28 改〕——
     // 三个载体的 N 不一样（原型 2 / 薪潮 2 / **逆涌 4**），拿旋钮当分母时
@@ -1944,24 +1943,7 @@ function printHeapDiag() {
         + f2(avg(td.gotSum, td.fired)) + ' 张/次）')
     }
   }
-  if (b.forced > 0 || b.played > 0) {
-    console.log('    上牌区：被迫出牌 ' + b.forced + ' 回合 / 真打出 ' + b.played
-      + ' 张（**该逐位相等**）；终局还卡着 ' + b.left + ' 张')
-    console.log('    被迫那一手收了 ' + b.gotSum + ' 张 → '
-      + f2(avg(b.gotSum, b.played)) + ' 张/手（**跟全局「每手收几张」比才有意义**）')
-    if (b.forced !== b.played) {
-      console.log('    ⚠ **两个数不等** —— 规则是「必须出 1 张」，'
-        + '不等就是有一条路绕过了 `takeFromBoard`。')
-    }
-  }
-  // 〔**〈boardgive〉/【顶钩】那一块 2026-10-27 删了**（技能删了，X −1.14）。
-  //   它留下的读数顺序是通用的，下一件往上牌区放牌的技能照抄：
-  //   **先问它做了几次，最后才看分** ——
-  //     `fires vs idle`（空转占一大半 = 根本没发动）
-  //       → `(bestSum − gaveSum)/fires`（名义上剥夺了几张）
-  //         → 上面那条 `b.gotSum/b.played`（他**实际**亏了多少）
-  //   上面那个 `b.*` 块（`PROTO_STAT.board`）留着 —— 它是规则层那一区的口，
-  //   现在往那一区放牌的只有 `BOARD_TEST`〕
+  // 〔【上牌区】那一块（被迫出牌 / 真打出 / 被迫那一手收几张）2026-11-05 跟上牌区一起撤了〕
 }
 
 // ---------- 【石化】/【花色匹配】钥匙的诊断口〔2026-10-26 接上〕 ----------
@@ -2193,6 +2175,25 @@ function printDraftTagDiag() {
   if (jt && jt.fires > 0) {
     console.log('\n  ---- 诊断：〈jointag〉----')
     console.log('    发动 ' + jt.fires + ' 次 · 贴上 ' + jt.tagged + ' · 跟着别人那次收牌被带走 ' + jt.joined + '（贴的一方收 ' + jt.joinedMine + ' / 对方收 ' + jt.joinedFoe + '）')
+  }
+  const bm = R.PROTO_STAT.burnmark
+  if (bm && bm.played > 0) {
+    console.log('\n  ---- 诊断：新版【燃烧】（BURN_RULE=mark）----')
+    console.log('    带火的牌打出 ' + bm.played + ' 次（堆平均 ' + (bm.pileSum / Math.max(1, bm.played)).toFixed(2) + ' 张）· 收走 ' + bm.harvests + ' 次 / ' + bm.taken + ' 张（' + (bm.taken / Math.max(1, bm.played)).toFixed(2) + ' / 次打出）· 点火 ' + bm.lit + ' · 冰火相消 ' + bm.melted)
+    if (bm.swapPlayed > 0) console.log('    〈burnswap〉打出 ' + bm.swapPlayed + ' · 在堆上被点火→换成发火种 ' + bm.swapFired + ' 次（' + (bm.swapFired / Math.max(1, bm.swapPlayed)).toFixed(2) + ' / 张）· 手牌贴上（含两处）' + bm.handTagged)
+    if (bm.baitPlayed > 0) console.log('    〈burnbait〉打出 ' + bm.baitPlayed + ' · 被非燃烧收走 ' + bm.baitTaken + '（其中打出它的一方自己收 ' + bm.baitSelf + '：当场 ' + bm.baitSelfNow + ' / J ' + bm.baitSelfJ + ' / 抢牌 ' + bm.baitSelfSteal + ' / 其余 ' + bm.baitSelfOther + '）· 给对手贴火 ' + bm.baitLit + ' 张')
+    if (bm.allFires > 0) console.log('    〈burnall〉发动 ' + bm.allFires + ' 次：堆上有火 → 收走 ' + bm.allTake + ' 次 / ' + bm.allTaken + ' 张（' + (bm.allTaken / Math.max(1, bm.allTake)).toFixed(2) + ' 张 / 次）· 没火 → 贴手牌 ' + bm.allHand)
+    if (bm.nextFires > 0) console.log('    〈burnnext〉发动 ' + bm.nextFires + ' 次：这一手收到牌（不取）' + bm.nextCaught + ' · 取到 ' + bm.nextGot + ' · 牌库里没有 ' + bm.nextMiss)
+    if (bm.ifFires > 0) console.log('    〈burnif〉发动 ' + bm.ifFires + ' 次：堆上有火 → 它带火 ' + bm.ifSelf + ' · 没火 → 贴手牌 ' + bm.ifHand + '（贴上 ' + bm.handTagged + ' 张）')
+    if (bm.wildFires > 0) console.log('    野火贴手牌 ' + bm.handTagged + ' / ' + bm.wildFires + '（没得贴 ' + bm.noHand + '）')
+  }
+  const mk = R.PROTO_STAT.marktag
+  if (mk && mk.fires > 0) {
+    console.log('\n  ---- 诊断：〈marktag〉【A】----')
+    console.log('    技能发动 ' + mk.fires + ' 次 · 抽牌 ' + mk.drawn + ' · 手牌贴上 ' + mk.handTagged + '（没得贴 ' + mk.noHand + '）· 手牌那张真打出 ' + mk.handPlayed + '（其中本身就触发这件技能 ' + mk.both + '）'
+      + ' · 【A】打出共 ' + mk.played + ' 次（打出时堆平均 ' + (mk.pileSum / Math.max(1, mk.played)).toFixed(2) + ' 张）')
+    if (mk.foeTagged > 0) console.log('    给对方贴【优先打出】【A】' + mk.foeTagged + ' 张（其中 J ' + mk.foeJ + '）· 被逼着打出 ' + mk.prioPlayed + '（本来不打这张、被改打 ' + mk.prioForced + '）')
+    console.log('    收走 ' + mk.harvests + ' 次 / ' + mk.taken + ' 张（' + (mk.taken / Math.max(1, mk.played)).toFixed(2) + ' 张 / 每张【A】）· 新贴记号 ' + mk.marked + ' 张 · 手牌变无点数 ' + mk.voided + ' 张 · 连它自己一起收走 ' + mk.selfTaken + ' 次')
   }
   const so = R.PROTO_STAT.solotag
   if (so && so.fires > 0) {
@@ -3330,6 +3331,16 @@ function printTailDiag() {
   if (ns && ns.fires > 0) console.log('  诊断：〈nosteal〉发动 ' + ns.fires + ' 次 · 贴上 d ' + ns.tagged + ' 张（其中 J ' + ns.jack + '）· 带 d 的牌本来抢得到、被拦下 ' + ns.blocked + ' 次')
   const tj = R.PROTO_STAT.tojack
   if (tj && tj.fires > 0) console.log('  诊断：〈tojack〉发动 ' + tj.fires + ' 次 · 变成 J ' + tj.made + ' 张（其中原是 0 点牌 ' + tj.fromZero + '）· 没得变 ' + tj.none + ' 次')
+  const kj = R.PROTO_STAT.keyjack
+  if (kj && kj.fires > 0) console.log('  诊断：〈keyjack〉发动 ' + kj.fires + ' 次 · 贴钥匙 ' + kj.tagged + ' 张 · 变成 J ' + kj.made + ' 张（其中原是 0 点牌 ' + kj.fromZero + '）· 本来就是 J ' + kj.wasJack + ' 张')
+  const nj = R.PROTO_STAT.nextjack
+  if (nj && nj.fires > 0) console.log('  诊断：〈nextjack〉发动 ' + nj.fires + ' 次 · 变成 J ' + nj.made + ' 张 · 手里没有下一顺位 ' + nj.none + ' 次 · 打出的牌没有下一顺位 ' + nj.noRank + ' 次')
+  const hd = R.PROTO_STAT.hold
+  if (hd && (hd.held > 0 || hd.readyPlay > 0)) console.log('  诊断：屯（带 hold 标注的技能合计）· 条件成立就打 ' + hd.readyPlay + ' 次 / 屯住 ' + hd.held + ' 手 / 忍不住 ' + hd.forced + ' 手')
+  const fj = R.PROTO_STAT.flipjack
+  if (fj && fj.fires > 0) console.log('  诊断：〈flipjack〉发动 ' + fj.fires + ' 次 · 翻到 J ' + fj.hit + ' 次（' + (100 * fj.hit / fj.fires).toFixed(1) + '%）· 拿进手 ' + fj.taken + ' 张（其中 J ' + fj.jacks + '）· 没 J 摸牌 ' + fj.drew + ' · 牌库空 ' + fj.empty)
+  const gj = R.PROTO_STAT.givejack
+  if (gj && gj.fires > 0) console.log('  诊断：〈givejack〉发动 ' + gj.fires + ' 次 · 给出 ' + gj.gave + ' 张（对方当场钓得着 ' + gj.gaveUseful + '）· 没得给 ' + gj.noGive + ' 次 · 拿到 J ' + gj.gotJ + ' 次 · 牌库没 J ' + gj.noJ + ' 次 · 整件不发动 ' + gj.skipped + ' 次')
   const zf2 = R.PROTO_STAT.zerofetchj
   if (zf2 && zf2.fires > 0) console.log('  诊断：〈zerofetchj〉发动 ' + zf2.fires + ' 次 · 置 0 ' + zf2.zeroed + ' 张（其中 J ' + zf2.zeroJack + '）· 拿到 J ' + zf2.got + ' 次 · 牌库没 J ' + zf2.none + ' 次 · 不发动 ' + zf2.skipped + ' 次')
   const sr = R.PROTO_STAT.stealRefill
@@ -4154,7 +4165,7 @@ function cmdVs(args) {
       // `freshSum`（这一段里有几张是自己刚从堆牌区铺下去的）的自检本来是
       // 「零递 / 递吃 / 减递 / 多递那几格必须恒为 0」，而**那个自检第一次跑
       // 就读不到** —— 它印在 `printHeapDiag` 里，而那个函数开头
-      //（`h.fires === 0 && h.tags === 0 && b.forced === 0`）会整段早退，
+      //（`h.fires === 0 && h.tags === 0`，当时还带 `&& b.forced === 0`）会整段早退，
       // 于是**最该验它的那几格恰恰一个字都不印**。
       //
       // 所以把断言挪到这儿：21 匹配的诊断段零递是进得来的，而「堆牌一次
@@ -4396,7 +4407,7 @@ function cmdVs(args) {
     + '   胜率 ' + pct(avg(D.wins[R.ME], D.games)))
   console.log('    我带 / 对手带　　　 ' + (meanDiff(B) >= 0 ? '+' : '') + f2(meanDiff(B))
     + '   胜率 ' + pct(avg(B.wins[R.ME], B.games)))
-  // ---- 【堆牌】/【上牌区】的诊断口〔2026-10-26 加到 `vs` 上〕----
+  // ---- 【堆牌】的诊断口〔2026-10-26 加到 `vs` 上〕----
   //
   // 加这一行的理由跟上面 `dRow` 被提出 `if (mirror)` 那次**一模一样**：
   // 原先 `printHeapDiag()` 只挂在 `cmdOne` 上，而这两件原型的量测脚本

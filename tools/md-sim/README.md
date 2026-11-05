@@ -191,6 +191,7 @@ esbuild / tsc 能把 `.uts` 的类型注解剥掉给 node 用；而对局规则�
 | 「简易」角色（`isSimpleRole` / `roleOf` 现造一张单点数槽的卡，`kitFromRole` 给 −1）〔2026-10-30 登记〕 | 没有 | 只在简易模式的对战里用，**任何量测都跑不到它**。照 `shelled()` 那条：模拟器只跑终局结构 |
 | 庄家估「这一手能收几张」（`harvestCount`）**不算**燃烧扫堆、冰雷 | `harvestCount` 多算 `burnSweepCount` / `bombReady` 两项〔2026-10-30 登记〕 | 模拟器那两项的注释写明是故意的（AI 要看得见「这一手会把整堆烧走 / 引爆」，不然那两族量出来是 AI 笨的数）。09da522 时就这样，一直没进这张表 |
 | `rankOwner : number[]`（一个点数格一件技能） | `rankOwner` **+ `rankOwner2`** 两张平行表 | **模拟器领先源码**〔2026-10-28〕——【串钩手】重做要「一个点数槽装 2 件」（用户定稿），这是规则层的结构改动。模拟器先接上量数（`twin` 字段 + `TWIN_SLOT` 旋钮 + 原型卡 `riggertwin`），**源码一个字都还没动**。照【磁钩】那条先例：差异是真的，但方向是「副本在前」，别倒着「修」模拟器 |
+| **没有【上牌区】**〔2026-11-05 用户定「去掉上牌区」：`boardZone` / `takeFromBoard` / `boardPlayable` / `foePickBoard` / `playFor` 的 `fromBoard` 参数、规则面板那一行全删了〕 | `G.boardZone`、`canAct` 认它、`BOARD_TEST` / `BOARD_HOLD` 旋钮、原型〈boardself〉〈boardfoe〉〈fadeboard〉都还在 | **没有任何现行技能往里放牌** —— 默认跑动下区恒空、那几条分支一次也不走，所以两边行为一致。留着是因为三件原型还挂在它上面（另一个会话 11-05 还在量〈boardfoe〉）；要撤得连原型一起撤，见台账 |
 
 ### 三个「积压漂移」核对完了，都不是漂移〔2026-10-16〕
 
