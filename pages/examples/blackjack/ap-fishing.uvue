@@ -645,6 +645,16 @@
       </view>
     </view>
 
+    <!-- 【磁引】〔2026-11-05〕：等你挑一张手牌贴【磁吸】（照石影那块的形制） -->
+    <view v-if="magKeyPending" class="tide-box">
+      <text class="tide-text">磁引：点一张手牌贴上磁吸（打出它时还能钓顺位差 1 的牌，跳过 J、K 接 A）· J 和 0 点点不动</text>
+      <view class="tide-actions">
+        <view id="ap-magkey-skip" class="tide-btn tide-btn-plain" @click="onMagKey(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 新【野火】〔2026-11-05〕：它已经带上燃烧，等你挑一张手牌也带上（照石影那块的形制） -->
     <view v-if="burnKeyPending" class="tide-box">
       <text class="tide-text">野火：它已经带上燃烧；点一张手牌也带上燃烧（打出它时，堆上已有的火连同它一起收走）· J 点不动</text>
@@ -677,6 +687,16 @@
       <text class="tide-text">忍递：这一手空手 —— 点一张手牌贴上 21 匹配 · J 和无点数的点不动</text>
       <view class="tide-actions">
         <view id="ap-holdtag-skip" class="tide-btn tide-btn-plain" @click="onHoldTag(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 封凌〔2026-11-05 新版〕：它自带结冰；挑一张手牌也贴上结冰（照冰雷那块） -->
+    <view v-if="lockKeyPending" class="tide-box">
+      <text class="tide-text">封凌：点一张手牌贴上结冰（打出它时这一手不受结冰影响，落堆后全场结冰）</text>
+      <view class="tide-actions">
+        <view id="ap-lockkey-skip" class="tide-btn tide-btn-plain" @click="onLockKey(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
         </view>
       </view>
@@ -922,6 +942,8 @@
             <text v-if="stoneHandOn(card)" class="card-stone-tag">墙</text>
             <!-- 手里带【花色匹配】（传色贴的）：打出时走花色匹配 -->
             <text v-if="matchKeyOn(card)" class="hand-match-tag">花</text>
+            <!-- 手里带【磁吸】（磁引贴的）：打出时还能钓顺位差 1 的牌 -->
+            <text v-if="magKeyOn(card)" class="hand-mag-tag">磁</text>
             <!-- 手里带【21 匹配】（零递贴的） -->
             <text v-if="draftKeyOn(card)" class="hand-draft-tag">21</text>
             <!-- 手里带【收零】（褪递贴的） -->
@@ -1122,6 +1144,8 @@
     SKILL_RANKS,
     DrawLoadout,
     SK_HOOK,
+    // 【磁引】〔2026-11-05〕：1 张手牌带上【磁吸】
+    SK_MAGTAG,
     SK_TIDE,
     SK_PEEK,
     SK_SWAP,
@@ -2241,6 +2265,8 @@
   const murkLeft = ref<number>(0)
   // 冰雷等你挑一张自己的手牌贴冰
   const bombPending = ref<boolean>(false)
+  // 封凌〔2026-11-05 新版〕：等你挑一张手牌贴【结冰】（照冰雷）
+  const lockKeyPending = ref<boolean>(false)
   // 零递等你挑自己的手牌贴【21 匹配】
   const zeroDraftPending = ref<boolean>(false)
   // 升钩等你挑哪张变成 J（符合的有 2 张以上才停；只有 1 张直接变）
@@ -2258,6 +2284,8 @@
   const flowDraftSk = ref<number>(-1)
   // 石影等你挑自己的一张手牌贴【花色匹配】（石顺走上面 flowDraftPending 那块，flowDraftSk = SK_STONELINE）
   const stoneKeyPending = ref<boolean>(false)
+  // 【磁引】等你挑自己的一张手牌贴【磁吸】（照石影：askFirst 停、onMagKey 挑完 askNext）
+  const magKeyPending = ref<boolean>(false)
   // 新【野火】〔2026-11-05〕：等你挑一张手牌带上【燃烧】；挑完要从 TAIL_REST 接着走，所以存下技能表（照 pickSkills）
   const burnKeyPending = ref<boolean>(false)
   let burnKeySkills : number[] = []
@@ -2596,6 +2624,7 @@
   let stealTailTook : boolean[] = []
   let stealTailHold : boolean[] = []
   let stealTailChain : boolean[] = []
+  let stealTailHook : boolean[] = []
   let stealTailBurn : boolean[] = []
 
   // 玩家正被问「要不要抢」。立着的时候**不是你的回合**（庄家刚打完那一手），
@@ -2877,6 +2906,88 @@
       }
     }
     matchKey.value = keep
+    // 【磁吸】那一层跟【花色匹配】同一套生命周期（打出那一手用掉、洗回 / 换主人也摘），
+    // 所以摘的时候一起摘 —— 调用点有六处，各加一行迟早漏一处
+    dropMagKey(card)
+  }
+
+  // 手里带【磁吸】的牌（磁引贴的）〔2026-11-05〕。**ref** —— 手牌上要印「磁」
+  const magKey = ref<PlainCard[]>([] as PlainCard[])
+  function magKeyOn(card : PlainCard) : boolean {
+    for (let i = 0; i < magKey.value.length; i++) {
+      if (magKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropMagKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < magKey.value.length; i++) {
+      if (magKey.value[i] != card) {
+        keep.push(magKey.value[i])
+      }
+    }
+    magKey.value = keep
+  }
+  // 【磁吸】的顺位：A 2 … 10 Q K，**跳过 J**，K 接 A（跟【升钩】同一张表）。比的是**点数值**，
+  // 所以被改过的点数照改后的算；0 点 / 无点数 / 大于 13 不在表里，一律不算相邻
+  const MAG_ORD : number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13]
+  function magAdj(mine : number[], theirs : number[]) : boolean {
+    for (let a = 0; a < mine.length; a++) {
+      const ia = MAG_ORD.indexOf(mine[a])
+      if (ia < 0) {
+        continue
+      }
+      for (let b = 0; b < theirs.length; b++) {
+        const ib = MAG_ORD.indexOf(theirs[b])
+        if (ib < 0) {
+          continue
+        }
+        const d = Math.abs(ia - ib)
+        if (d == 1 || d == MAG_ORD.length - 1) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+  // 磁引能贴哪张：非 J、还没带磁吸、点数在顺位里（0 点 / 无点数贴了也白贴）
+  function magKeyable(card : PlainCard) : boolean {
+    if (card.rank == JACK || magKeyOn(card)) {
+      return false
+    }
+    const vals = cardVals(card)
+    for (let k = 0; k < vals.length; k++) {
+      if (MAG_ORD.indexOf(vals[k]) >= 0) {
+        return true
+      }
+    }
+    return false
+  }
+  // 庄家贴哪张：堆上顺位相邻的牌最多的那张（跟模拟器 magPick 的次序一致：那边先比「贴上之后现在打多收几张」，
+  // 这儿只用它的第二把尺子 —— 庄家不需要那么聪明）。没有能贴的返回 −1
+  function magKeyPick(byFoe : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let best = -1
+    let most = -1
+    for (let i = 0; i < mine.length; i++) {
+      if (!magKeyable(mine[i])) {
+        continue
+      }
+      const vals = cardVals(mine[i])
+      let n = 0
+      for (let k = 0; k < pile.value.length; k++) {
+        if (pile.value[k].rank != JACK && magAdj(vals, pileValsAt(k))) {
+          n = n + 1
+        }
+      }
+      if (n > most) {
+        most = n
+        best = i
+      }
+    }
+    return best
   }
 
   // 手里带【21 匹配】的牌（零递贴的）。跟上面那张表同一套生命周期：
@@ -3115,6 +3226,8 @@
   //   chainArmed    这一手【连递】该续贴吗（resolveMatch 里判「凑成」之后定）
   const tookThisHand : boolean[] = [false, false]
   const holdArmed : boolean[] = [false, false]
+  //   hookArmed     这一手带着【磁钩】吗（打出那一刻定）。被抢走时存档成 false —— 匹配上了只是被抢，不算「匹配失败」
+  const hookArmed : boolean[] = [false, false]
   const chainArmed : boolean[] = [false, false]
   // 新【燃烧】〔2026-11-05〕：这一手打出的牌带火 → 结算完要给堆上其他牌点火（burnStep 立、burnTagAfter 清）。按侧存，照 chainArmed
   const burnPending : boolean[] = [false, false]
@@ -3560,7 +3673,8 @@
   function selfFrost(skills : number[]) : boolean {
     return hasTrigger(skills, SK_FROST) || hasTrigger(skills, SK_HIDE)
       || hasTrigger(skills, SK_COLDHUE)
-      || hasTrigger(skills, SK_LOCKDRAW) || hasTrigger(skills, SK_LOCKCOLOR)
+      || hasTrigger(skills, SK_LOCKDRAW)
+      // 〔2026-11-05 隔凌改成「抽 1 张牌；手牌都带上【结冰】」，**不再自带** —— 从这一行撤了（模拟器 LOCKCOLOR_MODE=old 复现旧版）〕
       // 〔【冻结】2026-10-20 加进这一行（自带【结冰】），**2026-10-21 撤了** ——
       //   换成了「无点数」（见 valuesOf 里那一段）。它不再是结冰族的一员。
       //   换的理由不是强度，是**驻场效果牌不该带点数**：带点数的话会被
@@ -3618,7 +3732,8 @@
   const canPlay = computed<boolean>(() : boolean => {
     return myTurn.value && !over.value && !catching.value && !tidePending.value
       && !swapPending.value && !freezePending.value && !pickPending.value && !murkPending.value && !shrinkPending.value
-      && !bombPending.value && !zeroDraftPending.value && !nextJackPending.value && !flowDraftPending.value && !stoneKeyPending.value
+      && !bombPending.value && !lockKeyPending.value && !zeroDraftPending.value && !nextJackPending.value && !flowDraftPending.value && !stoneKeyPending.value
+      && !magKeyPending.value
       && !burnKeyPending.value
       && !fadeTagPending.value && !backPending.value && !backTagPending.value
       // 21 匹配那三件的五个挑牌位〔2026-10-28〕。
@@ -3697,6 +3812,9 @@
     if (bombPending.value) {
       return '你的回合 · 冰雷'
     }
+    if (lockKeyPending.value) {
+      return '你的回合 · 封凌'
+    }
     if (zeroDraftPending.value) {
       return '你的回合 · 零递'
     }
@@ -3722,6 +3840,9 @@
     }
     if (stoneKeyPending.value) {
       return '你的回合 · 石影'
+    }
+    if (magKeyPending.value) {
+      return '你的回合 · 磁引'
     }
     if (burnKeyPending.value) {
       return '你的回合 · 野火'
@@ -4628,6 +4749,8 @@
     // 【封竿】原先在这儿直接拦（被封的点数什么都钓不到）。改成了「算 0 点」，
     // 在 valuesOf 最前面判 —— 0 点钓不到按点数的牌，按花色的照样能用
     const hook = hasTrigger(skills, SK_HOOK)
+    // 【磁吸】：磁钩是它自己带，磁引贴在手牌上〔2026-11-05〕
+    const mag = hook || magKeyOn(card)
     // 〔顺色那条花色线 2026-10-25 撤了 —— 它改成变点数（见 valuesOf），走普通匹配〕
     const suited = false
     // 我这张算哪几个点数。顺色换掉了整个点数，所以它这儿是空的 ——
@@ -4729,8 +4852,11 @@
       //   `mine[a] == 0`，所以 0 点牌本来就钩得上 1、现在也「钩得上 −1」
       //   （不存在），净效果为零。别给 0 点加特例，那会动到整条压底线。
       //   模拟器那边同一处开了 `HOOK_DIR` 旋钮隔开新旧两档〕
-      if (hook && p.rank != JACK
-        && (anyEquals(mine, theirs, 1) || anyEquals(mine, theirs, -1))) {
+      //
+      // 〔2026-11-05 换成【磁吸】（用户定）：按**顺位**相差 1 比（跳过 J、K 接 A），见 magAdj。
+      //   跟上面那段说的「点数相差 1」只在边上不同：10 接 Q、K 接 A，而 0 点不在顺位里 ——
+      //   所以上面那句「0 点牌本来就钩得上 1」**不再成立**（规则面板那句同日删了）〕
+      if (mag && p.rank != JACK && magAdj(mine, theirs)) {
         best = i
         break
       }
@@ -7959,6 +8085,7 @@
     const armSide = byFoe ? 1 : 0
     tookThisHand[armSide] = false
     holdArmed[armSide] = hasTrigger(skills, SK_HOLDTAG)
+    hookArmed[armSide] = hasTrigger(skills, SK_HOOK)
     chainArmed[armSide] = false
     // ---- 进场 ----
     // 落堆的那一刻先受场上效果牌的影响（压邻、封色、分水……都在 landVals 里），
@@ -8287,7 +8414,11 @@
     const at = catchStart(card, byFoe, skills, false)
     // 【可以用特殊匹配抢牌】〔2026-10-29 用户定〕：顺子 / 花色 / 顺序匹配能收的张数也算
     //（21 匹配已经在 catchStart 里）。harvestCount 的 specialOnly 档不算撒网（它不是特殊匹配）
-    const normal = catchCountCut(at, false, card)
+    let normal = catchCountCut(at, false, card)
+    // 〔2026-11-05「只算实际收得走的牌」〕这张手里不带冰（没有豁免）→ 那一段里带冰的收不走、不算。照模拟器 stealTry
+    if (at >= 0 && normal > 0 && !frostOnHand(card)) {
+      normal = normal - icedBetween(at, pile.value.length - 1)
+    }
     const special = harvestCount(card, skills, byFoe, true)
     return normal > special ? normal : special
   }
@@ -8305,13 +8436,30 @@
   // 门槛是**严格多于**（`bestN <= caught` 就不许抢）—— 这一条同时是
   // 连续互抢的终止条件：每抢一次堆上就多一张，收成只能越来越大，
   // 所以不用另加一道层数闸（模拟器那边同理，见 stealTry 上面那段）
-  function askSteal(byFoe : boolean, from : number, to : number, caught : number,
+  // 堆上 [lo, hi] 里带【结冰】的牌有几张（抢牌比「实际收得走的张数」用）
+  function icedBetween(lo : number, hi : number) : number {
+    let n = 0
+    for (let i = lo < 0 ? 0 : lo; i <= hi && i < pile.value.length; i++) {
+      if (frostAt(i)) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  function askSteal(byFoe : boolean, from : number, to : number, caughtRaw : number,
     played : PlainCard) : boolean {
+    let caught = caughtRaw
     if (over.value) {
       return false
     }
     // 被问的是**对方** —— byFoe 是刚打牌那一方
     const thief = !byFoe
+    // 〔2026-11-05 用户定「比张数时只算实际收得走的牌」〕这一手没有【结冰】豁免的话，那一段里带冰的牌收不走、不算数。
+    //   照模拟器 stealTry 的 STEAL_ICE=real（myLo / myHi = from / to）
+    if (!iceBlindNow) {
+      caught = caught - icedBetween(from, to)
+    }
     // 只扫**手牌**：照模拟器（它只看 `G.hands[foe]`）
     const mine = thief ? foeHand.value : hand.value
     let best = -1
@@ -8372,6 +8520,8 @@
     stealTailTook.push(tookThisHand[vs])
     stealTailHold.push(holdArmed[vs])
     stealTailChain.push(chainArmed[vs])
+    // 磁钩：这一手是被抢的那一方 = 它**匹配上了** → 存 false，还原回去就不会当成「匹配失败」去抽牌
+    stealTailHook.push(false)
     stealTailBurn.push(burnPending[vs])
     surgePending = 0
     heapPending = 0
@@ -8422,6 +8572,7 @@
         tookThisHand[vsi] = stealTailTook[i]
         holdArmed[vsi] = stealTailHold[i]
         chainArmed[vsi] = stealTailChain[i]
+        hookArmed[vsi] = stealTailHook[i]
         burnPending[vsi] = stealTailBurn[i]
         stealTailDrop[i] = true
       }
@@ -8447,6 +8598,7 @@
       stealTailTook.pop()
       stealTailHold.pop()
       stealTailChain.pop()
+      stealTailHook.pop()
       stealTailBurn.pop()
       if (surge > 0) {
         surgeFor(side, surge)
@@ -9404,15 +9556,8 @@
           ? '手里 ' + iced + ' 张带上了结冰 —— 打出去那几手不受结冰影响。'
           : '手里没牌可贴。')
     }
-    // 【封凌】：摸 1 张，那张带冰（全场贴冰是【结冰】规则本身，在 playFor 里）
-    if (hasTrigger(skills, SK_LOCKDRAW)) {
-      const got = drawFor(byFoe)
-      if (got != null) {
-        addFrostHand(got!)
-      }
-      message.value = message.value + (byFoe ? ' 庄家封凌：' : ' 封凌：')
-        + (got != null ? '摸了 1 张，它带着结冰。' : '牌库空了，没摸到。')
-    }
+    // 〔🪦 2026-11-05 封凌改效果（用户定）：原「自带【结冰】；摸 1 张牌，它带上【结冰】」在这儿摸 1 张、那张带冰。
+    //   新版「自带【结冰】；1 张手牌带上【结冰】」—— 要停下来等你挑，挪到 afterPlayTail 冰雷旁边（askFirst 那一串）〕
     // 【隔凌】：摸 1 张，再给手里跟**打出那张**不同颜色的牌贴冰。
     // 先摸后贴，所以摸上来的那张也算在内
     //
@@ -9424,24 +9569,20 @@
     // 〔2026-10-30 用户改：「自带【结冰】；摸 1 张牌，跟摸上来的牌同颜色的手牌都贴上【结冰】」。
     //   上面那段「比的是 lastPlayed」**作废** —— 现在比的是摸上来那张（`got`），含它自己。
     //   牌库空没摸到 → 没有参照，一张不贴〕
+    // 〔2026-11-05 用户定：隔凌 →「抽 1 张牌；手牌都带上【结冰】」。原版（自带冰 + 跟摸上来那张同颜色的手牌贴冰）整段换掉，
+    //   上面讲它的注释过去时读。先摸后贴，摸上来那张也带冰；「都」照字面，J 也贴（照藏凌那一段的写法）。台账第九十三节〕
+    // 〔同日再改（用户「隔凌 改成 手牌全带上结冰」）：去掉「抽 1 张」—— desc「手牌都带上【结冰】」。台账第九十六节〕
     if (hasTrigger(skills, SK_LOCKCOLOR) && lastPlayed != null) {
-      const got = drawFor(byFoe)
       const mine = byFoe ? foeHand.value : hand.value
       let iced = 0
-      if (got != null) {
-        for (let i = 0; i < mine.length; i++) {
-          if (sameColor(mine[i].suit, got!.suit)
-            && !frostOnHand(mine[i])) {
-            addFrostHand(mine[i])
-            iced = iced + 1
-          }
+      for (let i = 0; i < mine.length; i++) {
+        if (!frostOnHand(mine[i])) {
+          addFrostHand(mine[i])
+          iced = iced + 1
         }
       }
       message.value = message.value + (byFoe ? ' 庄家隔凌：' : ' 隔凌：')
-        + (got != null
-          ? '摸到一张' + (isRedSuit(got!.suit) ? '红' : '黑') + '牌，'
-            + (iced > 0 ? '手里 ' + iced + ' 张同颜色的带上了结冰。' : '手里没有同颜色的牌。')
-          : '牌库空了，没摸到。')
+        + (iced > 0 ? '手里 ' + iced + ' 张带上了结冰。' : '手里没牌可贴。')
     }
     // 【燎原】原先在这儿挂住在场效果。技能删了 ——
     // 蔓延现在是【燃烧】关键词自带的，不需要任何技能在场（见 spreadFire）
@@ -9992,6 +10133,28 @@
         }
       }
     }
+    // 【封凌】〔2026-11-05 新版〕「自带【结冰】；1 张手牌带上【结冰】」—— 自带那半句照旧在 playFor（selfFrost）。
+    //   你挑（lockKeyPending，照冰雷那块），庄家 foeIceKeyPick（= 模拟器 iceKeyPick）
+    if (hasTrigger(skills, SK_LOCKDRAW) && lastPlayed != null && askFirst(SK_LOCKDRAW)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      let room = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (!frostOnHand(mine[i])) {
+          room = room + 1
+        }
+      }
+      if (room > 0) {
+        if (!byFoe) {
+          lockKeyPending.value = true
+          return
+        }
+        const at = foeIceKeyPick()
+        if (at >= 0) {
+          addFrostHand(foeHand.value[at])
+          message.value = message.value + ' 庄家封凌：手里 1 张带上了结冰。'
+        }
+      }
+    }
     // 【冰雷】：挂成一条 held（雷牌离场 = 拆雷，expireHeld 自动清），
     // 再给自己 1 张手牌贴冰。你用的时候要挑，所以会停下来等
     if (hasTrigger(skills, SK_ICEBOMB) && lastPlayed != null && askFirst(SK_ICEBOMB)) {
@@ -10071,6 +10234,22 @@
         if (at >= 0) {
           matchKey.value = matchKey.value.concat([foeHand.value[at]])
           message.value = message.value + ' 庄家石影：手里 1 张带上了花色匹配。'
+        }
+      }
+    }
+    // 【磁引】〔2026-11-05〕：1 张手牌带上【磁吸】。你挑（magKeyPending）；庄家照 magKeyPick
+    if (hasTrigger(skills, SK_MAGTAG) && askFirst(SK_MAGTAG)) {
+      if (!byFoe) {
+        if (magKeyPick(false) >= 0) {
+          magKeyPending.value = true
+          return
+        }
+        message.value = message.value + ' 磁引：手里没有能贴磁吸的牌。'
+      } else {
+        const at = magKeyPick(true)
+        if (at >= 0) {
+          magKey.value = magKey.value.concat([foeHand.value[at]])
+          message.value = message.value + ' 庄家磁引：手里 1 张带上了磁吸。'
         }
       }
     }
@@ -10892,6 +11071,24 @@
   //     庄家走 `foeFuelPick`，两条路都得过同一道闸。
 
   // 冰雷：你挑中了自己第 index 张（-1 表示不贴）
+  // 封凌：你挑中了自己第 index 张贴【结冰】（-1 表示不贴）。已带冰的点了不算，接着等（J 可以贴，11-05 用户定）
+  function onLockKey(index : number) {
+    if (!lockKeyPending.value) {
+      return
+    }
+    if (index >= 0 && (index >= hand.value.length || frostOnHand(hand.value[index]))) {
+      return
+    }
+    lockKeyPending.value = false
+    if (index >= 0) {
+      addFrostHand(hand.value[index])
+      message.value = message.value + ' 封凌：' + cardName(hand.value[index]) + ' 带上了结冰。'
+    } else {
+      message.value = message.value + ' 封凌：手牌那张你没贴。'
+    }
+    askNext()
+  }
+
   function onBomb(index : number) {
     if (!bombPending.value) {
       return
@@ -11254,6 +11451,24 @@
     const skills = burnKeySkills
     burnKeySkills = []
     afterPlayTail(false, skills, TAIL_REST)
+  }
+
+  // 磁引：你挑中了自己第 index 张贴【磁吸】（-1 表示不贴）
+  function onMagKey(index : number) {
+    if (!magKeyPending.value) {
+      return
+    }
+    if (index >= 0 && (index >= hand.value.length || !magKeyable(hand.value[index]))) {
+      return
+    }
+    magKeyPending.value = false
+    if (index >= 0) {
+      magKey.value = magKey.value.concat([hand.value[index]])
+      message.value = message.value + ' 磁引：' + cardName(hand.value[index]) + ' 带上了磁吸。'
+    } else {
+      message.value = message.value + ' 磁引：磁吸那张你没贴。'
+    }
+    askNext()
   }
 
   // 石影：你挑中了自己第 index 张贴【花色匹配】（-1 表示不贴）
@@ -11686,12 +11901,18 @@
     return hits[0]
   }
 
+  // 〔2026-11-05 用户定「J 也可以贴结冰。不然 J 会被拦」〕J 不再排除，手里有没带冰的 J 就先挑它（带冰的 J 打出有豁免，能连冰收走整堆）。照模拟器 iceKeyPick
   function foeIceKeyPick() : number {
     const mine = foeHand.value
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].rank == JACK && !frostOnHand(mine[i])) {
+        return i
+      }
+    }
     let best = -1
     let bestDepth = -1
     for (let i = 0; i < mine.length; i++) {
-      if (mine[i].rank == JACK || frostOnHand(mine[i])) {
+      if (frostOnHand(mine[i])) {
         continue
       }
       if (best < 0) {
@@ -15019,6 +15240,22 @@
         }
       }
     }
+    // ---- 【磁钩】后半句〔2026-11-05〕：匹配失败 → 抽 1 张，那张带上【磁吸】 ----
+    //
+    // 「匹配失败」= 这一手一张没收到（tookThisHand）**而且不是被抢走** ——
+    // 被抢那条路在 pushStealTail 里把 hookArmed 存成 false 了。不停人（抽的是哪张由牌库定，没得挑）。
+    // 模拟器那边是 HOOK_FAIL=nomatch（同一个读法），实测 A 槽 +2.71（台账九十·丙）
+    if (hookArmed[si]) {
+      hookArmed[si] = false
+      if (!tookThisHand[si]) {
+        const got = drawFor(byFoe)
+        if (got != null) {
+          magKey.value = magKey.value.concat([got!])
+        }
+        message.value = message.value + (byFoe ? ' 庄家磁钩：' : ' 磁钩：')
+          + (got != null ? '没钓上，摸了 1 张，它带上了磁吸。' : '没钓上，牌库空了没摸到。')
+      }
+    }
     // ---- 【忍递】：这一手**一张牌都没拿到** → 贴 1 张 ----
     //
     // ⚠ 判的是「没拿到牌」，不是「没匹配上」—— 四条收牌路
@@ -15727,6 +15964,10 @@
       onBomb(index)
       return
     }
+    if (lockKeyPending.value) {
+      onLockKey(index)
+      return
+    }
     // 镜水第二步：点手牌是「展示这张」
     if (reflectHandPending.value) {
       onReflectHand(index)
@@ -15771,6 +16012,10 @@
     }
     if (stoneKeyPending.value) {
       onStoneKey(index)
+      return
+    }
+    if (magKeyPending.value) {
+      onMagKey(index)
       return
     }
     if (burnKeyPending.value) {
@@ -17019,6 +17264,7 @@
     murkPending.value = false
     murkLeft.value = 0
     bombPending.value = false
+    lockKeyPending.value = false
     bombFire = -1
     // 〔【薪潮】那两个 2026-10-28 从这儿撤了（`fuelPending` / `fuelLeft` 删了）。
     //   判据见下面那条：**每个 pending 都要在这儿清**〕
@@ -17058,6 +17304,7 @@
     stonePile = [] as PlainCard[]
     stoneHand = [] as PlainCard[]
     matchKey.value = [] as PlainCard[]
+    magKey.value = [] as PlainCard[]
     draftKey.value = [] as PlainCard[]
     zeroKey.value = [] as PlainCard[]
     fadeKey.value = [] as PlainCard[]
@@ -17083,6 +17330,7 @@
     flowDraftPending.value = false
     flowDraftSk.value = -1
     stoneKeyPending.value = false
+    magKeyPending.value = false
     burnKeyPending.value = false
     burnKeySkills = []
     stoneBottomCard = null
@@ -17102,6 +17350,8 @@
     tookThisHand[1] = false
     holdArmed[0] = false
     holdArmed[1] = false
+    hookArmed[0] = false
+    hookArmed[1] = false
     chainArmed[0] = false
     chainArmed[1] = false
     burnPending[0] = false
@@ -17147,6 +17397,7 @@
     stealTailTook = []
     stealTailHold = []
     stealTailChain = []
+    stealTailHook = []
     stealTailBurn = []
     // 庄家连忍了几手〔2026-10-27〕。**清它不是为了正确性，是为了可复现**：
     // 上一局结束时它可能停在 1 上，于是新一局庄家的第一个忍牌机会会被
@@ -18082,6 +18333,15 @@
   /* 手里带【花色匹配】（传色贴的）：玫红，跟冰蓝、火橙都分得开 */
   .hand-match-tag {
     color: #c2185b;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+
+  /* 手里带【磁吸】（磁引贴的）：铁灰，跟花色的玫红、21 的绿、顺子的靛蓝分得开 */
+  .hand-mag-tag {
+    color: #546e7a;
     font-size: 9px;
     font-weight: bold;
     margin-left: 1px;

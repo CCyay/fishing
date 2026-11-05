@@ -2176,6 +2176,10 @@ function printDraftTagDiag() {
     console.log('\n  ---- 诊断：〈jointag〉----')
     console.log('    发动 ' + jt.fires + ' 次 · 贴上 ' + jt.tagged + ' · 跟着别人那次收牌被带走 ' + jt.joined + '（贴的一方收 ' + jt.joinedMine + ' / 对方收 ' + jt.joinedFoe + '）')
   }
+  const lcs = R.PROTO_STAT.lockcolor, iks = R.PROTO_STAT.icekey
+  if (lcs && lcs.fires > 0) console.log(String.fromCharCode(10) + '  ---- 诊断：隔凌 / 冰钥匙 ----' + String.fromCharCode(10) + '    隔凌发动 ' + lcs.fires + ' 次 · 贴冰 ' + lcs.iced + ' 张（' + (lcs.iced / lcs.fires).toFixed(2) + ' / 次）· 带豁免打出 ' + iks.hands + ' 手 · 靠豁免收走 ' + iks.saved + ' 张 · 被冰挡下 ' + iks.blocked + ' 张')
+  const ih = R.PROTO_STAT.icehand
+  if (ih && ih.fires > 0) console.log(String.fromCharCode(10) + '  ---- 诊断：〈icehand〉----' + String.fromCharCode(10) + '    发动 ' + ih.fires + ' 次 · 抽到 ' + ih.drawn + ' · 贴冰 ' + ih.iced + ' 张（' + (ih.iced / ih.fires).toFixed(2) + ' / 次）· 没得贴 ' + ih.noHand)
   const bm = R.PROTO_STAT.burnmark
   if (bm && bm.played > 0) {
     console.log('\n  ---- 诊断：新版【燃烧】（BURN_RULE=mark）----')
@@ -2242,6 +2246,24 @@ function printDraftTagDiag() {
       + '（兑现率 ' + pct(rt.cashed / Math.max(1, rt.tagged)) + '）')
     console.log('    打出时：真变了 ' + pct(rf.changed / Math.max(1, rf.fires)) + ' · 没变（不如不变）' + pct(rf.kept / Math.max(1, rf.fires))
       + ' · 变了的那几次每次多收 ' + f2(rf.gainSum / Math.max(1, rf.changed)) + ' 张')
+  }
+  // 〈magtag〉〔2026-11-05〕贴了几张 / 带【磁吸】打出几次 / 其中只有靠磁吸才钓得到几次（关掉磁吸再估一次）
+  const mg = R.PROTO_STAT.magtag
+  if (mg && mg.fires > 0) {
+    console.log('\n  ---- 诊断：〈magtag〉（MAG_N=' + (process.env.MAG_N || '1') + '）----')
+    console.log('    发动 ' + mg.fires + ' 次：贴上 ' + f2(mg.tagged / mg.fires) + ' 张/次 · 带磁吸打出 ' + mg.played
+      + '（兑现率 ' + pct(mg.played / Math.max(1, mg.tagged)) + '）')
+    console.log('    打出时：只有靠磁吸才钓得到 ' + pct(mg.needed / Math.max(1, mg.played)) + ' · 靠磁吸钓得更深 ' + pct(mg.deeper / Math.max(1, mg.played)))
+  }
+  const ms = R.PROTO_STAT.magself
+  if (ms && ms.played > 0) {
+    console.log('\n  ---- 诊断：〈magself〉----')
+    console.log('    带磁吸打出 ' + ms.played + ' 次：只有靠磁吸才钓得到 ' + pct(ms.needed / ms.played) + ' · 靠磁吸钓得更深 ' + pct(ms.deeper / ms.played))
+  }
+  const hf = R.PROTO_STAT.hookfail
+  if (hf && hf.fires > 0) {
+    console.log('\n  ---- 诊断：磁钩 HOOK_FAIL=' + process.env.HOOK_FAIL + ' ----')
+    console.log('    发动 ' + hf.fires + ' 次 · 判失败 ' + hf.failed + '（其中被抢 ' + hf.stolen + '）· 抽到并贴上磁吸 ' + hf.tagged + ' 张')
   }
   // 【冻结】寿命诊断〔2026-11-02〕
   const fz = R.PROTO_STAT.freeze

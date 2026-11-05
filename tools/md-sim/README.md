@@ -179,6 +179,7 @@ esbuild / tsc 能把 `.uts` 的类型注解剥掉给 node 用；而对局规则�
 | `startSweep` / `finishSweep` / `TAIL_*` | 直接 `harvestPile` | 那套是收牌特效的定时器接力，模拟器无特效，顺着跑 |
 | `freezePending` / `takeSkill` 停下来等人选 | 两侧都走 AI 启发式 | 模拟器没有人 |
 | `harvestIndices` | `wantedOf` | 等价，只是数据形状不同 |
+| 【磁引】庄家贴哪张：`magKeyPick` 只数「堆上顺位相邻的牌有几张」（2026-11-05） | `magPick` 先比「贴上之后现在打多收几张」，一样多才数相邻 | 模拟器两侧都按玩家的挑法量（玩家自己挑会挑得准）；庄家那一侧不需要那么聪明 |
 | 【失去花色】（漂白，2026-11-02）：花色改成空串 `''`，同颜色走 `sameColor`、`sameSuit` 开头挡空串 | 花色改成每张一个不同的哨兵 `'∅n'`，`isRedSuit` 对它返回 NaN（跟谁 === 都不成立），`sameSuit` 开头挡哨兵 | 语义相同（无花色跟谁都不同花色、不同颜色，两张无花色也不同）。模拟器那 86 处 `.suit` 直读不想逐处改，哨兵 + NaN 一次兜住。⚠ fingerprint 会报 `sameSuit` 漂移 —— 两边都是有意改的 |
 | — | `harvestPile` 里记 `stat.catches` | 源码没有 stat，这是模拟器自己的统计口径：散收也算一次「钓到」 |
 | `withoutSkill` | `.filter()` | 同一件事 |

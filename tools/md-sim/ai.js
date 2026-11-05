@@ -1464,6 +1464,8 @@ function pickCardCore(G, side) {
       jackWould = G.pile.length + 1
       continue
     }
+    // 〈冰钥匙屯牌〉（用户 11-05 的打法，ICE_HOLD_K）：堆上没带冰的牌不够，钓得着也先不打 —— 手里全是它时由 randomFree 兜底（忍不住）
+    if (SKILL_HOLD && R.iceHoldBlocks(G, side, i)) continue
     const skills = R.skillsOf(G, side, card)
     // ---- 挑牌时**一律按「正常落堆」算**，不看落堆底那一头 ----
     //
@@ -1546,6 +1548,8 @@ function pickCardCore(G, side) {
     }
     // 收色、撒网不走点数判定，所以上面那一下对它们一概是 -1 ——
     // 不单独估一次，AI 就会把一张能扫掉半个堆的牌当普通饵打出去
+    // 〔2026-11-05 量具〕ICE_AI=1：估收成时扣掉收不走的冰牌（这张手里不带冰 = 没豁免）。默认关 = 现行 AI 不看冰
+    if (process.env.ICE_AI === '1' && at >= 0 && caught > 0 && !R.frostOnHand(G, card)) caught = Math.max(0, caught - R.icedIn(G, at, G.pile.length - 1))
     const harvest = R.harvestCount(G, card, skills, side)
     if (harvest > caught) {
       caught = harvest
