@@ -337,7 +337,7 @@ const FOE = 1
 // **这张表的位置不再是下标** —— 下标由 skAt() 按 key 查（见下）。
 // 所以增删只动这一处，顺序也可以随便调
 const SKILLS = [
-  { key: 'hook', name: '磁钩' },
+  { key: 'hook', name: '电钩' },  // 〔2026-11-05 改名：原磁钩；词条【磁吸】→【正电】〕
   { key: 'tide', name: '观潮' },
   // 〔窥视、照水 2026-10-16 删了（源码那边同一天）。同洪水那个办法：
   //   条目删掉、`SK.PEEK` / `SK.LANTERN` 钉 SK_GONE，于是 `peekFor`
@@ -1221,10 +1221,35 @@ const SKILLS = [
   //   N = MAG_N（默认 1；99 = 全贴）。挑哪张：贴上之后「现在打收几张」涨得最多的，一样多挑点数离堆上牌最近的（照 straightKeyPick 的意思）
   //   诊断口 PROTO_STAT.magtag：fires / tagged / played（带它的牌打出几次）/ needed（那几次里**只有靠磁吸**才钓得到）
   // 〔2026-11-05 用户定上架：〈magtag〉→【磁引】（MAG_N 默认 1 = 游戏里那版）〕
-  { key: 'magtag', name: '磁引' },
+  { key: 'magtag', name: '导电' },
+  // ---------- 【负电】〔2026-11-05 · 用户提机制 + 要量〕----------
+  // 词条（用户原话）：「打出时给全堆带上负电。带负电的牌被匹配时可当做顺位差 1 的点数（跳过 J）」。
+  //   读法（已跟用户复述）：挂在牌上的标签；带它的牌**打出时**（落堆后、判定前）整堆连它自己都带上负电 →
+  //   这一手自己就能用。堆上带负电的牌被匹配时，原点数照旧、另外算顺位差 1（顺位表同【正电】，magAdj）。
+  //   普通匹配、双方都能用（堆上的牌不认出处）。正电碰负电照旧只差 1。
+  //〈negfoe〉 「对方手牌 N 张带上【负电】」—— 盲选（desc 没写查看，照塞墙 / 褪色），J 不挑。N = NEG_N（默认 1）
+  //〈negself〉「【负电】」—— 打出的这张自己带负电（对照）
+  //   诊断口 PROTO_STAT.neg：tagged / charges（真通电几次）/ chargedCards / needOwn（靠自己这一手刚通的电才钓到）/ needOld（靠堆上早就带着的负电）
+  // 〔2026-11-05 用户定上架：〈negfoe〉→【静电】「对方手牌全部带上【负电】」（NEG_N 默认 99 = 全部 = 游戏里那版）〕
+  { key: 'negfoe', name: '静电' },
+  { key: 'negself', name: '〈negself〉' },
+  //〈negmag〉「对方 N 张手牌带上【负电】，自己 1 张手牌带上【正电】」〔2026-11-05 · 用户要量〕= 静电（NEG_N 张）+ 导电（MAG_N 张）两段同一处结算
+  { key: 'negmag', name: '〈negmag〉' },
+  //〈posneg〉「【正电】；堆上 1 张牌带上【负电】」〔2026-11-05 · 用户要评价〕
+  //   它自己带正电；结算阶段（匹配前）挑堆上 1 张贴负电：挑「这一手能钓得最深」的那张（正负相遇差 1~2），钓不到就贴堆顶。
+  //   AI 试算：带它的牌按「堆上哪张都可能被贴负电」算（= 它真会挑的那张），跟结算一致
+  //   诊断口 PROTO_STAT.posneg：fires / needed（关掉正负电就钓不到）/ deeper / topTag（钓不到、贴了堆顶）
+  //   〔同日用户：「屯牌打法，无法匹配时不打」〕hold = 这张现在钓得到（含它会贴的那张负电）才算条件成立。SKILL_HOLD=0 = 不屯（对照）
+  { key: 'posneg', name: '〈posneg〉', hold: canCatchHeld },
+  //〈pairnp〉「堆上 1 张牌带上【负电】，手牌 1 张跟负电牌同颜色（PNP_MATCH=suit：同花色）的带上【正电】」〔2026-11-05 · 用户要量〕
+  //   它自己不带电 → 这一手用不上；之后那张正电手牌钓那张负电 = 特殊匹配（差 1~2）。挑法：堆上最深、手里有同色牌跟它顺位差 ≤ 2 的那张；
+  //   没有就最深、有同色手牌的那张；手里一张同色的都没有 → 只贴负电（贴最深那张）。J 不挑；它自己（刚落堆）不挑
+  //   诊断口 PROTO_STAT.pairnp：fires / paired / soloNeg / cashed（那张正电手牌打出时真靠正负特殊匹配钓到）
+  // 〔2026-11-05 用户定上架：〈pairnp〉同颜色那档 →【感电】（PNP_MATCH 默认 color = 游戏里那版）〕
+  { key: 'pairnp', name: '感电' },  // 〔2026-11-05 改名：原磁引〕
   //〈magself〉「【磁吸】」〔2026-11-05 · 用户要量〕—— 它自己带【磁吸】（= 磁钩改成「顺位相差 1，跳过 J」）。
   //   诊断口 PROTO_STAT.magself：played / needed / deeper（同〈magtag〉）
-  { key: 'magself', name: '〈magself〉' },
+  { key: 'magself', name: '〈magself〉', hold: process.env.MS_HOLD === '1' ? canCatchHeld : undefined },
   // 【回水】（2026-10-30 上架，原型代号〈zerosplit〉）「对方 1 张手牌明置置 0，自己 1 张手牌带上【收零】」〔2026-10-30 · 用户要评价〕
   //   置 0 照【浑水】（盲选 = 从他没置 0 的牌里随机、J 也算，doDead(…, true)，明置 = G.seen）；【收零】照 zeroKeyTag。
   //   载体自己不置 0、照常匹配。对照旋钮 ZS_HALF=zero（只置 0 那半句）/ tag（只贴收零那半句），默认 both。诊断口 PROTO_STAT.backwater：fires / killed / jack / tagged；收零兑现记在 atag
@@ -2134,7 +2159,7 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: skAt('stackdraft'), WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
   HEAP: skAt('heap'), HEAPDRAFT: skAt('heapdraft'), BOTHDRAFT: skAt('bothdraft'), HEAPKEY: skAt('heapkey'), WALLSUIT: skAt('wallsuit'), WALLSEAL: skAt('wallseal'),
@@ -6064,6 +6089,9 @@ function newGame(opts) {
     suitKey: [],
     // 【磁吸】（原型 · 2026-11-05）：手里带它的那几张（对象引用，照 suitKey）
     magKey: [],
+    // 【负电】（原型 · 2026-11-05）：手里带它的牌（对象引用）/ 堆上带它的牌（Set，牌离堆就不再查）
+    negHand: [],
+    negPile: new Set(),
     anySuit: [],
     // 【保护】贴过标签的那几张牌（对象引用，照 wildTag 那个模式）。
     //〔2026-10-19 用户定：**保护是独立标签**，不等于「底下垫着一张盾」〕
@@ -10049,6 +10077,56 @@ function magAdj(mine, theirs) {
   }
   return false
 }
+const NEG_N = process.env.NEG_N ? parseInt(process.env.NEG_N, 10) : 99
+// 〔2026-11-05 用户补：「正负电相遇等于差 2」〕去钓的那张带正电、堆上那张带负电 → 顺位差 1 或 2 都算。默认开；NEG_PM2=0 关（对照）
+const NEG_PM2 = process.env.NEG_PM2 !== '0'
+// 〔2026-11-05 用户定：「正电负电的匹配是特殊匹配」；同日更正：「正电匹配负电才是特殊匹配，正电匹配普通牌不是」〕
+//   用户再定（同日）：**只有「带正电的牌 × 堆上带负电的牌」是特殊匹配**（顺位差 1~2）。
+//   普通牌钓带负电的牌（差 1）、正电钓不带负电的牌（差 1）都是普通匹配。判在普通匹配之前（成立就走它）、靠它收的不能被抢、能拿它去抢。
+//   默认开；ELEC_SPECIAL=0 退回普通匹配（= 之前那几批的数）
+const ELEC_SPECIAL = process.env.ELEC_SPECIAL !== '0'
+// 堆上第 i 张能不能走正负电那条线（不含同点数 —— 那是普通匹配）
+function elecLine(G, i, mine, positive, negAll, negBlocked) {
+  if (G.pile[i].rank === JACK) return false
+  const theirs = pileValsAt(G, i)
+  const charged = negAll || G.negPile.has(G.pile[i])
+  return positive && charged && !negBlocked && magAdjN(mine, theirs, NEG_PM2 ? 2 : 1)
+}
+// 顺位差 1 ~ maxd（环上取近边）
+function magAdjN(mine, theirs, maxd) {
+  for (let a = 0; a < mine.length; a++) {
+    const ia = MAG_ORD.indexOf(mine[a])
+    if (ia < 0) continue
+    for (let b = 0; b < theirs.length; b++) {
+      const ib = MAG_ORD.indexOf(theirs[b])
+      if (ib < 0) continue
+      const raw = Math.abs(ia - ib)
+      const d = Math.min(raw, MAG_ORD.length - raw)
+      if (d >= 1 && d <= maxd) return true
+    }
+  }
+  return false
+}
+// NEG_WHEN：play（默认，用户原话「打出时」= 落堆后、判定前）/ after（这一手匹配结算完才通电 —— 对照：这一手自己用不上）
+const NEG_WHEN = process.env.NEG_WHEN || 'play'
+// 〔2026-11-05 用户补：「带负电的牌被**不带负电**的牌匹配时可以…」〕带负电的牌去匹配，堆上的负电对它不起作用。
+//   默认开（= 用户定的规则）；NEG_REPEL=0 关掉对照（= 上一批的数）
+const NEG_REPEL = process.env.NEG_REPEL !== '0'
+if (['play', 'after'].indexOf(NEG_WHEN) < 0) throw new Error('NEG_WHEN 只能是 play / after，收到：' + NEG_WHEN)
+function negChargePile(G) {
+  const st = PROTO_STAT.neg
+  st.charges++
+  for (let k = 0; k < G.pile.length; k++) {
+    if (!G.negPile.has(G.pile[k])) { G.negPile.add(G.pile[k]); st.chargedCards++ }
+  }
+}
+// 这张打出去会不会给整堆通电（手里带负电，或者它触发了〈negself〉）
+function negCharges(G, card, skills) { return (G.negHand && G.negHand.indexOf(card) >= 0) || has(skills, SK.NEGSELF) }
+// 屯牌条件「这张现在钓得到」（〈posneg〉/〈magself〉用）：hand[idx] 按它自己的技能试算一次
+function canCatchHeld(G, side, idx) {
+  const c = G.hands[side][idx]
+  return catchStart(G, c, side, skillsOf(G, side, c), false) >= 0
+}
 function magOn(G, card) { return !G.magOff && !!G.magKey && G.magKey.indexOf(card) >= 0 }
 if (HOOK_DIR !== 'both' && HOOK_DIR !== 'up') {
   throw new Error("HOOK_DIR 只认 'both'（相差 1）或 'up'（旧档：只能大 1），收到：" + HOOK_DIR)
@@ -10118,7 +10196,12 @@ function catchStart(G, card, side, skills, sink) {
   if (G.prJack === card && size > 0 && process.env.SJ_TOP && G.sjTopCard === card) return Math.max(0, size - parseInt(process.env.SJ_TOP, 10))
   if (G.prJack === card && size > 0) return sink ? size - 1 : 0
   const hook = has(skills, SK.HOOK)
-  const mag = magOn(G, card) || (!G.magOff && has(skills, SK.MAGSELF))
+  const mag = magOn(G, card) || (!G.magOff && (has(skills, SK.MAGSELF) || has(skills, SK.POSNEG)))
+  // 【负电】：这张打出去会给整堆通电 → 判定时整堆都按带负电算（真结算时 protoOnLand 已经贴上了，这儿是让 AI 试算也看得见）
+  // 〈posneg〉：它会挑堆上任意 1 张贴负电 → 试算时每一张都按「可能带负电」算（它真正挑的就是钓得最深的那张）
+  const negAll = !G.negOff && ((NEG_WHEN === 'play' && negCharges(G, card, skills) && !NEG_REPEL) || has(skills, SK.POSNEG))
+  // 这张自己带负电 → 堆上的负电对它不起作用（NEG_REPEL）
+  const negBlocked = NEG_REPEL && negCharges(G, card, skills)
   // 【花色匹配】钥匙（石色给的手牌标签）：多一条按花色的线，**点数照留**（不像顺色那样无点数）
   // 〔顺色那条花色线 2026-10-25 撤了（改成变点数）。剩下的只有石色原型给的花色钥匙〕
   const suited = suitKeyOn(G, card)
@@ -10151,6 +10234,19 @@ function catchStart(G, card, side, skills, sink) {
   if (DRAFT_FIRST) {
     const reach = draftCatchAt(G, card, side, skills, sink, mine)
     if (reach >= 0) return reach
+  }
+  // ---- 【正电】/【负电】：特殊匹配，判在普通匹配之前（ELEC_SPECIAL）〔2026-11-05 用户定〕----
+  //   G.elecHit 记「这一次 catchStart 是不是靠它返回的」—— resolveMatch 紧跟着读，决定这一手免不免抢
+  G.elecHit = false
+  const elecPos = mag || (hook && HOOK_MAG)
+  if (ELEC_SPECIAL && !G.negOff && elecPos && (negAll || G.negPile.size > 0)) {
+    for (let n = 0; n < size; n++) {
+      const i = sink ? size - 1 - n : n
+      if (guardedAgainst(G, i, side)) continue
+      if (side === ME && G.foeRules && G.foeRules.indexOf('char') >= 0 && G.pileByFoe[i] && pileBurnAt(G, i) > 0) continue
+      if (side === ME && foeRule(G, 'shell') && G.pileByFoe[i] && G.pile[i].suit === SUITS[0]) continue
+      if (elecLine(G, i, mine, elecPos, negAll, negBlocked)) { G.elecHit = true; return i }
+    }
   }
   // 普通那三条线：从堆底往上找（命中最深 = 收最多）
   let best = -1
@@ -10201,6 +10297,8 @@ function catchStart(G, card, side, skills, sink) {
     }
     // 【磁吸】：普通匹配的第四条线（J 不吃这条 —— J 本来就不在顺位里）
     if (mag && G.pile[i].rank !== JACK && magAdj(mine, theirs)) { best = i; break }
+    // 【负电】：堆上这张带负电 → 它可以当顺位差 1 的点数被匹配（J 不吃这条）
+    if (!G.negOff && !negBlocked && G.pile[i].rank !== JACK && (negAll || G.negPile.has(G.pile[i])) && magAdjN(mine, theirs, (NEG_PM2 && (mag || hook)) ? 2 : 1)) { best = i; break }
   }
   // 〔吃水那一支 2026-10-19 挪到了循环**之前**（见上面那段）。
   //   留在这儿的是**旧档**（`DRAFT_FIRST=0`）：第四条并列的线，
@@ -10741,6 +10839,31 @@ function playFor(G, side, index, ai) {
   G.keyNow = card
   // 〈magtag〉诊断：带【磁吸】的牌打出 —— 关掉磁吸再估一次，看是不是只有靠它才钓得到
   const magSk = skillsOf(G, side, card)
+  if (G.pairCards && G.pairCards.has(card)) {
+    G.pairCards.delete(card)
+    // 这张是〈pairnp〉贴的正电手牌：真打出时是不是靠正负特殊匹配钓到的（catchStart 刚判过 → G.elecHit）
+    const at = catchStart(G, card, side, magSk, false)
+    if (at >= 0 && G.elecHit) PROTO_STAT.pairnp.cashed++
+  }
+  if (has(magSk, SK.POSNEG)) {
+    const st = PROTO_STAT.posneg
+    const withIt = catchStart(G, card, side, magSk, false)
+    G.negOff = true; G.magOff = true
+    const without = catchStart(G, card, side, magSk, false)
+    G.negOff = false; G.magOff = false
+    if (withIt >= 0 && without < 0) st.needed++
+    else if (withIt >= 0 && withIt < without) st.deeper++
+  }
+  if (G.negPile.size > 0 || negCharges(G, card, magSk)) {
+    const withNeg = catchStart(G, card, side, magSk, false)
+    G.negOff = true
+    const without = catchStart(G, card, side, magSk, false)
+    G.negOff = false
+    if (withNeg >= 0 && (without < 0 || withNeg < without)) {
+      if (negCharges(G, card, magSk)) PROTO_STAT.neg.needOwn++
+      else PROTO_STAT.neg.needOld++
+    }
+  }
   const magSelf = has(magSk, SK.MAGSELF)
   if ((G.magKey && G.magKey.indexOf(card) >= 0) || magSelf) {
     const st = magSelf ? PROTO_STAT.magself : PROTO_STAT.magtag
@@ -10786,6 +10909,9 @@ function playFor(G, side, index, ai) {
   const holdWas = has(skills, SK.HOLDTAG) ? G.stat.caught[side] : -1
   // 〔2026-11-05 量具 · 用户要评价「磁钩：【磁吸】，匹配失败时抽 1 张牌并带上【磁吸】」〕HOOK_FAIL=1 开后半句。
   //   「失败」先按「这一手一张都没收到」判（跟忍递同一个捕获点）；被抢走的那几手也算进来 —— 另记一笔 stolen 看有多少
+  // 【负电】NEG_WHEN=after：这一手打出时就记下「它会不会通电」（结算完它可能已经被收走、标签也摘了）
+  const negLater = NEG_WHEN === 'after' && negCharges(G, card, skills)
+  if (negLater) G.negHand = G.negHand.filter(function (c) { return c !== card })
   const hookWas = ((HOOK_FAIL === 'fail' || HOOK_FAIL === 'nomatch') && has(skills, SK.HOOK)) ? G.stat.caught[side] : -1
   // 被抢：stealTry 记在**抢牌那一方**的下标上
   const hookSteals = G.stat.steal.stolen[side === ME ? FOE : ME]
@@ -11300,6 +11426,7 @@ function playFor(G, side, index, ai) {
   //   不会；写在这儿是为了把顺序钉死）。
   //
   // `holdWas < 0` = 这一手没带这件技能，整段跳过（捕获点那行就是这个闸）
+  if (negLater) negChargePile(G)
   // 〔2026-11-05 量具〕磁钩 HOOK_FAIL：这一手没收到牌 → 抽 1 张，那张带上【磁吸】
   if (hookWas >= 0) {
     const st = PROTO_STAT.hookfail
@@ -11725,7 +11852,13 @@ function icedIn(G, lo, hi) {
   for (let i = Math.max(0, lo); i <= hi && i < G.pile.length; i++) if (frostAt(G, i)) n++
   return n
 }
+// 〔2026-11-05 量具〕NEG_NOSTEAL=1：【负电】不能用来抢牌 —— 整个抢牌过程（含抢牌那一手的结算、反抢）里堆上的负电都不起作用
 function stealTry(G, side, myCount, myLo, myHi) {
+  if (process.env.NEG_NOSTEAL !== '1' || G.negOff) return stealTryCore(G, side, myCount, myLo, myHi)
+  G.negOff = true
+  try { return stealTryCore(G, side, myCount, myLo, myHi) } finally { G.negOff = false }
+}
+function stealTryCore(G, side, myCount, myLo, myHi) {
   if (STEAL_ICE === 'real' && !G.iceBlind && myLo !== undefined) {
     const cut = icedIn(G, myLo, myHi)
     if (cut > 0) { PROTO_STAT.stealIce.mineCut += cut; PROTO_STAT.stealIce.mineHands++ }
@@ -12124,12 +12257,15 @@ function resolveMatchCore(G, side, card, cardSkills, sink) {
   }
   if (has(skills, SK.MINUSTAG) || has(skills, SK.ATAG)) G.mineOverride = { card: card, vals: vals }
   const at = catchStart(G, card, side, skills, sink)
+  // 【正电】/【负电】特殊匹配（ELEC_SPECIAL）：这一次 catchStart 是靠它返回的 → 跟 21 匹配一样不问抢
+  const viaElec = ELEC_SPECIAL && at >= 0 && !!G.elecHit
   // 【特殊匹配不能被抢】〔2026-10-29 用户定〕：这一手靠【21 匹配】收 → 下面两处都不问抢。
   // 顺子 / 花色 / 顺序匹配本来就不走这儿（它们在 afterPlay 里散收），所以这儿只管 21。
   // 紧跟 catchStart、在 mineOverride 清掉之前算 —— 判定用的 mine 要跟 catchStart 同一份
-  const via21 = STEAL_SPECIAL === 'new' && at >= 0 && DRAFT_FIRST
+  const via21 = (STEAL_SPECIAL === 'new' && at >= 0 && DRAFT_FIRST
     && draftCatchAt(G, card, side, skills, sink,
-      (G.mineOverride && G.mineOverride.card === card) ? G.mineOverride.vals : valuesOf(G, card, skills)) === at
+      (G.mineOverride && G.mineOverride.card === card) ? G.mineOverride.vals : valuesOf(G, card, skills)) === at)
+    || viaElec
   if (via21 && STEAL_ON) G.stat.steal.immune[side]++
   // 〈twinval〉诊断口：关掉互通再判一次 —— 「本来钓不到、互通之后钓到了」才算它干的活
   if (hasSpecial(G, side, SP.TWINVAL) && twinValsOf(G, side).indexOf(valueOfRank(card.rank)) >= 0
@@ -12518,6 +12654,8 @@ function magPick(G, side) {
   for (let i = 0; i < hand.length; i++) {
     const c = hand[i]
     if (c.rank === JACK || G.magKey.indexOf(c) >= 0) continue
+    // 〔2026-11-05 用户要评价「手牌跟堆底同颜色的 1 张牌带上【正电】」〕MAG_HUE=bottom：只挑跟堆底同颜色的（堆底 = pileSuitAt(G, 0)，跟一色 / 收色同一个定义）
+    if (process.env.MAG_HUE === 'bottom' && (G.pile.length === 0 || isRedSuit(c.suit) !== isRedSuit(pileSuitAt(G, 0)))) continue
     const vals = cardVals(c)
     let inOrd = false
     for (let k = 0; k < vals.length; k++) if (MAG_ORD.indexOf(vals[k]) >= 0) inOrd = true
@@ -12544,6 +12682,7 @@ function dropKeys(G, card) {
   if (G.passKey) G.passKey = G.passKey.filter(function (c) { return c !== card })
   if (G.fadeKey) G.fadeKey = G.fadeKey.filter(function (c) { return c !== card })
   if (G.magKey) G.magKey = G.magKey.filter(function (c) { return c !== card })
+  if (G.negHand) G.negHand = G.negHand.filter(function (c) { return c !== card })
 }
 
 function keyLineCount(G, side, card) {
@@ -16932,6 +17071,9 @@ const PROTO_STAT = {
   magtag: { fires: 0, tagged: 0, played: 0, needed: 0, deeper: 0 },
   magself: { played: 0, needed: 0, deeper: 0 },
   hookfail: { fires: 0, failed: 0, stolen: 0, tagged: 0 },
+  neg: { tagged: 0, charges: 0, chargedCards: 0, needOwn: 0, needOld: 0 },
+  posneg: { fires: 0, needed: 0, deeper: 0, topTag: 0 },
+  pairnp: { fires: 0, paired: 0, soloNeg: 0, cashed: 0 },
   // 〈drawzero〉：发动 / 对方抽了几张（其中 J 几张，J 不置 0）/ 牌库不够 / 置 0 几张 / pick 档挑中几张
   drawzero: { fires: 0, drawn: 0, drawnJack: 0, deckShort: 0, zeroed: 0, picked: 0, blindJack: 0 },
   // 〈nosuit〉：发动 / 剥掉几张（对方 / 自己）/ 其中本来会触发花色槽的（对方 / 自己）
@@ -17225,6 +17367,52 @@ function atagLand(G, side, card) {
 
 function protoOnLand(G, side, skills, card, ai) {
   const at0 = pileIndexOf(G, card)
+  // ---- 〈pairnp〉：挑一对（堆上 1 张负电 + 手里同色 / 同花色 1 张正电）----
+  if (has(skills, SK.PAIRNP)) {
+    const st = PROTO_STAT.pairnp
+    st.fires++
+    const same = function (a, b) { return process.env.PNP_MATCH === 'suit' ? a.suit === b.suit : isRedSuit(a.suit) === isRedSuit(b.suit) }
+    const hand = G.hands[side]
+    let bestP = -1, bestH = -1, bestTier = -1
+    for (let p = 0; p < G.pile.length; p++) {
+      if (p === at0 || G.pile[p].rank === JACK) continue
+      for (let h = 0; h < hand.length; h++) {
+        const c = hand[h]
+        if (c.rank === JACK || G.magKey.indexOf(c) >= 0 || !same(c, G.pile[p])) continue
+        const tier = magAdjN(cardVals(c), pileValsAt(G, p), 2) ? 2 : 1
+        // 先比档（能钓到 > 只是同色），同档取更深（p 小）—— p 从 0 往上走，所以只在严格更高的档时换
+        if (tier > bestTier) { bestTier = tier; bestP = p; bestH = h }
+      }
+    }
+    if (bestP >= 0) {
+      G.negPile.add(G.pile[bestP]); G.magKey.push(hand[bestH]); st.paired++
+      if (!G.pairCards) G.pairCards = new Set()
+      G.pairCards.add(hand[bestH])
+    } else {
+      for (let p = 0; p < G.pile.length; p++) if (p !== at0 && G.pile[p].rank !== JACK) { G.negPile.add(G.pile[p]); st.soloNeg++; break }
+    }
+  }
+  // ---- 〈posneg〉：挑堆上 1 张贴负电（能钓就贴钓得最深的那张，钓不到贴堆顶）----
+  if (has(skills, SK.POSNEG) && G.pile.length > 0) {
+    const st = PROTO_STAT.posneg
+    st.fires++
+    // ⚠ 这时它自己已经落堆（结算时 resolveMatchCore 会先把它拿下来再判），catchStart 会「钓到它自己」——
+    //   判到的是它自己 = 钓不到。2026-11-05 第一跑栽在这儿：负电全贴在它自己身上，喂给了对方
+    const at = catchStart(G, card, side, skills, false)
+    let pick = (at >= 0 && at !== at0) ? at : -1
+    if (pick < 0) {
+      st.topTag++
+      // 贴它下面那张（堆顶那张不算它自己）；堆上只有它自己就不贴
+      // POSNEG_MISS=none：钓不到就不贴（= desc 写成「可以」的那一档，对照）
+      if (process.env.POSNEG_MISS !== 'none') for (let k = G.pile.length - 1; k >= 0; k--) if (k !== at0) { pick = k; break }
+    }
+    if (pick >= 0) G.negPile.add(G.pile[pick])
+  }
+  // ---- 【负电】：带它的牌打出 → 整堆（连它自己）带上负电。落堆后、判定前 —— 这一手自己就用得上 ----
+  if (NEG_WHEN === 'play' && negCharges(G, card, skills)) {
+    negChargePile(G)
+    G.negHand = G.negHand.filter(function (c) { return c !== card })
+  }
   // ---- 【褪色】标签（〈fadesplit〉贴的）：这张落堆 → fadeLand（它自己的置 0 在 valuesOf）----
   if (G.fadeKey.length > 0 && G.fadeKey.indexOf(card) >= 0 && at0 >= 0) {
     const st = PROTO_STAT.fadesplit
@@ -17539,8 +17727,24 @@ function protoOnLand(G, side, skills, card, ai) {
     const got = drawFor(G, side)
     if (got !== null) { G.magKey.push(got); st.tagged++ }
   }
+  // 〈negfoe〉/ 静电：对方手牌 N 张带上【负电】（盲选，J 不挑 —— 默认 99 = 全部；游戏里那版 J 也贴，但 J 不在顺位里、贴了只多一次通电，见下）
+  // 〈negmag〉走同一段（再加下面导电那段）
+  if (has(skills, SK.NEGFOE) || has(skills, SK.NEGMAG)) {
+    const other = side === ME ? FOE : ME
+    for (let n = 0; n < NEG_N; n++) {
+      const pool = []
+      for (let i = 0; i < G.hands[other].length; i++) {
+        const c = G.hands[other][i]
+        // 全贴（NEG_N ≥ 99 = 静电「全部」）连 J 也贴，跟游戏一致；挑几张的原型档照旧不挑 J
+        if ((c.rank !== JACK || NEG_N >= 99) && G.negHand.indexOf(c) < 0) pool.push(c)
+      }
+      if (pool.length === 0) break
+      G.negHand.push(pool[randInt(G.rng, pool.length)])
+      PROTO_STAT.neg.tagged++
+    }
+  }
   // 〈magtag〉：N 张手牌带上【磁吸】
-  if (has(skills, SK.MAGTAG)) {
+  if (has(skills, SK.MAGTAG) || has(skills, SK.NEGMAG)) {
     const st = PROTO_STAT.magtag
     st.fires++
     for (let n = 0; n < MAG_N; n++) {

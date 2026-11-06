@@ -192,6 +192,8 @@
                  而那正是结冰的全部内容（照燃烧那个「烧」字的先例）。
                  冰和火互斥（相消），所以两个角标不会同时出现 -->
             <text v-if="frostAt(index) && !murked(index)" class="card-frost-tag">冰</text>
+            <!-- 【负电】：不带负电的牌来钓时，这张还算顺位差 1 的点数。**非标不可** —— 不标的话哪几张能多钓只能靠记 -->
+            <text v-if="negPileAt(index) && !murked(index)" class="card-neg-tag">负</text>
             <!-- 【石墙】：连续匹配撞停；撞上那张被收走，下面留下。
                  **非标不可** —— 不标的话「这段能收到哪儿」只能靠记 -->
             <text v-if="stoneAt(index) && !murked(index)" class="card-stone-tag">墙</text>
@@ -491,6 +493,16 @@
       </view>
     </view>
 
+    <!-- 感电第二步：点一张跟那张负电牌同颜色的手牌贴【正电】（J、0 点不行） -->
+    <view v-if="inductHandPending" class="tide-box">
+      <text class="tide-text">感电：点一张跟那张负电牌同颜色的手牌贴上正电 —— 之后用它钓那张负电是特殊匹配（顺位差 1~2、不能被抢）· J 和 0 点不行</text>
+      <view class="tide-actions">
+        <view id="ap-induct-skip" class="tide-btn tide-btn-plain" @click="onInductHand(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不贴</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 镜水第二步：点一张跟那张同花色的手牌展示（J 不行），那张牌的点数变成跟它相同 -->
     <view v-if="reflectHandPending" class="tide-box">
       <text class="tide-text">{{ '镜水：点一张跟堆上第 ' + (reflectTargetShown + 1) + ' 张同花色的手牌展示，它的点数变成跟那张相同（展示的牌留在手里）· J 不行' }}</text>
@@ -645,9 +657,9 @@
       </view>
     </view>
 
-    <!-- 【磁引】〔2026-11-05〕：等你挑一张手牌贴【磁吸】（照石影那块的形制） -->
+    <!-- 【导电】〔2026-11-05〕：等你挑一张手牌贴【正电】（照石影那块的形制） -->
     <view v-if="magKeyPending" class="tide-box">
-      <text class="tide-text">磁引：点一张手牌贴上磁吸（打出它时还能钓顺位差 1 的牌，跳过 J、K 接 A）· J 和 0 点点不动</text>
+      <text class="tide-text">导电：点一张手牌贴上正电（打出它时还能钓顺位差 1 的牌，跳过 J、K 接 A）· J 和 0 点点不动</text>
       <view class="tide-actions">
         <view id="ap-magkey-skip" class="tide-btn tide-btn-plain" @click="onMagKey(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
@@ -942,8 +954,10 @@
             <text v-if="stoneHandOn(card)" class="card-stone-tag">墙</text>
             <!-- 手里带【花色匹配】（传色贴的）：打出时走花色匹配 -->
             <text v-if="matchKeyOn(card)" class="hand-match-tag">花</text>
-            <!-- 手里带【磁吸】（磁引贴的）：打出时还能钓顺位差 1 的牌 -->
-            <text v-if="magKeyOn(card)" class="hand-mag-tag">磁</text>
+            <!-- 手里带【正电】（导电贴的）：打出时还能钓顺位差 1 的牌 -->
+            <text v-if="magKeyOn(card)" class="hand-mag-tag">电</text>
+            <!-- 手里带【负电】（对方的静电贴的）：打出时给全堆带上负电；它自己吃不到堆上的负电 -->
+            <text v-if="negHandOn(card)" class="hand-neg-tag">负</text>
             <!-- 手里带【21 匹配】（零递贴的） -->
             <text v-if="draftKeyOn(card)" class="hand-draft-tag">21</text>
             <!-- 手里带【收零】（褪递贴的） -->
@@ -1144,8 +1158,12 @@
     SKILL_RANKS,
     DrawLoadout,
     SK_HOOK,
-    // 【磁引】〔2026-11-05〕：1 张手牌带上【磁吸】
+    // 【导电】〔2026-11-05〕：1 张手牌带上【正电】
     SK_MAGTAG,
+    // 【静电】〔2026-11-05〕：对方手牌全部带上【负电】
+    SK_NEGFOE,
+    // 【感电】〔2026-11-05〕：堆上 1 张牌带上【负电】，手牌 1 张跟那张同颜色的牌带上【正电】
+    SK_PAIRNP,
     SK_TIDE,
     SK_PEEK,
     SK_SWAP,
@@ -2284,7 +2302,7 @@
   const flowDraftSk = ref<number>(-1)
   // 石影等你挑自己的一张手牌贴【花色匹配】（石顺走上面 flowDraftPending 那块，flowDraftSk = SK_STONELINE）
   const stoneKeyPending = ref<boolean>(false)
-  // 【磁引】等你挑自己的一张手牌贴【磁吸】（照石影：askFirst 停、onMagKey 挑完 askNext）
+  // 【导电】等你挑自己的一张手牌贴【正电】（照石影：askFirst 停、onMagKey 挑完 askNext）
   const magKeyPending = ref<boolean>(false)
   // 新【野火】〔2026-11-05〕：等你挑一张手牌带上【燃烧】；挑完要从 TAIL_REST 接着走，所以存下技能表（照 pickSkills）
   const burnKeyPending = ref<boolean>(false)
@@ -2467,6 +2485,10 @@
   // 不用 ref：它跟 pendingSkills 一样是「这一手之内」的，不进界面
   let pickSkills : number[] = []
   // 【镜水】第二步：堆上那张挑好了，等你点一张同花色手牌（或不展示）。点完从 afterPlayRest 接着走
+  // 【感电】第二步：等你点一张跟那张负电牌同颜色的手牌贴【正电】（照镜水第二步）
+  const inductHandPending = ref<boolean>(false)
+  let inductTarget : PlainCard | null = null
+  let inductSkills : number[] = []
   const reflectHandPending = ref<boolean>(false)
   let reflectTarget : number = -1
   const reflectTargetShown = ref<number>(-1)
@@ -2906,12 +2928,86 @@
       }
     }
     matchKey.value = keep
-    // 【磁吸】那一层跟【花色匹配】同一套生命周期（打出那一手用掉、洗回 / 换主人也摘），
+    // 【正电】那一层跟【花色匹配】同一套生命周期（打出那一手用掉、洗回 / 换主人也摘），
     // 所以摘的时候一起摘 —— 调用点有六处，各加一行迟早漏一处
     dropMagKey(card)
+    // 【负电】手里那一层也同一套生命周期（打出那一手用掉 —— 而它的「整堆通电」在 afterPlay 开头已经做完了）
+    dropNegHand(card)
   }
 
-  // 手里带【磁吸】的牌（磁引贴的）〔2026-11-05〕。**ref** —— 手牌上要印「磁」
+  // 【负电】〔2026-11-05〕：手里带它的牌（静电贴的，**ref** —— 你手里要印「负」）/ 堆上带它的牌（ref —— 堆上要印「负」）。
+  // 堆上那张表存牌对象；只认**现在还在堆上**的（negPileAt 按下标取牌再查），牌离堆后留在表里也不起作用，
+  // 每次通电时顺手清掉不在堆上的
+  const negHand = ref<PlainCard[]>([] as PlainCard[])
+  const negPile = ref<PlainCard[]>([] as PlainCard[])
+  function negHandOn(card : PlainCard) : boolean {
+    for (let i = 0; i < negHand.value.length; i++) {
+      if (negHand.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropNegHand(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < negHand.value.length; i++) {
+      if (negHand.value[i] != card) {
+        keep.push(negHand.value[i])
+      }
+    }
+    negHand.value = keep
+  }
+  // 上一次 catchStart 是不是靠【正电】×【负电】特殊匹配返回的（resolveMatch 紧跟着读）
+  let elecHitNow : boolean = false
+  function negPileAt(index : number) : boolean {
+    if (index < 0 || index >= pile.value.length) {
+      return false
+    }
+    const c = pile.value[index]
+    for (let i = 0; i < negPile.value.length; i++) {
+      if (negPile.value[i] == c) {
+        return true
+      }
+    }
+    return false
+  }
+  // 顺位差 1 ~ maxd 都算（maxd = 1 就是 magAdj）。K 接 A 的环绕照算：差几就是环上的近边
+  function magAdjN(mine : number[], theirs : number[], maxd : number) : boolean {
+    for (let a = 0; a < mine.length; a++) {
+      const ia = MAG_ORD.indexOf(mine[a])
+      if (ia < 0) {
+        continue
+      }
+      for (let b = 0; b < theirs.length; b++) {
+        const ib = MAG_ORD.indexOf(theirs[b])
+        if (ib < 0) {
+          continue
+        }
+        const raw = Math.abs(ia - ib)
+        const d = raw < MAG_ORD.length - raw ? raw : MAG_ORD.length - raw
+        if (d >= 1 && d <= maxd) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+  // 带负电的牌打出：全堆（含它自己）带上负电。表里只留现在在堆上的牌（离了堆的清掉）
+  function negCharge() {
+    negPile.value = pile.value.slice(0)
+  }
+  // 一张牌**重新**落堆（比如换序换回手里又打出去）不该带着上一次的负电 —— afterPlay 开头先摘
+  function dropNegPile(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < negPile.value.length; i++) {
+      if (negPile.value[i] != card) {
+        keep.push(negPile.value[i])
+      }
+    }
+    negPile.value = keep
+  }
+
+  // 手里带【正电】的牌（导电贴的）〔2026-11-05〕。**ref** —— 手牌上要印「磁」
   const magKey = ref<PlainCard[]>([] as PlainCard[])
   function magKeyOn(card : PlainCard) : boolean {
     for (let i = 0; i < magKey.value.length; i++) {
@@ -2930,7 +3026,7 @@
     }
     magKey.value = keep
   }
-  // 【磁吸】的顺位：A 2 … 10 Q K，**跳过 J**，K 接 A（跟【升钩】同一张表）。比的是**点数值**，
+  // 【正电】的顺位：A 2 … 10 Q K，**跳过 J**，K 接 A（跟【升钩】同一张表）。比的是**点数值**，
   // 所以被改过的点数照改后的算；0 点 / 无点数 / 大于 13 不在表里，一律不算相邻
   const MAG_ORD : number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13]
   function magAdj(mine : number[], theirs : number[]) : boolean {
@@ -2952,7 +3048,7 @@
     }
     return false
   }
-  // 磁引能贴哪张：非 J、还没带磁吸、点数在顺位里（0 点 / 无点数贴了也白贴）
+  // 导电能贴哪张：非 J、还没带正电、点数在顺位里（0 点 / 无点数贴了也白贴）
   function magKeyable(card : PlainCard) : boolean {
     if (card.rank == JACK || magKeyOn(card)) {
       return false
@@ -3750,6 +3846,7 @@
       && takeSkill.value < 0 && giveBack.value < 0 && !twinPending.value
       && pilePick.value < 0
       && !reflectHandPending.value
+      && !inductHandPending.value
       // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
       && !giftPending.value
       // 【甩货】交回合前问的那一下 myTurn 还是 true（startFoeTurn 才清）—— 不挡的话弹窗开着还能出牌
@@ -3842,7 +3939,7 @@
       return '你的回合 · 石影'
     }
     if (magKeyPending.value) {
-      return '你的回合 · 磁引'
+      return '你的回合 · 导电'
     }
     if (burnKeyPending.value) {
       return '你的回合 · 野火'
@@ -3871,6 +3968,9 @@
     }
     if (reflectHandPending.value) {
       return '你的回合 · 镜水'
+    }
+    if (inductHandPending.value) {
+      return '你的回合 · 感电'
     }
     if (takeSkill.value >= 0) {
       return '你的回合 · ' + DRAW_SKILLS[takeSkill.value].name
@@ -4749,8 +4849,10 @@
     // 【封竿】原先在这儿直接拦（被封的点数什么都钓不到）。改成了「算 0 点」，
     // 在 valuesOf 最前面判 —— 0 点钓不到按点数的牌，按花色的照样能用
     const hook = hasTrigger(skills, SK_HOOK)
-    // 【磁吸】：磁钩是它自己带，磁引贴在手牌上〔2026-11-05〕
+    // 【正电】：磁钩是它自己带，导电贴在手牌上〔2026-11-05〕
     const mag = hook || magKeyOn(card)
+    // 【负电】第三句：这张自己带负电 → 堆上的负电对它不起作用
+    const negBlocked = negHandOn(card)
     // 〔顺色那条花色线 2026-10-25 撤了 —— 它改成变点数（见 valuesOf），走普通匹配〕
     const suited = false
     // 我这张算哪几个点数。顺色换掉了整个点数，所以它这儿是空的 ——
@@ -4818,6 +4920,23 @@
     if (reach >= 0) {
       return reach
     }
+    // ---------- 【正电】×【负电】：**特殊匹配**，判在普通匹配之前〔2026-11-05 用户定〕----------
+    // 带正电的牌（电钩自带 / 导电贴的）钓堆上带负电的牌：顺位相差 1 或 2 都算。
+    // 「只有正电 × 负电是特殊匹配」—— 普通牌钓负电、正电钓普通牌都还是普通匹配（下面循环里那两支）。
+    // elecHitNow 记「这一次是不是靠它返回的」，resolveMatch 紧跟着读，决定这一手免不免抢（照 21 匹配）
+    elecHitNow = false
+    if (mag && !negBlocked && negPile.value.length > 0) {
+      for (let n = 0; n < size; n++) {
+        const i = sink ? size - 1 - n : n
+        if (guardedAgainst(i, byFoe) || matchLocked(i, byFoe)) {
+          continue
+        }
+        if (pile.value[i].rank != JACK && negPileAt(i) && magAdjN(mine, pileValsAt(i), 2)) {
+          elecHitNow = true
+          return i
+        }
+      }
+    }
     // 普通那三条线。**命中就记下来、不再往下找** —— 这个循环的方向
     // 已经保证了命中的是最深那张（收得最多）
     let best = -1
@@ -4853,9 +4972,16 @@
       //   （不存在），净效果为零。别给 0 点加特例，那会动到整条压底线。
       //   模拟器那边同一处开了 `HOOK_DIR` 旋钮隔开新旧两档〕
       //
-      // 〔2026-11-05 换成【磁吸】（用户定）：按**顺位**相差 1 比（跳过 J、K 接 A），见 magAdj。
+      // 〔2026-11-05 换成【正电】（用户定）：按**顺位**相差 1 比（跳过 J、K 接 A），见 magAdj。
       //   跟上面那段说的「点数相差 1」只在边上不同：10 接 Q、K 接 A，而 0 点不在顺位里 ——
       //   所以上面那句「0 点牌本来就钩得上 1」**不再成立**（规则面板那句同日删了）〕
+      // 【负电】〔2026-11-05〕：堆上这张带负电、去匹配的这张不带 → 它可以当顺位差 1 的点数被钓（J 不吃这条）
+      //   〔同日用户补：「正负电相遇等于差 2」—— 去钓的这张带正电（mag）→ 顺位差 1 或 2 都算（magAdjN）〕
+      //   〔同日改：正电 × 负电挪到上面那段特殊匹配里，这儿只剩普通牌钓负电（差 1，普通匹配）〕
+      if (!negBlocked && p.rank != JACK && negPileAt(i) && magAdjN(mine, theirs, 1)) {
+        best = i
+        break
+      }
       if (mag && p.rank != JACK && magAdj(mine, theirs)) {
         best = i
         break
@@ -5558,6 +5684,9 @@
       return '抬水：点堆上一张给它加 ' + pickStep.value
         + ' 点 —— 加完它会判一次匹配'
     }
+    if (pickingPile(SK_PAIRNP)) {
+      return '感电：点堆上一张给它贴【负电】（J 不行）—— 下一步点一张跟它同颜色的手牌贴【正电】'
+    }
     if (pickingPile(SK_PILEREFLECT)) {
       return '镜水：点堆上一张给它带上【映照】（你手里要有跟它同花色的牌）—— 下一步点那张手牌展示'
     }
@@ -5596,6 +5725,11 @@
     }
     if (pickingPile(SK_WILD)) {
       return pileBurnAt(index) == 0 && !wardAt(index) && !frostAt(index)
+    }
+    // 感电：不能点它自己、不能点 J
+    if (pickingPile(SK_PAIRNP)) {
+      const self = pickCard.value == null ? -1 : pileIndexOf(pickCard.value!)
+      return index != self && pile.value[index].rank != JACK
     }
     // 镜水：不能点它自己；手里要有跟那张同花色的（非 J）牌
     if (pickingPile(SK_PILEREFLECT)) {
@@ -5641,6 +5775,28 @@
     pilePick.value = -1
     pickStep.value = 0
     pickCard.value = null
+    // ---- 【感电】第一步挑完：贴负电，再转去等你点同颜色的手牌（手里没有就直接往下走） ----
+    if (which == SK_PAIRNP) {
+      const skills = pickSkills
+      pickSkills = []
+      if (index < 0) {
+        message.value = message.value + ' 感电：没挑。'
+        afterPlayRest(false, skills)
+        return
+      }
+      const target = pile.value[index]
+      negPile.value = negPile.value.concat([target])
+      message.value = message.value + ' 感电：堆上第 ' + (index + 1) + ' 张带上了负电。'
+      if (inductHandIndex(false, target) < 0) {
+        message.value = message.value + '手里没有跟它同颜色的牌可贴正电。'
+        afterPlayRest(false, skills)
+        return
+      }
+      inductTarget = target
+      inductSkills = skills
+      inductHandPending.value = true
+      return
+    }
     // ---- 【镜水】第一步挑完：转去等你点手牌（不挑 = 不映照，照常往下走） ----
     if (which == SK_PILEREFLECT) {
       const skills = pickSkills
@@ -8319,9 +8475,11 @@
       return
     }
     const at = catchStart(card!, byFoe, skills, sink)
+    // 【正电】×【负电】特殊匹配〔2026-11-05〕：紧跟 catchStart 读它记下的那一笔
+    const viaElec = at >= 0 && elecHitNow
     // 【特殊匹配不能被抢】〔2026-10-29 用户定〕：这一手靠【21 匹配】收 → 下面两处都不问抢。
     // 顺子 / 花色 / 顺序匹配走 afterPlayTail 的 startSweep，本来就不经过 askSteal，所以这儿只管 21
-    const via21 = at >= 0 && draftCatchAt(card!, byFoe, skills, valuesOf(card!, byFoe, skills), sink) == at
+    const via21 = (at >= 0 && draftCatchAt(card!, byFoe, skills, valuesOf(card!, byFoe, skills), sink) == at) || viaElec
     // ---- 【连递】：这张带着链上的标签，而且**真凑成了** → 这一手末尾续贴 ----
     //
     // 位置照模拟器 `rules.js` 那个 probe 块：**在 catchStart 之后、抢牌之前**。
@@ -8995,6 +9153,15 @@
     pendingSkills = []
     // 新的一手：停人技能的记号清掉（见 TAIL_ASK）
     askDone = [] as number[]
+    // 【负电】〔2026-11-05〕：这张刚落堆 —— 先摘掉它身上可能残留的旧负电，再看它手里带不带负电，带就给全堆通电。
+    // 放在 afterPlay 开头：落堆之后、一切技能和匹配之前（模拟器那边是 protoOnLand 开头，同一个时点）
+    if (lastPlayed != null && inPile(lastPlayed!)) {
+      dropNegPile(lastPlayed!)
+      if (negHandOn(lastPlayed!)) {
+        negCharge()
+        message.value = message.value + ' 它带着负电 —— 全堆带上了负电。'
+      }
+    }
     // 【空钩】它落堆就成陷阱（这一手后面的收牌、包括它自己当场钓中，都会收到它）
     if (hasTrigger(skills, SK_TRAPZERO) && lastPlayed != null && inPile(lastPlayed!) && !trapOn(lastPlayed!)) {
       trapPile = trapPile.concat([lastPlayed!])
@@ -9051,6 +9218,11 @@
   }
   // afterPlay 在【镜水】之后的那一段（冰雷 → 一色 → afterPlayHead）。拆出来是为了【镜水】挑完能接回来
   function afterPlayRest(byFoe : boolean, skills : number[]) {
+    // 【感电】〔2026-11-05〕：排在镜水之后、匹配之前。玩家侧停下来挑（先点堆、再点手牌），挑完回到这儿 ——
+    // askFirst 保证这一手只问一次（重入时直接往下走）
+    if (hasTrigger(skills, SK_PAIRNP) && askFirst(SK_PAIRNP) && inductFor(byFoe, skills)) {
+      return
+    }
     // 【冰雷】炸了：雷的主人收走整堆（含刚打出那张）。排在一色前面 ——
     // 它在全场贴冰那一刻就触发了，是这一手最早发生的事
     if (bombFor(byFoe, skills)) {
@@ -9143,6 +9315,99 @@
     return false
   }
   // 你点了一张手牌（-1 = 不展示）
+  // 【感电】手里第一张能跟 target 配对的牌（同颜色、非 J、点数在顺位里、还没带正电）；没有返回 −1
+  function inductHandIndex(byFoe : boolean, target : PlainCard) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    const at = pileIndexOf(target)
+    const suit = at >= 0 ? pileSuitAt(at) : target.suit
+    for (let i = 0; i < mine.length; i++) {
+      if (magKeyable(mine[i]) && sameColor(mine[i].suit, suit)) {
+        return i
+      }
+    }
+    return -1
+  }
+  // 返回 true = 停下来等你挑了（onPilePick → onInductHand 接着走 afterPlayRest）
+  function inductFor(byFoe : boolean, skills : number[]) : boolean {
+    const self = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
+    let any = false
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i != self && pile.value[i].rank != JACK) {
+        any = true
+        break
+      }
+    }
+    if (!any) {
+      message.value = message.value + (byFoe ? ' 庄家感电：' : ' 感电：') + '堆上没有能贴负电的牌。'
+      return false
+    }
+    if (!byFoe) {
+      pilePick.value = SK_PAIRNP
+      pickStep.value = 0
+      pickCard.value = lastPlayed
+      pickSkills = skills
+      return true
+    }
+    // 庄家：照模拟器〈pairnp〉的挑法 —— 先比档（能钓到 > 只是同色），同档取最深
+    let bestP = -1
+    let bestH = -1
+    let bestTier = -1
+    for (let p = 0; p < pile.value.length; p++) {
+      if (p == self || pile.value[p].rank == JACK) {
+        continue
+      }
+      for (let h = 0; h < foeHand.value.length; h++) {
+        const c = foeHand.value[h]
+        if (!magKeyable(c) || !sameColor(c.suit, pileSuitAt(p))) {
+          continue
+        }
+        const tier = magAdjN(cardVals(c), pileValsAt(p), 2) ? 2 : 1
+        if (tier > bestTier) {
+          bestTier = tier
+          bestP = p
+          bestH = h
+        }
+      }
+    }
+    if (bestP >= 0) {
+      negPile.value = negPile.value.concat([pile.value[bestP]])
+      magKey.value = magKey.value.concat([foeHand.value[bestH]])
+      message.value = message.value + ' 庄家感电：堆上第 ' + (bestP + 1) + ' 张带上了负电，手里 1 张带上了正电。'
+      return false
+    }
+    for (let p = 0; p < pile.value.length; p++) {
+      if (p != self && pile.value[p].rank != JACK) {
+        negPile.value = negPile.value.concat([pile.value[p]])
+        message.value = message.value + ' 庄家感电：堆上第 ' + (p + 1) + ' 张带上了负电。'
+        break
+      }
+    }
+    return false
+  }
+  // 感电第二步：你挑中了自己第 index 张贴【正电】（−1 = 不贴）
+  function onInductHand(index : number) {
+    if (!inductHandPending.value || inductTarget == null) {
+      return
+    }
+    if (index >= 0) {
+      const at = pileIndexOf(inductTarget!)
+      const suit = at >= 0 ? pileSuitAt(at) : inductTarget!.suit
+      if (index >= hand.value.length || !magKeyable(hand.value[index]) || !sameColor(hand.value[index].suit, suit)) {
+        // 不同颜色 / J / 0 点 / 已带正电：点了不算，接着等
+        return
+      }
+      magKey.value = magKey.value.concat([hand.value[index]])
+      message.value = message.value + ' 感电：' + cardName(hand.value[index]) + ' 带上了正电。'
+    } else {
+      message.value = message.value + ' 感电：正电那张你没贴。'
+    }
+    const skills = inductSkills
+    inductHandPending.value = false
+    inductTarget = null
+    inductSkills = [] as number[]
+    afterPlayRest(false, skills)
+  }
+
   function onReflectHand(index : number) {
     if (!reflectHandPending.value) {
       return
@@ -9865,6 +10130,19 @@
           + '手里 1 张带上了顺子匹配。'
       }
     }
+    // ---------- 【静电】：对方手牌全部带上【负电】〔2026-11-05 上架〕----------
+    // 自动贴、不停人（全贴，没得挑）。之后新摸的牌不带
+    if (from <= TAIL_REST && hasTrigger(skills, SK_NEGFOE)) {
+      const theirs = byFoe ? hand.value : foeHand.value
+      let n = 0
+      for (let i = 0; i < theirs.length; i++) {
+        if (!negHandOn(theirs[i])) {
+          negHand.value = negHand.value.concat([theirs[i]])
+          n = n + 1
+        }
+      }
+      message.value = message.value + (byFoe ? ' 庄家静电：你手里 ' : ' 静电：庄家手里 ') + n + ' 张带上了负电。'
+    }
     // ---------- 【传顺】：手牌都带上【顺子匹配】〔2026-10-30 上架〕----------
     // 自动贴、不停人（没有挑的余地）。能贴的照 flowKeyable（J / 无点数 / 已贴过的跳过），
     // 跟模拟器 flowTagAll（doFlowTag 循环）同一个口径
@@ -10237,19 +10515,19 @@
         }
       }
     }
-    // 【磁引】〔2026-11-05〕：1 张手牌带上【磁吸】。你挑（magKeyPending）；庄家照 magKeyPick
+    // 【导电】〔2026-11-05〕：1 张手牌带上【正电】。你挑（magKeyPending）；庄家照 magKeyPick
     if (hasTrigger(skills, SK_MAGTAG) && askFirst(SK_MAGTAG)) {
       if (!byFoe) {
         if (magKeyPick(false) >= 0) {
           magKeyPending.value = true
           return
         }
-        message.value = message.value + ' 磁引：手里没有能贴磁吸的牌。'
+        message.value = message.value + ' 导电：手里没有能贴正电的牌。'
       } else {
         const at = magKeyPick(true)
         if (at >= 0) {
           magKey.value = magKey.value.concat([foeHand.value[at]])
-          message.value = message.value + ' 庄家磁引：手里 1 张带上了磁吸。'
+          message.value = message.value + ' 庄家导电：手里 1 张带上了正电。'
         }
       }
     }
@@ -11453,7 +11731,7 @@
     afterPlayTail(false, skills, TAIL_REST)
   }
 
-  // 磁引：你挑中了自己第 index 张贴【磁吸】（-1 表示不贴）
+  // 导电：你挑中了自己第 index 张贴【正电】（-1 表示不贴）
   function onMagKey(index : number) {
     if (!magKeyPending.value) {
       return
@@ -11464,9 +11742,9 @@
     magKeyPending.value = false
     if (index >= 0) {
       magKey.value = magKey.value.concat([hand.value[index]])
-      message.value = message.value + ' 磁引：' + cardName(hand.value[index]) + ' 带上了磁吸。'
+      message.value = message.value + ' 导电：' + cardName(hand.value[index]) + ' 带上了正电。'
     } else {
-      message.value = message.value + ' 磁引：磁吸那张你没贴。'
+      message.value = message.value + ' 导电：正电那张你没贴。'
     }
     askNext()
   }
@@ -15240,7 +15518,7 @@
         }
       }
     }
-    // ---- 【磁钩】后半句〔2026-11-05〕：匹配失败 → 抽 1 张，那张带上【磁吸】 ----
+    // ---- 【磁钩】后半句〔2026-11-05〕：匹配失败 → 抽 1 张，那张带上【正电】 ----
     //
     // 「匹配失败」= 这一手一张没收到（tookThisHand）**而且不是被抢走** ——
     // 被抢那条路在 pushStealTail 里把 hookArmed 存成 false 了。不停人（抽的是哪张由牌库定，没得挑）。
@@ -15252,8 +15530,8 @@
         if (got != null) {
           magKey.value = magKey.value.concat([got!])
         }
-        message.value = message.value + (byFoe ? ' 庄家磁钩：' : ' 磁钩：')
-          + (got != null ? '没钓上，摸了 1 张，它带上了磁吸。' : '没钓上，牌库空了没摸到。')
+        message.value = message.value + (byFoe ? ' 庄家电钩：' : ' 电钩：')
+          + (got != null ? '没钓上，摸了 1 张，它带上了正电。' : '没钓上，牌库空了没摸到。')
       }
     }
     // ---- 【忍递】：这一手**一张牌都没拿到** → 贴 1 张 ----
@@ -15971,6 +16249,11 @@
     // 镜水第二步：点手牌是「展示这张」
     if (reflectHandPending.value) {
       onReflectHand(index)
+      return
+    }
+    // 感电第二步：点手牌是「给这张贴正电」
+    if (inductHandPending.value) {
+      onInductHand(index)
       return
     }
     // 零递同理：点手牌是「给这张贴 21 匹配」
@@ -17305,6 +17588,8 @@
     stoneHand = [] as PlainCard[]
     matchKey.value = [] as PlainCard[]
     magKey.value = [] as PlainCard[]
+    negHand.value = [] as PlainCard[]
+    negPile.value = [] as PlainCard[]
     draftKey.value = [] as PlainCard[]
     zeroKey.value = [] as PlainCard[]
     fadeKey.value = [] as PlainCard[]
@@ -17321,6 +17606,9 @@
     reflectTarget = -1
     reflectTargetShown.value = -1
     reflectSkills = [] as number[]
+    inductHandPending.value = false
+    inductTarget = null
+    inductSkills = [] as number[]
     fadeTagPending.value = false
     backPending.value = false
     backTagPending.value = false
@@ -18339,7 +18627,23 @@
     margin-right: 1px;
   }
 
-  /* 手里带【磁吸】（磁引贴的）：铁灰，跟花色的玫红、21 的绿、顺子的靛蓝分得开 */
+  /* 【负电】：堆上和手里同一个字、同一个色（同一个标签）。墨紫，跟正电的铁灰、冰蓝、火橙分得开 */
+  .card-neg-tag {
+    color: #6a1b9a;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+  .hand-neg-tag {
+    color: #6a1b9a;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+
+  /* 手里带【正电】（导电贴的）：铁灰，跟花色的玫红、21 的绿、顺子的靛蓝分得开 */
   .hand-mag-tag {
     color: #546e7a;
     font-size: 9px;

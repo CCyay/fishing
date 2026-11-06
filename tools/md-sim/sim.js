@@ -2265,6 +2265,26 @@ function printDraftTagDiag() {
     console.log('\n  ---- 诊断：磁钩 HOOK_FAIL=' + process.env.HOOK_FAIL + ' ----')
     console.log('    发动 ' + hf.fires + ' 次 · 判失败 ' + hf.failed + '（其中被抢 ' + hf.stolen + '）· 抽到并贴上磁吸 ' + hf.tagged + ' 张')
   }
+  // 【负电】〔2026-11-05〕：贴了几张 / 真通电几次、每次新带上几张 / 出牌时靠负电才钓到（或钓得更深）—— 分「这一手自己刚通的电」和「堆上早就带着的」
+  const ng = R.PROTO_STAT.neg
+  if (ng && (ng.tagged > 0 || ng.charges > 0)) {
+    console.log('\n  ---- 诊断：【负电】（NEG_N=' + (process.env.NEG_N || '1') + '）----')
+    console.log('    贴上 ' + ng.tagged + ' 张 · 真通电 ' + ng.charges + ' 次（每次新带上 ' + f2(ng.chargedCards / Math.max(1, ng.charges)) + ' 张）')
+    console.log('    出牌时靠负电才钓到 / 钓得更深：这一手自己通的电 ' + ng.needOwn + ' 次 · 堆上早就带着的 ' + ng.needOld + ' 次')
+  }
+  // 〈pairnp〉〔2026-11-05〕
+  const pp = R.PROTO_STAT.pairnp
+  if (pp && pp.fires > 0) {
+    console.log('\n  ---- 诊断：〈pairnp〉（PNP_MATCH=' + (process.env.PNP_MATCH || 'color') + '）----')
+    console.log('    发动 ' + pp.fires + ' 次：成对贴上 ' + pct(pp.paired / pp.fires) + ' · 只贴负电 ' + pct(pp.soloNeg / pp.fires)
+      + ' · 那张正电手牌靠正负特殊匹配钓到 ' + pp.cashed + ' 次（' + pct(pp.cashed / Math.max(1, pp.paired)) + '）')
+  }
+  // 〈posneg〉〔2026-11-05〕
+  const pn = R.PROTO_STAT.posneg
+  if (pn && pn.fires > 0) {
+    console.log('\n  ---- 诊断：〈posneg〉----')
+    console.log('    发动 ' + pn.fires + ' 次（堆非空）：靠正负电才钓到 ' + pct(pn.needed / pn.fires) + ' · 钓得更深 ' + pct(pn.deeper / pn.fires) + ' · 钓不到、贴了堆顶 ' + pct(pn.topTag / pn.fires))
+  }
   // 【冻结】寿命诊断〔2026-11-02〕
   const fz = R.PROTO_STAT.freeze
   if (fz && fz.fires > 0) {
