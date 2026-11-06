@@ -2279,6 +2279,15 @@ function printDraftTagDiag() {
     console.log('    发动 ' + pp.fires + ' 次：成对贴上 ' + pct(pp.paired / pp.fires) + ' · 只贴负电 ' + pct(pp.soloNeg / pp.fires)
       + ' · 那张正电手牌靠正负特殊匹配钓到 ' + pp.cashed + ' 次（' + pct(pp.cashed / Math.max(1, pp.paired)) + '）')
   }
+  // 〈reflectbottom〉/〈reflectsuit〉/〈reflectfoe〉/〈reflectmark〉〔2026-11-06〕
+  const rfm = R.PROTO_STAT.reflectmore
+  if (rfm && (rfm.bottomPair + rfm.bottomSetup + rfm.suitFires + rfm.foeFires + rfm.markTagged) > 0) {
+    console.log('\n  ---- 诊断：映照四件 ----')
+    console.log('    堆底：当场配上 ' + rfm.bottomPair + ' 次 · 铺垫 ' + rfm.bottomSetup + ' 次')
+    console.log('    同花色：发动 ' + rfm.suitFires + ' 次 · 真换了 ' + rfm.suitChanged + ' 次（连带改了 ' + rfm.suitCards + ' 张）')
+    console.log('    对方手牌：发动 ' + rfm.foeFires + ' 次 · 废掉（变完堆上对不上）' + rfm.foeKilled + ' · 只是变浅 ' + rfm.foeWeak)
+    console.log('    展示那张带正电：' + rfm.markTagged + ' 次')
+  }
   // 〈posneg〉〔2026-11-05〕
   const pn = R.PROTO_STAT.posneg
   if (pn && pn.fires > 0) {

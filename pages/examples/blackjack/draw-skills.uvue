@@ -1284,6 +1284,9 @@
     if (pickMode.value == 'same') {
       return '同化'
     }
+    if (pickMode.value == 'fuse') {
+      return '熔合'
+    }
     if (pickMode.value == 'drop') {
       return '弃饵'
     }
@@ -1370,6 +1373,11 @@
       return pickFirst.value < 0
         ? '先点一张当样子'
         : '再点一张，它会变成上面那张'
+    }
+    if (pickMode.value == 'fuse') {
+      return pickFirst.value < 0
+        ? '先点一张留下的牌（J、0 点、无点数不行）'
+        : '再点一张跟它同花色、点数不同的牌 —— 它的点数熔进上面那张，它自己从牌组里拿掉'
     }
     if (pickMode.value == 'drop') {
       return '点一张牌，从牌组里拿掉'
@@ -1572,6 +1580,8 @@
       pickMode.value = 'drop'
     } else if (item.key == 'same') {
       pickMode.value = 'same'
+    } else if (item.key == 'fuse') {
+      pickMode.value = 'fuse'
     } else if (item.key == 'copy' || item.key == 'blank' || item.key == 'zero' || item.key == 'dye') {
       // 这几件的 pickMode 就是它的 key（拓印、抹点、置零、染色）。〔熔合 2026-11-03 删了，置零、染色同日加〕
       pickMode.value = item.key
@@ -2076,6 +2086,40 @@
       askDye(at)
       return
     }
+    // 熔合〔2026-11-06〕：两步挑，照同化。J / 0 点 / 无点数挑不了；第二张要同花色、点数不同
+    if (pickMode.value == 'fuse') {
+      const cards = deckOf(save.value)
+      if (at >= cards.length) {
+        return
+      }
+      if (rankOfText(cards[at]) == 'J' || !hasFace(cards[at])) {
+        uni.showToast({ title: 'J、0 点牌、无点数牌熔不了', icon: 'none' })
+        return
+      }
+      if (pickFirst.value < 0) {
+        pickFirst.value = at
+        return
+      }
+      if (pickFirst.value == at) {
+        pickFirst.value = -1
+        return
+      }
+      const keep = cards[pickFirst.value]
+      if (suitOfText(cards[at]) != suitOfText(keep)) {
+        uni.showToast({ title: '要跟 ' + cardLabel(keep) + ' 同花色', icon: 'none' })
+        return
+      }
+      if (valueOfRankText(rankOfText(cards[at])) == valueOfRankText(rankOfText(keep))) {
+        uni.showToast({ title: '点数一样，熔了也只有一个点数', icon: 'none' })
+        return
+      }
+      if (cards.length <= DECK_MIN) {
+        uni.showToast({ title: '牌组不能少于 ' + DECK_MIN + ' 张', icon: 'none' })
+        return
+      }
+      askFuse(pickFirst.value, at)
+      return
+    }
     if (pickMode.value == 'same') {
       if (pickFirst.value < 0) {
         pickFirst.value = at
@@ -2198,6 +2242,58 @@
   //
   // 「连点数卡一起抄」让它多了一个用法：贴好一张核心牌，
   // 再花一百块复制一张。两张加起来比贴两次点数卡（180）便宜
+  // 熔合：问一句再动（牌组少一张，不可逆）
+  function askFuse(keep : number, gone : number) {
+    const cards = deckOf(save.value)
+    if (keep >= cards.length || gone >= cards.length) {
+      return
+    }
+    const next = fuseText(cards[keep], cards[gone])
+    uni.showModal({
+      title: '熔合',
+      content: cardLabel(cards[keep]) + ' + ' + cardLabel(cards[gone]) + ' → ' + cardLabel(next)
+        + '（牌面还是 ' + cardLabel(cards[keep]) + '，按它的点数触发点数槽；几个点数都能钓牌）。牌组少一张。',
+      confirmText: '熔合',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doFuse(keep, gone)
+        } else {
+          pickFirst.value = -1
+        }
+      }
+    })
+  }
+
+  // 后挑那张的牌面点数和它身上的点数卡，都贴到先挑那张上（addPip 贴重了原样返回）
+  function fuseText(keep : string, gone : string) : string {
+    let out = addPip(keep, valueOfRankText(rankOfText(gone)))
+    const pips = pipsOfText(gone)
+    for (let i = 0; i < pips.length; i++) {
+      out = addPip(out, pips[i])
+    }
+    return out
+  }
+
+  function doFuse(keep : number, gone : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (keep >= cards.length || gone >= cards.length || cards.length <= DECK_MIN) {
+      clearPick()
+      return
+    }
+    const was = cardLabel(cards[keep])
+    const fused = fuseText(cards[keep], cards[gone])
+    cards[keep] = fused
+    cards.splice(gone, 1)
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: was + ' → ' + cardLabel(fused) + '（两个点数都算）', icon: 'none' })
+    clearPick()
+  }
+
   function doSame(from : number, to : number) {
     const data = loadDrawSave()
     const cards = deckOf(data)

@@ -1466,6 +1466,8 @@ function pickCardCore(G, side) {
     }
     // 〈冰钥匙屯牌〉（用户 11-05 的打法，ICE_HOLD_K）：堆上没带冰的牌不够，钓得着也先不打 —— 手里全是它时由 randomFree 兜底（忍不住）
     if (SKILL_HOLD && R.iceHoldBlocks(G, side, i)) continue
+    // 〈maxdraft〉「能收 n 张以上才打」（MAXD_MIN · 2026-11-06）：收不到 n 张就不拿去比收成
+    if (SKILL_HOLD && R.maxdHoldBlocks(G, side, i)) continue
     const skills = R.skillsOf(G, side, card)
     // ---- 挑牌时**一律按「正常落堆」算**，不看落堆底那一头 ----
     //

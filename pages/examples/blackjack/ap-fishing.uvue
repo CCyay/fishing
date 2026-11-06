@@ -493,6 +493,26 @@
       </view>
     </view>
 
+    <!-- 拟饵第二步：点一张跟那张堆牌同花色的手牌，它变成跟那张相同（明置） -->
+    <view v-if="mimicHandPending" class="tide-box">
+      <text class="tide-text">拟饵：点一张跟那张堆牌同花色的手牌，它变成跟那张相同（这张明置，庄家看得见）· J 不行</text>
+      <view class="tide-actions">
+        <view id="ap-mimic-skip" class="tide-btn tide-btn-plain" @click="onMimicHand(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不变</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 电镜：点一张手牌展示（J 不行），打出的那张点数变成跟它相同 -->
+    <view v-if="mirrorSelfPending" class="tide-box">
+      <text class="tide-text">电镜：可以点一张手牌展示，你刚打出的那张点数变成跟它相同（花色不变，展示的牌留在手里）· J 不行</text>
+      <view class="tide-actions">
+        <view id="ap-mirrorself-skip" class="tide-btn tide-btn-plain" @click="onMirrorSelf(-1)">
+          <text class="tide-btn-text tide-btn-text-plain">不展示</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 感电第二步：点一张跟那张负电牌同颜色的手牌贴【正电】（J、0 点不行） -->
     <view v-if="inductHandPending" class="tide-box">
       <text class="tide-text">感电：点一张跟那张负电牌同颜色的手牌贴上正电 —— 之后用它钓那张负电是特殊匹配（顺位差 1~2、不能被抢）· J 和 0 点不行</text>
@@ -594,7 +614,7 @@
     </view>
 
     <view v-if="zeroDraftPending" class="tide-box">
-      <text class="tide-text">{{ '零递：点一张手牌贴上 21 匹配（还能贴 ' + zeroDraftLeft + ' 张，挑小的预算大）· J 和无点数的点不动' }}</text>
+      <text class="tide-text">{{ '零递：点一张跟堆底同颜色的手牌贴上 21 匹配（还能贴 ' + zeroDraftLeft + ' 张，挑小的预算大）· J、无点数和不同颜色的点不动' }}</text>
       <view class="tide-actions">
         <view id="ap-zerodraft-skip" class="tide-btn tide-btn-plain" @click="onZeroDraft(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
@@ -1164,6 +1184,12 @@
     SK_NEGFOE,
     // 【感电】〔2026-11-05〕：堆上 1 张牌带上【负电】，手牌 1 张跟那张同颜色的牌带上【正电】
     SK_PAIRNP,
+    // 【电镜】〔2026-11-06〕：【正电】；【映照】
+    SK_MAGREFLECT,
+    // 【拟饵】〔2026-11-06〕：选择 1 张手牌明置，它变成与堆上 1 张同花色的牌相同
+    SK_HANDREFLECT,
+    // 【亮底】〔2026-11-06〕：展示手牌，变成手牌里最大的点数；【21 匹配】
+    SK_HANDMAX,
     SK_TIDE,
     SK_PEEK,
     SK_SWAP,
@@ -2487,6 +2513,13 @@
   // 【镜水】第二步：堆上那张挑好了，等你点一张同花色手牌（或不展示）。点完从 afterPlayRest 接着走
   // 【感电】第二步：等你点一张跟那张负电牌同颜色的手牌贴【正电】（照镜水第二步）
   const inductHandPending = ref<boolean>(false)
+  // 【电镜】的映照：等你点一张手牌展示（J 不行，可以不展示）
+  const mirrorSelfPending = ref<boolean>(false)
+  // 【拟饵】第二步：等你点一张跟那张堆牌同花色的手牌（它变成跟那张相同、明置）
+  const mimicHandPending = ref<boolean>(false)
+  let mimicTarget : number = -1
+  let mimicSkills : number[] = []
+  let mirrorSelfSkills : number[] = []
   let inductTarget : PlainCard | null = null
   let inductSkills : number[] = []
   const reflectHandPending = ref<boolean>(false)
@@ -3109,6 +3142,35 @@
   // 零递能贴哪张：J 不贴（它只有通吃）、无点数不贴（当不了 21 匹配那一张）、贴过的不贴
   function draftKeyable(card : PlainCard) : boolean {
     return card.rank != JACK && !draftKeyOn(card) && cardVals(card).length > 0
+  }
+  // 【零递】贴哪张〔2026-11-06 改「手牌点数最大的 1 张」〕：能贴的牌里点数最大的那张。
+  // 「点数」= 它几个点数里最小的那个（多点数牌照 21 匹配算预算的口径，跟模拟器 doDraftTag 的 pick='max' 同一把尺子）；一样大取前面那张
+  function zeroDraftMaxIndex(byFoe : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let best = -1
+    let bestVal = -1
+    for (let i = 0; i < mine.length; i++) {
+      if (!draftKeyable(mine[i])) {
+        continue
+      }
+      const vals = cardVals(mine[i])
+      let own = 99
+      for (let k = 0; k < vals.length; k++) {
+        if (vals[k] < own) {
+          own = vals[k]
+        }
+      }
+      if (own > bestVal) {
+        bestVal = own
+        best = i
+      }
+    }
+    return best
+  }
+  // 【零递】能贴哪张〔2026-11-06 加「跟堆底同颜色」；同日改成点数最大之后不再用，留着〕：能贴 21 匹配、而且跟堆底同颜色。
+  // 堆底读的是它落堆之后、匹配之前那一刻（堆上只有它的话就是它自己）。draftKeyable 别的地方还在用，所以单开一个
+  function zeroDraftOk(card : PlainCard) : boolean {
+    return draftKeyable(card) && pile.value.length > 0 && sameColor(card.suit, pileSuitAt(0))
   }
 
   // ---------- 【收零】：手里带它的牌（褪递贴的）〔2026-10-29 深夜〕----------
@@ -3847,6 +3909,8 @@
       && pilePick.value < 0
       && !reflectHandPending.value
       && !inductHandPending.value
+      && !mirrorSelfPending.value
+      && !mimicHandPending.value
       // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
       && !giftPending.value
       // 【甩货】交回合前问的那一下 myTurn 还是 true（startFoeTurn 才清）—— 不挡的话弹窗开着还能出牌
@@ -3971,6 +4035,12 @@
     }
     if (inductHandPending.value) {
       return '你的回合 · 感电'
+    }
+    if (mirrorSelfPending.value) {
+      return '你的回合 · 电镜'
+    }
+    if (mimicHandPending.value) {
+      return '你的回合 · 拟饵'
     }
     if (takeSkill.value >= 0) {
       return '你的回合 · ' + DRAW_SKILLS[takeSkill.value].name
@@ -4808,7 +4878,8 @@
   // 两处共用这一份，不另写判定（照模拟器 rules.js 的 draftCatchAt）
   function draftCatchAt(card : PlainCard, byFoe : boolean, skills : number[],
     mine : number[], sink : boolean) : number {
-    if (hasTrigger(skills, SK_DRAFT) || hasTrigger(skills, SK_ZEROSELF) || draftKeyOn(card)) {
+    if (hasTrigger(skills, SK_DRAFT) || hasTrigger(skills, SK_ZEROSELF) || draftKeyOn(card)
+      || hasTrigger(skills, SK_HANDMAX)) {
       return draftReach(card, byFoe, mine, sink)
     }
     return -1
@@ -4850,7 +4921,7 @@
     // 在 valuesOf 最前面判 —— 0 点钓不到按点数的牌，按花色的照样能用
     const hook = hasTrigger(skills, SK_HOOK)
     // 【正电】：磁钩是它自己带，导电贴在手牌上〔2026-11-05〕
-    const mag = hook || magKeyOn(card)
+    const mag = hook || magKeyOn(card) || hasTrigger(skills, SK_MAGREFLECT)
     // 【负电】第三句：这张自己带负电 → 堆上的负电对它不起作用
     const negBlocked = negHandOn(card)
     // 〔顺色那条花色线 2026-10-25 撤了 —— 它改成变点数（见 valuesOf），走普通匹配〕
@@ -5684,6 +5755,9 @@
       return '抬水：点堆上一张给它加 ' + pickStep.value
         + ' 点 —— 加完它会判一次匹配'
     }
+    if (pickingPile(SK_HANDREFLECT)) {
+      return '拟饵：点堆上一张（你手里要有跟它同花色的牌）—— 下一步点那张手牌，它变成跟这张相同'
+    }
     if (pickingPile(SK_PAIRNP)) {
       return '感电：点堆上一张给它贴【负电】（J 不行）—— 下一步点一张跟它同颜色的手牌贴【正电】'
     }
@@ -5725,6 +5799,11 @@
     }
     if (pickingPile(SK_WILD)) {
       return pileBurnAt(index) == 0 && !wardAt(index) && !frostAt(index)
+    }
+    // 拟饵：不能点它自己；那张要有点数，而且你手里有跟它同花色、还没变成它的牌
+    if (pickingPile(SK_HANDREFLECT)) {
+      const self = pickCard.value == null ? -1 : pileIndexOf(pickCard.value!)
+      return index != self && mimicHandIndex(false, index) >= 0
     }
     // 感电：不能点它自己、不能点 J
     if (pickingPile(SK_PAIRNP)) {
@@ -5775,6 +5854,20 @@
     pilePick.value = -1
     pickStep.value = 0
     pickCard.value = null
+    // ---- 【拟饵】第一步挑完：转去等你点同花色的手牌 ----
+    if (which == SK_HANDREFLECT) {
+      const skills = pickSkills
+      pickSkills = []
+      if (index < 0) {
+        message.value = message.value + ' 拟饵：没挑。'
+        afterPlayRest(false, skills)
+        return
+      }
+      mimicTarget = index
+      mimicSkills = skills
+      mimicHandPending.value = true
+      return
+    }
     // ---- 【感电】第一步挑完：贴负电，再转去等你点同颜色的手牌（手里没有就直接往下走） ----
     if (which == SK_PAIRNP) {
       const skills = pickSkills
@@ -7828,6 +7921,27 @@
       }
       return cardVals(card)
     }
+    // 【亮底】〔2026-11-06〕：手里剩下的牌（不含它自己、J、无点数）里最大的点数；一张都没有 → 按它自己的
+    if (hasTrigger(skills, SK_HANDMAX)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      let top = -1
+      for (let i = 0; i < mine.length; i++) {
+        const c = mine[i]
+        if (c == card || c.rank == JACK) {
+          continue
+        }
+        const vs = cardVals(c)
+        for (let k = 0; k < vs.length; k++) {
+          if (vs[k] > top) {
+            top = vs[k]
+          }
+        }
+      }
+      if (top >= 0) {
+        return [top]
+      }
+      return cardVals(card)
+    }
     if (hasTrigger(skills, SK_PEAK)) {
       let top = 0
       let found = false
@@ -9153,6 +9267,18 @@
     pendingSkills = []
     // 新的一手：停人技能的记号清掉（见 TAIL_ASK）
     askDone = [] as number[]
+    // 【亮底】〔2026-11-06〕：展示手牌 —— 打出这张之后手里剩下的全部明置（你的标 handSeen、庄家的标 foeShown）
+    if (hasTrigger(skills, SK_HANDMAX)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      for (let i = 0; i < mine.length; i++) {
+        if (byFoe) {
+          foeShown.value = withFlag(foeShown.value, i)
+        } else {
+          handSeen.value = withFlag(handSeen.value, i)
+        }
+      }
+      message.value = message.value + (byFoe ? ' 庄家亮底：他的手牌全部亮出来了。' : ' 亮底：你的手牌全部亮出来了。')
+    }
     // 【负电】〔2026-11-05〕：这张刚落堆 —— 先摘掉它身上可能残留的旧负电，再看它手里带不带负电，带就给全堆通电。
     // 放在 afterPlay 开头：落堆之后、一切技能和匹配之前（模拟器那边是 protoOnLand 开头，同一个时点）
     if (lastPlayed != null && inPile(lastPlayed!)) {
@@ -9221,6 +9347,15 @@
     // 【感电】〔2026-11-05〕：排在镜水之后、匹配之前。玩家侧停下来挑（先点堆、再点手牌），挑完回到这儿 ——
     // askFirst 保证这一手只问一次（重入时直接往下走）
     if (hasTrigger(skills, SK_PAIRNP) && askFirst(SK_PAIRNP) && inductFor(byFoe, skills)) {
+      return
+    }
+    // 【电镜】的映照〔2026-11-06〕：它已经落堆、还没匹配 —— 你可以展示 1 张手牌，它的点数变成跟那张相同（花色不动）。
+    // 玩家侧停下来挑（mirrorSelfPending），挑完回到这儿；askFirst 防重入
+    if (hasTrigger(skills, SK_MAGREFLECT) && askFirst(SK_MAGREFLECT) && mirrorSelfFor(byFoe, skills)) {
+      return
+    }
+    // 【拟饵】〔2026-11-06〕：先点堆上一张、再点一张同花色的手牌（照感电的两步）；askFirst 防重入
+    if (hasTrigger(skills, SK_HANDREFLECT) && askFirst(SK_HANDREFLECT) && mimicFor(byFoe, skills)) {
       return
     }
     // 【冰雷】炸了：雷的主人收走整堆（含刚打出那张）。排在一色前面 ——
@@ -9315,6 +9450,196 @@
     return false
   }
   // 你点了一张手牌（-1 = 不展示）
+  // 【拟饵】手牌 y 能不能变成堆上第 at 张：非 J、同花色、那张有点数、而且 y 现在的点数跟它不一样
+  function mimicOk(y : PlainCard, at : number) : boolean {
+    if (at < 0 || at >= pile.value.length || y.rank == JACK || pile.value[at].rank == JACK) {
+      return false
+    }
+    const v = pileValsAt(at)
+    return v.length > 0 && y.suit == pileSuitAt(at) && !(y.value == v[0] && y.extra.length == v.length - 1)
+  }
+  // 手里第一张能变成堆上第 at 张的牌；没有返回 −1
+  function mimicHandIndex(byFoe : boolean, at : number) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    for (let i = 0; i < mine.length; i++) {
+      if (mimicOk(mine[i], at)) {
+        return i
+      }
+    }
+    return -1
+  }
+  // 落地：手里第 hi 张变成堆上第 at 张的样子（点数、牌面、点数卡；同花色所以花色本来一样），明置
+  function applyMimic(byFoe : boolean, hi : number, at : number) {
+    const mine = byFoe ? foeHand.value : hand.value
+    const y = mine[hi]
+    const was = cardName(y)
+    const v = pileValsAt(at)
+    y.value = v[0]
+    y.rank = v[0] == 0 ? '0' : faceOfValue(v[0])
+    y.extra = v.slice(1)
+    if (byFoe) {
+      foeShown.value = withFlag(foeShown.value, hi)
+    } else {
+      handSeen.value = withFlag(handSeen.value, hi)
+    }
+    message.value = message.value + (byFoe ? ' 庄家拟饵：他手里的 ' : ' 拟饵：你的 ') + was
+      + ' 明置，变成了跟堆上第 ' + (at + 1) + ' 张一样的 ' + cardName(y) + '。'
+  }
+  // 返回 true = 停下来等你挑了（onPilePick → onMimicHand 接着走 afterPlayRest）
+  function mimicFor(byFoe : boolean, skills : number[]) : boolean {
+    const self = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
+    let any = false
+    for (let i = 0; i < pile.value.length; i++) {
+      if (i != self && mimicHandIndex(byFoe, i) >= 0) {
+        any = true
+        break
+      }
+    }
+    if (!any) {
+      message.value = message.value + (byFoe ? ' 庄家拟饵：' : ' 拟饵：') + '手里没有跟堆上牌同花色的牌可变。'
+      return false
+    }
+    if (!byFoe) {
+      pilePick.value = SK_HANDREFLECT
+      pickStep.value = 0
+      pickCard.value = lastPlayed
+      pickSkills = skills
+      return true
+    }
+    // 庄家：照模拟器〈handreflect〉HR_ANY 的挑法 —— 堆上最深、他手里有同花色牌能变的那张；手里挑「现在钓得最浅」的那张来变
+    for (let at = 0; at < pile.value.length; at++) {
+      if (at == self) {
+        continue
+      }
+      let hi = -1
+      let worst = -1
+      for (let k = 0; k < foeHand.value.length; k++) {
+        if (!mimicOk(foeHand.value[k], at)) {
+          continue
+        }
+        const d = mirrorSelfDepth(cardVals(foeHand.value[k]), -1)
+        if (d > worst) {
+          worst = d
+          hi = k
+        }
+      }
+      if (hi >= 0) {
+        applyMimic(true, hi, at)
+        return false
+      }
+    }
+    return false
+  }
+  // 拟饵第二步：你挑中了自己第 index 张（−1 = 不变）
+  function onMimicHand(index : number) {
+    if (!mimicHandPending.value) {
+      return
+    }
+    if (index >= 0) {
+      if (index >= hand.value.length || !mimicOk(hand.value[index], mimicTarget)) {
+        // 不同花色 / J / 已经一样：点了不算，接着等
+        return
+      }
+      applyMimic(false, index, mimicTarget)
+    } else {
+      message.value = message.value + ' 拟饵：没变。'
+    }
+    const skills = mimicSkills
+    mimicHandPending.value = false
+    mimicTarget = -1
+    mimicSkills = [] as number[]
+    afterPlayRest(false, skills)
+  }
+  // 【电镜】的映照落地：打出的那张（已在堆上）点数变成 y 的（牌面、点数、点数卡都抄，花色不动），堆上那一格的快照一起改
+  function applyMirrorSelf(byFoe : boolean, y : PlainCard) {
+    if (lastPlayed == null) {
+      return
+    }
+    const card = lastPlayed!
+    card.rank = y.rank
+    card.value = y.value
+    card.extra = y.extra.slice(0)
+    const at = pileIndexOf(card)
+    if (at >= 0) {
+      const next = pileVals.value.slice(0)
+      next[at] = cardVals(card)
+      pileVals.value = next
+    }
+    message.value = message.value + (byFoe ? ' 庄家电镜：展示 ' : ' 电镜：展示 ') + cardName(y)
+      + '，打出的那张变成 ' + faceOfValue(y.value) + ' 点。'
+  }
+  // 庄家估「打出的那张按点数 v 能钓多深」：堆上（不含它自己）跟 v 相等或顺位差 1 的最深那张；钓不到 = 堆长（越小越深）
+  function mirrorSelfDepth(v : number[], self : number) : number {
+    for (let p = 0; p < pile.value.length; p++) {
+      if (p == self || pile.value[p].rank == JACK) {
+        continue
+      }
+      const theirs = pileValsAt(p)
+      if (anyEquals(v, theirs, 0) || magAdjN(v, theirs, 1)) {
+        return p
+      }
+    }
+    return pile.value.length
+  }
+  // 返回 true = 停下来等你挑了（onMirrorSelf 接着走 afterPlayRest）
+  function mirrorSelfFor(byFoe : boolean, skills : number[]) : boolean {
+    if (lastPlayed == null) {
+      return false
+    }
+    const mine = byFoe ? foeHand.value : hand.value
+    let any = false
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].rank != JACK) {
+        any = true
+        break
+      }
+    }
+    if (!any) {
+      return false
+    }
+    if (!byFoe) {
+      mirrorSelfSkills = skills
+      mirrorSelfPending.value = true
+      return true
+    }
+    // 庄家：挑能钓得最深的那张来展示；不比原点数更深就不展示（映照是「可以」）
+    const self = pileIndexOf(lastPlayed!)
+    let best = -1
+    let bestDepth = mirrorSelfDepth(cardVals(lastPlayed!), self)
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].rank == JACK) {
+        continue
+      }
+      const d = mirrorSelfDepth(cardVals(mine[i]), self)
+      if (d < bestDepth) {
+        bestDepth = d
+        best = i
+      }
+    }
+    if (best >= 0) {
+      applyMirrorSelf(true, mine[best])
+    }
+    return false
+  }
+  // 电镜：你挑中了自己第 index 张展示（−1 = 不展示）
+  function onMirrorSelf(index : number) {
+    if (!mirrorSelfPending.value) {
+      return
+    }
+    if (index >= 0) {
+      if (index >= hand.value.length || hand.value[index].rank == JACK) {
+        // J 点了不算，接着等
+        return
+      }
+      applyMirrorSelf(false, hand.value[index])
+    } else {
+      message.value = message.value + ' 电镜：没展示，那张牌不变。'
+    }
+    const skills = mirrorSelfSkills
+    mirrorSelfPending.value = false
+    mirrorSelfSkills = [] as number[]
+    afterPlayRest(false, skills)
+  }
   // 【感电】手里第一张能跟 target 配对的牌（同颜色、非 J、点数在顺位里、还没带正电）；没有返回 −1
   function inductHandIndex(byFoe : boolean, target : PlainCard) : number {
     const mine = byFoe ? foeHand.value : hand.value
@@ -10551,34 +10876,16 @@
         }
       }
     }
-    // 【零递】：给 ZERODRAFT_N（= 1，10-29 改过 2 又改回）张手牌贴【21 匹配】。你用的时候要挑，所以会停下来等（照冰雷），
-    // 一张一张挑；手里能贴的不够就贴到没有为止
+    // 【零递】〔2026-11-06 用户定：「置 0；手牌点数最大的 1 张牌带上【21 匹配】」〕—— 没得挑，所以不停人：
+    // 手里能贴的牌（非 J、有点数、还没贴过）里点数最大的那张贴上。原先「你挑、停下来等」那一路（zeroDraftPending）不再走，代码留着
     if (hasTrigger(skills, SK_ZERODRAFT) && askFirst(SK_ZERODRAFT)) {
       const mine = byFoe ? foeHand.value : hand.value
-      let room = 0
-      for (let i = 0; i < mine.length; i++) {
-        if (draftKeyable(mine[i])) {
-          room = room + 1
-        }
-      }
-      if (room > 0) {
-        if (!byFoe) {
-          zeroDraftLeft.value = room < ZERODRAFT_N ? room : ZERODRAFT_N
-          zeroDraftPending.value = true
-          return
-        }
-        let got = 0
-        for (let t = 0; t < ZERODRAFT_N; t++) {
-          const at = foeDraftKeyPick()
-          if (at < 0) {
-            break
-          }
-          draftKey.value = draftKey.value.concat([foeHand.value[at]])
-          got = got + 1
-        }
-        if (got > 0) {
-          message.value = message.value + ' 庄家零递：手里 ' + got + ' 张带上了 21 匹配。'
-        }
+      const at = zeroDraftMaxIndex(byFoe)
+      if (at >= 0) {
+        draftKey.value = draftKey.value.concat([mine[at]])
+        message.value = message.value + (byFoe ? ' 庄家零递：手里点数最大的那张带上了 21 匹配。' : ' 零递：' + cardName(mine[at]) + ' 带上了 21 匹配。')
+      } else {
+        message.value = message.value + (byFoe ? ' 庄家零递：' : ' 零递：') + '手里没有能贴 21 匹配的牌。'
       }
     }
     // 【升钩】〔2026-11-04〕：比它大 1 个顺位的 1 张手牌明置变成 J。符合的只有 1 张就直接变；
@@ -11455,8 +11762,8 @@
     if (!zeroDraftPending.value) {
       return
     }
-    if (index >= 0 && index < hand.value.length && !draftKeyable(hand.value[index])) {
-      // J / 无点数 / 贴过的点了不算，接着等
+    if (index >= 0 && index < hand.value.length && !zeroDraftOk(hand.value[index])) {
+      // J / 无点数 / 贴过的 / 跟堆底不同颜色的点了不算，接着等
       return
     }
     if (index >= 0) {
@@ -11466,7 +11773,7 @@
       // 还能贴、手里也还有能贴的 → 接着停着等下一张
       let room = 0
       for (let i = 0; i < hand.value.length; i++) {
-        if (draftKeyable(hand.value[i])) {
+        if (zeroDraftOk(hand.value[i])) {
           room = room + 1
         }
       }
@@ -12093,12 +12400,13 @@
   // 能对上堆上**最深**那张的优先（打出去收得最多）；都对不上就第一张没带冰的
   // 庄家的零递贴哪张：能贴的里头**点数最小**的（预算 = 21 − 它的点数，小的收得深）。
   // 照 md-sim 的 doDraftTag（多点数的牌按最小那个算）
-  function foeDraftKeyPick() : number {
+  // hueOnly（2026-11-06）：零递那一路只挑跟堆底同颜色的（zeroDraftOk）；别的调用点不传 = 照旧
+  function foeDraftKeyPick(hueOnly : boolean = false) : number {
     const mine = foeHand.value
     let best = -1
     let bestVal = 99
     for (let i = 0; i < mine.length; i++) {
-      if (!draftKeyable(mine[i])) {
+      if (hueOnly ? !zeroDraftOk(mine[i]) : !draftKeyable(mine[i])) {
         continue
       }
       const vals = cardVals(mine[i])
@@ -16251,6 +16559,16 @@
       onReflectHand(index)
       return
     }
+    // 拟饵第二步：点手牌是「让这张变成那张堆牌」
+    if (mimicHandPending.value) {
+      onMimicHand(index)
+      return
+    }
+    // 电镜：点手牌是「展示这张」
+    if (mirrorSelfPending.value) {
+      onMirrorSelf(index)
+      return
+    }
     // 感电第二步：点手牌是「给这张贴正电」
     if (inductHandPending.value) {
       onInductHand(index)
@@ -17609,6 +17927,11 @@
     inductHandPending.value = false
     inductTarget = null
     inductSkills = [] as number[]
+    mirrorSelfPending.value = false
+    mirrorSelfSkills = [] as number[]
+    mimicHandPending.value = false
+    mimicTarget = -1
+    mimicSkills = [] as number[]
     fadeTagPending.value = false
     backPending.value = false
     backTagPending.value = false
