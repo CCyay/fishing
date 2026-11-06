@@ -13,3 +13,9 @@ out-*.txt
 # 一次性探针（CRLF 那一轮：`^  \{$` 在 ripgrep 下返回 0 的查法）
 tools/md-sim/crlf-probe.txt
 tools/md-sim/crlf-fix.js
+
+# 〔2026-11-06 用户定「ignore 不推送的」〕量测输出也有**整个目录**的形状（`tools/md-sim/out-<什么>/`，一次一批），
+# 上面两条只认单个 .txt，挡不住目录 —— 而目录里还有 .js 副本（比如 out-align/rules.pre-patch.js）。
+tools/md-sim/out-*/
+# 模拟器的私用副本：另一个会话同时改 tools/md-sim 时，量数改在这儿跑（不进仓库）
+tools/md-sim-b/
