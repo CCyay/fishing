@@ -2279,6 +2279,18 @@ function printDraftTagDiag() {
     console.log('    发动 ' + pp.fires + ' 次：成对贴上 ' + pct(pp.paired / pp.fires) + ' · 只贴负电 ' + pct(pp.soloNeg / pp.fires)
       + ' · 那张正电手牌靠正负特殊匹配钓到 ' + pp.cashed + ' 次（' + pct(pp.cashed / Math.max(1, pp.paired)) + '）')
   }
+  // 〈swapstraight〉〔2026-11-09〕
+  const sw = R.PROTO_STAT.swapstraight
+  if (sw && sw.fires > 0) console.log('\n  ---- 诊断：〈swapstraight〉----\n    发动 ' + sw.fires + ' 次 · 凑成顺子 ' + sw.straightHit + ' 次（' + pct(sw.straightHit / sw.fires) + '），其中靠互换凑成 ' + sw.swapped + ' 次')
+  // 〈drawas〉〔2026-11-09〕
+  const da = R.PROTO_STAT.drawas
+  if (da && da.fires > 0) console.log('\n  ---- 诊断：〈drawas〉----\n    发动 ' + da.fires + ' 次 · 抽到 ' + da.drawn + ' · 变了点数 ' + da.set + ' · 凑成顺子 ' + da.straightHit + ' 次（' + pct(da.straightHit / da.fires) + '）')
+  // 〈pileas〉〔2026-11-09〕
+  const pa = R.PROTO_STAT.pileas
+  if (pa && pa.fires > 0) console.log('\n  ---- 诊断：〈pileas〉----\n    发动 ' + pa.fires + ' 次 · 抄了点数 ' + pa.copied + ' 次（' + pct(pa.copied / pa.fires) + '）· 凑成顺子 ' + pa.straightHit + ' 次（' + pct(pa.straightHit / pa.fires) + '）')
+  // 〈swapstep〉〔2026-11-09〕
+  const ss = R.PROTO_STAT.swapstep
+  if (ss && ss.fires > 0) console.log('\n  ---- 诊断：〈swapstep〉----\n    发动 ' + ss.fires + ' 次 · 换了点数 ' + ss.swapped + ' 次（' + pct(ss.swapped / ss.fires) + '）· 凑成顺子 ' + ss.straightHit + ' 次（' + pct(ss.straightHit / ss.fires) + '）')
   // 顺子匹配的打法 HOLDSTR〔2026-11-09〕
   const hs = R.PROTO_STAT.holdStr
   if (hs && hs.asked > 0) console.log('\n  ---- 诊断：顺子牌屯牌（HOLDSTR=' + process.env.HOLDSTR + '）----\n    比收成时问了 ' + hs.asked + ' 次，屯住 ' + hs.held + ' 次（' + pct(hs.held / hs.asked) + '）')
@@ -2322,6 +2334,13 @@ function printDraftTagDiag() {
     console.log('    叠了 ' + ly.merges + ' 次、叠下去 ' + ly.stackedCards + ' 张 · 叠完平均 ' + (ly.merges ? (ly.depthSum / ly.merges).toFixed(2) : '-') + ' 层（最深 ' + ly.depthMax + '）')
     console.log('    整叠收走：贴的人 ' + ly.wholeSelf + ' 次 / ' + ly.wholeSelfCards + ' 张 · 对手 ' + ly.wholeOpp + ' 次 / ' + ly.wholeOppCards + ' 张')
     console.log('    只剥一层：贴的人 ' + ly.peelSelf + ' 次 · 对手 ' + ly.peelOpp + ' 次 · 剥层时留在叠里 ' + ly.keptCards + ' 张')
+  }
+  // 〈drawrank〉〔2026-11-09〕
+  const dr = R.PROTO_STAT.drawrank
+  if (dr && dr.fires > 0) {
+    const ch = dr.fires - dr.jack - dr.noDraw
+    console.log('\n  ---- 诊断：〈drawrank〉抽 1 张、变成那张的点数 ----')
+    console.log('    发动 ' + dr.fires + ' 次 · 抽到 J（不变）' + dr.jack + ' · 牌库空 ' + dr.noDraw + ' · 变了的那些：点数平均 ' + (ch ? (dr.oldSum / ch).toFixed(2) : '-') + ' → ' + (ch ? (dr.newSum / ch).toFixed(2) : '-'))
   }
   // 〈burnhand〉「手牌都带上【燃烧】」〔2026-11-09〕
   const bh = R.PROTO_STAT.burnhand

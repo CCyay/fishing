@@ -615,7 +615,7 @@
     </view>
     <!-- 顺递：挑一张自己的手牌贴【顺子匹配】（照零递那块） -->
     <view v-if="flowDraftPending" class="tide-box">
-      <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
+      <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : flowDraftSk == SK_FLOWALL ? '传顺：它已经带上通配；点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
       <view class="tide-actions">
         <view id="ap-flowdraft-skip" class="tide-btn tide-btn-plain" @click="onFlowDraft(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
@@ -4199,7 +4199,7 @@
     }
     if (flowDraftPending.value) {
       return flowDraftSk.value == SK_FLOWPASS ? '你的回合 · 续流'
-        : (flowDraftSk.value == SK_STONELINE ? '你的回合 · 石顺' : '你的回合 · 顺递')
+        : (flowDraftSk.value == SK_STONELINE ? '你的回合 · 石顺' : flowDraftSk.value == SK_FLOWALL ? '你的回合 · 传顺' : '你的回合 · 顺递')
     }
     if (chainDraftPending.value) {
       return '你的回合 · 连递'
@@ -10680,14 +10680,8 @@
       && (hasTrigger(skills, SK_FLOWALL) || hasTrigger(skills, SK_STONELINE))) {
       addWild(lastPlayed!)
     }
-    // 【续流】前半句：它自己走【顺子匹配】，**当通配**（selfWild=true，跟伏流同一支）。
-    // 〔2026-11-09 用户定 desc 加「它带上【通配】」—— 原先 selfWild=false（跟顺子标签同一支）〕
-    // 排在伏流后面、顺子标签前面；凑成了从 TAIL_WADE 接着走（后半句贴标签在停人那一串）
-    if (from <= TAIL_FLOW && !hasTrigger(skills, SK_FLOW) && hasTrigger(skills, SK_FLOWPASS) && lastPlayed != null) {
-      if (straightCore(byFoe, skills, '续流', false, false, true)) {
-        return
-      }
-    } else if (from <= TAIL_FLOW && hasTrigger(skills, SK_FLOW)) {
+    // 〔2026-11-09 用户定续流换成「手牌都带上【顺子匹配】」：它自己不再走顺子（原「它带上【通配】；【顺子匹配】；…」这儿有一支 straightCore(…, '续流', …, true)，删了）〕
+    if (from <= TAIL_FLOW && hasTrigger(skills, SK_FLOW)) {
       if (straightFor(byFoe, skills)) {
         return
       }
@@ -10790,23 +10784,8 @@
       }
       message.value = message.value + (byFoe ? ' 庄家静电：你手里 ' : ' 静电：庄家手里 ') + n + ' 张带上了负电。'
     }
-    // ---------- 【传顺】：手牌都带上【顺子匹配】〔2026-10-30 上架〕----------
-    // 自动贴、不停人（没有挑的余地）。能贴的照 flowKeyable（J / 无点数 / 已贴过的跳过），
-    // 跟模拟器 flowTagAll（doFlowTag 循环）同一个口径
-    if (from <= TAIL_REST && hasTrigger(skills, SK_FLOWALL)) {
-      const mine = byFoe ? foeHand.value : hand.value
-      let n = 0
-      for (let i = 0; i < mine.length; i++) {
-        if (flowKeyable(mine[i])) {
-          flowKey.value = flowKey.value.concat([mine[i]])
-          n = n + 1
-        }
-      }
-      if (n > 0) {
-        message.value = message.value + (byFoe ? ' 庄家传顺：' : ' 传顺：')
-          + '手里 ' + n + ' 张带上了顺子匹配。'
-      }
-    }
+    // 〔【传顺】原先在这儿「手牌都带上【顺子匹配】」（自动贴、不停人）。2026-11-09 改成「它带上【通配】；1 张手牌带上【顺子匹配】」，
+    //   贴那 1 张挪到停人那一串（石顺后面，你挑 / 庄家 stoneLinePick）；「它带上【通配】」在 TAIL_FLOW 段最前面〕
     // ---------- 【满墙】：它和手里的牌都带【石墙】〔2026-10-29 上架 · 同日夜撤掉花色钥匙〕----------
     //
     // 打出的这张：当时已在堆上 → 直接 `addStone`（照模拟器 afterPlay）。
@@ -11125,23 +11104,21 @@
       }
       flowDraftWild(byFoe, key)
     }
-    // 【续流】后半句「1 张手牌带上【顺子匹配】」—— 前半句（它自己走顺子）在 TAIL_FLOW 那一段已经判过了。
-    // 挑法照顺递（共用 flowDraftPending 那块），只是挑完不贴通配
+    // 【续流】〔2026-11-09 用户定换效果：「手牌都带上【顺子匹配】」〕—— 照【传顺】那段自动贴、不停人（传顺另多「它带上【通配】」）。
+    //   原「它带上【通配】；【顺子匹配】；1 张手牌带上【顺子匹配】」的挑牌（flowDraftSk = SK_FLOWPASS 那一路）不再进；模板里那几句提示留着、走不到。
+    //   askFirst 留着：停人链回头重进 afterPlayTail 时别再贴一遍。模拟器：FLOWPASS_MODE=all（默认）
     if (hasTrigger(skills, SK_FLOWPASS) && askFirst(SK_FLOWPASS)) {
       const mine = byFoe ? foeHand.value : hand.value
-      let room = 0
+      let n = 0
       for (let i = 0; i < mine.length; i++) {
         if (flowKeyable(mine[i])) {
-          room = room + 1
+          flowKey.value = flowKey.value.concat([mine[i]])
+          n = n + 1
         }
       }
-      if (room > 0 && !byFoe) {
-        flowDraftSk.value = SK_FLOWPASS
-        flowDraftPending.value = true
-        return
-      }
-      if (room > 0 && doSlotTag(true)) {
-        message.value = message.value + ' 庄家续流：手里 1 张带上了顺子匹配。'
+      if (n > 0) {
+        message.value = message.value + (byFoe ? ' 庄家续流：' : ' 续流：')
+          + '手里 ' + n + ' 张带上了顺子匹配。'
       }
     }
     // 【石影】〔2026-10-30〕：它带上【石墙】；1 张手牌带上【花色匹配】（matchKey）。你用的时候要挑；庄家照 matchKeyPick
@@ -11212,6 +11189,22 @@
         if (at >= 0) {
           flowKey.value = flowKey.value.concat([foeHand.value[at]])
           message.value = message.value + ' 庄家石顺：手里 1 张带上了顺子匹配。'
+        }
+      }
+    }
+    // 【传顺】〔2026-11-09 改〕「它带上【通配】；1 张手牌带上【顺子匹配】」—— 贴那 1 张照石顺：你挑（flowDraftPending）、庄家 stoneLinePick
+    if (hasTrigger(skills, SK_FLOWALL) && askFirst(SK_FLOWALL)) {
+      if (!byFoe) {
+        if (flowKeyPick(false) >= 0) {
+          flowDraftSk.value = SK_FLOWALL
+          flowDraftPending.value = true
+          return
+        }
+      } else {
+        const at = stoneLinePick(true)
+        if (at >= 0) {
+          flowKey.value = flowKey.value.concat([foeHand.value[at]])
+          message.value = message.value + ' 庄家传顺：手里 1 张带上了顺子匹配。'
         }
       }
     }
@@ -12040,7 +12033,7 @@
     const sk = flowDraftSk.value
     // 只有顺递挑完还要给堆上贴通配；续流 / 石顺都不贴（石顺：用户定「别单独出现通配」）
     const pass = sk != SK_FLOWDRAFT
-    const name = sk == SK_FLOWPASS ? '续流' : (sk == SK_STONELINE ? '石顺' : '顺递')
+    const name = sk == SK_FLOWPASS ? '续流' : (sk == SK_STONELINE ? '石顺' : sk == SK_FLOWALL ? '传顺' : '顺递')
     flowDraftSk.value = -1
     let key : PlainCard | null = null
     if (index >= 0) {
@@ -17366,10 +17359,7 @@
     if (flowKeyOn(card)) {
       return flowKeyCount(card, byFoe)
     }
-    // 【续流】：它自己走顺子、不当通配 —— 估法跟顺子标签那张一样
-    if (hasTrigger(skills, SK_FLOWPASS)) {
-      return flowKeyCount(card, byFoe)
-    }
+    // 〔2026-11-09 续流换成「手牌都带上【顺子匹配】」，它自己不走顺子 —— 原来这儿按顺子标签估它，删了〕
     // 【易流】走的是 straightCore 同一条路，所以预估也共用 straightCount。
     //
     // ⚠ **模拟器那边漏这一行栽过一次，而症状完全是另一回事**：
