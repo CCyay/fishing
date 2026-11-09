@@ -317,6 +317,8 @@ const GUARD_FOE = 2
 const STACK_WARD = 0
 const STACK_BOOST = 1
 const STACK_BURIED = 2
+// 〈layer〉【堆叠】叠下去的牌（只被带【堆叠】的牌整叠收走，别的只收走一张 —— 哪一张看 LAYER_PEEL，默认最下面那张）
+const STACK_LAYER = 3
 
 // 两方用下标表示：0 = 你，1 = 庄家。
 // 源码里是 byFoe 布尔，所以 ME/FOE 和 !byFoe/byFoe 一一对应
@@ -765,6 +767,55 @@ const SKILLS = [
   //
   // 对照用户给的两件（只有障碍那一半）：+0.14 / −0.33
   { key: 'risehide', name: '〈risehide〉' },
+  //〈bignum〉「【大数】；手牌都带上【大数】」〔2026-11-06 · 用户给的新【大数】，要量 +N〕
+  //   新【大数】（用户原话）：「带上【大数】标签的非 0 点数牌点数 +N。【大数】牌打出时堆上全部带上【大数】」
+  //   —— 跟旧【大数】（照结冰：手里是钥匙、落堆才 +10、整堆不铺）不是一条规则。实现：
+  //   ① 它自己带大数（打出那一刻进 riseHand）；② 带大数的牌打出 → 落堆后、判定前**整堆**（含它自己）带上大数（protoOnLand 开头）；
+  //   ③ 然后手里剩下的牌都带上大数。N = RISE_TAG_N（默认 10）。0 点照旧不受影响（RISE_ZERO，用户原话「非 0」）。
+  //   带大数的牌打出时整堆都通上 → 这一手两边都是 +N，比的还是原点数（所以这一手照旧用 riseBlind 那条比原点数，等价）；
+  //   大数起作用在**之后**：没带大数的牌（对手的、我后来摸的）去对堆上带大数的牌差 N
+  //   诊断口 PROTO_STAT.bignum：charges（真铺了几次）/ tagged（铺上几张）/ handTagged
+  //   〔同日用户：「这个要用屯牌打法，堆上非大数牌越少越不要打」〕hold = 堆上没带大数、也不是 J 的牌至少 BIG_HOLD_K 张（默认 1）。BIG_HOLD_K=0 / SKILL_HOLD=0 = 不屯
+  //〈vault〉「必须收走 n 张以上，否则此牌及其底下的牌不被收走」〔2026-11-08 · 用户给的新机制，原型〕
+  //   读法：堆上带它的牌被某次收牌（任何路：普通 / J / 21 / 特殊 / 燃烧 / 抢牌）圈进来，而这次一共收不到 VAULT_N 张
+  //   → 它和它底下（下标更小）的牌都留在堆上，只收它上面那一截。标签不会被挡掉。实现在 harvestAt 开头（唯一计分漏斗）。
+  //   载体 VAULT_CARRY：self = 打出的这张自己带（落堆那一手豁免）/ bottom = 落堆时堆底那张带上 / hand = 手牌都带上（打出落堆才生效）
+  //   ⚠ AI 预判收几张、抢牌问价都看不见它（用的是截断前的张数）
+  //   诊断口 PROTO_STAT.vault：hits（圈进带标签的牌的收牌次数）/ blocked（不够 n 被截）/ kept（截下留堆的张数）/ blockMine / blockFoe（被截的是谁那一手）/ passMine / passFoe（够 n 收走了）
+  //   屯牌打法（用户同日：「x 是保护底下的牌，要堆上的牌大于 n 才打出」）：堆上 > VAULT_N 张才打；VAULT_HOLD=0 关掉对照
+  { key: 'vault', name: '〈vault〉', hold: process.env.VAULT_HOLD === '0' ? undefined : vaultReady },
+  //〈layer〉新机制【堆叠】+ 载体〔2026-11-09 · 用户给的原文〕：
+  //   机制：「打出时全场获得【堆叠】。匹配结束后，将所有的堆叠牌按顺序叠放到堆底的堆叠牌下方。
+  //         堆叠牌被收走时只会失去最上方的牌，只有被堆叠牌收走时才会整个堆叠被收走。」
+  //   技能：「【堆叠】；可以把堆上 1 张牌插入堆底；1 张手牌获得【堆叠】」
+  //   用户同日定的四处读法：技能牌自带【堆叠】；插入在匹配前、可以选它自己（= 这一手落堆底，接 playFor 的 sink）；
+  //   叠的顺序保持堆上原序（堆底那张是宿主，b1 紧贴它下面；LAYER_PEEL=top 时剥层先露 b1）；手牌标签可以贴 J。
+  //   我按字面定的：不是带【堆叠】的牌在收（含燃烧收火、过闸、守滩）一律只收走 1 张（2026-11-09 起默认最下面那张，见 LAYER_PEEL）；叠下去的牌身上的冰 / 火去掉（离开了堆），点数 / 花色留着。
+  //   实现：playFor 记 G.layerPlay（这一手是不是堆叠牌）+ layerInsertPick（穷举插哪张，按「这一手收几张」再按「宿主点数外面还剩几张」挑）；
+  //   protoOnLand 开头 layerOnLand（插 + 全场贴）；resolveMatch 外包 layerAfter（叠）；harvestAt 外包剥层；catchCountAt 外包给堆叠牌加整叠张数。
+  //   诊断口 PROTO_STAT.layer
+  { key: 'layer', name: '〈layer〉' },
+  //〈burnhand〉「手牌都带上【燃烧】」〔2026-11-09 · 用户：「量一下 手牌都带上【燃烧】」〕—— 照隔凌「手牌都带上【结冰】」，技能牌自己**不带**火。
+  //   走真【燃烧】那条路（addBurnHand → 落堆 burnHandOnLand → burnMarkStep 收火），不是〈marktag〉的代理标签 ——
+  //   台账八十一·丁「手牌 N 张带上【A】」是代理标签 + 修抢牌估算之前量的，不能拿来比。
+  //   J 默认**不贴**（照野火 burnTagOne）：带火的 J 打出去先走收火（排在 J 通吃前面），会把通吃变成只收带火的。BURNHAND_J=1 = 连 J 也贴
+  //   BURNHAND_DRAW=k：先抽 k 张再贴（同日「抽1张牌，手牌都带上【燃烧】」= 1）
+  //   诊断口 PROTO_STAT.burnhand：fires（发动次数）/ tagged（贴上几张）
+  { key: 'burnhand', name: '〈burnhand〉' },
+  //〈burnhue〉「【燃烧】；跟堆底同颜色的手牌全部带上【燃烧】」〔2026-11-09 · 用户〕—— 自带火照野火（burnMarkOn / burnMarkCount 认它），
+  //   贴火照〈burnhand〉同一个位置；「堆底」照传色 / 磁场：落堆之后读（空堆时就是它自己）。J 不贴（理由同〈burnhand〉）
+  //   BURNHUE_DRAW=1 = 「【燃烧】，抽1张牌，跟堆底同颜色的手牌全部带上【燃烧】」；〈burnhand〉的 BURNHAND_DRAWHUE=1 = 「手牌都带上【燃烧】，抽1张牌，若跟堆底同颜色则带上【燃烧】」
+  { key: 'burnhue', name: '〈burnhue〉' },
+  //〈layer2〉【堆叠】第二版〔2026-11-09 · 用户给的原文〕：
+  //   机制：「选择堆上 1 张牌，叠放在其上面或下面，也可以直接打出。叠放的牌被收走只收走最上面的牌，只有被叠放牌收走时才整个叠放被收走。」
+  //   技能：「【堆叠】，手牌都带上【堆叠】」（它自己带 + 打出时手里剩下的牌都贴上）
+  //   用户同日定的读法：「叠放牌」= 带【堆叠】的牌；叠在上面时从那一格判一次匹配（照净水 raiseMatch：往上往下找最远的同点数，收两者之间那一段）、
+  //   叠在下面不判；选中的那张已经是一叠时，「下面」= 整叠最底下；不带【堆叠】的 J 也只收走 1 张（同日改成「收走最下面 1 张」，见 LAYER_PEEL）。
+  //   跟〈layer〉共用：STACK_LAYER、剥层（harvestAt 外包）、整叠收（G.layer2Play 也算）、catchCountAt 的整叠张数。
+  //   AI（layer2Pick）：能收牌就挑收得最多的（直接打 / 叠上去判）；收不到就藏进「最上面那张点数外面剩得最少」的那一叠底下
+  //   （自己的点数更难钓时改叠在上面）。抢牌那一手强制直接打出。诊断口 PROTO_STAT.layer2（整叠 / 剥层仍记在 PROTO_STAT.layer）
+  { key: 'layer2', name: '〈layer2〉' },
+  { key: 'bignum', name: '〈bignum〉', hold: process.env.BIG_HOLD_K === '0' ? undefined : bigReady },
   // 【满潮】（2026-10-20 · 用户定）：**抽 1 张牌；场上和手牌都带上【大数】**
   //
   // 它是【藏凌】和【结凌】的**合体**，而那正好凑齐这个标签的两半：
@@ -1246,6 +1297,30 @@ const SKILLS = [
   //   「展示手牌」AI 不读 —— 数是上限。HMAX_DRAFT=0：关掉 21 匹配那半（拆两半用）
   // 〔2026-11-06 用户定上架：〈handmax〉→【亮底】（名字代起）。展示手牌 AI 不读〕
   { key: 'handmax', name: '亮底' },
+  //〈colorshift〉「展示任意张手牌，每有 1 张红牌顺位 +1，1 张黑牌顺位 −1（跳过 J）」〔2026-11-09 · 用户要评价；同日从「点数 ±1」改成顺位，CS_MODE=add 是第一版〕见 colorShiftPick。
+  //   读法：改的是它自己（打出的这张），顺位表同【正电】（CS_WRAP=0 不接 K→A）。J 也算一张红 / 黑（desc 没排除）。
+  //   AI 按「这一手收几张」挑，严格更好才展示（照映照可选档）。展示手牌 AI 不读 —— 数是上限
+  { key: 'colorshift', name: '〈colorshift〉' },
+  // 〔2026-11-09 用户定：〈colorshift〉做成词条【磁极】（K 接 A；J 能展示、算颜色；失去花色的牌不算红也不算黑）〕
+  //   colorshift = 〈pole〉「【磁极】」（key 不改，台账一百零一的数照旧可比）。下面四件是载体候选，见 poleOn / polePick / poleMark
+  { key: 'poletag', name: '〈poletag〉' },    // 1 张手牌带上【磁极】
+  { key: 'polepass', name: '〈polepass〉' },  // 【磁极】；1 张手牌带上【磁极】
+  // 〔2026-11-09 用户定上架「抽 2 张牌，【磁极】」= 【磁石】：POLEDRAW_N 默认 1 → 2（旋钮默认值 = 游戏里那件）〕
+  { key: 'poledraw', name: '磁石' },  // 抽 N 张牌；【磁极】
+  { key: 'polemark', name: '〈polemark〉' },  // 【磁极】；展示的牌带上【正电】
+  // 〔同日用户：「单纯的磁极比正电强，不能让自选手牌」—— 贴的那张改成抽上来的〕
+  { key: 'poledrawtag', name: '〈poledrawtag〉' },  // 抽 1 张牌，那张带上【磁极】〔2026-11-09 上架当天换掉：磁针改成〈polefail〉那一版，这件退回原型〕
+  { key: 'polepassdraw', name: '〈polepassdraw〉' },  // 【磁极】；抽 1 张牌，那张带上【磁极】
+  // 〔同日用户「评价：跟堆底同颜色的 1 张手牌带上【磁极】」〕堆底 = 落堆后、匹配前那张（堆空 = 它自己，照满墙）；失去花色不算同色
+  { key: 'polehue', name: '〈polehue〉' },
+  // 〔同日用户「跟堆底同花色的手牌都带上【磁极】」〕堆底口径同 polehue；同花色走 sameSuit（失去花色不算、两色并色）；J 不贴（不在顺位里，贴了也挪不动）
+  { key: 'polesuitall', name: '〈polesuitall〉' },
+  // 〔同日用户「跟堆底同颜色的手牌都带上【磁极】」〕同颜色比 isRedSuit（失去花色返回 NaN，=== 不成立）；J 不贴
+  { key: 'polecolorall', name: '磁场' },
+  // 〔同日用户「评价：【磁极】，匹配失败时抽 1 张牌，那张带上【磁极】」〕照电钩后半句（HOOK_FAIL=nomatch 同一个读法：被抢走不算失败）
+  { key: 'polefail', name: '磁针' },  // 〔2026-11-09 用户定：磁针改成这个效果〕
+  // 〔同日用户「评价 磁极，跟堆底同颜色的 1 张手牌带上磁极」〕= 〈pole〉+〈polehue〉：先挪自己、再贴（desc 顺序）
+  { key: 'polehuepass', name: '〈polehuepass〉' },  // 〔2026-11-09 用户定上架〕
   { key: 'reflectbottom', name: '〈reflectbottom〉' },
   { key: 'reflectsuit', name: '〈reflectsuit〉' },
   { key: 'reflectfoe', name: '〈reflectfoe〉' },
@@ -2188,9 +2263,10 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), HANDMAX: skAt('handmax'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), BIGNUM: skAt('bignum'), VAULT: skAt('vault'), HANDMAX: skAt('handmax'), COLORSHIFT: skAt('colorshift'), POLETAG: skAt('poletag'), POLEPASS: skAt('polepass'), POLEDRAW: skAt('poledraw'), POLEMARK: skAt('polemark'), POLEDRAWTAG: skAt('poledrawtag'), POLEPASSDRAW: skAt('polepassdraw'), POLEHUE: skAt('polehue'), POLESUITALL: skAt('polesuitall'), POLECOLORALL: skAt('polecolorall'), POLEFAIL: skAt('polefail'), POLEHUEPASS: skAt('polehuepass'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
+  LAYER: skAt('layer'), LAYER2: skAt('layer2'), BURNHAND: skAt('burnhand'), BURNHUE: skAt('burnhue'),
   HEAP: skAt('heap'), HEAPDRAFT: skAt('heapdraft'), BOTHDRAFT: skAt('bothdraft'), HEAPKEY: skAt('heapkey'), WALLSUIT: skAt('wallsuit'), WALLSEAL: skAt('wallseal'),
   // 2026-10-28 的三件 21 匹配原型（立项注释在 SK 表那三行上面）
   HOLDTAG: skAt('holdtag'), CHAINTAG: skAt('chaintag'), HUETAG: skAt('huetag'),
@@ -2822,6 +2898,7 @@ const FLOW_HAND = process.env.FLOW_HAND
 // 'score'（默认）—— 算分，它们是顺子的一部分
 // 'gone'  —— 离场但不算分（照凝水 / 净水「丢弃」那条先例）
 // 'deck'  —— **洗回牌库**
+// 'keep'  —— **留在手里**（参与判定、不收走）〔2026-11-09 用户定规则：「手牌可以参与顺子匹配，但不收走」〕
 //
 // ---- 'deck' 那一档是冲着一条规律去的 ----
 //
@@ -2872,6 +2949,8 @@ const FLOW_SWAP = process.env.FLOW_SWAP === '1'
 // **手牌补一开，它就重新有了可调空间**，而且它守的正是那条边界：
 // 「不然纯用手牌就能凑顺子，跟堆就脱钩了 —— 那样它不再是一件读堆的技能」。
 // 2 这一档要求顺子里至少两张来自堆上，是压「纯手牌凑」最直接的旋钮
+const STRAIGHT_HAND_J = process.env.STRAIGHT_HAND_J === '1'
+const STRAIGHT_TAKE_MIN = process.env.STRAIGHT_TAKE_MIN ? parseInt(process.env.STRAIGHT_TAKE_MIN, 10) : 0
 const FLOW_PILE_MIN = process.env.FLOW_PILE_MIN
   ? parseInt(process.env.FLOW_PILE_MIN, 10) : 1
 
@@ -3047,8 +3126,12 @@ const SWAPFLOW_N = process.env.SWAPFLOW_N ? parseInt(process.env.SWAPFLOW_N, 10)
 //   ⚠ desc「1 张手牌带上【顺子匹配】」和词条（10-19 起「不再自带通配」）都**没有**通配 —— 默认档是 desc↔实现不一致
 //   〔2026-10-30 用户定：默认改 **own**（「顺递 X 算错了，把【顺子匹配】默认带上了通配」）。源码 straightCore 同步加了 selfWild 参数〕
 const FLOW_KEY_SELF = process.env.FLOW_KEY_SELF || 'own'
-// 【顺子匹配】「匹配失败则带上【通配】」〔2026-10-30 用户定，规则〕。1 = 现行 / 0 = 之前（复现旧数用）
-const STRAIGHT_FAIL_WILD = process.env.STRAIGHT_FAIL_WILD !== '0'
+// 【顺子匹配】「匹配失败则带上【通配】」〔2026-10-30 用户定，规则〕。
+// 〔2026-11-09 用户定：词条去掉这句 → **默认翻成关**；STRAIGHT_FAIL_WILD=1 复现 10-30 ~ 11-09 的数〕
+const STRAIGHT_FAIL_WILD = process.env.STRAIGHT_FAIL_WILD === '1'
+// 〔2026-11-09 同一刀〕顺子匹配那几件各自「它带上【通配】」：续流（它自己判顺子时当通配，同伏流）、传顺、石顺（贴在堆上那张）。
+//   默认开 = 游戏里的样子；STRAIGHT_SKILL_WILD=0 复现之前（配 STRAIGHT_FAIL_WILD=1 = 11-09 之前那一档）
+const STRAIGHT_SKILL_WILD = process.env.STRAIGHT_SKILL_WILD !== '0'
 if (['wild', 'own'].indexOf(FLOW_KEY_SELF) < 0) throw new Error('FLOW_KEY_SELF 只能是 wild / own')
 // 〔2026-10-30 · 用户「设计下顺子匹配的技能」· 研究旋钮，默认档 = 游戏里的顺递 / 流钥〕
 //   `FLOW_KEY_STEP`：手牌标签那条顺子的步长（1 = 严格连号 = 现行 / 2 = 相邻差 2 也算）。只在 own 档生效
@@ -4562,7 +4645,8 @@ const STONEFULL_N = process.env.STONEFULL_N ? parseInt(process.env.STONEFULL_N, 
 // ⚠ 默认 2026-10-30 翻成 'bottom' = 游戏里的满墙（用户定削弱）。全手版 = STONEFULL_MATCH=all（复现 +4.87 那批）
 const STONEFULL_MATCH = process.env.STONEFULL_MATCH || 'bottom'
 // 石顺它自己带不带【通配】。⚠ 默认 2026-10-30 翻成**不带** = 游戏里的石顺（用户：「尽量不要有单独的通配出现」）；原案 = STONELINE_WILD=1
-const STONELINE_WILD = process.env.STONELINE_WILD === '1'
+// 〔2026-11-09 默认跟 STRAIGHT_SKILL_WILD 走（用户定石顺加【通配】）；STONELINE_WILD=0 / 1 显式覆盖〕
+const STONELINE_WILD = process.env.STONELINE_WILD === '1' || (process.env.STONELINE_WILD !== '0' && process.env.STRAIGHT_SKILL_WILD !== '0')
 if (['all', 'bottom', 'color', 'suit'].indexOf(STONEFULL_MATCH) < 0) throw new Error('STONEFULL_MATCH 只能是 all / bottom / color / suit')
 // ---- 【石涌】：贴完石再【推牌】N 层〔2026-10-26 第三稿，用户提的③〕----
 //
@@ -6119,6 +6203,7 @@ function newGame(opts) {
     suitKey: [],
     // 【磁吸】（原型 · 2026-11-05）：手里带它的那几张（对象引用，照 suitKey）
     magKey: [],
+    poleKey: [],
     // 【负电】（原型 · 2026-11-05）：手里带它的牌（对象引用）/ 堆上带它的牌（Set，牌离堆就不再查）
     negHand: [],
     negPile: new Set(),
@@ -10254,7 +10339,25 @@ function draftCatchAt(G, card, side, skills, sink, mine) {
   return reach
 }
 
+// 〔2026-11-06〕〈bignum〉AI 试算的修正：一张**还在手里**、带大数（或它自己触发〈bignum〉）的牌，打出时会铺满全堆 → 这一手比原点数（照 riseBlind）。
+//   真结算时那张已经离手（riseOnLand 摘了），这一层不起作用。只在新大数的对局里开（G.bigMode）——
+//   ⚠ 旧大数原型（蓄潮 / 满潮 …）的 AI 试算有同一个缺口（riseBlind 停在上一手），没改它们，免得旧数悄悄变
+// 〈bignum〉屯牌条件：堆上没带大数、也不是 J 的牌够不够 BIG_HOLD_K 张
+// 默认 1（2026-11-06 实测 K=1 最好：N=10 时 +1.52，K=2 起越屯越亏）
+const BIG_HOLD_K = process.env.BIG_HOLD_K !== undefined ? parseInt(process.env.BIG_HOLD_K, 10) : 1
+function bigReady(G, side, idx) {
+  let n = 0
+  for (let i = 0; i < G.pile.length; i++) if (G.pile[i].rank !== JACK && !riseTagAt(G, i)) n++
+  return n >= BIG_HOLD_K
+}
 function catchStart(G, card, side, skills, sink) {
+  // 〈colorshift〉：挪点数挂在这儿，出牌 / 抢牌 / AI 试算才走同一条路〔2026-11-09 修：原先只接了 playFor + ai.js，拿它抢牌时不挪〕
+  if (!G.csBusy && G.csDone !== card && poleOn(G, skills, card)) return colorShiftCatch(G, card, side, skills, sink)
+  if (!G.bigMode || !(riseOnHand(G, card) || has(skills, SK.BIGNUM)) || G.riseBlind) return catchStartCore(G, card, side, skills, sink)
+  G.riseBlind = true
+  try { return catchStartCore(G, card, side, skills, sink) } finally { G.riseBlind = false }
+}
+function catchStartCore(G, card, side, skills, sink) {
   // 【石手】block / both 档（原型）：手上带石的那张收不到牌。
   // 这儿报 −1 **只是为了让 AI 看得见它**（见 SHAND_SEEN 那段）——
   // 真实结算仍然走 `resolveMatch` 入口的 `stoneHandTake`，那条路一个字没动。
@@ -10894,6 +10997,137 @@ function reflectPick(G, side, card, skills, sink) {
   return { at: best, score: bestScore, own: own, jScore: jScore, cands: cands }
 }
 
+// 〈colorshift〉：手里（不含它自己）红牌 r 张、黑牌 b 张 → 它的点数沿顺位可以挪 d ∈ [−b, +r]（点数卡贴的那几个一起挪，见 colorShiftOne）。
+// 照 reflectScore：真改牌、调真正那条 catchStart、再改回来。严格更好才挪（d = 0 = 不展示），同分取 |d| 小的。
+// ai.js 调同一个函数（那边手牌多一张它自己，靠 hand[i] === card 排掉）
+// 〔同日用户改：「改成顺位 ±1，跳过 J」〕挪的是顺位（MAG_ORD，跟【正电】同一张表）。0 点 / 无点数 / >13 不在顺位里，不动。
+// CS_WRAP（默认开，照【正电】K 接 A）；CS_WRAP=0 = 到 A / K 就停（多亮的牌不起作用）。CS_MODE=add = 第一版（点数 ±1，减到 0 为止）
+const CS_WRAP = process.env.CS_WRAP !== '0'
+const POLEDRAW_N = process.env.POLEDRAW_N ? parseInt(process.env.POLEDRAW_N, 10) : 2
+const POLE_OFF = process.env.POLE_OFF === '1'
+const PDT_N = process.env.PDT_N ? parseInt(process.env.PDT_N, 10) : 1
+const PDT_PICK = process.env.PDT_PICK === 'best' ? 'best' : 'first'
+const CS_ADD = process.env.CS_MODE === 'add'
+function colorShiftOne(x, d) {
+  if (CS_ADD) return Math.max(0, x + d)
+  const at = MAG_ORD.indexOf(x)
+  if (at < 0) return x
+  const n = MAG_ORD.length
+  const to = CS_WRAP ? (((at + d) % n) + n) % n : Math.max(0, Math.min(n - 1, at + d))
+  return MAG_ORD[to]
+}
+function colorShiftVals(card, d) {
+  return { v: colorShiftOne(card.value, d), extra: card.extra.map(function (x) { return colorShiftOne(x, d) }) }
+}
+function colorShiftPick(G, side, card, skills, sink) {
+  const prev = G.csBusy
+  G.csBusy = true
+  try { return colorShiftPickCore(G, side, card, skills, sink) } finally { G.csBusy = prev }
+}
+// 试算时按「挑好的那一挪」判匹配点；牌改完立刻改回来（真改在 playFor 落堆前）
+// 这一张打出时带不带【磁极】：技能自带（〈pole〉= colorshift / polepass / poledraw / polemark）或手牌标签（poleKey）
+function poleOn(G, skills, card) {
+  if (G.poleKey && G.poleKey.indexOf(card) >= 0) return true
+  return has(skills, SK.COLORSHIFT) || has(skills, SK.POLEPASS) || has(skills, SK.POLEDRAW) || has(skills, SK.POLEMARK) || has(skills, SK.POLEPASSDRAW) || has(skills, SK.POLEFAIL) || has(skills, SK.POLEHUEPASS)
+}
+// 〈poletag〉/〈polepass〉贴哪张：不是 J、没贴过、点数在顺位里；贴上之后「现在打收几张」涨得最多的（照导电 magPick），一样多取第一张
+function polePick(G, side, card, hue, bsuit) {
+  const hand = G.hands[side]
+  let best = -1
+  let bestGain = -1
+  for (let i = 0; i < hand.length; i++) {
+    const c = hand[i]
+    if (c === card || c.rank === JACK || G.poleKey.indexOf(c) >= 0) continue
+    // hue（〈polehue〉）：只挑跟堆底同颜色的（isRedSuit 对失去花色返回 NaN，=== 不成立）
+    if (hue !== undefined && isRedSuit(c.suit) !== hue) continue
+    // bsuit（POLEHUE_MATCH=suit）：只挑跟堆底同花色的（sameSuit：失去花色不算、两色并色）
+    if (bsuit !== undefined && !sameSuit(G, c.suit, bsuit, side)) continue
+    const vals = cardVals(c)
+    let inOrd = false
+    for (let k = 0; k < vals.length; k++) if (MAG_ORD.indexOf(vals[k]) >= 0) inOrd = true
+    if (!inOrd) continue
+    const sk = skillsOf(G, side, c)
+    const a0 = catchStart(G, c, side, sk, false)
+    G.poleKey.push(c)
+    const a1 = catchStart(G, c, side, sk, false)
+    G.poleKey.pop()
+    const gain = (a1 >= 0 ? G.pile.length - a1 : 0) - (a0 >= 0 ? G.pile.length - a0 : 0)
+    if (gain > bestGain) { bestGain = gain; best = i }
+  }
+  return best
+}
+// 〈polemark〉：展示的那 |d| 张（d > 0 亮红、d < 0 亮黑）带上【正电】。先挑不是 J、没带正电的
+function poleMark(G, side, card, d) {
+  const wantRed = d > 0
+  let left = Math.abs(d)
+  const hand = G.hands[side]
+  for (let pass = 0; pass < 2 && left > 0; pass++) {
+    for (let i = 0; i < hand.length && left > 0; i++) {
+      const c = hand[i]
+      if (c === card || isRedSuit(c.suit) !== wantRed || G.magKey.indexOf(c) >= 0) continue
+      if (pass === 0 && c.rank === JACK) continue
+      G.magKey.push(c)
+      PROTO_STAT.colorshift.marked++
+      left--
+    }
+  }
+}
+function colorShiftCatch(G, card, side, skills, sink) {
+  const pick = colorShiftPick(G, side, card, skills, sink)
+  const prev = G.csBusy
+  const v0 = card.value
+  const e0 = card.extra
+  G.csBusy = true
+  try {
+    if (pick.d !== 0) {
+      const nv = colorShiftVals(card, pick.d)
+      card.value = nv.v
+      card.extra = nv.extra
+    }
+    return catchStart(G, card, side, skills, sink)
+  } finally {
+    card.value = v0
+    card.extra = e0
+    G.csBusy = prev
+  }
+}
+function colorShiftPickCore(G, side, card, skills, sink) {
+  // POLE_OFF=1（量具）：只关「挪点数」这一步（挑一挪一律不挪），抽牌 / 贴标签照常 —— 量「光抽牌」值多少（拆分用）。
+  //   ⚠ 第一版挂在 poleOn 上，连〈poledraw〉的抽牌（写在 poleOn 那个块里）一起关了，量出精确 0.00
+  if (POLE_OFF) { const own0 = reflectScore(G, side, card, skills, sink, card); return { d: 0, score: own0, own: own0, red: 0, black: 0 } }
+  const hand = G.hands[side]
+  let red = 0
+  let black = 0
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i] === card) continue
+    // 【失去花色】的牌不算红也不算黑（用户定）—— isRedSuit 对它返回 NaN
+    const r = isRedSuit(hand[i].suit)
+    if (r === true) red++
+    else if (r === false) black++
+  }
+  const own = reflectScore(G, side, card, skills, sink, card)
+  let best = 0
+  let bestScore = own
+  // 无点数不受增减（全局规则）
+  if (card.rank === BLANK_RANK) return { d: 0, score: own, own: own, red: red, black: black }
+  const v0 = card.value
+  const e0 = card.extra
+  for (let d = -black; d <= red; d++) {
+    if (d === 0) continue
+    const nv = colorShiftVals(card, d)
+    card.value = nv.v
+    card.extra = nv.extra
+    const score = reflectScore(G, side, card, skills, sink, card)
+    card.value = v0
+    card.extra = e0
+    if (score > bestScore || (score === bestScore && best !== 0 && Math.abs(d) < Math.abs(best))) {
+      bestScore = score
+      best = d
+    }
+  }
+  return { d: best, score: bestScore, own: own, red: red, black: black }
+}
+
 function playFor(G, side, index, ai) {
   noteHandStat(G, side, index)
   // 〈traitor〉：打的是叛变牌 → 记在持有人名下，这一手结算完（resolveMatch 外包里）兑现置 0
@@ -11001,6 +11235,8 @@ function playFor(G, side, index, ai) {
   const hookWas = ((HOOK_FAIL === 'fail' || HOOK_FAIL === 'nomatch') && has(skills, SK.HOOK)) ? G.stat.caught[side] : -1
   // 被抢：stealTry 记在**抢牌那一方**的下标上
   const hookSteals = G.stat.steal.stolen[side === ME ? FOE : ME]
+  // 〈polefail〉：同一个捕获点（这一手开头的收牌数）
+  const poleFailWas = has(skills, SK.POLEFAIL) ? G.stat.caught[side] : -1
   // 【点数互通】的诊断口 —— 记在**这儿**而不是 skillsOf 里：
   // `canCatch` 也调 skillsOf，而 AI 每手要试算十几次，记在那儿会把计数打爆
   if (linkOn(G, side) && hasAnyRankSlot(G.loadouts[side])) {
@@ -11184,7 +11420,18 @@ function playFor(G, side, index, ai) {
   const stowSink = STOW_SINK && has(skills, SK.STOW)
   const freezeSink = FREEZE_SINK && has(skills, SK.FREEZE)
   // 【偏流】（庄家规矩，照源码 playFor）：庄家打出的牌落堆底
-  const sink = iceSink || heldSink || stowSink || freezeSink || wantReverse(G, side, card, skills) || (side === FOE && foeRule(G, 'drift'))
+  // 〈layer〉这一手是不是堆叠牌（收叠时读）；载体那张先挑「插哪张到堆底」—— 挑自己 = 这一手落堆底（-1）
+  G.layerPlay = layerKey(G, side, card, skills)
+  G.layerIns = has(skills, SK.LAYER) ? layerInsertPick(G, side, card, skills) : -2
+  if (G.layerHand) G.layerHand.delete(card)
+  // 〈layer2〉这一手是不是堆叠牌；技能牌打出时手里剩下的牌都贴上
+  G.layer2Play = layer2Key(G, side, card, skills)
+  if (G.layer2Hand) G.layer2Hand.delete(card)
+  if (G.layer2Play) layer2Init(G)
+  if (has(skills, SK.LAYER2)) {
+    for (const c of G.hands[side]) if (G.layer2Hand.get(c) !== side) { G.layer2Hand.set(c, side); PROTO_STAT.layer2.handTagged++ }
+  }
+  const sink = iceSink || heldSink || stowSink || freezeSink || G.layerIns === -1 || wantReverse(G, side, card, skills) || (side === FOE && foeRule(G, 'drift'))
   // ---------- 【映照】：展示 1 张手牌，这张变成跟它相同（点数和花色）----------
   //
   // **位置是硬的，而它是被两头夹出来的**：
@@ -11244,6 +11491,84 @@ function playFor(G, side, index, ai) {
       G.jackPlay = card.rank === JACK
     }
   }
+  // 〈colorshift〉：变在落堆之前（跟映照同一个位置，理由同上）。只改 value / extra，牌面 rank 不动（槽已经按原牌面点过了）
+  // csDone：这张已经真挪过（或决定不挪），这一手后面的 catchStart 别再挪一次
+  G.csDone = null
+  if (poleOn(G, skills, card)) {
+    const st = PROTO_STAT.colorshift
+    if (G.stealing) st.steal++
+    if (G.poleKey.indexOf(card) >= 0) st.tagCashed++
+    // 〈poledraw〉「抽 1 张牌；【磁极】」：先抽，再挪（手里多一张 = 多一格可挪）。AI 挑牌时的试算看不到这一张（偏低）
+    // POLEDRAW_N（默认 2 = 【磁石】；1 = 台账一百零三那一档）：抽几张
+    if (has(skills, SK.POLEDRAW)) { for (let k = 0; k < POLEDRAW_N; k++) { if (G.deck.length > 0 && drawFor(G, side) !== null) st.drawn++ } }
+    st.fires++
+    const pick = colorShiftPick(G, side, card, skills, sink)
+    if (pick.d !== 0) {
+      const nv = colorShiftVals(card, pick.d)
+      card.value = nv.v
+      card.extra = nv.extra
+      st.changed++
+      if (pick.d > 0) st.up++
+      else st.down++
+      st.shown += Math.abs(pick.d)
+      st.gainSum += pick.score - pick.own
+      if (pick.own === 0) st.rescued++
+      if (has(skills, SK.POLEMARK)) poleMark(G, side, card, pick.d)
+    }
+    G.csDone = card
+  }
+  // 〈poledrawtag〉/〈polepassdraw〉：挪完再抽（desc 顺序），抽上来的那张带上【磁极】—— 不自选
+  // 〔同日用户「磁针：抽 2 张牌，其中 1 张带上【磁极】 量一下」〕PDT_N 抽几张（默认 1 = 游戏里的磁针）；
+  //   PDT_PICK=best：抽上来的里挑「贴上之后现在打收得最多」的那张（polePick 那把尺子，只看抽上来的）；first（默认）= 第一张（≈ 随机）
+  if ((has(skills, SK.POLEDRAWTAG) || has(skills, SK.POLEPASSDRAW)) && G.deck.length > 0) {
+    const n = has(skills, SK.POLEDRAWTAG) ? PDT_N : 1
+    const got = []
+    for (let k = 0; k < n; k++) {
+      const c = G.deck.length > 0 ? drawFor(G, side) : null
+      if (c !== null) { got.push(c); PROTO_STAT.colorshift.drawn++ }
+    }
+    let pick = got.length > 0 ? got[0] : null
+    if (PDT_PICK === 'best' && got.length > 1) {
+      let bestGain = -1
+      for (let k = 0; k < got.length; k++) {
+        const c = got[k]
+        if (c.rank === JACK) continue
+        const sk = skillsOf(G, side, c)
+        const a0 = catchStart(G, c, side, sk, false)
+        G.poleKey.push(c)
+        const a1 = catchStart(G, c, side, sk, false)
+        G.poleKey.pop()
+        const gain = (a1 >= 0 ? G.pile.length - a1 : 0) - (a0 >= 0 ? G.pile.length - a0 : 0)
+        if (gain > bestGain) { bestGain = gain; pick = c }
+      }
+    }
+    if (pick !== null) { G.poleKey.push(pick); PROTO_STAT.colorshift.tagged++ }
+  }
+  // 〈polehue〉：此刻 card 还没落堆 —— 堆空时落下去它就是堆底
+  if (has(skills, SK.POLEHUE) || has(skills, SK.POLEHUEPASS)) {
+    const bs0 = G.pile.length > 0 && !sink ? pileSuitAt(G, 0) : card.suit
+    const hue = isRedSuit(bs0)
+    // 〔同日用户「同花色也量一下」〕POLEHUE_MATCH=suit：同花色版
+    const at = process.env.POLEHUE_MATCH === 'suit' ? polePick(G, side, card, undefined, bs0) : (hue === hue ? polePick(G, side, card, hue) : -1)
+    if (at >= 0) { G.poleKey.push(G.hands[side][at]); PROTO_STAT.colorshift.tagged++ }
+  }
+  if (has(skills, SK.POLESUITALL) || has(skills, SK.POLECOLORALL)) {
+    // 落堆底（sink）时落下去它自己就是堆底 —— 跟源码（落堆之后取堆底）同口径
+    const bs = G.pile.length > 0 && !sink ? pileSuitAt(G, 0) : card.suit
+    const byColor = has(skills, SK.POLECOLORALL)
+    const hand = G.hands[side]
+    for (let i = 0; i < hand.length; i++) {
+      const c = hand[i]
+      if (c === card || c.rank === JACK || G.poleKey.indexOf(c) >= 0) continue
+      if (byColor ? isRedSuit(c.suit) !== isRedSuit(bs) : !sameSuit(G, c.suit, bs, side)) continue
+      G.poleKey.push(c)
+      PROTO_STAT.colorshift.tagged++
+    }
+  }
+  if (has(skills, SK.POLEPASS) || has(skills, SK.POLETAG)) {
+    const at = polePick(G, side, card)
+    if (at >= 0) { G.poleKey.push(G.hands[side][at]); PROTO_STAT.colorshift.tagged++ }
+  }
   // ---- 结冰那一族：自带冰的先进手冰表，豁免再从表里读 ----
   //
   // 两步分开是有意的：「自带【结冰】」= **打出时它在手里就带着** →
@@ -11280,6 +11605,10 @@ function playFor(G, side, index, ai) {
     && (process.env.RISEKEY_SLOT !== '1' || onMySlot(G, side, card))) {
     addRiseHand(G, card)
   }
+  // 〈bignum〉：它自己带大数；带大数的牌这一手打出要铺全堆（G.bigCharge，protoOnLand 开头兑现）
+  if (has(skills, SK.BIGNUM)) addRiseHand(G, card)
+  G.bigCharge = G.bigMode && riseOnHand(G, card)
+  if (has(skills, SK.BIGNUM)) { G.bigMode = true; G.bigCharge = true }
   G.riseBlind = riseOnHand(G, card)
   // ---------- 【净滩】（常驻技）：**堆空着时**你打出的牌无点数〔2026-10-16〕 ----------
   //
@@ -11322,16 +11651,19 @@ function playFor(G, side, index, ai) {
   // 一张牌只叠得到一个地方，而三件各要一次挑牌
   // 〈stackdraft〉也走这条路 —— 但**空堆时不叠、照常打出**（没有可垫的牌；
   // 照净水「也可以直接打出」那条，不照抬水的「白放」—— 那是原型这儿定的，desc 没写）
-  const stacking = has(skills, SK.CALM) || has(skills, SK.CLEAN)
+  // 〈layer2〉叠在上面 / 下面（null = 直接打出，走下面正常那一串）
+  const l2 = G.layer2Play && !G.stealing && G.pile.length > 0 ? layer2Pick(G, side, card, skills, sink) : null
+  if (G.layer2Play) { if (l2) PROTO_STAT.layer2[l2.mode]++; else PROTO_STAT.layer2.direct++ }
+  const stacking = !!l2 || has(skills, SK.CALM) || has(skills, SK.CLEAN)
     || has(skills, SK.RAISE) || has(skills, SK.DRAG)
     || (has(skills, SK.STACKDRAFT) && G.pile.length > 0 && stackAnyAnchor(G, card)
       && (STACK21_FALLBACK !== 'play' || stackDraftWorth(G, side, card)))
   // 【净水】〔2026-10-24 改，照源码〕：盖上去收得多就盖，不然**直接打出** ——
   // 直接打出就不进叠放这条路，落到下面正常出牌那一串（落堆、结冰规则、匹配）
-  const cleanOnly = stacking && !has(skills, SK.CALM) && has(skills, SK.CLEAN)
+  const cleanOnly = !l2 && stacking && !has(skills, SK.CALM) && has(skills, SK.CLEAN)
   const cleanAt = cleanOnly && G.pile.length > 0 ? cleanPick(G, side, card, skills, sink) : -1
   if (stacking && !(cleanOnly && cleanAt < 0)) {
-    const which = has(skills, SK.CALM) ? SK.CALM
+    const which = l2 ? SK.LAYER2 : has(skills, SK.CALM) ? SK.CALM
       : (has(skills, SK.CLEAN) ? SK.CLEAN
         : (has(skills, SK.RAISE) ? SK.RAISE
           : (has(skills, SK.DRAG) ? SK.DRAG : SK.STACKDRAFT)))
@@ -11350,9 +11682,10 @@ function playFor(G, side, index, ai) {
     // 它需要 calm 才犯，所以独苗 lockice 组（同样的庄家侧）一直在报喜。
     //
     // 「白放 = 离场」照旧（游戏语义不动），只是离场得进 G.waste 而不是蒸发。
-    const at = which === SK.CLEAN ? cleanAt
+    const at = l2 ? l2.at : which === SK.CLEAN ? cleanAt
       : (G.pile.length === 0 ? -1 : (G.sdCard = card, pilePick(G, which, side, step)))
-    if (at >= 0) doPilePick(G, which, at, side, step, card)
+    if (l2) layer2Do(G, l2, side, card)
+    else if (at >= 0) doPilePick(G, which, at, side, step, card)
     else G.waste.push(card)
     afterPlay(G, side, skills, card, ai)
     // ---- 这条路**照样走 resolveMatch**（照源码 afterPlayTail 末尾那一行）----
@@ -11369,7 +11702,8 @@ function playFor(G, side, index, ai) {
     // 叠放那条路也要接 chainAfterBurn —— **一张牌能同时触发两件技能**
     // （花色槽一件、点数槽一件），所以「凝水 + 传火」这种牌是可能的
     chainAfterBurn(G, side, skills, card, burnStep(G, side))
-    if (which !== SK.CLEAN) resolveMatch(G, side, card, skills, sink)
+    // 〈layer2〉叠在上面那一手照净水：已经从那一格判过，不再走 resolveMatch（它会把牌摘下来放回堆顶）
+    if (which !== SK.CLEAN && !(l2 && l2.mode === 'top')) resolveMatch(G, side, card, skills, sink)
     // 【留潮】的驻场那一句：**匹配之后**给刚打的那张贴【大数】。
     //
     // 排在 resolveMatch 后面是这一句的全部内容（「匹配后」）——
@@ -11529,6 +11863,11 @@ function playFor(G, side, index, ai) {
       const got = (HOOK_FAIL === 'nomatch' && wasStolen) ? null : drawFor(G, side)
       if (got !== null) { G.magKey.push(got); st.tagged++ }
     }
+  }
+  // 〈polefail〉：这一手没收到牌、而且不是被抢走 → 抽 1 张，那张带上【磁极】（照电钩 nomatch）
+  if (poleFailWas >= 0 && G.stat.caught[side] === poleFailWas && !(G.stat.steal.stolen[side === ME ? FOE : ME] > hookSteals)) {
+    const got = G.deck.length > 0 ? drawFor(G, side) : null
+    if (got !== null) { G.poleKey.push(got); PROTO_STAT.colorshift.tagged++; PROTO_STAT.colorshift.drawn++ }
   }
   if (holdWas >= 0) {
     const hst = PROTO_STAT.holdtag
@@ -11795,7 +12134,8 @@ function endPlay(G, side) {
 // 源码那边一直是 `function burnStep(byFoe, skills) : boolean` —— 这份副本
 // 原先不返回，**又一处静默漂移**。补上它是为了【传火】的 `noburn` 档
 //（没燃尽才连锁），而那一档需要在 burnStep **之后**才知道结果。
-function burnStep(G, side) {
+const burnStep = vaultGapWrap(burnStepCore)
+function burnStepCore(G, side) {
   // 新版【燃烧】没有蔓延、没有燃尽
   if (BURN_RULE === 'mark') return false
   spreadFire(G)
@@ -11943,6 +12283,33 @@ function icedIn(G, lo, hi) {
   return n
 }
 // 〔2026-11-05 量具〕NEG_NOSTEAL=1：【负电】不能用来抢牌 —— 整个抢牌过程（含抢牌那一手的结算、反抢）里堆上的负电都不起作用
+// 〔2026-11-09〕STEAL_REAL=0 复现改之前的抢牌估算：普通 / 特殊 / 当 J 三者取大、不认燃烧优先、不查「收不收得到对方那张」。默认开 = 现行规则（源码 stealGainOf 同步改了）
+const STEAL_REAL = process.env.STEAL_REAL !== '0'
+// 抢牌那张这一手收的牌里有没有对方刚打出的那张（G.keyNow）。
+//   普通匹配（含 21 / 正电钓负电）收「钓中那张 → 堆顶」一整段：那张的下标 >= at 就在里面；当 J 抢从 0 收起，一定在里面。
+//   特殊匹配 / 燃烧收火是间隔收：把那张临时拿下堆、用**同一个估算函数**再数一遍 —— 少了就是它在里面，没少就是这一下碰不到它
+//   （不另写一份「哪几张会被收」的判定，照「复制一份逻辑，两份必然分叉」）。
+//   ⚠ 顺子有并列最长的几条链时，「拿掉它还凑得出一样长的」会被判成不含它 —— 偏严，不会放过成对的情形
+function stealCovers(G, foe, c, sk, at, asJack, nSpecial, nBurn) {
+  const ai = G.keyNow ? G.pile.indexOf(G.keyNow) : -1
+  if (ai < 0) return true
+  // 那张带冰、抢牌这张又没有冰钥匙豁免 → 圈进来也收不走（不走也不计分），它跟配上的那张照样留在堆上（J 也挡）
+  if (frostAt(G, ai) && !stealIceKey(G, c, sk)) return false
+  if (asJack) return true
+  if (nSpecial > 0) return stealRecountWithout(G, ai, function () { return harvestCount(G, c, sk, foe, true) }) < nSpecial
+  if (nBurn > 0) return stealRecountWithout(G, ai, function () { return burnMarkCount(G, c, sk) }) < nBurn
+  return at >= 0 && ai >= at
+}
+// 抢牌这张打出时带不带冰钥匙（手里贴的，或者技能自带 —— 自带的这时还没进 frostHand，playFor 里才塞）
+function stealIceKey(G, c, sk) {
+  return (ICE_KEY && frostOnHand(G, c)) || selfFrost(sk)
+}
+function stealRecountWithout(G, ai, count) {
+  const arrs = [G.pile, G.pileByFoe, G.pileGuard, G.pileVals, G.pileSuit, G.pileBurn]
+  const saved = arrs.map(function (a) { return a[ai] })
+  for (const a of arrs) a.splice(ai, 1)
+  try { return count() } finally { arrs.forEach(function (a, k) { a.splice(ai, 0, saved[k]) }) }
+}
 function stealTry(G, side, myCount, myLo, myHi) {
   if (process.env.NEG_NOSTEAL !== '1' || G.negOff) return stealTryCore(G, side, myCount, myLo, myHi)
   G.negOff = true
@@ -12016,9 +12383,19 @@ function stealTryCore(G, side, myCount, myLo, myHi) {
       && (process.env.SJ_MODE !== 'vsjack' || !!G.jackPlay) && !(process.env.SJ_ONCE === '1' && G.sjUsed && G.sjUsed[foe])
     const sjTop = process.env.SJ_TOP ? parseInt(process.env.SJ_TOP, 10) : 0
     const nJack = sjOk ? (sjTop > 0 ? Math.min(G.pile.length, sjTop) + 1 : catchCountAt(G, c, foe, sk, 0)) : 0
-    let n = Math.max(nNormal, nSpecial, nJack)
-    // STEAL_ICE=real：抢牌方这张手里不带冰（没有豁免）→ 那一段里带冰的不算
-    if (STEAL_ICE === 'real' && n > 0 && !(ICE_KEY && frostOnHand(G, c)) && n !== nSpecial) {
+    // 〔2026-11-09 用户定〕估的必须是**真打出去会怎么收**。结算顺序 特殊匹配（顺子 / 花色 / 顺序 / 收零…）→ 燃烧收火 → 普通匹配（含 21、正电钓负电），
+    //   前一步收成了这张牌就走了、后面不再判。所以：特殊匹配收得到 → 只算它；否则带火且堆上已有别的火 → 只算收火那几张；否则普通匹配。
+    //   原先是三者取大 → 准抢之后真收的是另一批，被抢那一段没人收，堆上留下一对（pair-scan：野火单带 161 / 79130 步）。
+    //   当 J 抢那一支（〈stealjack〉，prJack）照旧取大 —— 变 J 之后不走特殊匹配 / 燃烧那两步
+    // 带冰钥匙的牌（手里带的 / 技能自带的）落堆时冰先贴、火后到 → 两个一起消失，而且全场贴冰把堆上的火也消了 —— 不会收火
+    const nBurn = STEAL_REAL && nSpecial <= 0 && !stealIceKey(G, c, sk) ? burnMarkCount(G, c, sk) : 0
+    const nReal = !STEAL_REAL ? Math.max(nNormal, nSpecial) : nSpecial > 0 ? nSpecial : (nBurn > 0 ? nBurn : nNormal)
+    let n = Math.max(nReal, nJack)
+    // 〔2026-11-09 用户定「抢牌需要把对方打出的匹配牌包含进去」〕收不到对方刚打出那张（G.keyNow）就不能拿这张抢 ——
+    //   不然那张跟它配上的牌一起留在堆上成对。判法见 stealCovers
+    if (STEAL_REAL && n > 0 && !stealCovers(G, foe, c, sk, at, n === nJack && nJack > nReal, nSpecial, nBurn)) { PROTO_STAT.stealCover.blocked++; continue }
+    // STEAL_ICE=real：抢牌方这张手里不带冰（没有豁免）→ 那一段里带冰的不算（收火那一下只收带火的，带冰的本来就不在里面）
+    if (STEAL_ICE === 'real' && n > 0 && !(ICE_KEY && frostOnHand(G, c)) && n !== nSpecial && nBurn === 0) {
       const lo = n === nJack ? 0 : at
       const cut = icedIn(G, lo, G.pile.length - 1)
       if (cut > 0) PROTO_STAT.stealIce.foeCut += cut
@@ -12105,7 +12482,8 @@ function stealTryCore(G, side, myCount, myLo, myHi) {
 // 堆上另有 0 点牌 → 连它自己收走全部 0 点牌；不成就留着当一张 0 点牌（valuesOf 已经给 [0]）。
 // 〔2026-10-30 从 resolveMatch 搬出来，afterPlay 在收色之后调 —— 源码 TAIL_ZERO 的位置。逻辑一字没改，
 //   只是它此刻还在堆上：原先是「摘下 → 判 → 压回堆顶收」，现在原地判、原地收（收的是同一批牌）〕
-function zeroHarvestStep(G, side, card, skills) {
+const zeroHarvestStep = vaultGapWrap(zeroHarvestStepCore)
+function zeroHarvestStepCore(G, side, card, skills) {
   const bzhSelf = has(skills, SK.BOTTOMHARVEST) && BZH_CASH === 'self'
   const zdrop = has(skills, SK.ZERODROP)
   if (!(G.zeroKey.indexOf(card) >= 0 || has(skills, SK.CMARK) || bzhSelf || zdrop)) return false
@@ -12147,6 +12525,7 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   markTagAfter(G, card)
   burnTagAfter(G, card, side)
   burnNextAfter(G, card)
+  layerAfter(G)
   // 〈rockself〉：结算完还在堆上 = 落堆了，贴上【顽石】
   if (G.rockPending) {
     if (G.pile.indexOf(G.rockPending) >= 0) { if (!G.rock) G.rock = new Set(); G.rock.add(G.rockPending); if (!G.rockAt) G.rockAt = new Map(); G.rockAt.set(G.rockPending, G.stat.plays[0] + G.stat.plays[1]); PROTO_STAT.rock.landed++ }
@@ -12772,6 +13151,7 @@ function dropKeys(G, card) {
   if (G.passKey) G.passKey = G.passKey.filter(function (c) { return c !== card })
   if (G.fadeKey) G.fadeKey = G.fadeKey.filter(function (c) { return c !== card })
   if (G.magKey) G.magKey = G.magKey.filter(function (c) { return c !== card })
+  if (G.poleKey) G.poleKey = G.poleKey.filter(function (c) { return c !== card })
   if (G.negHand) G.negHand = G.negHand.filter(function (c) { return c !== card })
 }
 
@@ -12844,7 +13224,8 @@ function suitMatchWanted(G, side, card, at0) {
   return hits >= SM_MIN ? wanted : null
 }
 
-function suitMatchFor(G, side, card) {
+const suitMatchFor = vaultGapWrap(suitMatchForCore)
+function suitMatchForCore(G, side, card) {
   const at0 = pileIndexOf(G, card)
   if (at0 < 0) return
   const d = keyDiag(G)
@@ -12900,7 +13281,13 @@ function dyeKeyPick(G, side, played) {
   return any
 }
 
+// 〈layer〉堆叠牌收到的叠是整叠：AI 预估 / 抢牌问价跟着加上叠底下的张数（别的牌收叠只算宿主 1 张，本来就对）
 function catchCountAt(G, card, side, skills, at) {
+  const n = catchCountAtCore(G, card, side, skills, at)
+  if (!G.layerMode || !(layerKey(G, side, card, skills) || layer2Key(G, side, card, skills))) return n
+  return n + layerUnderIn(G, at, G.pile.length - 1)
+}
+function catchCountAtCore(G, card, side, skills, at) {
   const base = G.pile.length - at + 1
   if (!stoneApplies(card, skills, G, side) || suitKeyAnchor(G, card, at, side)) return base
   const p = stoneHighest(G, at, G.pile.length - 1, side)
@@ -13163,7 +13550,368 @@ function bandOf(n) {
 //
 // 所以调用处**不能再拿 count 当收成** —— 那是这次搬叠放模型改动面最大的
 // 一处（finishCatch、floodFor 的统计都跟着改了）
+const VAULT_N = parseInt(process.env.VAULT_N || '3', 10)
+const VAULT_CARRY = process.env.VAULT_CARRY || 'self'
+// 〈vault〉照石墙族配钥匙（2026-11-08 · 用户：「用石墙的方式给它设计技能」）：none / hue（石影）/ line（石顺）/ order（〈wallorder〉）/ zero（〈wallzero〉）/ draft（零递那条：点数最大的 1 张带 21 匹配）/ wall（满墙：手牌跟堆底同颜色的带上【X】）
+const VAULT_KEY = process.env.VAULT_KEY || 'none'
+// 〈vault〉反过来（2026-11-09 · 用户：「不能收走超过 n 张，否则此牌及其底下的牌不被收走」）：VAULT_DIR=max —— 收走 > n 张才截；默认 min = 收不到 n 张才截
+const VAULT_DIR = process.env.VAULT_DIR || 'min'
+// 〈vault〉VAULT_GAP=exempt：照【石墙】—— 间隔匹配（顺子 / 花色 / 收色 / 收零）和燃烧不受【X】影响（2026-11-09 · 用户：「限制每次收牌的数量 → 堆上的牌变多 → 给非连续匹配的特殊匹配技能优势」）。默认 all = 用户原话（拦所有收牌）
+const VAULT_GAP = process.env.VAULT_GAP || 'all'
+if (['all', 'exempt'].indexOf(VAULT_GAP) < 0) throw new Error('VAULT_GAP 只能是 all / exempt')
+if (['min', 'max'].indexOf(VAULT_DIR) < 0) throw new Error('VAULT_DIR 只能是 min / max')
+if (['none', 'hue', 'line', 'order', 'zero', 'draft', 'wall'].indexOf(VAULT_KEY) < 0) throw new Error('VAULT_KEY 只能是 none / hue / line / order / zero / draft / wall')
+if (['self', 'bottom', 'hand'].indexOf(VAULT_CARRY) < 0) throw new Error('VAULT_CARRY 只能是 self / bottom / hand')
+// VAULT_HOLD=dump：只屯「钓不到、要垫在堆上」的那一手 —— 钓得到照常打（它被收走、标签用不上）
+function vaultReady(G, side, idx) {
+  if (G.pile.length > VAULT_N) return true
+  if (process.env.VAULT_HOLD !== 'dump') return false
+  const card = G.hands[side][idx]
+  return catchStart(G, card, side, skillsOf(G, side, card), false) >= 0
+}
+// 〈vault〉落堆：贴标签（G.vault: 牌 → 谁贴的）；这一手打出的牌自己豁免（G.vaultFresh）
+function vaultOnLand(G, side, skills, card) {
+  G.vaultFresh = null
+  if (!G.vault) { G.vault = new Map(); G.vaultHand = new Set() }
+  for (const c of Array.from(G.vault.keys())) if (G.pile.indexOf(c) < 0) G.vault.delete(c)
+  const mine = has(skills, SK.VAULT) && process.env.VAULT_NOTAG !== '1'
+  let tag = null
+  if (VAULT_CARRY === 'self' && mine) tag = card
+  if (G.vaultHand.has(card)) { tag = card; G.vaultHand.delete(card) }
+  if (VAULT_CARRY === 'hand' && mine) { tag = card; for (const c of G.hands[side]) G.vaultHand.add(c) }
+  if (tag) { G.vault.set(tag, side); G.vaultFresh = tag; PROTO_STAT.vault.tags++ }
+  if (VAULT_CARRY === 'bottom' && mine && G.pile.length > 0 && G.pile[0] !== card) {
+    if (!G.vault.has(G.pile[0])) PROTO_STAT.vault.tags++
+    G.vault.set(G.pile[0], side)
+  }
+}
+// 〈vault〉收牌截断：圈进的带标签的牌里最高那张（不含这一手刚落堆豁免的）；总数 < N → 它和它底下的都不收
+function vaultGapWrap(core) {
+  return function (G) {
+    const old = G.vaultGap
+    G.vaultGap = true
+    try { return core.apply(null, arguments) } finally { G.vaultGap = old }
+  }
+}
+function vaultApply(G, side, wanted) {
+  if (!G.vault || G.vault.size === 0) return
+  if (VAULT_GAP === 'exempt' && G.vaultGap) return
+  let n = 0, top = -1
+  for (let i = 0; i < G.pile.length; i++) {
+    if (!wanted[i]) continue
+    n++
+    if (G.vault.has(G.pile[i]) && G.pile[i] !== G.vaultFresh) top = i
+  }
+  if (top < 0) return
+  const st = PROTO_STAT.vault
+  st.hits++
+  if (VAULT_DIR === 'max' ? n <= VAULT_N : n >= VAULT_N) { if (side === G.vault.get(G.pile[top])) st.passMine++; else st.passFoe++; return }
+  st.blocked++
+  if (side === G.vault.get(G.pile[top])) st.blockMine++; else st.blockFoe++
+  for (let i = 0; i <= top; i++) if (wanted[i]) { wanted[i] = false; st.kept++ }
+}
+// ---------- 〈layer〉【堆叠】〔2026-11-09 原型，原文见 SKILLS 表那一行〕----------
+// 状态：G.layerTag（堆上带【堆叠】的牌）、G.layerHand（手牌标签：牌 → 哪一方的手）、
+//   叠底下的牌在 G.stacked（kind = STACK_LAYER，按数组顺序 = 剥层顺序）、G.layerSaved（叠下去时的点数 / 花色，露出来时还原）
+function layerKey(G, side, card, skills) {
+  return has(skills, SK.LAYER) || (!!G.layerHand && G.layerHand.get(card) === side)
+}
+// 下标在 [lo, hi] 的宿主底下压着几张【堆叠】牌
+function layerUnderIn(G, lo, hi) {
+  let n = 0
+  for (let k = 0; k < G.stacked.length; k++) {
+    if (G.stacked[k].kind !== STACK_LAYER) continue
+    const i = G.pile.indexOf(G.stacked[k].host)
+    if (i >= lo && i <= hi) n++
+  }
+  return n
+}
+// 这个点数外面还剩几张（看得见的都扣掉：自己手牌、堆上、叠底下、收走的）
+function layerOutside(G, side, rank) {
+  let seen = 0
+  for (const c of G.hands[side]) if (c.rank === rank) seen++
+  for (const c of G.pile) if (c.rank === rank) seen++
+  for (const s of G.stacked) if (s.card.rank === rank) seen++
+  for (const r of G.gone) if (r === rank) seen++
+  return (G.rankTotal[rank] || 0) - seen
+}
+// 六条并行数组一起挪（照 swapPileSlots）
+function layerMoveSlot(G, from, to) {
+  const arrs = [G.pile, G.pileByFoe, G.pileGuard, G.pileVals, G.pileSuit, G.pileBurn]
+  for (const a of arrs) { const v = a.splice(from, 1)[0]; a.splice(to, 0, v) }
+}
+// 一个选项的分：先比这一手收几张，再比「这一手结算完的宿主（堆底那张）点数外面还剩几张」—— 越少越难被对手剥
+function layerScore(G, side, card, skills, sink) {
+  const at = catchStart(G, card, side, skills, sink)
+  let n = 0
+  let hostRank = -1
+  if (at >= 0) {
+    if (sink) {
+      n = at + 2 + layerUnderIn(G, 0, at)
+      if (at + 1 < G.pile.length) hostRank = G.pile[at + 1].rank
+    } else {
+      n = catchCountAt(G, card, side, skills, at)
+      if (at > 0) hostRank = G.pile[0].rank
+    }
+  } else {
+    hostRank = sink || G.pile.length === 0 ? card.rank : G.pile[0].rank
+  }
+  return n * 100 - (hostRank >= 0 && hostRank !== JACK ? layerOutside(G, side, hostRank) : 0)
+}
+// 穷举：-2 = 不插 / -1 = 插它自己（落堆底）/ i = 把堆上第 i 张挪到堆底（牌此刻还没落堆）。打平取不插
+function layerInsertPick(G, side, card, skills) {
+  let best = -2
+  let bestS = layerScore(G, side, card, skills, false)
+  const s = layerScore(G, side, card, skills, true)
+  if (s > bestS) { bestS = s; best = -1 }
+  for (let i = 1; i < G.pile.length; i++) {
+    layerMoveSlot(G, i, 0)
+    const si = layerScore(G, side, card, skills, false)
+    layerMoveSlot(G, 0, i)
+    if (si > bestS) { bestS = si; best = i }
+  }
+  return best
+}
+// 落堆、判定之前：插堆底 → 全场贴【堆叠】；载体再给 1 张手牌贴（随机，J 也行 —— 用户定）
+function layerOnLand(G, side, skills, card) {
+  if (!G.layerPlay) return
+  if (!G.layerTag) { G.layerTag = new Set(); G.layerHand = G.layerHand || new Map(); G.layerSaved = new Map() }
+  G.layerMode = true
+  const st = PROTO_STAT.layer
+  st.charges++
+  G.layerBy = side
+  if (G.layerIns === -1) st.insSelf++
+  else if (G.layerIns >= 1 && G.layerIns < G.pile.length - 1) { layerMoveSlot(G, G.layerIns, 0); st.inserted++ }
+  else if (has(skills, SK.LAYER)) st.insNone++
+  for (const c of G.pile) if (!G.layerTag.has(c)) { G.layerTag.add(c); st.tagged++ }
+  if (has(skills, SK.LAYER)) {
+    const pool = G.hands[side].filter(function (c) { return G.layerHand.get(c) !== side })
+    if (pool.length > 0) { G.layerHand.set(pool[randInt(G.rng, pool.length)], side); st.handTagged++ }
+  }
+}
+// 匹配结束后：堆上带【堆叠】的牌按原序叠到最靠堆底那张底下（接在它已有那一叠的后面）
+function layerAfter(G) {
+  if (!G.layerTag || G.layerTag.size === 0) return
+  for (const c of Array.from(G.layerTag)) if (G.pile.indexOf(c) < 0) G.layerTag.delete(c)
+  const idx = []
+  for (let i = 0; i < G.pile.length; i++) if (G.layerTag.has(G.pile[i])) idx.push(i)
+  if (idx.length < 2) return
+  const host = G.pile[idx[0]]
+  const moved = []
+  for (let k = 1; k < idx.length; k++) {
+    const c = G.pile[idx[k]]
+    G.layerSaved.set(c, { vals: rawVals(G, idx[k]), suit: pileSuitAt(G, idx[k]) })
+    moved.push(c)
+    // 它自己已经是一叠的宿主（堆底被插进新牌、或剥层后底下又贴上了标签）→ 那一叠按原序跟在它后面一起叠过去
+    G.stacked = G.stacked.filter(function (s) {
+      if (s.host === c && s.kind === STACK_LAYER) { moved.push(s.card); return false }
+      return true
+    })
+  }
+  for (let k = idx.length - 1; k >= 1; k--) {
+    const c = G.pile[idx[k]]
+    cleanAt0(G, c)
+    G.layerTag.delete(c)
+    removePileAt(G, idx[k])
+  }
+  for (const c of moved) G.stacked.push({ host: host, card: c, kind: STACK_LAYER })
+  const st = PROTO_STAT.layer
+  st.merges++
+  st.stackedCards += moved.length
+  const depth = layerUnderIn(G, 0, G.pile.length - 1) + 1
+  st.depthSum += depth
+  if (depth > st.depthMax) st.depthMax = depth
+}
+// ---------- 〈layer2〉【堆叠】第二版：叠在某张上面 / 下面，也可以直接打出 ----------
+function layer2Key(G, side, card, skills) {
+  return has(skills, SK.LAYER2) || (!!G.layer2Hand && G.layer2Hand.get(card) === side)
+}
+function layer2Init(G) {
+  if (!G.layer2Hand) G.layer2Hand = new Map()
+  if (!G.layerSaved) G.layerSaved = new Map()
+  G.layerMode = true
+}
+// 叠在第 i 张上面、从那一格判（照 raiseMatch）能收几张：那一段的格数 + 被盖住那张 + 段里每一叠底下的（堆叠牌收整叠）
+function layer2TopCount(G, side, worth, i) {
+  let far = -1
+  let hit = -1
+  for (let k = 0; k < G.pile.length; k++) {
+    if (k === i || guardedAgainst(G, k, side)) continue
+    if (!anyEquals(worth, pileValsAt(G, k), 0)) continue
+    const d = k > i ? k - i : i - k
+    if (d > far) { far = d; hit = k }
+  }
+  if (hit < 0) return 0
+  const lo = hit < i ? hit : i
+  const hi = hit < i ? i : hit
+  return (hi - lo + 1) + 1 + layerUnderIn(G, lo, hi)
+}
+function layer2Pick(G, side, card, skills, sink) {
+  const at = catchStart(G, card, side, skills, sink)
+  let bestN = at < 0 ? 0 : catchCountAt(G, card, side, skills, at)
+  let best = null
+  const worth = landVals(G, card, [], false)
+  for (let i = 0; i < G.pile.length; i++) {
+    const n = layer2TopCount(G, side, worth, i)
+    if (n > bestN) { bestN = n; best = { mode: 'top', at: i } }
+  }
+  if (bestN > 0) return best
+  // 收不到：藏进一叠底下 —— 挑最上面那张点数外面剩得最少的（打平取底下压得多的）；自己的点数更难钓就盖在上面
+  let pick = -1
+  let low = 99
+  let deep = -1
+  for (let i = 0; i < G.pile.length; i++) {
+    if (G.pile[i].rank === JACK) continue
+    const o = layerOutside(G, side, G.pile[i].rank)
+    const d = layerUnderIn(G, i, i)
+    if (o < low || (o === low && d > deep)) { low = o; deep = d; pick = i }
+  }
+  if (pick < 0) return null
+  if (card.rank !== JACK && layerOutside(G, side, card.rank) < low) return { mode: 'top', at: pick }
+  return { mode: 'under', at: pick }
+}
+function layer2Do(G, l2, side, card) {
+  const st = PROTO_STAT.layer2
+  const i = l2.at
+  const host = G.pile[i]
+  G.layerBy = side
+  // 这张不走 pushPile（不触发 frostOnLand / burnHandOnLand），它手里带着的冰钥匙 / 火种照「叠下去去掉冰火」一并摘掉，不然挂在手牌表里漏账
+  G.frostHand = G.frostHand.filter(function (c) { return c !== card })
+  G.burnHand = G.burnHand.filter(function (c) { return c !== card })
+  if (l2.mode === 'under') {
+    G.stacked.push({ host: host, card: card, kind: STACK_LAYER })
+    return
+  }
+  // 叠在上面：它占住那一格，被盖住的那张连同它底下那一叠按原序压到它下面
+  const unders = []
+  G.stacked = G.stacked.filter(function (s) {
+    if (s.host === host && s.kind === STACK_LAYER) { unders.push(s.card); return false }
+    return true
+  })
+  G.layerSaved.set(host, { vals: rawVals(G, i), suit: pileSuitAt(G, i) })
+  G.stacked.push({ host: card, card: host, kind: STACK_LAYER })
+  for (const c of unders) G.stacked.push({ host: card, card: c, kind: STACK_LAYER })
+  cleanAt0(G, host)
+  G.pile[i] = card
+  G.pileVals[i] = landVals(G, card, [], false)
+  G.pileSuit[i] = card.suit
+  G.pileByFoe[i] = side === FOE
+  G.pileBurn[i] = 0
+  G.pileGuard[i] = GUARD_NONE
+  const hit = raiseMatch(G, i, side)
+  if (hit < 0) return
+  st.topHit++
+  const lo = hit < i ? hit : i
+  const hi = hit < i ? i : hit
+  const wanted = []
+  for (let k = 0; k < G.pile.length; k++) wanted.push(k >= lo && k <= hi)
+  st.topGot += harvestPile(G, side, wanted)
+}
+function layerPeelPrep(G, side, wanted) {
+  if (!G.layerMode) return null
+  const whole = !!(G.layerPlay || G.layer2Play) && !G.tolling && !G.guarding
+  const st = PROTO_STAT.layer
+  let out = null
+  for (let i = 0; i < G.pile.length; i++) {
+    if (!wanted[i] || blockedAt(G, i)) continue
+    const h = G.pile[i]
+    let n = 0
+    for (const s of G.stacked) if (s.host === h && s.kind === STACK_LAYER) n++
+    if (n === 0) continue
+    if (whole) {
+      if (side === G.layerBy) { st.wholeSelf++; st.wholeSelfCards += n + 1 } else { st.wholeOpp++; st.wholeOppCards += n + 1 }
+      continue
+    }
+    const under = []
+    G.stacked = G.stacked.filter(function (s) {
+      if (s.host === h && s.kind === STACK_LAYER) { under.push(s.card); return false }
+      return true
+    })
+    if (side === G.layerBy) st.peelSelf++; else st.peelOpp++
+    if (!out) out = []
+    if (LAYER_PEEL === 'bottom') {
+      // 收走最下面那张：把它临时换进宿主那一格让 harvestAtCore 照常收（记 1 张），宿主连同剩下的叠收完再放回原位
+      const bottom = under.pop()
+      st.keptCards += under.length + 1
+      out.push({ bottom: bottom, host: h, under: under, below: G.pile.slice(0, i), byFoe: G.pileByFoe[i], guard: G.pileGuard[i],
+        vals: rawVals(G, i), suit: pileSuitAt(G, i), burn: pileBurnAt(G, i), held: G.held.filter(function (x) { return x.source === h }) })
+      G.pile[i] = bottom
+      continue
+    }
+    st.keptCards += under.length
+    out.push({ host: h, under: under, below: G.pile.slice(0, i), byFoe: G.pileByFoe[i] })
+  }
+  return out
+}
+// 〈layer〉〈layer2〉剥哪一张：bottom = 收走最下面那张、最上面那张留在原位（2026-11-09 用户定：露出新牌会让堆上出现对子）/ top = 收走最上面那张、下一张露出来（之前两次实测的档）
+const LAYER_PEEL = process.env.LAYER_PEEL || 'bottom'
+if (['bottom', 'top'].indexOf(LAYER_PEEL) < 0) throw new Error('LAYER_PEEL 只能是 bottom / top')
+// bottom 档：宿主放回去（它的点数 / 花色 / 火 / 在场效果原样），剩下的叠接回它底下
+function layerPeelRestoreBottom(G, p) {
+  const j = G.pile.indexOf(p.bottom)
+  let pos = j
+  if (j >= 0) {
+    // 最下面那张没被收走（被别的规则截下）→ 换回宿主，整叠原样挂回
+    p.under.push(p.bottom)
+  } else {
+    pos = 0
+    for (let k = p.below.length - 1; k >= 0; k--) {
+      const b = G.pile.indexOf(p.below[k])
+      if (b >= 0) { pos = b + 1; break }
+    }
+    G.pile.splice(pos, 0, p.host)
+    G.pileByFoe.splice(pos, 0, p.byFoe)
+    G.pileGuard.splice(pos, 0, p.guard)
+    G.pileVals.splice(pos, 0, p.vals)
+    G.pileSuit.splice(pos, 0, p.suit)
+    G.pileBurn.splice(pos, 0, p.burn)
+  }
+  if (j >= 0) {
+    G.pile[pos] = p.host
+    G.pileByFoe[pos] = p.byFoe
+    G.pileGuard[pos] = p.guard
+    G.pileVals[pos] = p.vals
+    G.pileSuit[pos] = p.suit
+    G.pileBurn[pos] = p.burn
+  }
+  // 宿主临时离堆时 expireHeld 会摘掉它名下的在场效果（冰等），原样补回
+  for (const x of p.held) if (G.held.indexOf(x) < 0) G.held.push(x)
+  for (const c of p.under) G.stacked.push({ host: p.host, card: c, kind: STACK_LAYER })
+}
+function layerPeelRestore(G, peel) {
+  if (!peel) return
+  for (const p of peel) {
+    if (p.bottom) { layerPeelRestoreBottom(G, p); continue }
+    // 宿主没走（被别的规则截下）→ 原样挂回去
+    if (G.pile.indexOf(p.host) >= 0) {
+      for (const c of p.under) G.stacked.push({ host: p.host, card: c, kind: STACK_LAYER })
+      continue
+    }
+    let pos = 0
+    for (let k = p.below.length - 1; k >= 0; k--) {
+      const j = G.pile.indexOf(p.below[k])
+      if (j >= 0) { pos = j + 1; break }
+    }
+    const top = p.under[0]
+    const saved = G.layerSaved.get(top)
+    G.layerSaved.delete(top)
+    G.pile.splice(pos, 0, top)
+    G.pileByFoe.splice(pos, 0, p.byFoe)
+    G.pileGuard.splice(pos, 0, GUARD_NONE)
+    G.pileVals.splice(pos, 0, saved ? saved.vals : cardVals(top))
+    G.pileSuit.splice(pos, 0, saved ? saved.suit : top.suit)
+    G.pileBurn.splice(pos, 0, 0)
+    if (G.layerTag) G.layerTag.add(top)
+    for (let k = 1; k < p.under.length; k++) G.stacked.push({ host: top, card: p.under[k], kind: STACK_LAYER })
+  }
+}
+// 〈layer〉剥层外包：不是堆叠牌在收 → 叠底下的牌先摘出来，宿主照常收走（1 张），收完把下一张接回宿主原来的位置
 function harvestAt(G, side, wanted) {
+  vaultApply(G, side, wanted)
+  const peel = layerPeelPrep(G, side, wanted)
+  try { return harvestAtBody(G, side, wanted) } finally { layerPeelRestore(G, peel) }
+}
+function harvestAtBody(G, side, wanted) {
   // 〈turncoat〉：叛变牌打出的这一手，收到的牌归对方
   if (G.turncoatPlay && G.turncoatPlay.from === side) {
     side = G.turncoatPlay.to
@@ -14235,7 +14983,8 @@ const MARK_RULE = process.env.MARK_RULE || 'v3'
 const MARK_SELF = process.env.MARK_SELF || 'take'
 if (['v1', 'v3'].indexOf(MARK_RULE) < 0) throw new Error('MARK_RULE 只能是 v1 / v3')
 if (['take', 'stay'].indexOf(MARK_SELF) < 0) throw new Error('MARK_SELF 只能是 take / stay')
-function markStep3(G, side, card, skills) {
+const markStep3 = vaultGapWrap(markStep3Core)
+function markStep3Core(G, side, card, skills) {
   if (MARK_RULE !== 'v3') return
   if (G.markPile) G.markPile.delete(card)
   if (!markOn(G, card, skills)) return
@@ -14268,13 +15017,23 @@ function markStep3(G, side, card, skills) {
 //   BURN_RULE=spread KINDLE_MATCH=color KINDLE_DRAW=0 FUEL_EMPTY=0
 // KINDLE_MATCH：eachsuit（**默认 = 游戏里**：手牌每种花色各 1 张）/ offbottom（跟堆底不同花色）/ color（旧：跟堆底同颜色，走 KINDLE_HUE 那一支）
 const KINDLE_MATCH = process.env.KINDLE_MATCH || 'eachsuit'
+// 〔2026-11-09〕引火 / 野火换效果（用户定），旧版用这两个旋钮复现：KINDLE_MODE=eachsuit、WILD_MODE=one
+// 〔同日再改，用户「改成 手牌都带上【燃烧】」〕默认 all = 游戏里；allhue = 上一版「手牌都带上【燃烧】，抽 1 张牌，若跟堆底同颜色则带上【燃烧】」；eachsuit = 再上一版
+const KINDLE_MODE = process.env.KINDLE_MODE || 'all'
+if (['all', 'allhue', 'eachsuit'].indexOf(KINDLE_MODE) < 0) throw new Error('KINDLE_MODE 只能是 all / allhue / eachsuit')
+const WILD_MODE = process.env.WILD_MODE || 'hue'
+// 〔2026-11-09 · 用户「野火 要怎么削弱」〕三个削法量具（默认 = 现行野火）：
+//   WILD_DRAW=1 先抽 1 张（上一版；默认不抽 = 现行）/ WILD_ORDER=after（配 WILD_DRAW=1） 贴完再抽（抽到的不贴）/ WILD_MATCH=suit 同花色才贴 / WILD_NOSELF=1 它自己不带火
+const WILD_NOSELF = process.env.WILD_NOSELF === '1'
+if (['hue', 'one'].indexOf(WILD_MODE) < 0) throw new Error('WILD_MODE 只能是 hue / one')
 if (['eachsuit', 'offbottom', 'color'].indexOf(KINDLE_MATCH) < 0) throw new Error('KINDLE_MATCH 只能是 eachsuit / offbottom / color')
 const BURN_RULE = process.env.BURN_RULE || 'mark'
 if (['spread', 'mark'].indexOf(BURN_RULE) < 0) throw new Error('BURN_RULE 只能是 spread / mark')
 function burnMarkOn(G, card, skills, at) {
-  return (at >= 0 && pileBurnAt(G, at) > 0) || has(skills, SK.WILD) || has(skills, SK.BURNNEXT)
+  return (at >= 0 && pileBurnAt(G, at) > 0) || (has(skills, SK.WILD) && !WILD_NOSELF) || has(skills, SK.BURNNEXT) || has(skills, SK.BURNHUE)
 }
-function burnMarkStep(G, side, card, skills) {
+const burnMarkStep = vaultGapWrap(burnMarkStepCore)
+function burnMarkStepCore(G, side, card, skills) {
   if (BURN_RULE !== 'mark') return
   const at = pileIndexOf(G, card)
   if (at < 0 || !burnMarkOn(G, card, skills, at)) return
@@ -14388,7 +15147,8 @@ function burnAllReady(G, side, idx) {
   for (let i = 0; i < G.pile.length; i++) if (pileBurnAt(G, i) > 0) return true
   return false
 }
-function burnAllFor(G, side, played) {
+const burnAllFor = vaultGapWrap(burnAllForCore)
+function burnAllForCore(G, side, played) {
   const st = PROTO_STAT.burnmark
   st.allFires++
   const at = pileIndexOf(G, played)
@@ -14442,7 +15202,7 @@ function burnTagOne(G, side, quiet) {
 function burnMarkCount(G, card, skills) {
   if (BURN_RULE !== 'mark') return 0
   // 〈burnif〉：堆上有火时它自带火 —— 没火时下面那个 n 是 0，自然返回 0
-  if (!burnOnHand(G, card) && !has(skills, SK.WILD) && !has(skills, SK.BURNIF) && !has(skills, SK.BURNNEXT)) return 0
+  if (!burnOnHand(G, card) && !(has(skills, SK.WILD) && !WILD_NOSELF) && !has(skills, SK.BURNIF) && !has(skills, SK.BURNNEXT) && !has(skills, SK.BURNHUE)) return 0
   let n = 0
   for (let i = 0; i < G.pile.length; i++) if (pileBurnAt(G, i) > 0) n++
   return n > 0 ? n + 1 : 0
@@ -14475,7 +15235,8 @@ function markCount(G, card, skills) {
   if (MARK_RULE === 'v3' && MARK_SELF === 'take' && n > 0) n++
   return n
 }
-function markStep(G, side, card, skills) {
+const markStep = vaultGapWrap(markStepCore)
+function markStepCore(G, side, card, skills) {
   if (MARK_RULE !== 'v1') return
   if (G.markPile) G.markPile.delete(card)
   if (!markOn(G, card, skills)) return
@@ -14869,8 +15630,37 @@ function hold21Count(G, side, card, kind) {
   const at = catchStart(G, card, side, sk, false)
   return at >= 0 ? catchCountAt(G, card, side, sk, at) : 0
 }
+// ---------- 顺子匹配的打法「确定能收到 n 张以上才打」〔2026-11-09 用户〕----------
+// HOLDSTR=n（默认 0 = 见料就打 = 现行）。管这一手会走顺子匹配的牌：伏流 / 续流 / 〈kwself〉顺子 / 易流 / 凌流 / 〈foeflow〉/ 手里贴着【顺子匹配】标签的。
+// 收成 = 顺子（harvestCount 那一支，跟 AI 估值同一把尺子）和普通匹配取大的；不够 n 张 → 不比收成、不当饵（同 HOLD21）；手里只剩它能打时照样打
+// 〔同日用户定：「3 张以上才打加入顺子匹配的打法（对通配不用）」→ **默认 3**；HOLDSTR=0 复现之前的见料就打〕
+const HOLDSTR = process.env.HOLDSTR !== undefined ? parseInt(process.env.HOLDSTR, 10) : 3
+// 「对通配不用」（用户定）：打出时当通配的不屯 —— 伏流 / 易流 / 凌流，续流（STRAIGHT_SKILL_WILD 开着时它当通配）。
+//   屯的只有按自己点数走顺子的：〈kwself〉顺子（CHAIN_SELF=own）、手里贴着【顺子匹配】的（FLOW_KEY_SELF=own）、〈foeflow〉、旧档续流
+// （名字没改，现在它只认「不当通配」的那几种）
+function straightLineOf(G, side, card) {
+  const sk = skillsOf(G, side, card)
+  if (has(sk, SK.FLOW) || has(sk, SK.SWAPFLOW) || has(sk, SK.ICEWILD)) return false
+  if (has(sk, SK.FLOWPASS)) return !STRAIGHT_SKILL_WILD
+  if (kwSelf(sk, 'straight')) return CHAIN_SELF === 'own'
+  if (has(sk, SK.FOEFLOW)) return true
+  return flowTagOn(G, card) && FLOW_KEY_SELF === 'own'
+}
+function holdStrCount(G, side, card) {
+  const sk = skillsOf(G, side, card)
+  const at = catchStart(G, card, side, sk, false)
+  const n = at >= 0 ? catchCountAt(G, card, side, sk, at) : 0
+  const h = harvestCount(G, card, sk, side, true)
+  return h > n ? h : n
+}
 // 比收成那一圈用（照冰钥匙 iceHoldBlocks）
 function maxdHoldBlocks(G, side, idx) {
+  if (HOLDSTR > 0 && straightLineOf(G, side, G.hands[side][idx])) {
+    const b = holdStrCount(G, side, G.hands[side][idx]) < HOLDSTR
+    PROTO_STAT.holdStr.asked++
+    if (b) PROTO_STAT.holdStr.held++
+    return b
+  }
   if (HOLD21 <= 0) return false
   const card = G.hands[side][idx]
   const kind = hold21Kind(G, side, card)
@@ -14886,6 +15676,7 @@ function iceHoldBlocks(G, side, idx) {
   return blocked
 }
 function loHasHold(lo) {
+  if (HOLDSTR > 0) return true
   // 21 匹配的牌可能来自任何一件技能贴的标签，所以开着 HOLD21 就一律走屯牌那一段（holdStateOf 对别的牌返回 ''，不改它们的打法）
   if (HOLD21 > 0) return true
   if (ICE_HOLD_K > 0 && loHasIce(lo)) return true
@@ -14909,6 +15700,11 @@ function holdStateOf(G, side, idx) {
     }
     has = true
   }
+  // 顺子匹配那几件（HOLDSTR）：同 HOLD21
+  if (HOLDSTR > 0 && straightLineOf(G, side, G.hands[side][idx])) {
+    if (holdStrCount(G, side, G.hands[side][idx]) >= HOLDSTR) return 'ready'
+    has = true
+  }
   // 21 匹配那几件（HOLD21）：收得到 n 张就 ready，收不到就屯（不当饵）
   if (HOLD21 > 0) {
     const card = G.hands[side][idx]
@@ -14917,6 +15713,12 @@ function holdStateOf(G, side, idx) {
       if (hold21Count(G, side, card, kind) >= HOLD21) return 'ready'
       has = true
     }
+  }
+  // 〈vault〉手里带【X】的牌（满X 那一档贴的）同一条屯牌：堆上 > VAULT_N 张才打
+  if (process.env.VAULT_HOLD !== '0' && G.vaultHand && G.vaultHand.has(G.hands[side][idx])) {
+    if (G.pile.length > VAULT_N) return 'ready'
+    if (process.env.VAULT_HOLD === 'dump' && catchStart(G, G.hands[side][idx], side, skillsOf(G, side, G.hands[side][idx]), false) >= 0) return 'ready'
+    has = true
   }
   for (const s of skillsOf(G, side, G.hands[side][idx])) {
     const e = s >= 0 ? SKILLS[s] : null
@@ -15217,7 +16019,10 @@ function afterPlay(G, side, skills, played, ai) {
   // 理由跟量水 / 一色一样：它们改的是**燃尽的判定输入**（pileBurn），
   // 而燃尽在匹配之前判（见 burnStep）。排到后面就赶不上这一手的燃尽，
   // 那会让三件各差一整拍 —— 而一拍就是对手的一个回合
-  if (has(skills, SK.KINDLE)) {
+  // 〔2026-11-09 用户定引火换效果：「手牌都带上【燃烧】，抽 1 张牌，若跟堆底同颜色则带上【燃烧】」〕
+  //   KINDLE_MODE=allhue（默认 = 游戏里）走下面〈burnhand〉那一块（BURNHAND_DRAWHUE 固定开）—— 跟原型同一段代码，不另写；
+  //   KINDLE_MODE=eachsuit 复现上一版「抽 1 张牌；手牌每种花色各 1 张带上【燃烧】」（就是这一块）
+  if (has(skills, SK.KINDLE) && KINDLE_MODE === 'eachsuit') {
     // 〔同日 · 用户「加上抽1张牌，再量」〕KINDLE_DRAW=k：贴火之前先抽 k 张（默认 0）—— 抽来的那张也算手牌、也可能被贴
     // 〔默认 1 = 游戏里（2026-11-05 用户定「抽 1 + 各花色一张」进游戏）〕
     const kd = process.env.KINDLE_DRAW ? parseInt(process.env.KINDLE_DRAW, 10) : 1
@@ -15685,6 +16490,8 @@ function afterPlay(G, side, skills, played, ai) {
       if (at >= 0) { G.matchKey.push(G.hands[side][at]); keyDiag(G).given++ }
     }
   }
+  // 【传顺】「它带上【通配】」〔2026-11-09〕：跟石顺那句同一个时点（判顺子之前）
+  if (STRAIGHT_SKILL_WILD && has(skills, SK.FLOWALL) && inPile(G, played) && G.wildTag.indexOf(played) < 0) G.wildTag.push(played)
   // 【石顺】：自己带石墙（落在堆上才贴），给 1 张手牌顺子钥匙 + 通配
   if (has(skills, SK.STONELINE)) {
     if (inPile(G, played)) {
@@ -15831,6 +16638,22 @@ function afterPlay(G, side, skills, played, ai) {
       if (at >= 0) { G.matchKey.push(G.hands[side][at]); kd.given++ }
       else kd.none++
     }
+  }
+  // 〈vault〉的钥匙（照石影 / 石顺 / wallorder / wallzero / 零递 / 满墙各自的现成入口）
+  if (has(skills, SK.VAULT) && VAULT_KEY !== 'none') {
+    const vk = PROTO_STAT.vault
+    let ok = false
+    if (VAULT_KEY === 'hue') { const at = matchKeyPick(G, side); if (at >= 0) { G.matchKey.push(G.hands[side][at]); ok = true } }
+    else if (VAULT_KEY === 'line') { const at = straightKeyPick(G, side); if (at >= 0 && !flowTagOn(G, G.hands[side][at])) { G.flowHand.push(G.hands[side][at]); ok = true } }
+    else if (VAULT_KEY === 'order') ok = doOrderTag(G, side)
+    else if (VAULT_KEY === 'zero') ok = zeroKeyTag(G, side)
+    else if (VAULT_KEY === 'draft') ok = doDraftTag(G, side, '', 'max')
+    else if (VAULT_KEY === 'wall') {
+      if (!G.vaultHand) { G.vault = new Map(); G.vaultHand = new Set() }
+      const red = G.pile.length > 0 ? isRedSuit(pileSuitAt(G, 0)) : isRedSuit(played.suit)
+      for (const c of G.hands[side]) if (isRedSuit(c.suit) === red && !G.vaultHand.has(c)) { G.vaultHand.add(c); ok = true }
+    }
+    if (ok) vk.keys = (vk.keys || 0) + 1
   }
   // 〈trapzero〉它落堆就成陷阱
   // TRAP_ARM=after（对照档）：当场钓中不算，这一手结算完它还在堆上才成陷阱（见 resolveMatch 后面那一行）。默认 land = 用户定的「当场钓中也算」
@@ -15988,7 +16811,9 @@ function afterPlay(G, side, skills, played, ai) {
     PROTO_STAT.foeflow.handUsed += before - G.hands[side].length
   }
   if (has(skills, SK.FLOWPASS)) {
-    straightFor(G, side, played, { tagN: 0, opt: flowKeyOpt(), noSelfTag: true })
+    // 〔2026-11-09〕STRAIGHT_SKILL_WILD：「它带上【通配】」= 走伏流那条（默认 FLOW_OPT：它当通配、标签留在堆上）
+    if (STRAIGHT_SKILL_WILD) straightFor(G, side, played, { tagN: 0 })
+    else straightFor(G, side, played, { tagN: 0, opt: flowKeyOpt(), noSelfTag: true })
     flowTagAll(G, side, 1)
   }
   if (kwSelf(skills, 'order')) orderFor(G, side, played)
@@ -16099,9 +16924,50 @@ function afterPlay(G, side, skills, played, ai) {
   // 野火再给剩下的点火。反过来野火刚点着的会被收色当场端走
   if (has(skills, SK.WILD)) {
     // 新版野火（BURN_RULE=mark）：「【燃烧】，1 张手牌带上【燃烧】」—— 自带那半句在 burnMarkStep 里认
-    if (BURN_RULE === 'mark') burnTagOne(G, side)
+    // 〔2026-11-09 用户定野火换效果：「【燃烧】，抽 1 张牌，跟堆底同颜色的手牌全部带上【燃烧】」〕
+    //   WILD_MODE=hue（默认 = 游戏里）走下面〈burnhue〉那一块（先抽 1 张固定开）；WILD_MODE=one 复现上一版「1 张手牌带上【燃烧】」
+    if (BURN_RULE === 'mark') { if (WILD_MODE === 'one') burnTagOne(G, side) }
     // 带上 played：连锁要知道「同点数」是哪个点数（见 wildfireFor 开头）
     else wildfireFor(G, side, played)
+  }
+  // 〈burnhue〉跟堆底同颜色的手牌都带上【燃烧】（此刻还没收火，堆底就是落堆之后那一格）
+  const wildHue = has(skills, SK.WILD) && WILD_MODE === 'hue'
+  if ((has(skills, SK.BURNHUE) || wildHue) && BURN_RULE === 'mark' && G.pile.length > 0) {
+    const st = PROTO_STAT.burnhand
+    st.fires++
+    // BURNHUE_DRAW=k：先抽 k 张再贴（同日「【燃烧】，抽1张牌，跟堆底同颜色的手牌全部带上【燃烧】」= 1，抽到的同颜色也贴）。新野火固定抽 1
+    // 〔同日用户定野火削成「【燃烧】，跟堆底同颜色的手牌全部带上【燃烧】」：默认不抽；WILD_DRAW=1 复现上一版「【燃烧】，抽 1 张牌，…」〕
+    const hueDraw = wildHue ? (process.env.WILD_DRAW === '1' ? 1 : 0) : (process.env.BURNHUE_DRAW ? parseInt(process.env.BURNHUE_DRAW, 10) : 0)
+    const drawAfter = wildHue && process.env.WILD_ORDER === 'after'
+    if (!drawAfter) for (let k = 0; k < hueDraw; k++) if (drawFor(G, side) === null) st.nodraw = (st.nodraw || 0) + 1
+    const bottomSuit = pileSuitAt(G, 0)
+    const red = isRedSuit(bottomSuit)
+    const bySuit = wildHue && process.env.WILD_MATCH === 'suit'
+    for (const c of G.hands[side]) {
+      if (c.rank === JACK || (bySuit ? c.suit !== bottomSuit : isRedSuit(c.suit) !== red)) continue
+      if (!burnOnHand(G, c)) { addBurnHand(G, c); st.tagged++ }
+    }
+    if (drawAfter) for (let k = 0; k < hueDraw; k++) if (drawFor(G, side) === null) st.nodraw = (st.nodraw || 0) + 1
+  }
+  // 〈burnhand〉「手牌都带上【燃烧】」：跟野火同一个位置（收色 / 撒网之后）、同一个入口 addBurnHand
+  const kindleAll = has(skills, SK.KINDLE) && KINDLE_MODE !== 'eachsuit'
+  const kindleDrawHue = has(skills, SK.KINDLE) && KINDLE_MODE === 'allhue'
+  if ((has(skills, SK.BURNHAND) || kindleAll) && BURN_RULE === 'mark') {
+    const st = PROTO_STAT.burnhand
+    st.fires++
+    // BURNHAND_DRAW=k：先抽 k 张再贴（同日用户「抽1张牌，手牌都带上【燃烧】」= k=1；照隔凌旧版 LOCKCOLOR_DRAW）。默认 0 = 不抽
+    const bhDraw = process.env.BURNHAND_DRAW ? parseInt(process.env.BURNHAND_DRAW, 10) : 0
+    for (let k = 0; k < bhDraw; k++) if (drawFor(G, side) === null) st.nodraw = (st.nodraw || 0) + 1
+    for (const c of G.hands[side]) {
+      if (c.rank === JACK && process.env.BURNHAND_J !== '1') continue
+      if (!burnOnHand(G, c)) { addBurnHand(G, c); st.tagged++ }
+    }
+    // BURNHAND_DRAWHUE=1：贴完再抽 1 张，跟堆底同颜色才贴（同日「手牌都带上【燃烧】，抽1张牌，若跟堆底同颜色则带上【燃烧】」）
+    if ((kindleDrawHue || process.env.BURNHAND_DRAWHUE === '1') && G.pile.length > 0) {
+      const got = drawFor(G, side)
+      if (got === null) st.nodraw = (st.nodraw || 0) + 1
+      else if (got.rank !== JACK && isRedSuit(got.suit) === isRedSuit(pileSuitAt(G, 0)) && !burnOnHand(G, got)) { addBurnHand(G, got); st.tagged++; st.drawHue = (st.drawHue || 0) + 1 }
+    }
   }
   // 动对方手牌那几件，排在冻结**前面**（照「贵的赢」，见源码 afterPlayTail 那段）。
   //
@@ -17333,6 +18199,14 @@ const PROTO_STAT = {
   hookfail: { fires: 0, failed: 0, stolen: 0, tagged: 0 },
   neg: { tagged: 0, charges: 0, chargedCards: 0, needOwn: 0, needOld: 0 },
   posneg: { fires: 0, needed: 0, deeper: 0, topTag: 0 },
+  bignum: { charges: 0, tagged: 0, handTagged: 0 },
+  burnhand: { fires: 0, tagged: 0 },
+  layer2: { direct: 0, top: 0, under: 0, topHit: 0, topGot: 0, handTagged: 0 },
+  layer: { charges: 0, tagged: 0, inserted: 0, insSelf: 0, insNone: 0, handTagged: 0, merges: 0, stackedCards: 0, depthSum: 0, depthMax: 0, wholeSelf: 0, wholeSelfCards: 0, wholeOpp: 0, wholeOppCards: 0, peelSelf: 0, peelOpp: 0, keptCards: 0 },
+  vault: { tags: 0, hits: 0, blocked: 0, kept: 0, blockMine: 0, blockFoe: 0, passMine: 0, passFoe: 0 },
+  handKeep: { hits: 0, cards: 0, jacks: 0 },
+  holdStr: { asked: 0, held: 0 },
+  colorshift: { steal: 0, tagged: 0, tagCashed: 0, drawn: 0, marked: 0, fires: 0, changed: 0, up: 0, down: 0, shown: 0, gainSum: 0, rescued: 0 },
   reflectmore: { bottomPair: 0, bottomSetup: 0, suitFires: 0, suitChanged: 0, suitCards: 0, foeFires: 0, foeKilled: 0, foeWeak: 0, markTagged: 0 },
   pairnp: { fires: 0, paired: 0, soloNeg: 0, cashed: 0 },
   // 〈drawzero〉：发动 / 对方抽了几张（其中 J 几张，J 不置 0）/ 牌库不够 / 置 0 几张 / pick 档挑中几张
@@ -17368,6 +18242,8 @@ const PROTO_STAT = {
   icehand: { fires: 0, drawn: 0, iced: 0, noHand: 0 },
   iceHold: { held: 0 },
   stealIce: { mineCut: 0, mineHands: 0, foeCut: 0 },
+  // 〔2026-11-09〕抢牌那张收不到对方刚打出那张 → 不许拿它抢（stealCovers）：被这条挡掉的候选张数
+  stealCover: { blocked: 0 },
   burnmark: { swapPlayed: 0, swapFired: 0, baitStealSkip: 0, baitSelfNow: 0, baitSelfJ: 0, baitSelfSteal: 0, baitSelfOther: 0, baitPlayed: 0, baitTaken: 0, baitSelf: 0, baitLit: 0, allFires: 0, allHand: 0, allTake: 0, allTaken: 0, nextFires: 0, nextCaught: 0, nextGot: 0, nextMiss: 0, ifFires: 0, ifSelf: 0, ifHand: 0, played: 0, pileSum: 0, harvests: 0, taken: 0, lit: 0, melted: 0, wildFires: 0, handTagged: 0, noHand: 0 },
   marktag: { fires: 0, foeTagged: 0, foeJ: 0, prioPlayed: 0, prioForced: 0, drawn: 0, both: 0, voided: 0, selfTaken: 0, noHand: 0, handTagged: 0, played: 0, handPlayed: 0, pileSum: 0, harvests: 0, taken: 0, marked: 0 },
   solotag: { fires: 0, noPile: 0, tagged: 0, hits: 0, saved: 0, hitsMine: 0, hitsFoe: 0 },
@@ -17627,7 +18503,19 @@ function atagLand(G, side, card) {
 }
 
 function protoOnLand(G, side, skills, card, ai) {
+  layerOnLand(G, side, skills, card)
   const at0 = pileIndexOf(G, card)
+  vaultOnLand(G, side, skills, card)
+  // ---- 〈bignum〉新【大数】：带大数的牌打出 → 整堆带上大数；它的技能再给手里剩下的牌都贴上 ----
+  if (G.bigCharge) {
+    const st = PROTO_STAT.bignum
+    st.charges++
+    for (let k = 0; k < G.pile.length; k++) if (addRiseTag(G, k)) st.tagged++
+    G.bigCharge = false
+  }
+  if (has(skills, SK.BIGNUM)) {
+    for (let k = 0; k < G.hands[side].length; k++) if (addRiseHand(G, G.hands[side][k])) PROTO_STAT.bignum.handTagged++
+  }
   // ---- 〈pairnp〉：挑一对（堆上 1 张负电 + 手里同色 / 同花色 1 张正电）----
   if (has(skills, SK.PAIRNP)) {
     const st = PROTO_STAT.pairnp
@@ -17972,7 +18860,9 @@ function protoOnLand(G, side, skills, card, ai) {
     let ok = false
     if (KW_TAG === 'draft') { ok = doDraftTag(G, side); if (ok) PROTO_STAT.tagdraft.tagged++ }
     else if (KW_TAG === 'straight') {
-      if (KW_TAGALL) ok = flowTagAll(G, side) > 0
+      // 〔2026-11-09 · 用户「N 张手牌带上【通配】【顺子匹配】」〕KWTAG_N：贴几张（配 FLOW_KEY_SELF=wild = 带通配）
+      if (process.env.KWTAG_N) ok = flowTagAll(G, side, parseInt(process.env.KWTAG_N, 10)) > 0
+      else if (KW_TAGALL) ok = flowTagAll(G, side) > 0
       else { ok = doFlowTag(G, side); if (ok) PROTO_STAT.chaingift.tagged++ }
     }
     else if (KW_TAG === 'order') ok = doOrderTag(G, side)
@@ -19115,7 +20005,8 @@ const HUE_MODE = process.env.HUE_MODE || 'bottom'
 const SUITCOLOR_MODE = process.env.SUITCOLOR_MODE || 'bottom'
 if (['color', 'two', 'bottom'].indexOf(SUITCOLOR_MODE) < 0) throw new Error('SUITCOLOR_MODE 只能是 color / two / bottom')
 if (['color', 'bottom'].indexOf(HUE_MODE) < 0) throw new Error('HUE_MODE 只能是 color / bottom')
-function hueFor(G, side, card) {
+const hueFor = vaultGapWrap(hueForCore)
+function hueForCore(G, side, card) {
   // 先全堆无点数，再判〔2026-10-29 · 跟源码 / 词条对齐〕
   suitMatchVoid(G)
   if (HUE_MODE === 'bottom') {
@@ -20011,7 +20902,9 @@ function handByVal(G, side, len, played, suitMode) {
   for (let v = 0; v < len; v++) out.push(-1)
   const hand = G.hands[side]
   for (let i = 0; i < hand.length; i++) {
-    if (hand[i].rank === JACK) continue
+    // 〔2026-11-09 用户「手牌的 J 参与顺子匹配」〕STRAIGHT_HAND_J=1：手里的 J 按 11 点补格（它留在手里 —— 配 FLOW_HAND_FATE=keep）。
+    //   堆上永远没有 J（打出就通吃），所以 11 那一格只有手牌 J 和通配填得上
+    if (hand[i].rank === JACK && !STRAIGHT_HAND_J) continue
     // ---- 同色闸：补进来那张要跟打出那张同色 ----
     //
     // 认牌面花色（见 FLOW_HAND_SUIT 那段：手牌碰不到染色效果）。
@@ -20181,6 +21074,9 @@ function bestChain(G, side, at0, mine, opt, card) {
       if (!ok) continue
       // 堆上至少几张 —— 那道防「纯手牌凑」的闸
       if (onPile < opt.pileMin) continue
+      // 〔2026-11-09 用户定：「实际收走要大于等于 2 才算顺子匹配成功」〕STRAIGHT_TAKE_MIN：收走的 = 链上堆里那几张 + 它自己
+      //   （own 档它已经钉在 deepest 里、算在 onPile；wild / show 档它当填格，另加 1）。没有手牌参与时链 ≥ 3 全在堆上，这道闸自动满足
+      if (STRAIGHT_TAKE_MIN > 0 && onPile + (opt.self === 'wild' || opt.self === 'show' ? 1 : 0) < STRAIGHT_TAKE_MIN) continue
       // 'own' 那一档：顺子必须含它自己的点数
       if (opt.self === 'own' && !hasMine) continue
       // **数的是张数不是区间长度** —— step=2 时区间里有空位
@@ -20215,7 +21111,8 @@ function bestChain(G, side, at0, mine, opt, card) {
 // 返回 null（凑不出来）或 { count, got }：顺子几张、实际收走几张
 // exclude：这几格**只提供点数候选、不进收成**（CHAIN_FLIP_KEEP 那一档用）。
 // 它在最后应用 —— 收整段那一步会把中间的一律标上，所以得等它做完再排除
-function chainHarvest(G, side, at0, opt, span, exclude) {
+const chainHarvest = vaultGapWrap(chainHarvestCore)
+function chainHarvestCore(G, side, at0, opt, span, exclude) {
   // 第六参是**牌对象**（给同色闸），所以传 `G.pile[at0]` 而不是点数表。
   // at0 在这儿保证 >= 0（调用处查过「它还在堆上」），但照样防一手
   const best = bestChain(G, side, at0, pileValsAt(G, at0), opt,
@@ -20259,7 +21156,9 @@ function chainHarvest(G, side, at0, opt, span, exclude) {
     if (wanted[i]) got++
   }
   // 手里补的那几张：**倒着摘**（下标从大到小），不然 splice 一次后面全错位
-  if (best.handAt.length > 0) {
+  // keep：补进来的手牌只参与判定，不离手（用户定）—— 整段跳过
+  if (best.handAt.length > 0 && FLOW_HAND_FATE === 'keep') { PROTO_STAT.handKeep.hits++; PROTO_STAT.handKeep.cards += best.handAt.length; for (let k = 0; k < best.handAt.length; k++) { const hc = G.hands[side][best.handAt[k]]; if (hc && hc.rank === JACK) PROTO_STAT.handKeep.jacks++ } }
+  if (best.handAt.length > 0 && FLOW_HAND_FATE !== 'keep') {
     const take = best.handAt.slice(0).sort(function (x, y) { return y - x })
     for (let k = 0; k < take.length; k++) {
       const c = G.hands[side][take[k]]
@@ -21104,7 +22003,7 @@ function harvestCount(G, card, skills, side, specialOnly) {
   if (has(skills, SK.FLOW)) return straightCount(G, side, card)
   // 〈kwself〉顺子 / 顺序档：AI 估值照伏流 / 顺序标签那两行（不加的话 AI 不挑时机，量出来偏低一大截）
   if (kwSelf(skills, 'straight')) return straightCount(G, side, card)
-  if (has(skills, SK.FLOWPASS)) return straightCount(G, side, card, flowKeyOpt())
+  if (has(skills, SK.FLOWPASS)) return STRAIGHT_SKILL_WILD ? straightCount(G, side, card) : straightCount(G, side, card, flowKeyOpt())
   // 〈reflectx〉两条带匹配线的档：按「不用映照」估（映照能补的那一张没算进去 ⇒ AI 低估 ⇒ 下限）
   if (has(skills, SK.REFLECTX) && RX_MODE === 'pilestraight') return straightCount(G, side, card, flowKeyOpt())
   if (has(skills, SK.REFLECTX) && RX_MODE === 'pileorder') return orderCount(G, side, card)
@@ -21805,7 +22704,7 @@ module.exports = {
   //
   // 它是纯函数（`reflectScore` 改完 card 再改回来，`catchStart` 传 `null` 当
   // 诊断出口），所以 AI 侧随便调，不会污染任何计数
-  reflectPick,
+  reflectPick, colorShiftPick,
   // 「这一手带不带映照」的**唯一判定** —— `ai.js` 必须调它，
   // 不能自己写 `has(skills, SK.REFLECT)`：`REFLECT_WITH` 那个旋钮
   // 会让别的技能也带上映照，两边各写一份必然分叉〔2026-10-21〕

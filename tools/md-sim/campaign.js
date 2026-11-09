@@ -356,6 +356,7 @@ function kitSize(diff, level, kshift) {
 
 // `PLAYER_FIXED=key,key`〔2026-10-30 量测开关〕：玩家**每一关都固定带这几件**（依次插第 1、2… 格），不随机抽、
 // 不看 kitSize。量「同一套配装对上每一位庄家」用（用户问浑水 + 缩水会不会对谁都一样强）。默认不设 = 原样
+const POOL_DROP = process.env.POOL_DROP ? process.env.POOL_DROP.split(',') : []
 const PLAYER_FIXED = process.env.PLAYER_FIXED ? process.env.PLAYER_FIXED.split(',').filter(function (k) { return k !== '' }) : null
 function playerKit(rng, size) {
   const role = PLAYER_ROLE_AT
@@ -369,7 +370,8 @@ function playerKit(rng, size) {
     }
     return R.kitFromRole(role, picks)
   }
-  const pool = PLAYER_POOL.slice(0)
+  // 〔2026-11-09 量测开关〕POOL_DROP=key,key：从技能池里拿掉这几件（验「某张庄家专门克制玩家某件技能」用）。默认不设 = 原样
+  const pool = PLAYER_POOL.filter(function (k) { return POOL_DROP.indexOf(k) < 0 })
   const picks = []
   // 循环上界跟着槽数走（原先写死 4）。`kitFromRole` 本来就会把多出来的
   // 挑选**静默丢掉**，可多摇一次 `randInt` 会把 rng 流错开 —— lock 下

@@ -291,6 +291,19 @@ function note(G, st, where) {
     }
   }
 
+  // 戊、堆上有「点数相同的两张」〔2026-11-09 · 用户定的硬规则：任何时候堆上都不能有对子〕。
+  //   先做观察不做断言：基础规则下恒为 0（实测 2000 局 0 步），而带着的几件原型会不会造对子还没扫过
+  {
+    const v = G.pile.map(function (c, i) { return i < G.pileVals.length ? G.pileVals[i] : [c.value] })
+    let hit = false
+    for (let a = 0; a < v.length && !hit; a++) {
+      for (let b = a + 1; b < v.length && !hit; b++) {
+        if (v[a] && v[b] && v[a].some(function (x) { return x > 0 && v[b].indexOf(x) >= 0 })) hit = true
+      }
+    }
+    if (hit) st.pilePair++
+  }
+
   // 丁、burnHand 同上（【引火】预约的那层火）。两个数组同一个形状，
   // 所以同一个漏法 —— 分开数是为了知道是哪一族漏的
   for (let i = 0; i < G.burnHand.length; i++) {
@@ -519,6 +532,27 @@ const CASES = [
         foe: kitOf('lockold', ['heapdraft']), myRole: -1
       }
     }
+  },
+  {
+    // 〔2026-11-09〕〈layer〉【堆叠】：叠底下的牌在 G.stacked 里进进出出（剥层要先摘出来、收完再接回堆上），
+    //   守恒最容易在这儿丢牌。双方都带，再配野火 / 封凌，压叠 × 冰火（叠下去去掉冰火、宿主带冰挡剥层）
+    key: 'layer', label: '〈layer〉【堆叠】+ 野火 + 封凌',
+    build: function () {
+      return {
+        mine: kitOf('lockold', ['layer', 'lockdraw', 'wild']),
+        foe: kitOf('lockold', ['layer', 'wild', 'lockdraw']), myRole: -1
+      }
+    }
+  },
+  {
+    // 〔2026-11-09〕〈layer2〉【堆叠】第二版：叠在上面（盖住、宿主换人、原地判）/ 叠在下面（不进堆）两条路都绕开 pushPile
+    key: 'layer2', label: '〈layer2〉【堆叠】第二版 + 野火 + 封凌',
+    build: function () {
+      return {
+        mine: kitOf('lockold', ['layer2', 'lockdraw', 'wild']),
+        foe: kitOf('lockold', ['layer2', 'wild', 'lockdraw']), myRole: -1
+      }
+    }
   }
 ]
 
@@ -538,7 +572,7 @@ function runCase(cs, n, seed) {
   const cfg = cs.build()
   const rng = R.makeRng(seed)
   const st = {
-    iceBlindBetween: 0, heldStale: 0, frostLeak: 0,
+    iceBlindBetween: 0, heldStale: 0, frostLeak: 0, pilePair: 0,
     frostSeen: 0, keySeen: 0, wardSeen: 0,
     burnSeen: 0, burnKeySeen: 0,
     burnLeak: 0,
@@ -672,6 +706,7 @@ function main() {
     if (st.heldStale > 0) obs.push('held 有过期 source ' + st.heldStale + ' 手')
     if (st.frostLeak > 0) obs.push('frostHand 有离手的牌 ' + st.frostLeak + ' 手')
     if (st.burnLeak > 0) obs.push('burnHand 有离手的牌 ' + st.burnLeak + ' 手')
+    if (st.pilePair > 0) obs.push('堆上有对子 ' + st.pilePair + ' 手')
     if (obs.length > 0) console.log('    观察：' + obs.join('、'))
     console.log('')
   }

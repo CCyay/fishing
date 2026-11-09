@@ -2279,6 +2279,20 @@ function printDraftTagDiag() {
     console.log('    发动 ' + pp.fires + ' 次：成对贴上 ' + pct(pp.paired / pp.fires) + ' · 只贴负电 ' + pct(pp.soloNeg / pp.fires)
       + ' · 那张正电手牌靠正负特殊匹配钓到 ' + pp.cashed + ' 次（' + pct(pp.cashed / Math.max(1, pp.paired)) + '）')
   }
+  // 顺子匹配的打法 HOLDSTR〔2026-11-09〕
+  const hs = R.PROTO_STAT.holdStr
+  if (hs && hs.asked > 0) console.log('\n  ---- 诊断：顺子牌屯牌（HOLDSTR=' + process.env.HOLDSTR + '）----\n    比收成时问了 ' + hs.asked + ' 次，屯住 ' + hs.held + ' 次（' + pct(hs.held / hs.asked) + '）')
+  // 顺子匹配「手牌可以参与、不收走」〔2026-11-09〕
+  const hk = R.PROTO_STAT.handKeep
+  if (hk && hk.hits > 0) console.log('\n  ---- 诊断：顺子用上手牌（FLOW_HAND_FATE=keep）----\n    ' + hk.hits + ' 次，共 ' + hk.cards + ' 张（每次 ' + f2(hk.cards / hk.hits) + ' 张；其中 J ' + hk.jacks + ' 张）')
+  // 〈colorshift〉〔2026-11-09〕
+  const cshift = R.PROTO_STAT.colorshift
+  if (cshift && cshift.fires > 0) {
+    console.log('\n  ---- 诊断：〈colorshift〉----')
+    console.log('    发动 ' + cshift.fires + ' 次 · 真挪了 ' + cshift.changed + ' 次（' + pct(cshift.changed / cshift.fires) + '；往上 ' + cshift.up + ' · 往下 ' + cshift.down + '）'
+      + ' · 每次亮 ' + f2(cshift.shown / Math.max(1, cshift.changed)) + ' 张 · 每次多收 ' + f2(cshift.gainSum / Math.max(1, cshift.changed)) + ' 张 · 本来钓不中、挪了才中 ' + cshift.rescued + ' · 其中抢牌那一手 ' + cshift.steal + ' 次（发动里）')
+    console.log('    贴【磁极】' + cshift.tagged + ' 张 · 靠标签发动 ' + cshift.tagCashed + ' 次 · 抽牌 ' + cshift.drawn + ' 次 · 展示的牌带上正电 ' + cshift.marked + ' 张')
+  }
   // 〈reflectbottom〉/〈reflectsuit〉/〈reflectfoe〉/〈reflectmark〉〔2026-11-06〕
   const rfm = R.PROTO_STAT.reflectmore
   if (rfm && (rfm.bottomPair + rfm.bottomSetup + rfm.suitFires + rfm.foeFires + rfm.markTagged) > 0) {
@@ -2293,6 +2307,36 @@ function printDraftTagDiag() {
   if (pn && pn.fires > 0) {
     console.log('\n  ---- 诊断：〈posneg〉----')
     console.log('    发动 ' + pn.fires + ' 次（堆非空）：靠正负电才钓到 ' + pct(pn.needed / pn.fires) + ' · 钓得更深 ' + pct(pn.deeper / pn.fires) + ' · 钓不到、贴了堆顶 ' + pct(pn.topTag / pn.fires))
+  }
+  // 〈vault〉〔2026-11-08〕
+  const vt = R.PROTO_STAT.vault
+  if (vt && vt.tags > 0) {
+    console.log('\n  ---- 诊断：〈vault〉（VAULT_N=' + (process.env.VAULT_N || '3') + ' · VAULT_CARRY=' + (process.env.VAULT_CARRY || 'self') + '）----')
+    console.log('    钥匙 ' + (vt.keys || 0) + ' 次（VAULT_KEY=' + (process.env.VAULT_KEY || 'none') + '）· 贴标签 ' + vt.tags + ' 次 · 收牌圈进它 ' + vt.hits + ' 次：够数收走 ' + (vt.passMine + vt.passFoe) + '（贴的人 ' + vt.passMine + ' / 对手 ' + vt.passFoe + '）· 被截 ' + vt.blocked + '（贴的人 ' + vt.blockMine + ' / 对手 ' + vt.blockFoe + '）· 截下留堆 ' + vt.kept + ' 张')
+  }
+  // 〈layer〉【堆叠】〔2026-11-09〕—— 「我 / 对手」按最近一次全场贴【堆叠】的那一方分
+  const ly = R.PROTO_STAT.layer
+  if (ly && ly.charges > 0) {
+    console.log('\n  ---- 诊断：〈layer〉【堆叠】----')
+    console.log('    堆叠牌打出 ' + ly.charges + ' 次 · 贴上 ' + ly.tagged + ' 张 · 插堆底：别的牌 ' + ly.inserted + ' / 自己 ' + ly.insSelf + ' / 不插 ' + ly.insNone + ' · 手牌贴 ' + ly.handTagged + ' 张')
+    console.log('    叠了 ' + ly.merges + ' 次、叠下去 ' + ly.stackedCards + ' 张 · 叠完平均 ' + (ly.merges ? (ly.depthSum / ly.merges).toFixed(2) : '-') + ' 层（最深 ' + ly.depthMax + '）')
+    console.log('    整叠收走：贴的人 ' + ly.wholeSelf + ' 次 / ' + ly.wholeSelfCards + ' 张 · 对手 ' + ly.wholeOpp + ' 次 / ' + ly.wholeOppCards + ' 张')
+    console.log('    只剥一层：贴的人 ' + ly.peelSelf + ' 次 · 对手 ' + ly.peelOpp + ' 次 · 剥层时留在叠里 ' + ly.keptCards + ' 张')
+  }
+  // 〈burnhand〉「手牌都带上【燃烧】」〔2026-11-09〕
+  const bh = R.PROTO_STAT.burnhand
+  if (bh && bh.fires > 0) {
+    console.log('\n  ---- 诊断：〈burnhand〉手牌都带上【燃烧】（BURNHAND_J=' + (process.env.BURNHAND_J || '0') + '）----')
+    console.log('    发动 ' + bh.fires + ' 次 · 贴上 ' + bh.tagged + ' 张（' + (bh.tagged / bh.fires).toFixed(2) + ' 张 / 次）')
+  }
+  // 〈layer2〉【堆叠】第二版〔2026-11-09〕—— 「贴的人 / 对手」按最近一次叠放的那一方分（直接打出不算叠放，所以这一版两格都可读）
+  const l2 = R.PROTO_STAT.layer2
+  if (l2 && l2.direct + l2.top + l2.under > 0) {
+    const ly2 = R.PROTO_STAT.layer
+    console.log('\n  ---- 诊断：〈layer2〉【堆叠】第二版 ----')
+    console.log('    堆叠牌打出 ' + (l2.direct + l2.top + l2.under) + ' 次：直接打出 ' + l2.direct + ' · 叠在上面 ' + l2.top + '（当场判中 ' + l2.topHit + ' 次 / 收 ' + l2.topGot + ' 张）· 叠在下面 ' + l2.under + ' · 手牌贴 ' + l2.handTagged + ' 张')
+    console.log('    整叠收走：最近叠放的一方 ' + ly2.wholeSelf + ' 次 / ' + ly2.wholeSelfCards + ' 张 · 另一方 ' + ly2.wholeOpp + ' 次 / ' + ly2.wholeOppCards + ' 张')
+    console.log('    只剥一层：最近叠放的一方 ' + ly2.peelSelf + ' 次 · 另一方 ' + ly2.peelOpp + ' 次 · 剥层时留在叠里 ' + ly2.keptCards + ' 张')
   }
   // 【冻结】寿命诊断〔2026-11-02〕
   const fz = R.PROTO_STAT.freeze

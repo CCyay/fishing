@@ -503,6 +503,16 @@
       </view>
     </view>
 
+    <!-- 【磁极】〔2026-11-09〕：点一张手牌就亮一张，红牌 +1 / 黑牌 −1（沿顺位，跳过 J，K 接 A）；按钮收尾 -->
+    <view v-if="polePending" class="tide-box">
+      <text class="tide-text">{{ '磁极：点手牌展示 —— 每亮 1 张红牌点数沿顺位 +1、黑牌 −1（跳过 J，K 接 A；失去花色的不算）。现在 ' + (poleNet > 0 ? '+' : '') + poleNet + ' → ' + poleFaceNow + ' 点' }}</text>
+      <view class="tide-actions">
+        <view id="ap-pole-done" class="tide-btn tide-btn-plain" @click="onPoleDone()">
+          <text class="tide-btn-text tide-btn-text-plain">{{ poleShownN > 0 ? '就这样' : '不展示' }}</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 电镜：点一张手牌展示（J 不行），打出的那张点数变成跟它相同 -->
     <view v-if="mirrorSelfPending" class="tide-box">
       <text class="tide-text">电镜：可以点一张手牌展示，你刚打出的那张点数变成跟它相同（花色不变，展示的牌留在手里）· J 不行</text>
@@ -976,6 +986,8 @@
             <text v-if="matchKeyOn(card)" class="hand-match-tag">花</text>
             <!-- 手里带【正电】（导电贴的）：打出时还能钓顺位差 1 的牌 -->
             <text v-if="magKeyOn(card)" class="hand-mag-tag">电</text>
+            <!-- 手里带【磁极】（磁针贴的）：打出时可以亮手牌挪点数 -->
+            <text v-if="poleKeyOn(card)" class="hand-pole-tag">磁</text>
             <!-- 手里带【负电】（对方的静电贴的）：打出时给全堆带上负电；它自己吃不到堆上的负电 -->
             <text v-if="negHandOn(card)" class="hand-neg-tag">负</text>
             <!-- 手里带【21 匹配】（零递贴的） -->
@@ -1186,6 +1198,12 @@
     SK_PAIRNP,
     // 【电镜】〔2026-11-06〕：【正电】；【映照】
     SK_MAGREFLECT,
+    // 【磁针】〔2026-11-09〕：【磁极】，匹配失败时抽 1 张牌，那张带上【磁极】
+    SK_POLEFAIL,
+    // 【磁石】〔2026-11-09〕：抽 2 张牌，【磁极】
+    SK_POLEDRAW,
+    // 【磁场】〔2026-11-09〕：跟堆底同颜色的手牌都带上【磁极】
+    SK_POLECOLORALL,
     // 【拟饵】〔2026-11-06〕：选择 1 张手牌明置，它变成与堆上 1 张同花色的牌相同
     SK_HANDREFLECT,
     // 【亮底】〔2026-11-06〕：展示手牌，变成手牌里最大的点数；【21 匹配】
@@ -2964,6 +2982,8 @@
     // 【正电】那一层跟【花色匹配】同一套生命周期（打出那一手用掉、洗回 / 换主人也摘），
     // 所以摘的时候一起摘 —— 调用点有六处，各加一行迟早漏一处
     dropMagKey(card)
+    // 【磁极】也同一套（打出那一手用掉、洗回 / 换主人也摘）
+    dropPoleKey(card)
     // 【负电】手里那一层也同一套生命周期（打出那一手用掉 —— 而它的「整堆通电」在 afterPlay 开头已经做完了）
     dropNegHand(card)
   }
@@ -3059,6 +3079,192 @@
     }
     magKey.value = keep
   }
+  // ---------- 【磁极】〔2026-11-09 · 用户定稿；载体【磁针】〕----------
+  // 词条：带它的牌打出时可以展示任意张手牌，每张红牌点数沿顺位 +1、黑牌 −1（跳过 J，K 接 A）；J 能展示也算颜色，
+  // 失去花色的牌（suit 是 ''）不算。挪的是 value 和点数卡（牌面 rank 不动，照模拟器 colorShiftVals）。
+  // 打出那一手用掉 —— 跟【正电】同一套生命周期（dropMatchKey 里一起摘）。
+  // ⚠ 挪点数挂在 catchStart 里（poleCatch）：抢牌判定（stealGainOf）、金边提示、庄家估牌都走它 ——
+  //   模拟器第一版漏了抢牌那条路，A 槽少了 1 分（台账一百零一）。
+  // ⚠ 庄家真挪的那一下照电镜的庄家（mirrorSelfDepth 估钓多深），比 catchStart 那把尺子粗 —— 跟电镜同一个简化
+  const poleKey = ref<PlainCard[]>([] as PlainCard[])
+  function poleKeyOn(card : PlainCard) : boolean {
+    for (let i = 0; i < poleKey.value.length; i++) {
+      if (poleKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropPoleKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < poleKey.value.length; i++) {
+      if (poleKey.value[i] != card) {
+        keep.push(poleKey.value[i])
+      }
+    }
+    poleKey.value = keep
+  }
+  // 沿顺位挪 d 格（K 接 A）；不在顺位里的点数（0 / 无点数 / 大于 13）不动
+  function poleShiftOne(x : number, d : number) : number {
+    const at = MAG_ORD.indexOf(x)
+    if (at < 0) {
+      return x
+    }
+    const n = MAG_ORD.length
+    return MAG_ORD[(((at + d) % n) + n) % n]
+  }
+  function poleShiftAll(xs : number[], d : number) : number[] {
+    const out : number[] = []
+    for (let k = 0; k < xs.length; k++) {
+      out.push(poleShiftOne(xs[k], d))
+    }
+    return out
+  }
+  // 手里（不含 card）红牌（red = true）或黑牌各几张：失去花色的不算
+  function poleColorCount(byFoe : boolean, card : PlainCard, red : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let n = 0
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i] != card && mine[i].suit != '' && isRedSuit(mine[i].suit) == red) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+  // poleBusy：试算里不再套一层；poleDone：这一手已经真挪过（或决定不挪）的那张，后面的 catchStart 别再挪
+  let poleBusy : boolean = false
+  let poleDone : PlainCard | null = null
+  // catchStart 的【磁极】支：每一挪各判一次，取收得最多的（一样多取挪得少的），再按那一挪判一次返回 ——
+  // 最后那一次是为了让 catchStart 顺手记下的状态（elecHitNow 之类）对应真用的那一挪
+  function poleCatch(card : PlainCard, byFoe : boolean, skills : number[], sink : boolean) : number {
+    const red = poleColorCount(byFoe, card, true)
+    const black = poleColorCount(byFoe, card, false)
+    const v0 = card.value
+    const e0 = card.extra
+    const size = pile.value.length
+    poleBusy = true
+    let bestD = 0
+    let bestN = -1
+    for (let d = -black; d <= red; d++) {
+      card.value = poleShiftOne(v0, d)
+      card.extra = poleShiftAll(e0, d)
+      const at = catchStart(card, byFoe, skills, sink)
+      const n = at < 0 ? 0 : (sink ? at + 1 : size - at)
+      if (n > bestN || (n == bestN && Math.abs(d) < Math.abs(bestD))) {
+        bestN = n
+        bestD = d
+      }
+    }
+    card.value = poleShiftOne(v0, bestD)
+    card.extra = poleShiftAll(e0, bestD)
+    const got = catchStart(card, byFoe, skills, sink)
+    card.value = v0
+    card.extra = e0
+    poleBusy = false
+    return got
+  }
+  // 落地：打出的那张（已在堆上）按「原点数挪 d 格」改，堆上那一格的快照一起改（照 applyMirrorSelf）
+  let poleOrigValue : number = 0
+  let poleOrigExtra : number[] = [] as number[]
+  // 玩家挑的时候：净挪几格 / 亮了几张 / 现在几点（模板要读，所以是 ref）
+  const polePending = ref<boolean>(false)
+  const poleNet = ref<number>(0)
+  const poleShownN = ref<number>(0)
+  const poleFaceNow = ref<string>('')
+  let poleShown : number[] = [] as number[]
+  let poleSkills : number[] = [] as number[]
+  function poleApply(card : PlainCard, d : number) {
+    card.value = poleShiftOne(poleOrigValue, d)
+    card.extra = poleShiftAll(poleOrigExtra, d)
+    const at = pileIndexOf(card)
+    if (at >= 0) {
+      const next = pileVals.value.slice(0)
+      next[at] = cardVals(card)
+      pileVals.value = next
+    }
+    poleFaceNow.value = faceOfValue(card.value)
+  }
+  // 返回 true = 停下来等你挑了（onPoleDone 接着走 afterPlayRest）
+  function poleFor(byFoe : boolean, skills : number[]) : boolean {
+    const card = lastPlayed!
+    poleDone = card
+    poleOrigValue = card.value
+    poleOrigExtra = card.extra.slice(0)
+    const red = poleColorCount(byFoe, card, true)
+    const black = poleColorCount(byFoe, card, false)
+    if (red + black == 0) {
+      return false
+    }
+    if (!byFoe) {
+      polePending.value = true
+      poleNet.value = 0
+      poleShownN.value = 0
+      poleFaceNow.value = faceOfValue(card.value)
+      poleShown = [] as number[]
+      poleSkills = skills
+      return true
+    }
+    // 庄家：照电镜的庄家（mirrorSelfDepth）估每一挪能钓多深，取最深；不比原点数深就不亮
+    const self = pileIndexOf(card)
+    let best = 0
+    let bestDepth = mirrorSelfDepth(cardVals(card), self)
+    for (let d = -black; d <= red; d++) {
+      if (d == 0) {
+        continue
+      }
+      const v : number[] = [poleShiftOne(poleOrigValue, d)].concat(poleShiftAll(poleOrigExtra, d))
+      const depth = mirrorSelfDepth(v, self)
+      if (depth < bestDepth || (depth == bestDepth && best != 0 && Math.abs(d) < Math.abs(best))) {
+        bestDepth = depth
+        best = d
+      }
+    }
+    if (best != 0) {
+      // 亮 |best| 张对应颜色的牌（标 foeShown）
+      let left = Math.abs(best)
+      for (let i = 0; i < foeHand.value.length && left > 0; i++) {
+        const c = foeHand.value[i]
+        if (c.suit != '' && isRedSuit(c.suit) == (best > 0)) {
+          foeShown.value = withFlag(foeShown.value, i)
+          left = left - 1
+        }
+      }
+      poleApply(card, best)
+      message.value = message.value + ' 庄家磁极：亮了 ' + Math.abs(best) + ' 张' + (best > 0 ? '红' : '黑')
+        + '牌，打出的那张变成 ' + faceOfValue(card.value) + ' 点。'
+    }
+    return false
+  }
+  // 你点了第 index 张手牌：亮它（亮过的、失去花色的点了不算）
+  function onPoleHand(index : number) {
+    if (!polePending.value || lastPlayed == null || index < 0 || index >= hand.value.length) {
+      return
+    }
+    if (poleShown.indexOf(index) >= 0 || hand.value[index].suit == '') {
+      return
+    }
+    poleShown.push(index)
+    poleShownN.value = poleShown.length
+    handSeen.value = withFlag(handSeen.value, index)
+    poleNet.value = poleNet.value + (isRedSuit(hand.value[index].suit) ? 1 : -1)
+    poleApply(lastPlayed!, poleNet.value)
+  }
+  function onPoleDone() {
+    if (!polePending.value) {
+      return
+    }
+    if (poleShownN.value > 0 && lastPlayed != null) {
+      message.value = message.value + ' 磁极：亮了 ' + poleShownN.value + ' 张，打出的那张变成 ' + faceOfValue(lastPlayed!.value) + ' 点。'
+    } else {
+      message.value = message.value + ' 磁极：没展示，那张牌不变。'
+    }
+    const skills = poleSkills
+    polePending.value = false
+    poleShown = [] as number[]
+    poleSkills = [] as number[]
+    afterPlayRest(false, skills)
+  }
+
   // 【正电】的顺位：A 2 … 10 Q K，**跳过 J**，K 接 A（跟【升钩】同一张表）。比的是**点数值**，
   // 所以被改过的点数照改后的算；0 点 / 无点数 / 大于 13 不在表里，一律不算相邻
   const MAG_ORD : number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13]
@@ -3386,6 +3592,8 @@
   const holdArmed : boolean[] = [false, false]
   //   hookArmed     这一手带着【磁钩】吗（打出那一刻定）。被抢走时存档成 false —— 匹配上了只是被抢，不算「匹配失败」
   const hookArmed : boolean[] = [false, false]
+  // 【磁针】的后半句〔2026-11-09〕：同 hookArmed（打出那一刻立、被抢走时清掉、endPlayTag 里兑现）
+  const poleFailArmed : boolean[] = [false, false]
   const chainArmed : boolean[] = [false, false]
   // 新【燃烧】〔2026-11-05〕：这一手打出的牌带火 → 结算完要给堆上其他牌点火（burnStep 立、burnTagAfter 清）。按侧存，照 chainArmed
   const burnPending : boolean[] = [false, false]
@@ -3910,6 +4118,7 @@
       && !reflectHandPending.value
       && !inductHandPending.value
       && !mirrorSelfPending.value
+      && !polePending.value
       && !mimicHandPending.value
       // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
       && !giftPending.value
@@ -4038,6 +4247,9 @@
     }
     if (mirrorSelfPending.value) {
       return '你的回合 · 电镜'
+    }
+    if (polePending.value) {
+      return '你的回合 · 磁极'
     }
     if (mimicHandPending.value) {
       return '你的回合 · 拟饵'
@@ -4887,6 +5099,10 @@
 
   function catchStart(card : PlainCard, byFoe : boolean, skills : number[],
     sink : boolean) : number {
+    // 【磁极】〔2026-11-09〕：手里带它的牌按「挑得最好的那一挪」判（见 poleCatch）。真挪过之后 poleDone 挡住
+    if (!poleBusy && poleDone != card && card.rank != JACK && (poleKeyOn(card) || hasTrigger(skills, SK_POLEDRAW) || hasTrigger(skills, SK_POLEFAIL))) {
+      return poleCatch(card, byFoe, skills, sink)
+    }
     const size = pile.value.length
     if (card.rank == JACK) {
       // J 通吃：不管落堆顶还是堆底，整堆都收。
@@ -8356,6 +8572,7 @@
     tookThisHand[armSide] = false
     holdArmed[armSide] = hasTrigger(skills, SK_HOLDTAG)
     hookArmed[armSide] = hasTrigger(skills, SK_HOOK)
+    poleFailArmed[armSide] = hasTrigger(skills, SK_POLEFAIL)
     chainArmed[armSide] = false
     // ---- 进场 ----
     // 落堆的那一刻先受场上效果牌的影响（压邻、封色、分水……都在 landVals 里），
@@ -8692,7 +8909,78 @@
       normal = normal - icedBetween(at, pile.value.length - 1)
     }
     const special = harvestCount(card, skills, byFoe, true)
-    return normal > special ? normal : special
+    // 〔2026-11-09 用户定〕估的必须是**真打出去会怎么收**（「带火的牌在抢牌估算时要按照带火的牌算」）。
+    //   结算顺序 特殊匹配 → 燃烧收火 → 普通匹配（含 21、正电钓负电），前一步收成了这张牌就走了、后面不再判：
+    //   特殊匹配收得到 → 只算它；否则带火且堆上已有别的火 → 只算收火那几张；否则普通匹配。
+    //   带冰钥匙的牌（手里带的 / 技能自带的）落堆时冰火相消、全场贴冰也把堆上的火消了 → 不会收火。
+    //   原先是「普通 / 特殊取大」→ 准抢之后真收的是另一批，被抢那一段没人收，堆上留下一对（模拟器 pair-scan：野火单带 161 / 79130 步）
+    const iceKey = frostOnHand(card) || selfFrost(skills)
+    const burnTake = special <= 0 && !iceKey ? burnMarkCount(card, skills) : 0
+    // 〔2026-11-09 用户定「抢牌需要把对方打出的匹配牌包含进去」〕收不到对方刚打出那张（stealVictim）就不能拿这张抢 ——
+    //   不然那张跟它配上的牌一起留在堆上成对。照模拟器 stealCovers
+    const vi = stealVictim == null ? -1 : pileIndexOf(stealVictim!)
+    if (vi >= 0) {
+      // 那张带冰、这张又没有冰钥匙豁免 → 圈进来也收不走
+      if (frostAt(vi) && !iceKey) {
+        return 0
+      }
+      // 间隔收：把那张临时拿下堆、用同一个估算函数再数一遍，少了才是它在里面
+      if (special > 0) {
+        return stealSpecialWithout(vi, card, skills, byFoe) < special ? special : 0
+      }
+      if (burnTake > 0) {
+        return stealBurnWithout(vi, card, skills) < burnTake ? burnTake : 0
+      }
+      // 普通匹配收「钓中那张 → 堆顶」一整段
+      return at >= 0 && vi >= at ? normal : 0
+    }
+    if (special > 0) {
+      return special
+    }
+    if (burnTake > 0) {
+      return burnTake
+    }
+    return normal
+  }
+
+  // 抢牌问的是哪一张（对方刚打出、配上了的那张）—— askSteal 开头记下，stealGainOf 用它判「收不收得到那张」
+  let stealVictim : PlainCard | null = null
+
+  // 把堆上第 at 张临时拿掉、用同一个估算函数再数一遍（照模拟器 stealRecountWithout）。
+  // 六条并行数组整条换掉再换回原来那几个数组对象 —— 同一拍里换回去，界面看不到
+  function stealSpecialWithout(at : number, card : PlainCard, skills : number[], byFoe : boolean) : number {
+    const p0 = pile.value
+    const f0 = pileByFoe.value
+    const g0 = pileGuard.value
+    const v0 = pileVals.value
+    const s0 = pileSuit.value
+    const b0 = pileBurn.value
+    removePileAt(at)
+    const n = harvestCount(card, skills, byFoe, true)
+    pile.value = p0
+    pileByFoe.value = f0
+    pileGuard.value = g0
+    pileVals.value = v0
+    pileSuit.value = s0
+    pileBurn.value = b0
+    return n
+  }
+  function stealBurnWithout(at : number, card : PlainCard, skills : number[]) : number {
+    const p0 = pile.value
+    const f0 = pileByFoe.value
+    const g0 = pileGuard.value
+    const v0 = pileVals.value
+    const s0 = pileSuit.value
+    const b0 = pileBurn.value
+    removePileAt(at)
+    const n = burnMarkCount(card, skills)
+    pile.value = p0
+    pileByFoe.value = f0
+    pileGuard.value = g0
+    pileVals.value = v0
+    pileSuit.value = s0
+    pileBurn.value = b0
+    return n
   }
 
   // 你手里这张抢得动吗（模板里的金边和 onStealWith 的闸共用这一条）
@@ -8725,6 +9013,8 @@
     if (over.value) {
       return false
     }
+    // 抢牌必须收到这张（stealGainOf 读它）；你抢庄家那一路停下来等你点牌时，canStealWith 照样读这一张
+    stealVictim = played
     // 被问的是**对方** —— byFoe 是刚打牌那一方
     const thief = !byFoe
     // 〔2026-11-05 用户定「比张数时只算实际收得走的牌」〕这一手没有【结冰】豁免的话，那一段里带冰的牌收不走、不算数。
@@ -8845,6 +9135,8 @@
         holdArmed[vsi] = stealTailHold[i]
         chainArmed[vsi] = stealTailChain[i]
         hookArmed[vsi] = stealTailHook[i]
+        // 磁针同电钩：被抢走不算匹配失败（stealTailHook 存的恒是 false，这儿直接清）
+        poleFailArmed[vsi] = false
         burnPending[vsi] = stealTailBurn[i]
         stealTailDrop[i] = true
       }
@@ -9267,6 +9559,7 @@
     pendingSkills = []
     // 新的一手：停人技能的记号清掉（见 TAIL_ASK）
     askDone = [] as number[]
+    poleDone = null
     // 【亮底】〔2026-11-06〕：展示手牌 —— 打出这张之后手里剩下的全部明置（你的标 handSeen、庄家的标 foeShown）
     if (hasTrigger(skills, SK_HANDMAX)) {
       const mine = byFoe ? foeHand.value : hand.value
@@ -9347,6 +9640,22 @@
     // 【感电】〔2026-11-05〕：排在镜水之后、匹配之前。玩家侧停下来挑（先点堆、再点手牌），挑完回到这儿 ——
     // askFirst 保证这一手只问一次（重入时直接往下走）
     if (hasTrigger(skills, SK_PAIRNP) && askFirst(SK_PAIRNP) && inductFor(byFoe, skills)) {
+      return
+    }
+    // 【磁石】〔2026-11-09〕「抽 2 张牌，【磁极】」：先抽（抽上来的也算进能亮的颜色），再走下面那段磁极。askFirst 防重入
+    if (hasTrigger(skills, SK_POLEDRAW) && askFirst(SK_POLEDRAW)) {
+      let got = 0
+      for (let k = 0; k < 2; k++) {
+        if (drawFor(byFoe) != null) {
+          got = got + 1
+        }
+      }
+      message.value = message.value + (byFoe ? ' 庄家磁石：' : ' 磁石：') + '摸了 ' + got + ' 张。'
+    }
+    // 【磁极】〔2026-11-09〕：打出的这张带着磁极（磁针贴在手牌上 / 磁石自己带）—— 落堆之后、匹配之前挑点数。
+    // 手牌标签不是技能触发，askFirst 管不到 —— 两种都靠 poleDone 防重入（poleFor 一进来就记上）
+    if (lastPlayed != null && poleDone != lastPlayed && lastPlayed!.rank != JACK
+      && (poleKeyOn(lastPlayed!) || hasTrigger(skills, SK_POLEDRAW) || hasTrigger(skills, SK_POLEFAIL)) && poleFor(byFoe, skills)) {
       return
     }
     // 【电镜】的映照〔2026-11-06〕：它已经落堆、还没匹配 —— 你可以展示 1 张手牌，它的点数变成跟那张相同（花色不动）。
@@ -10059,32 +10368,23 @@
     //   上面讲它的注释过去时读。同花色几张时随机挑一张（J 不排除）—— 照模拟器 KINDLE_MATCH=eachsuit / KINDLE_DRAW=1。
     //   R8 新【燃烧】下 A 槽 X +4.00 / D −0.09、♥ 槽 +10.83 / −0.01（台账第八十二·庚节）〕
     //   先摸后贴（照薪潮旧版），所以摸上来那张也算进花色
+    // 〔2026-11-09 用户定换效果：「手牌都带上【燃烧】」〕
+    //   手里的牌都贴（J 不贴：带火的 J 打出去先走收火、排在通吃前面，会把通吃变成只收带火的）。它自己不带火。
+    //   同日先上过「手牌都带上【燃烧】，抽 1 张牌，若跟堆底同颜色则带上【燃烧】」，随即改成这一版（去掉抽牌那半句）；
+    //   再上一版「抽 1 张牌；手牌每种花色各 1 张带上【燃烧】」。模拟器：KINDLE_MODE=all（默认）
     if (hasTrigger(skills, SK_KINDLE) && lastPlayed != null) {
-      const got = drawFor(byFoe)
       const mine = byFoe ? foeHand.value : hand.value
-      const seen : string[] = []
       let fired = 0
       for (let i = 0; i < mine.length; i++) {
-        const su = mine[i].suit
-        if (seen.indexOf(su) >= 0) {
+        const c = mine[i]
+        if (c.rank == JACK || burnOnHand(c)) {
           continue
         }
-        seen.push(su)
-        const group : number[] = []
-        for (let k = i; k < mine.length; k++) {
-          if (mine[k].suit == su) {
-            group.push(k)
-          }
-        }
-        const pickAt = group[Math.floor(Math.random() * group.length)]
-        if (!burnOnHand(mine[pickAt])) {
-          addBurnHand(mine[pickAt])
-          fired = fired + 1
-        }
+        addBurnHand(c)
+        fired = fired + 1
       }
       message.value = message.value + (byFoe ? ' 庄家引火：' : ' 引火：')
-        + (got != null ? '摸了 1 张，' : '牌库空了，没摸到；')
-        + (fired > 0 ? '手里每种花色各 1 张，共 ' + fired + ' 张带上了燃烧。' : '手里没牌可贴。')
+        + (fired > 0 ? '手里 ' + fired + ' 张带上了燃烧。' : '手里没牌可贴。')
     }
     // ---------- 【薪潮】：抽 1 张牌，给手牌全部带上【燃烧】 ----------
     //
@@ -10374,10 +10674,17 @@
     // **排在收色、撒网后面，野火前面** —— 跟那两件同组（都是「换一条
     // 判定线」的收牌技能），而排在野火前面照的是野火那条注释的同一个理由：
     // 收牌的先收完，点火的最后来
-    // 【续流】前半句：它自己走【顺子匹配】，**不当通配**（selfWild=false，跟顺子标签同一支）。
+    // 【传顺】【石顺】「它带上【通配】」〔2026-11-09 用户定〕：贴在顺子判定之前（照模拟器：afterPlay 里先贴）。
+    // 首次进 afterPlayTail 一定从 TAIL_EBB 起，所以这儿每手都走得到；addWild 自带去重
+    if (from <= TAIL_FLOW && lastPlayed != null && inPile(lastPlayed!)
+      && (hasTrigger(skills, SK_FLOWALL) || hasTrigger(skills, SK_STONELINE))) {
+      addWild(lastPlayed!)
+    }
+    // 【续流】前半句：它自己走【顺子匹配】，**当通配**（selfWild=true，跟伏流同一支）。
+    // 〔2026-11-09 用户定 desc 加「它带上【通配】」—— 原先 selfWild=false（跟顺子标签同一支）〕
     // 排在伏流后面、顺子标签前面；凑成了从 TAIL_WADE 接着走（后半句贴标签在停人那一串）
     if (from <= TAIL_FLOW && !hasTrigger(skills, SK_FLOW) && hasTrigger(skills, SK_FLOWPASS) && lastPlayed != null) {
-      if (straightCore(byFoe, skills, '续流', false, false, false)) {
+      if (straightCore(byFoe, skills, '续流', false, false, true)) {
         return
       }
     } else if (from <= TAIL_FLOW && hasTrigger(skills, SK_FLOW)) {
@@ -10438,10 +10745,25 @@
     // 〔2026-11-05 新【野火】「【燃烧】；1 张手牌带上【燃烧】」（用户定，整包）：自带火那半句在 burnStep 认；
     //   这儿只做「1 张手牌带上」—— 你挑（burnKeyPending，照石影那块），庄家随机挑一张非 J（照模拟器 burnTagOne）。
     //   旧版「选择 1 张牌带上【燃烧】」（wildfireFor + 挑堆牌那条 pilePick）不再调用，函数留着没删〕
+    // 〔2026-11-09 用户定换效果：「【燃烧】，跟堆底同颜色的手牌全部带上【燃烧】」〕
+    //   自带火照旧在 burnStep 认；这儿给手里跟堆底同颜色的都贴。不停人（全贴，没得挑）。
+    //   同日先上过「【燃烧】，抽 1 张牌，…」（先抽、抽到的同颜色也贴），随即削掉抽牌那半句（A 槽 +4.76 → +3.92）。
+    //   堆底 / 同颜色照【磁场】：落堆之后的堆底、sameColor（失去花色的不算同色）；J 不贴。
+    //   上一版「1 张手牌带上【燃烧】」的 burnKeyFor（你挑 / 庄家随机）不再调用，函数留着没删。模拟器：WILD_MODE=hue（默认）
     if (from <= TAIL_WILD && hasTrigger(skills, SK_WILD)) {
-      if (burnKeyFor(byFoe, skills)) {
-        return
+      const bs = pile.value.length > 0 ? pileSuitAt(0) : (lastPlayed != null ? lastPlayed!.suit : '')
+      const mine = byFoe ? foeHand.value : hand.value
+      let fired = 0
+      for (let i = 0; i < mine.length; i++) {
+        const c = mine[i]
+        if (c.rank == JACK || burnOnHand(c) || !sameColor(c.suit, bs)) {
+          continue
+        }
+        addBurnHand(c)
+        fired = fired + 1
       }
+      message.value = message.value + (byFoe ? ' 庄家野火：' : ' 野火：')
+        + (fired > 0 ? '手里 ' + fired + ' 张跟堆底同颜色的牌带上了燃烧。' : '手里没有跟堆底同颜色的牌。')
     }
     // ---- 不停人的两件：排在停人那一串**前面**〔2026-10-30 挪过来，见 TAIL_ASK〕----
     // 【流钥】：打出的牌触发了技能槽 → 1 张手牌带上【顺子匹配】
@@ -10839,6 +11161,23 @@
           message.value = message.value + ' 庄家石影：手里 1 张带上了花色匹配。'
         }
       }
+    }
+    // 【磁场】〔2026-11-09〕：跟堆底同颜色的手牌都带上【磁极】。不停人（全贴，没得挑）。
+    // 堆底 = 这张落堆之后的堆底（堆上只有它自己时就是它）；J 不贴；失去花色的不算同色（sameColor）
+    if (hasTrigger(skills, SK_POLECOLORALL) && askFirst(SK_POLECOLORALL)) {
+      const bs = pile.value.length > 0 ? pileSuitAt(0) : (lastPlayed != null ? lastPlayed!.suit : '')
+      const mine = byFoe ? foeHand.value : hand.value
+      const add : PlainCard[] = []
+      for (let i = 0; i < mine.length; i++) {
+        const c = mine[i]
+        if (c.rank == JACK || poleKeyOn(c) || !sameColor(c.suit, bs)) {
+          continue
+        }
+        add.push(c)
+      }
+      poleKey.value = poleKey.value.concat(add)
+      message.value = message.value + (byFoe ? ' 庄家磁场：' : ' 磁场：')
+        + (add.length > 0 ? '手里 ' + add.length + ' 张跟堆底同颜色的牌带上了磁极。' : '手里没有跟堆底同颜色的牌。')
     }
     // 【导电】〔2026-11-05〕：1 张手牌带上【正电】。你挑（magKeyPending）；庄家照 magKeyPick
     if (hasTrigger(skills, SK_MAGTAG) && askFirst(SK_MAGTAG)) {
@@ -13760,13 +14099,8 @@
     if (span[0] < 0) {
       message.value = message.value + who
         + '凑不出顺子（要连着 ' + STRAIGHT_MIN + ' 个点数）。'
-      // 【顺子匹配】规则〔2026-10-30 用户定〕：匹配失败则带上【通配】。
-      // 当通配那几件（伏流 / 易流）上面已经贴过了，所以只管不当通配的（顺子标签）。
-      // 跟模拟器 straightFor 失败那一支同一条（STRAIGHT_FAIL_WILD）
-      if (!free) {
-        addWild(pile.value[at0])
-        message.value = message.value + '它带上了【通配】。'
-      }
+      // 〔2026-11-09 用户定：词条去掉「凑不成的话它带上【通配】」—— 原先这儿给不当通配的（顺子标签）补贴通配，删了。
+      //   模拟器 STRAIGHT_FAIL_WILD 默认翻成关〕
       return false
     }
     const wanted : boolean[] = []
@@ -15826,6 +16160,18 @@
         }
       }
     }
+    // ---- 【磁针】后半句〔2026-11-09〕：匹配失败 → 抽 1 张，那张带上【磁极】（照下面电钩那段，同一个读法）----
+    if (poleFailArmed[si]) {
+      poleFailArmed[si] = false
+      if (!tookThisHand[si]) {
+        const got = drawFor(byFoe)
+        if (got != null) {
+          poleKey.value = poleKey.value.concat([got!])
+        }
+        message.value = message.value + (byFoe ? ' 庄家磁针：' : ' 磁针：')
+          + (got != null ? '没钓上，摸了 1 张，它带上了磁极。' : '没钓上，牌库空了没摸到。')
+      }
+    }
     // ---- 【磁钩】后半句〔2026-11-05〕：匹配失败 → 抽 1 张，那张带上【正电】 ----
     //
     // 「匹配失败」= 这一手一张没收到（tookThisHand）**而且不是被抢走** ——
@@ -16567,6 +16913,11 @@
     // 电镜：点手牌是「展示这张」
     if (mirrorSelfPending.value) {
       onMirrorSelf(index)
+      return
+    }
+    // 磁极：点手牌是「亮这张」
+    if (polePending.value) {
+      onPoleHand(index)
       return
     }
     // 感电第二步：点手牌是「给这张贴正电」
@@ -17749,6 +18100,9 @@
         || hasTrigger(skills, SK_RAISE)
         // 垫吃同一族（照 ai.js 的 wants，两边一起加）
         || hasTrigger(skills, SK_STACKDRAFT)
+        // 〔2026-11-09 用户定「两件都要放 wants」〕引火「手牌都带上【燃烧】」、野火「【燃烧】，抽 1 张牌，跟堆底同颜色的手牌全部带上【燃烧】」
+        //   贴火 / 抽牌都是钓不钓到都发动，当饵白赚一次。⚠ 引火模拟器 `ai.js` 那边早就在表里、这份一直没有（两份漂移），这次一起补
+        || hasTrigger(skills, SK_KINDLE) || hasTrigger(skills, SK_WILD)
         // ⚠ **【滤饵】有意**不在这个列表里〔2026-10-22〕。
         //
         // 它结构上该在（跟换水一样「钓不钓到都照样发动」），而且模拟器那边
@@ -17906,6 +18260,11 @@
     stoneHand = [] as PlainCard[]
     matchKey.value = [] as PlainCard[]
     magKey.value = [] as PlainCard[]
+    poleKey.value = [] as PlainCard[]
+    poleDone = null
+    polePending.value = false
+    poleShown = [] as number[]
+    poleSkills = [] as number[]
     negHand.value = [] as PlainCard[]
     negPile.value = [] as PlainCard[]
     draftKey.value = [] as PlainCard[]
@@ -17963,6 +18322,8 @@
     holdArmed[1] = false
     hookArmed[0] = false
     hookArmed[1] = false
+    poleFailArmed[0] = false
+    poleFailArmed[1] = false
     chainArmed[0] = false
     chainArmed[1] = false
     burnPending[0] = false
@@ -18960,6 +19321,15 @@
   }
   .hand-neg-tag {
     color: #6a1b9a;
+    font-size: 9px;
+    font-weight: bold;
+    margin-left: 1px;
+    margin-right: 1px;
+  }
+
+  /* 手里带【磁极】（磁针贴的）：深橙，跟正电的铁灰、负电的紫分得开 */
+  .hand-pole-tag {
+    color: #e65100;
     font-size: 9px;
     font-weight: bold;
     margin-left: 1px;

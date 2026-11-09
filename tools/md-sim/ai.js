@@ -1548,6 +1548,7 @@ function pickCardCore(G, side) {
         caught = pick.score
       }
     }
+    // 〈colorshift〉〔2026-11-09〕挪点数挂在 catchStart 里了，上面的 caught 已经是挪完的数 —— 这儿不用再接
     // 收色、撒网不走点数判定，所以上面那一下对它们一概是 -1 ——
     // 不单独估一次，AI 就会把一张能扫掉半个堆的牌当普通饵打出去
     // 〔2026-11-05 量具〕ICE_AI=1：估收成时扣掉收不走的冰牌（这张手里不带冰 = 没豁免）。默认关 = 现行 AI 不看冰
@@ -1880,7 +1881,11 @@ function pickCardCore(G, side) {
       //  而上面那段关于「白付风险」的推理是从它们身上得出来的，所以留着〕
       || (R.has(skills, SK.SUITIFY) && pairSuitLine)
       // 燃烧那两件：落堆就贴火，钓不钓到都发动 —— 当饵白赚一层火
-      || R.has(skills, SK.KINDLE) || R.has(skills, SK.CHAIN)
+      // 〔2026-11-09 量具〕WANTS_KINDLE=0：把引火从这张清单拿掉（新引火 A 槽 +4.34 → +3.86、♥ 槽 +9.44 → +10.55，台账一百零八）。默认不动 = 现行
+      || (process.env.WANTS_KINDLE !== '0' && R.has(skills, SK.KINDLE)) || R.has(skills, SK.CHAIN)
+      // 〔2026-11-09 用户定「两件都要放 wants」〕新野火「【燃烧】，抽 1 张牌，跟堆底同颜色的手牌全部带上【燃烧】」抽牌 + 贴火也是钓不钓到都发动，跟引火同一条理由。
+      //   WANTS_WILD=0 复现之前（野火不在这张表里）
+      || (process.env.WANTS_WILD !== '0' && R.has(skills, SK.WILD))
       // 挂在牌上的两件（窄口、满篓）要求这张留在堆上 ——
       // 所以「被钓走」对它们是**真损失**，不像下面那几件钓不钓到都发动
       || R.has(skills, SK.NARROW) || R.has(skills, SK.CREEL)
