@@ -366,18 +366,20 @@
          那两张是**你自己**回合末要补的（回合末补牌之后朝向变了）。
          从前只有「两张一起沉 / 都不动」两颗钮 —— 一张想要、一张不想要的时候
          两头都不对。现在点一张标记「沉」，再点一次取消，最后按确定 -->
+    <!-- 〔2026-11-10 观潮换成「查看牌库顶 4 张，自定义排序」：按顺序点，第 1 下点的放最上面；再点一次取消；没点到的按原来的先后排在后面。
+         你打完先补牌 —— 第 1、3 张是你的，第 2、4 张是庄家的〕 -->
     <view v-if="tidePending" class="tide-box">
-      <text class="tide-text">观潮：牌库顶这两张是你回合末要补的。点一张标记沉到库底，再点取消</text>
+      <text class="tide-text">观潮：按顺序点牌库顶这几张，第 1 下点的放最上面（再点取消，没点的按原顺序排在后面）。你摸第 1、3 张，庄家摸第 2、4 张</text>
       <view class="pick-deck-row">
         <view
           v-for="(one, ti) in tideCards"
           :key="'td-' + ti"
           :id="'ap-tide-card-' + ti"
           class="pick-deck-card"
-          :class="{ 'tide-card-sunk': ti < tideMarks.length && tideMarks[ti] }"
+          :class="{ 'tide-card-sunk': tideOrder.indexOf(ti) >= 0 }"
           @click="onTideCard(ti)">
           <text class="pick-deck-text" :class="{ 'card-red': isRed(one) }">{{ cardName(one) }}</text>
-          <text v-if="ti < tideMarks.length && tideMarks[ti]" class="tide-card-mark">沉</text>
+          <text v-if="tideOrder.indexOf(ti) >= 0" class="tide-card-mark">{{ '第' + (tideOrder.indexOf(ti) + 1) }}</text>
         </view>
       </view>
       <view class="tide-actions">
@@ -410,7 +412,7 @@
          回合末只补到下限，所以塞给他一张废牌 = 剥夺他一次摸牌，
          他还要多花一手把它打掉。**所以挑的时候专挑自己最没用的** -->
     <view v-if="baitPending" class="tide-box">
-      <text class="tide-text">{{ baitDone > 0 ? ('倒饵：已塞给庄家 ' + baitDone + ' 张，还能接着点手牌') : '倒饵：点手牌塞给庄家，想给几张给几张（回合末你会补新的）' }}</text>
+      <text class="tide-text">{{ baitDark ? (baitDone > 0 ? ('暗饵：已以暗牌交给庄家 ' + baitDone + ' 张，还能再给 ' + (2 - baitDone) + ' 张') : '暗饵：点手牌以暗牌交给庄家，最多 2 张（他看不见它们，打出落堆才翻开）') : (baitDone > 0 ? ('倒饵：已塞给庄家 ' + baitDone + ' 张，还能接着点手牌') : '倒饵：点手牌塞给庄家，想给几张给几张（回合末你会补新的）') }}</text>
       <view class="tide-actions">
         <view id="ap-bait-skip" class="tide-btn tide-btn-plain" @click="onBait(-1)">
           <text class="tide-btn-text tide-btn-text-plain">{{ baitDone > 0 ? '给完了' : '不给' }}</text>
@@ -950,23 +952,29 @@
             :id="'ap-hand-' + index"
             class="card card-hand"
             :class="{
-              'card-hint': canPlay && canCatch(card, false),
+              'card-hint': canPlay && !darkKeyOn(card) && canCatch(card, false),
               'card-new': index == newIndex,
               'card-frozen': isFrozen(card),
-              'card-steal': stealPending && canStealWith(card)
+              'card-steal': stealPending && !darkKeyOn(card) && canStealWith(card),
+              'card-back': darkKeyOn(card)
             }"
             @click="onPlay(index)">
-            <view class="card-head card-head-hand">
+            <!-- 【暗牌】〔2026-11-10〕：以背面显示，连你自己也看不到花色和点数 —— 照堆牌区那块牌背的画法；
+                 能钓的金边、抢牌金边、点数卡、技能标记、标签行都关掉（它们会漏出这张是什么牌） -->
+            <view v-if="darkKeyOn(card)" class="card-back-art card-back-art-hand">
+              <view class="card-back-gem card-back-gem-hand"></view>
+            </view>
+            <view v-if="!darkKeyOn(card)" class="card-head card-head-hand">
               <text class="card-suit card-suit-hand" :class="{ 'card-red': isRed(card), 'card-suit-dia': card.suit == '♦' }">{{ suitFace(card.suit) }}</text>
               <!-- 被【死水】废掉的印 0、描橙黄（「跟牌面对不上」那个色），不再印原点数 -->
               <text class="card-rank card-rank-hand card-rank-over" :class="{ 'card-red': isRed(card), 'card-shifted': isDead(card) }">{{ handFace(card) }}</text>
             </view>
             <!-- 点数卡贴上来的那几个点数。描成金的 ——
                  「这张还算 7 点」是打牌时必须看见的，牌面上写不出来 -->
-            <text v-if="pipTag(card) != ''" class="card-pip">{{ pipTag(card) }}</text>
-            <text v-if="skillTag(card) != ''" class="card-skill">{{ skillTag(card) }}</text>
+            <text v-if="!darkKeyOn(card) && pipTag(card) != ''" class="card-pip">{{ pipTag(card) }}</text>
+            <text v-if="!darkKeyOn(card) && skillTag(card) != ''" class="card-skill">{{ skillTag(card) }}</text>
             <!-- 下半部的标签行：冰 / 火 / 推牌 / 沉降 / 冻（或被看），放不下就换行 -->
-            <view class="card-tags">
+            <view v-if="!darkKeyOn(card)" class="card-tags">
             <!-- ---------- 手里的【结冰】= **钥匙** ---------- -->
             <!--
               结冰在两个位置意思正好相反（见 TERMS 那条）：
@@ -1272,6 +1280,10 @@
     // 而 `triggersOf` 只往列表里塞 `>= 0` 的槽主，所以那四处恒不命中。
     // 整个导出删掉的话它们会拿 `undefined` —— **静默不匹配**，查不出来
     SK_DUMPBAIT,
+    // 【暗饵】〔2026-11-10〕：将手牌最多 2 张以【暗牌】交给对方
+    SK_DARKBAIT,
+    // 【暗潮】〔2026-11-10〕：将对方全部手牌洗回牌库，摸入等量暗牌
+    SK_DARKSWAP,
     SK_NARROW,
     SK_CREEL,
     SK_TWIN,
@@ -1591,7 +1603,8 @@
   // 而 3 张的选择面太窄 —— 常常只有一张打得出去，那就不叫选
   const HAND_SIZE : number = 4
   // 观潮看牌库顶几张
-  const TIDE_LOOK : number = 2
+  // 〔2026-11-10 观潮换成「查看牌库顶 4 张，自定义排序」：2 → 4〕
+  const TIDE_LOOK : number = 4
   // 择饵看牌库顶几张（挑一张留顶，其余沉底）
   const PICK_LOOK : number = 5
   // 原先这儿有个 NO_VALUE = -1，当「这张牌没有点数」的哨兵值
@@ -2276,19 +2289,12 @@
   const tidePending = ref<boolean>(false)
   const tideCards = ref<PlainCard[]>([] as PlainCard[])
   const tideMarks = ref<boolean[]>([] as boolean[])
+  // 〔2026-11-10 新观潮〕你点的顺序（tideCards 的下标；第 0 个放最上面）
+  const tideOrder = ref<number[]>([] as number[])
 
   // 确定那颗钮上写什么 —— 写清楚按下去会发生什么，不用另起一行说明
   const tideButton = computed<string>(() : string => {
-    let n = 0
-    for (let i = 0; i < tideMarks.value.length; i++) {
-      if (tideMarks.value[i]) {
-        n = n + 1
-      }
-    }
-    if (n == 0) {
-      return '都不动'
-    }
-    return n == tideMarks.value.length ? '两张都沉' : '沉 ' + n + ' 张'
+    return tideOrder.value.length == 0 ? '都不动' : '按这个顺序放回'
   })
   // 换水等你挑手牌塞回去（**任意张** —— 点一张洗一张，按钮收尾）
   const swapPending = ref<boolean>(false)
@@ -2303,6 +2309,10 @@
   const baitPending = ref<boolean>(false)
   // 这一次倒饵已经塞出去几张了（照 swapDone，只用来写提示和结算文案）
   const baitDone = ref<number>(0)
+  // 【暗饵】〔2026-11-10〕这一次挑牌是暗饵（封顶 2 张、送出的记成暗牌）还是倒饵 —— 两件共用 baitPending 那块
+  const baitDark = ref<boolean>(false)
+  // 【暗牌】庄家盲打那层的重入闸（foePickCard 里临时只留明牌再调自己一次）
+  let foeDarkBusy : boolean = false
   // 滤饵等你挑手牌退回牌库。
   //
   // ⚠ **不能复用 swapPending** —— 两件技能的 pending 形状不一样：
@@ -2985,6 +2995,8 @@
     dropMagKey(card)
     // 【磁极】也同一套（打出那一手用掉、洗回 / 换主人也摘）
     dropPoleKey(card)
+    // 【暗牌】也同一套
+    dropDarkKey(card)
     // 【负电】手里那一层也同一套生命周期（打出那一手用掉 —— 而它的「整堆通电」在 afterPlay 开头已经做完了）
     dropNegHand(card)
   }
@@ -3087,6 +3099,30 @@
   // ⚠ 挪点数挂在 catchStart 里（poleCatch）：抢牌判定（stealGainOf）、金边提示、庄家估牌都走它 ——
   //   模拟器第一版漏了抢牌那条路，A 槽少了 1 分（台账一百零一）。
   // ⚠ 庄家真挪的那一下照电镜的庄家（mirrorSelfDepth 估钓多深），比 catchStart 那把尺子粗 —— 跟电镜同一个简化
+  // ---------- 【暗牌】〔2026-11-10 用户定机制〕----------
+  // 「以背面显示，打出到堆才显示花色和点数并触发技能（如果有的话）」—— 挂在手牌上的标签：手里画背面（模板那段），
+  // 打出落堆照常结算（落堆就翻开 —— 堆上的牌不读这张表）。生命周期跟【正电】【磁极】同一套（dropMatchKey 里一起摘）。
+  // 现在还没有技能 / 庄家会产生它（模拟器里有庄家规矩 dark 和原型〈darkdraw〉在量）
+  const darkKey = ref<PlainCard[]>([] as PlainCard[])
+  // 〔2026-11-10 用户定「暗牌带上明置标签，暗牌会失效（失去暗牌且明置）」〕明置着的就不算暗牌 ——
+  // 判在这儿而不是在十几处 withFlag 那儿逐个摘：明置标记在手里只加不减，所以「暗 且 没明置」跟「明置时摘掉暗」等价
+  function darkKeyOn(card : PlainCard) : boolean {
+    for (let i = 0; i < darkKey.value.length; i++) {
+      if (darkKey.value[i] == card) {
+        return !shownInHand(card)
+      }
+    }
+    return false
+  }
+  function dropDarkKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < darkKey.value.length; i++) {
+      if (darkKey.value[i] != card) {
+        keep.push(darkKey.value[i])
+      }
+    }
+    darkKey.value = keep
+  }
   const poleKey = ref<PlainCard[]>([] as PlainCard[])
   function poleKeyOn(card : PlainCard) : boolean {
     for (let i = 0; i < poleKey.value.length; i++) {
@@ -4167,7 +4203,7 @@
       return '你的回合 · 换水'
     }
     if (baitPending.value) {
-      return '你的回合 · 倒饵'
+      return baitDark.value ? '你的回合 · 暗饵' : '你的回合 · 倒饵'
     }
     // 滤饵报**还差几张**（照分饵那条：不报的话点完一张看着像卡住了）
     if (siftPending.value) {
@@ -7081,15 +7117,56 @@
     return left
   }
 
-  // 从某一方手里拿走一张（连同它的「被看过 / 被翻开」标记）
+  // 【明置】跟着牌走〔2026-11-10 用户定「洗回牌库 置0 和明置 标签 不丢」〕：
+  // handSeen / foeShown 是按手牌下标存的，牌一离手标记就没了 —— 所以离手时（takeFromHand）把「它这时明置着没有」
+  // 记进这张表，摸回手里时（drawFor）照它还原。置 0 本来就跟着牌走（deadCards 存的是牌，shuffleBack 不摘）
+  const openCards = ref<PlainCard[]>([] as PlainCard[])
+  function openCardOn(card : PlainCard) : boolean {
+    for (let i = 0; i < openCards.value.length; i++) {
+      if (openCards.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function rememberOpen(card : PlainCard, open : boolean) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < openCards.value.length; i++) {
+      if (openCards.value[i] != card) {
+        keep.push(openCards.value[i])
+      }
+    }
+    if (open) {
+      keep.push(card)
+    }
+    openCards.value = keep
+  }
+  // 这张牌现在在谁手里明置着（不在手里 = false）
+  function shownInHand(card : PlainCard) : boolean {
+    for (let i = 0; i < hand.value.length; i++) {
+      if (hand.value[i] == card) {
+        return i < handSeen.value.length && handSeen.value[i]
+      }
+    }
+    for (let i = 0; i < foeHand.value.length; i++) {
+      if (foeHand.value[i] == card) {
+        return i < foeShown.value.length && foeShown.value[i]
+      }
+    }
+    return false
+  }
+
+  // 从某一方手里拿走一张（连同它的「被看过 / 被翻开」标记 —— 明置着的记进 openCards，见上）
   function takeFromHand(byFoe : boolean, index : number) : PlainCard {
     if (byFoe) {
       const card = foeHand.value[index]
+      rememberOpen(card, index < foeShown.value.length && foeShown.value[index])
       foeHand.value = withoutCard(foeHand.value, index)
       foeShown.value = withoutFlag(foeShown.value, index)
       return card
     }
     const card = hand.value[index]
+    rememberOpen(card, index < handSeen.value.length && handSeen.value[index])
     hand.value = withoutCard(hand.value, index)
     handSeen.value = withoutFlag(handSeen.value, index)
     return card
@@ -7152,7 +7229,8 @@
       // 【安检】你带、庄家抽：先进他手里、明置，记进待确认（轮到你出牌时再决定放行还是置底）
       const inspect = dealt && hasSpecial(false, SP_INSPECT)
       foeHand.value = foeHand.value.concat([card])
-      foeShown.value = foeShown.value.concat([inspect])
+      // 洗回牌库前明置着的，摸回来照样明置（openCards）
+      foeShown.value = foeShown.value.concat([inspect || openCardOn(card)])
       if (inspect) {
         inspectPending.value = inspectPending.value.concat([card])
       }
@@ -7162,7 +7240,7 @@
       }
     } else {
       hand.value = hand.value.concat([card])
-      handSeen.value = handSeen.value.concat([seen])
+      handSeen.value = handSeen.value.concat([seen || openCardOn(card)])
       // 【甩货】你带：记一次，交回合前问（见 giveLeft）
       if (dealt && isDead(card) && hasSpecial(false, SP_ZHANDGIVE)) {
         giveLeft.value = giveLeft.value + 1
@@ -9041,6 +9119,10 @@
     let best = -1
     let bestN = 0
     for (let i = 0; i < mine.length; i++) {
+      // 【暗牌】拿着它的人看不见这张能收几张 → 不拿它抢（照模拟器 stealTryCore）
+      if (darkKeyOn(mine[i])) {
+        continue
+      }
       const n = stealGainOf(mine[i], thief)
       if (n > bestN) {
         bestN = n
@@ -9224,6 +9306,11 @@
     const card = hand.value[index]
     if (isFrozen(card)) {
       uni.showToast({ title: '这张被冻住了，抢不了', icon: 'none' })
+      return
+    }
+    // 【暗牌】看不见它能收几张 —— 不拿它抢（照模拟器）
+    if (darkKeyOn(card)) {
+      uni.showToast({ title: '暗牌看不见，抢不了', icon: 'none' })
       return
     }
     const n = stealGainOf(card, false)
@@ -11470,6 +11557,60 @@
         }
       }
     }
+    // 【暗饵】〔2026-11-10〕将手牌最多 2 张以【暗牌】交给对方 —— 照倒饵（同一块挑牌、同一把庄家尺子），封顶 2 张，送出的记成暗牌
+    if (hasTrigger(skills, SK_DARKBAIT) && askFirst(SK_DARKBAIT)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      if (mine.length > 0) {
+        if (!byFoe) {
+          baitDone.value = 0
+          baitDark.value = true
+          baitPending.value = true
+          return
+        }
+        let out = 0
+        while (foeHand.value.length > 0 && out < 2 && out < deck.value.length - 1) {
+          const at = foeSwapPick()
+          if (at < 0) {
+            break
+          }
+          if (out > 0 && foeSwapUseful(foeHand.value[at])) {
+            break
+          }
+          const card = foeHand.value[at]
+          doGiveBack(true, at)
+          // 以暗牌交出 —— 不明置（doGiveBack 默认给的是明置的；明置的暗牌会失效）
+          handSeen.value = withoutFlag(handSeen.value, handSeen.value.length - 1).concat([false])
+          darkKey.value = darkKey.value.concat([card])
+          out = out + 1
+        }
+        if (out > 0) {
+          message.value = message.value + ' 庄家暗饵，以暗牌交给你 ' + out + ' 张（你看不见它们，打出落堆才翻开）。'
+        }
+      }
+    }
+    // 【暗潮】〔2026-11-10〕将对方全部手牌洗回牌库，摸入等量暗牌 —— 不用挑，双方同一段。
+    // 照模拟器 rules.js 〈darkswap〉：先一张张洗回（shuffleBack 摘掉身上的手牌标签，含旧的暗牌），再摸回同样张数，摸到的记进 darkKey
+    if (hasTrigger(skills, SK_DARKSWAP)) {
+      const victim = !byFoe
+      const n = victim ? foeHand.value.length : hand.value.length
+      if (n > 0) {
+        for (let i = n - 1; i >= 0; i--) {
+          shuffleBack(takeFromHand(victim, i))
+        }
+        let got = 0
+        for (let k = 0; k < n; k++) {
+          const card = drawFor(victim)
+          if (card == null) {
+            break
+          }
+          darkKey.value = darkKey.value.concat([card!])
+          got = got + 1
+        }
+        message.value = message.value + (byFoe
+          ? (' 庄家暗潮：你的 ' + n + ' 张手牌洗回牌库，换摸了 ' + got + ' 张暗牌（你看不见它们，打出落堆才翻开）。')
+          : (' 暗潮：庄家的 ' + n + ' 张手牌洗回牌库，换摸了 ' + got + ' 张暗牌。'))
+      }
+    }
     // 滤饵：先摸 SIFT_DRAW 张，**然后**从手里（含刚摸的）挑 SIFT_BACK 张退回牌库。
     //
     // 排在换水后面：两件都只动自己手牌、都不碰堆，所以位置只要在这一串之内就行。
@@ -11608,36 +11749,15 @@
       const tops = tideTops()
       if (!byFoe) {
         tideCards.value = tops
-        const marks : boolean[] = []
-        for (let i = 0; i < tops.length; i++) {
-          marks.push(false)
-        }
-        tideMarks.value = marks
+        tideOrder.value = [] as number[]
         tidePending.value = true
         return
       }
-      // 庄家看的是它自己要补的两张，**一张一张判**：用不上的沉，用得上的留。
-      // 「用得上」= J（通吃），或者钓得着堆上的某张。
-      // 跟你受同一条规矩 —— 你也是每张单独选（见 onTideCard）
-      const marks : boolean[] = []
-      let sunk = 0
-      for (let i = 0; i < tops.length; i++) {
-        let useful = tops[i].rank == JACK
-        for (let k = 0; k < pile.value.length && !useful; k++) {
-          if (pile.value[k].rank == tops[i].rank) {
-            useful = true
-          }
-        }
-        marks.push(!useful)
-        if (!useful) {
-          sunk = sunk + 1
-        }
-      }
-      if (sunk > 0) {
-        sinkMarked(marks)
-        message.value = message.value + ' 庄家观潮，把牌库顶 '
-          + sunk + ' 张沉了下去。'
-      }
+      // 〔2026-11-10 新观潮〕庄家：照模拟器 deckOrderApply —— 按择饵那把尺子排好坏（J > 堆上有同点数的 > 点数大），
+      // 好的放它自己会摸的位置（它打完先补牌 → 第 1、3 张），差的放你会摸的（第 2、4 张）。
+      // 〔原先这儿「一张一张判、用不上的沉」（旧观潮），换掉了〕
+      tideReorder(tideFoeOrder(tops))
+      message.value = message.value + ' 庄家观潮，把牌库顶 ' + tops.length + ' 张重新排了顺序。'
     }
     // ---- 【燃烧】那一步：蔓延 + 燃尽判定，**排在匹配之前** ----
     //
@@ -11730,12 +11850,64 @@
 
   // 点一张：标「沉」/ 取消
   function onTideCard(index : number) {
-    if (!tidePending.value || index < 0 || index >= tideMarks.value.length) {
+    if (!tidePending.value || index < 0 || index >= tideCards.value.length) {
       return
     }
-    const next = tideMarks.value.slice(0)
-    next[index] = !next[index]
-    tideMarks.value = next
+    const at = tideOrder.value.indexOf(index)
+    const next = tideOrder.value.slice(0)
+    if (at >= 0) {
+      next.splice(at, 1)
+    } else {
+      next.push(index)
+    }
+    tideOrder.value = next
+  }
+  // 〔2026-11-10 新观潮〕把牌库顶那几张换成 order 的顺序（order[0] 放最上面）
+  function tideReorder(order : PlainCard[]) {
+    const keep = deck.value.slice(0, deck.value.length - order.length)
+    for (let i = order.length - 1; i >= 0; i--) {
+      keep.push(order[i])
+    }
+    deck.value = keep
+  }
+  // 庄家排法：好坏分（J 100；否则点数，堆上有同点数的再 +50 —— 照模拟器 ai.pickDeck），交替放
+  function tideFoeOrder(tops : PlainCard[]) : PlainCard[] {
+    const pool = tops.slice(0)
+    const ranked : PlainCard[] = []
+    while (pool.length > 0) {
+      let best = 0
+      let bestScore = -1
+      for (let i = 0; i < pool.length; i++) {
+        let score = pool[i].rank == JACK ? 100 : pool[i].value
+        if (pool[i].rank != JACK) {
+          for (let k = 0; k < pile.value.length; k++) {
+            if (pile.value[k].rank == pool[i].rank) {
+              score = score + 50
+              break
+            }
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score
+          best = i
+        }
+      }
+      ranked.push(pool[best])
+      pool.splice(best, 1)
+    }
+    const order : PlainCard[] = []
+    let lo = 0
+    let hi = ranked.length - 1
+    for (let i = 0; i < ranked.length; i++) {
+      if (i % 2 == 0) {
+        order.push(ranked[lo])
+        lo = lo + 1
+      } else {
+        order.push(ranked[hi])
+        hi = hi - 1
+      }
+    }
+    return order
   }
 
   // 按确定：标了的沉下去，然后接着走匹配
@@ -11744,19 +11916,23 @@
       return
     }
     tidePending.value = false
-    const marks = tideMarks.value.slice(0)
+    const picked = tideOrder.value.slice(0)
     const cards = tideCards.value.slice(0)
     tideCards.value = [] as PlainCard[]
-    tideMarks.value = [] as boolean[]
-    const sunk : PlainCard[] = []
-    for (let i = 0; i < marks.length && i < cards.length; i++) {
-      if (marks[i]) {
-        sunk.push(cards[i])
+    tideOrder.value = [] as number[]
+    if (picked.length > 0) {
+      // 点了的按点的顺序放上面，没点的按原来的先后排在后面
+      const order : PlainCard[] = []
+      for (let i = 0; i < picked.length; i++) {
+        order.push(cards[picked[i]])
       }
-    }
-    if (sunk.length > 0) {
-      sinkMarked(marks)
-      message.value = '你把 ' + tideNames(sunk) + ' 沉到了牌库底。'
+      for (let i = 0; i < cards.length; i++) {
+        if (picked.indexOf(i) < 0) {
+          order.push(cards[i])
+        }
+      }
+      tideReorder(order)
+      message.value = '观潮：牌库顶从上往下是 ' + tideNames(order) + '。'
     }
     askNext()
   }
@@ -15726,20 +15902,31 @@
       return
     }
     if (index >= 0 && index < hand.value.length) {
-      const name = cardName(hand.value[index])
+      const card = hand.value[index]
+      const name = cardName(card)
       doGiveBack(false, index)
       baitDone.value = baitDone.value + 1
-      message.value = '你把 ' + name + ' 塞给了庄家。'
-      // 还有牌就接着挑；点空了没得挑，自己收尾
-      if (hand.value.length > 0) {
+      if (baitDark.value) {
+        // 【暗饵】送过去的牌在庄家手里是暗牌（doGiveBack 先摘了它身上的手牌标签，这儿再贴上）；
+        // 不明置（doGiveBack 默认给的是明置的，而明置的暗牌会失效）—— 你自己记得给了什么，但牌面不翻开
+        foeShown.value = withoutFlag(foeShown.value, foeShown.value.length - 1).concat([false])
+        darkKey.value = darkKey.value.concat([card])
+        message.value = '你把 ' + name + ' 以暗牌交给了庄家。'
+      } else {
+        message.value = '你把 ' + name + ' 塞给了庄家。'
+      }
+      // 还有牌就接着挑；点空了没得挑，自己收尾。暗饵封顶 2 张
+      if (hand.value.length > 0 && !(baitDark.value && baitDone.value >= 2)) {
         return
       }
     }
     baitPending.value = false
     const n = baitDone.value
+    const dark = baitDark.value
     baitDone.value = 0
+    baitDark.value = false
     message.value = n > 0
-      ? ('倒饵：你塞给庄家 ' + n + ' 张，回合末你会补新的。')
+      ? (dark ? ('暗饵：你以暗牌交给庄家 ' + n + ' 张，回合末你会补新的。') : ('倒饵：你塞给庄家 ' + n + ' 张，回合末你会补新的。'))
       : '你没给牌。'
     askNext()
   }
@@ -18331,6 +18518,40 @@
     if (level.value.random) {
       return randomFree()
     }
+    // 【暗牌】〔2026-11-10〕庄家手里有暗牌（你的暗饵交过去的）：照模拟器 ai.js pickCard 那层 ——
+    // 先只看明牌挑（临时把暗牌拿开、再走一遍下面的老逻辑）；挑出的那张能钓到（J / 配得上 / 特殊匹配有收成）就打它，
+    // 钓不到就随机盲打一张暗牌（不打已知钓不到的明牌当饵）；全是暗牌就随机打
+    if (!foeDarkBusy) {
+      const all = foeHand.value
+      const dark : number[] = []
+      const known : PlainCard[] = []
+      for (let i = 0; i < all.length; i++) {
+        if (darkKeyOn(all[i])) {
+          dark.push(i)
+        } else {
+          known.push(all[i])
+        }
+      }
+      if (dark.length > 0) {
+        if (known.length == 0) {
+          return dark[Math.floor(Math.random() * dark.length)]
+        }
+        foeDarkBusy = true
+        foeHand.value = known
+        const k = foePickCard()
+        foeHand.value = all
+        foeDarkBusy = false
+        const card = k >= 0 && k < known.length ? known[k] : null
+        if (card != null) {
+          const sk = skillsOf(true, card!)
+          const catches = card!.rank == JACK || catchStart(card!, true, sk, false) >= 0 || harvestCount(card!, sk, true, true) > 0
+          if (catches) {
+            return all.indexOf(card!)
+          }
+        }
+        return dark[Math.floor(Math.random() * dark.length)]
+      }
+    }
     let best = -1
     let bestCaught = 0
     for (let i = 0; i < foeHand.value.length; i++) {
@@ -18597,10 +18818,12 @@
     tidePending.value = false
     tideCards.value = [] as PlainCard[]
     tideMarks.value = [] as boolean[]
+    tideOrder.value = [] as number[]
     swapPending.value = false
     swapDone.value = 0
     // 倒饵那两个同理（它跟换水同形，清法也同形）
     baitPending.value = false
+    baitDark.value = false
     baitDone.value = 0
     // 滤饵那三个一起清（照上面那条判据：**每个 pending 都要在这儿清**，
     // 漏了的话重开一局时 canPlay 被它按着 → 整局点不动手牌）
@@ -18654,6 +18877,8 @@
     matchKey.value = [] as PlainCard[]
     magKey.value = [] as PlainCard[]
     poleKey.value = [] as PlainCard[]
+    darkKey.value = [] as PlainCard[]
+    openCards.value = [] as PlainCard[]
     poleDone = null
     polePending.value = false
     poleShown = [] as number[]

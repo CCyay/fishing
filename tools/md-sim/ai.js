@@ -1340,7 +1340,28 @@ function pickCard(G, side) {
     if (!G.comboHeldNow) G.comboHeldNow = [false, false]
     G.comboHeldNow[side] = false
   }
-  const at = pickCardCore(G, side)
+  // 【暗牌】（庄家规矩 dark）：玩家手里有暗牌 —— 先只拿明牌让原来的 AI 挑；挑出的那张能钓到（J / 普通匹配 / 特殊匹配有收成）就打它，
+  //   钓不到就随机盲打一张暗牌（赌一把，不打已知钓不到的明牌当饵）；全是暗牌就随机打
+  let at
+  // 〔2026-11-10〕双方都适用（〈darkdraw〉会把暗牌塞给庄家那一侧）
+  //   明置的暗牌不算暗（R.isDark）
+  const darkHand = G.dark ? G.hands[side].filter(function (c) { return R.isDark(G, side, c) }) : []
+  if (darkHand.length > 0) {
+    const hand = G.hands[side]
+    const known = hand.filter(function (c) { return darkHand.indexOf(c) < 0 })
+    if (known.length === 0) {
+      at = R.randInt(G.rng, hand.length)
+    } else {
+      G.hands[side] = known
+      let k
+      try { k = pickCardCore(G, side) } finally { G.hands[side] = hand }
+      const card = k >= 0 && k < known.length ? known[k] : null
+      const catches = card !== null && (card.rank === R.JACK || R.canCatch(G, card, side) || R.harvestCount(G, card, R.skillsOf(G, side, card), side) > 0)
+      at = catches ? hand.indexOf(card) : hand.indexOf(darkHand[R.randInt(G.rng, darkHand.length)])
+    }
+  } else {
+    at = pickCardCore(G, side)
+  }
   // 「**接连**打出」那半句的诊断口。放在这儿而不是 core 里面，是因为
   // core 有七个 return（rushFlood / sinkCombo / best / pick / randomFree…），
   // 包在外面才不会漏掉其中某一条路
