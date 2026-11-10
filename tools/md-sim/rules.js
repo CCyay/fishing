@@ -1304,6 +1304,23 @@ const SKILLS = [
   //   实现：playFor 里落堆点数（landVals）之前抽，记在 G.drawRank；valuesOf 认它。AI 出牌前不知道会抽到什么 —— 估值 / 屯牌（HOLD21）按 7 点算（DR_AI=own = 按原来的点数，第一版）
   //   诊断口 PROTO_STAT.drawrank：fires / jack（抽到 J 没变）/ oldSum / newSum（变之前 / 之后的点数和）/ noDraw（牌库空）
   { key: 'drawrank', name: '〈drawrank〉' },
+  //〈swapbottom〉「顺子匹配时与堆底交换点数，【顺子匹配】，相差 2 也视为顺子」〔2026-11-09 · 用户：「评价」〕
+  //   照在架的〈swapstraight〉（只在判顺子那一下换、凑不成就恢复、按原点数普通匹配；没被收走的那张从此带着换过来的点数），差两处：
+  //   **只跟堆底换**（堆底是它自己 / J / 无点数 → 不换）、**步长 2**（SB_STEP）。desc 没写「可以」→ 默认**强制**换；SB_OPT=1 = 凑得成才换
+  //   诊断口 PROTO_STAT.swapbottom：fires / swapped（换了且凑成）/ straightHit（凑成顺子）/ noBottom（没得换）
+  { key: 'swapbottom', name: '〈swapbottom〉' },
+  //〈wildflowtag〉「1 张手牌带上【通配】和【顺子匹配】」〔2026-11-10 · 用户：「评价」〕—— 技能牌自己什么都不做（照常普通匹配）。
+  //   同一张手牌贴两个标签：顺子钥匙走 doFlowTag（【流钥】那套，挑法笨 = 下限），通配走 G.wildTag（存牌对象，落堆自动带上）。
+  //   那张打出时走【顺子匹配】、自己当通配（bestChain 的 own 档认 isWildAt）；凑不成按原点数普通匹配，通配标签留在堆上（照词条「它留着」）。
+  //   ⚠ 还在手里时**不当通配补牌**（handByVal 只读点数）—— 数偏保守。它是通配 → 不吃 HOLDSTR（「对通配不用」），AI 估值按伏流那套（FLOW_OPT）
+  //   WFT_N=k：贴 k 张（默认 1）
+  { key: 'wildflowtag', name: '〈wildflowtag〉' },
+  //〈foeswap〉「查看对方手牌，选 1 张和堆上交换（不能选堆上有的点数牌）」〔2026-11-10 · 用户：「评价」〕
+  //   读法：他 1 张手牌放到堆上那一格，那一格的牌进他手里（明置）。他那张的点数不能是堆上已有的（换完堆上不会有对子）；J 不能选（J 不留堆上）；
+  //   堆上被换的不能是这一手刚打出的那张、也不换一叠的宿主。时机：这一手结算完之后（resolveMatch 外包）。
+  //   AI：所有可行的（他的哪张 × 堆上哪张）都试，挑「我下一手最多收几张 − 他下一手最多收几张」最大的；都不比不换好就不换（desc 没写「可以」→ FS_FORCE=1 = 有得换必换）
+  //   诊断口 PROTO_STAT.foeswap：fires / swapped / noCand（没有合法组合）/ skipped（AI 不换）
+  { key: 'foeswap', name: '〈foeswap〉' },
   //〈colorshift〉「展示任意张手牌，每有 1 张红牌顺位 +1，1 张黑牌顺位 −1（跳过 J）」〔2026-11-09 · 用户要评价；同日从「点数 ±1」改成顺位，CS_MODE=add 是第一版〕见 colorShiftPick。
   //   读法：改的是它自己（打出的这张），顺位表同【正电】（CS_WRAP=0 不接 K→A）。J 也算一张红 / 黑（desc 没排除）。
   //   AI 按「这一手收几张」挑，严格更好才展示（照映照可选档）。展示手牌 AI 不读 —— 数是上限
@@ -1340,7 +1357,14 @@ const SKILLS = [
   { key: 'drawas', name: '〈drawas〉' },
   //〈swapstraight〉「【顺子匹配】，进行顺子匹配时可以跟堆上其他牌交换点数」〔2026-11-09 · 用户要评价〕见 swapStraightPick。
   //   只在判顺子那一下换（= 「只许为了凑顺子而换」）：换完凑得成才换，凑不成不换、按原点数普通匹配。顺子 own、步长 1
-  { key: 'swapstraight', name: '〈swapstraight〉' },  // 〔2026-11-09 用户定上架〕
+  { key: 'swapstraight', name: '〈swapstraight〉' },
+  //〈drawwild〉「抽 1 张牌，变成其点数；【顺子匹配】；手牌这个点数的牌视为【通配】」〔2026-11-10 · 用户要评价〕
+  //   读法：先抽 1 张（进手），它变成那张的点数；判顺子时手里跟这个点数相同的牌（含刚抽的）当通配补任意一格（opt.handWild，留在手里、不收走）。
+  //   只管这一手。AI 估不出抽完的点数 → 不吃 HOLDSTR、挑牌不特估（下限）。DRAWWILD_WILD=0 = 只抽变点数（= 〈drawas〉）
+  { key: 'drawwild', name: '〈drawwild〉' },
+  //〈handwild〉「变成 1 张手牌的点数；【顺子匹配】；这个点数的手牌视为【通配】」〔2026-11-10 · 用户要评价〕见 handWildPick。
+  //   你挑哪张（AI：手里每种点数都试，取「顺子收成 / 普通匹配」取大最多的），强制变；判顺子时手里同点数的牌（含挑的那张）当通配（opt.handWild）。吃 HOLDSTR
+  { key: 'handwild', name: '〈handwild〉' },  // 〔2026-11-09 用户定上架〕
   { key: 'reflectbottom', name: '〈reflectbottom〉' },
   { key: 'reflectsuit', name: '〈reflectsuit〉' },
   { key: 'reflectfoe', name: '〈reflectfoe〉' },
@@ -2283,10 +2307,10 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), BIGNUM: skAt('bignum'), VAULT: skAt('vault'), HANDMAX: skAt('handmax'), COLORSHIFT: skAt('colorshift'), POLETAG: skAt('poletag'), POLEPASS: skAt('polepass'), POLEDRAW: skAt('poledraw'), POLEMARK: skAt('polemark'), POLEDRAWTAG: skAt('poledrawtag'), POLEPASSDRAW: skAt('polepassdraw'), POLEHUE: skAt('polehue'), POLESUITALL: skAt('polesuitall'), POLECOLORALL: skAt('polecolorall'), POLEFAIL: skAt('polefail'), POLEHUEPASS: skAt('polehuepass'), SWAPSTEP: skAt('swapstep'), PILEAS: skAt('pileas'), DRAWAS: skAt('drawas'), SWAPSTRAIGHT: skAt('swapstraight'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), BIGNUM: skAt('bignum'), VAULT: skAt('vault'), HANDMAX: skAt('handmax'), COLORSHIFT: skAt('colorshift'), POLETAG: skAt('poletag'), POLEPASS: skAt('polepass'), POLEDRAW: skAt('poledraw'), POLEMARK: skAt('polemark'), POLEDRAWTAG: skAt('poledrawtag'), POLEPASSDRAW: skAt('polepassdraw'), POLEHUE: skAt('polehue'), POLESUITALL: skAt('polesuitall'), POLECOLORALL: skAt('polecolorall'), POLEFAIL: skAt('polefail'), POLEHUEPASS: skAt('polehuepass'), SWAPSTEP: skAt('swapstep'), PILEAS: skAt('pileas'), DRAWAS: skAt('drawas'), SWAPSTRAIGHT: skAt('swapstraight'), DRAWWILD: skAt('drawwild'), HANDWILD: skAt('handwild'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
-  LAYER: skAt('layer'), LAYER2: skAt('layer2'), BURNHAND: skAt('burnhand'), BURNHUE: skAt('burnhue'), DRAWRANK: skAt('drawrank'),
+  LAYER: skAt('layer'), LAYER2: skAt('layer2'), BURNHAND: skAt('burnhand'), BURNHUE: skAt('burnhue'), DRAWRANK: skAt('drawrank'), SWAPBOTTOM: skAt('swapbottom'), WILDFLOWTAG: skAt('wildflowtag'), FOESWAP: skAt('foeswap'),
   HEAP: skAt('heap'), HEAPDRAFT: skAt('heapdraft'), BOTHDRAFT: skAt('bothdraft'), HEAPKEY: skAt('heapkey'), WALLSUIT: skAt('wallsuit'), WALLSEAL: skAt('wallseal'),
   // 2026-10-28 的三件 21 匹配原型（立项注释在 SK 表那三行上面）
   HOLDTAG: skAt('holdtag'), CHAINTAG: skAt('chaintag'), HUETAG: skAt('huetag'),
@@ -2694,6 +2718,14 @@ const ORDER_FULL_INSERT = process.env.ORDER_FULL_INSERT === '1'
 // 但**默认跟游戏代码一致** —— 副本的默认值要是和源码不同，
 // 跑出来的数就不是游戏里那件技能的数
 const FLOW_VOID = process.env.FLOW_VOID === '1'
+// 〔2026-11-10 用户定伏流换效果：「1 张手牌带上【通配】和【顺子匹配】」（= 原型〈wildflowtag〉，台账二百零六）〕
+//   FLOW_MODE=tag（默认 = 游戏里）走〈wildflowtag〉那一块；self = 上一版「它带上【通配】；【顺子匹配】」
+const FLOW_MODE = process.env.FLOW_MODE || 'tag'
+// 〔2026-11-10 用户定压舱换成〈foeswap〉的效果：「查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）」〕默认 swap = 游戏里；
+//   one = 上一版「选 1 张洗回牌库」；danger / all = 「任意张」量具（台账二百零九）
+const PRESS_MODE = process.env.PRESS_MODE || 'swap'
+if (['swap', 'one', 'danger', 'all'].indexOf(PRESS_MODE) < 0) throw new Error('PRESS_MODE 只能是 swap / one / danger / all')
+if (['tag', 'self'].indexOf(FLOW_MODE) < 0) throw new Error('FLOW_MODE 只能是 tag / self')
 
 // ---------- 【伏流】收「那几张」还是「覆盖的整段」 ----------
 //
@@ -2911,8 +2943,9 @@ const FLOW_SPAN = process.env.FLOW_SPAN === '1'
 //
 // 要同时看**溢价**和**凑成率**：前者是这个机制的风险、后者是它的收益。
 // 那一档的溢价压到 +1 以内而凑成率明显上去，这个机制才算救回来了
+// 〔2026-11-09 用户定新规「手牌可以参与顺子匹配，但不收走」→ 默认 99（不限）+ FLOW_HAND_FATE 默认 keep。FLOW_HAND=0 复现之前〕
 const FLOW_HAND = process.env.FLOW_HAND
-  ? parseInt(process.env.FLOW_HAND, 10) : 0
+  ? parseInt(process.env.FLOW_HAND, 10) : 99
 // ---------- 补进来的那几张**去哪** ----------
 //
 // 'score'（默认）—— 算分，它们是顺子的一部分
@@ -2935,7 +2968,7 @@ const FLOW_HAND = process.env.FLOW_HAND
 // 'deck' 把补进来的牌**还回公共牌库**，于是它参与了判定但没被任何人收走
 // —— 正好跳出那条规律。代价照旧真实：手牌少一张，而且那张牌回到牌库后
 // 对手可能摸到
-const FLOW_HAND_FATE = process.env.FLOW_HAND_FATE || 'score'
+const FLOW_HAND_FATE = process.env.FLOW_HAND_FATE || 'keep'
 const FLOW_HAND_SCORE = FLOW_HAND_FATE === 'score'
 
 // ---------- 补进来的手牌要不要**跟打出那张同色**（2026-10-16） ----------
@@ -2969,8 +3002,10 @@ const FLOW_SWAP = process.env.FLOW_SWAP === '1'
 // **手牌补一开，它就重新有了可调空间**，而且它守的正是那条边界：
 // 「不然纯用手牌就能凑顺子，跟堆就脱钩了 —— 那样它不再是一件读堆的技能」。
 // 2 这一档要求顺子里至少两张来自堆上，是压「纯手牌凑」最直接的旋钮
-const STRAIGHT_HAND_J = process.env.STRAIGHT_HAND_J === '1'
-const STRAIGHT_TAKE_MIN = process.env.STRAIGHT_TAKE_MIN ? parseInt(process.env.STRAIGHT_TAKE_MIN, 10) : 0
+// 〔2026-11-09 新规进游戏 → 默认开；STRAIGHT_HAND_J=0 关〕
+const STRAIGHT_HAND_J = process.env.STRAIGHT_HAND_J !== '0'
+// 〔2026-11-09 新规进游戏 → 默认 2；STRAIGHT_TAKE_MIN=0 复现之前〕
+const STRAIGHT_TAKE_MIN = process.env.STRAIGHT_TAKE_MIN !== undefined ? parseInt(process.env.STRAIGHT_TAKE_MIN, 10) : 2
 const FLOW_PILE_MIN = process.env.FLOW_PILE_MIN
   ? parseInt(process.env.FLOW_PILE_MIN, 10) : 1
 
@@ -3152,6 +3187,13 @@ const STRAIGHT_FAIL_WILD = process.env.STRAIGHT_FAIL_WILD === '1'
 // 〔2026-11-09 同一刀〕顺子匹配那几件各自「它带上【通配】」：续流（它自己判顺子时当通配，同伏流）、传顺、石顺（贴在堆上那张）。
 //   默认开 = 游戏里的样子；STRAIGHT_SKILL_WILD=0 复现之前（配 STRAIGHT_FAIL_WILD=1 = 11-09 之前那一档）
 const STRAIGHT_SKILL_WILD = process.env.STRAIGHT_SKILL_WILD !== '0'
+// 〔2026-11-10 用户定：传顺换成「变成手里最大的点数；【顺子匹配】；这个点数的手牌视为【通配】」→ 默认 handmax（走〈handwild〉那套、固定取最大）。
+//   pile = 同日上一版（堆上 1 张通配 + 1 张手牌）· self = 11-09 版 · all = 更早全贴〕
+const FLOWALL_MODE = process.env.FLOWALL_ALL === '1' ? 'all' : (process.env.FLOWALL_MODE || 'handmax')
+// 这一手走不走〈handwild〉那套（原型本身，或 handmax 档的传顺）
+function hwOn(skills) { return has(skills, SK.HANDWILD) || (FLOWALL_MODE === 'handmax' && has(skills, SK.FLOWALL)) }
+// 挑点数的方式：传顺固定取最大；原型照 HANDWILD_PICK
+function hwMode(skills) { return (!has(skills, SK.HANDWILD) && FLOWALL_MODE === 'handmax' && has(skills, SK.FLOWALL)) ? 'max' : (process.env.HANDWILD_PICK || '') }
 // 〔2026-11-09 用户定续流换成「手牌都带上【顺子匹配】」〕all = 游戏里；old = 同日上一版（自带通配 + 顺子匹配 + 贴 1 张）
 const FLOWPASS_MODE = process.env.FLOWPASS_MODE || 'all'
 if (['all', 'old'].indexOf(FLOWPASS_MODE) < 0) throw new Error('FLOWPASS_MODE 只能是 all / old')
@@ -4669,7 +4711,8 @@ const STONEFULL_N = process.env.STONEFULL_N ? parseInt(process.env.STONEFULL_N, 
 const STONEFULL_MATCH = process.env.STONEFULL_MATCH || 'bottom'
 // 石顺它自己带不带【通配】。⚠ 默认 2026-10-30 翻成**不带** = 游戏里的石顺（用户：「尽量不要有单独的通配出现」）；原案 = STONELINE_WILD=1
 // 〔2026-11-09 默认跟 STRAIGHT_SKILL_WILD 走（用户定石顺加【通配】）；STONELINE_WILD=0 / 1 显式覆盖〕
-const STONELINE_WILD = process.env.STONELINE_WILD === '1' || (process.env.STONELINE_WILD !== '0' && process.env.STRAIGHT_SKILL_WILD !== '0')
+// 〔2026-11-09 同日再改：用户定石顺去掉【通配】→ 默认不带；STONELINE_WILD=1 复现带通配那一版〕
+const STONELINE_WILD = process.env.STONELINE_WILD === '1'
 if (['all', 'bottom', 'color', 'suit'].indexOf(STONEFULL_MATCH) < 0) throw new Error('STONEFULL_MATCH 只能是 all / bottom / color / suit')
 // ---- 【石涌】：贴完石再【推牌】N 层〔2026-10-26 第三稿，用户提的③〕----
 //
@@ -10055,7 +10098,7 @@ function valuesOf(G, card, skills) {
     // **注意这儿关掉的只是「无点数」那条代价，不是通配。** 通配走的是
     // straightFor 那条独立路径，跟这一层无关 —— FLOW_VOID=0 的时候
     // 它照旧能凑顺子，只是凑不成时退回普通点数匹配（见那个旋钮）
-    || (FLOW_VOID && has(skills, SK.FLOW))
+    || (FLOW_VOID && FLOW_MODE === 'self' && has(skills, SK.FLOW))
     // ---- 【拢水】的无点数〔2026-10-21 用户定，默认开〕 ----
     //
     // 它当初打的是**上一版设计**（收堆上其他牌）量出来的死因二：堆被清空后
@@ -11138,6 +11181,157 @@ function swapStraightPick(G, side, card, at0) {
   }
   return { at: best, n: bestN }
 }
+// ---------- 〈swapbottom〉：顺子匹配时跟堆底交换点数，步长 2 ----------
+const SB_STEP = process.env.SB_STEP ? parseInt(process.env.SB_STEP, 10) : 2
+function swapBottomOpt() { return Object.assign({}, FLOW_OPT, { self: 'own', step: SB_STEP }) }
+function swapBottomCount(G, side, card, at0, vals) {
+  const best = bestChain(G, side, at0, vals, swapBottomOpt(), card)
+  if (best === null) return 0
+  return best.count - (FLOW_HAND_FATE === 'keep' ? best.handAt.length : 0)
+}
+// 换不换、换完收几张。at0 = 它在堆上的下标（结算）或 −1（估值，还在手里）。返回 { at: 堆底下标或 −1, n }
+function swapBottomPick(G, side, card, at0) {
+  const mineVals = at0 >= 0 ? pileValsAt(G, at0) : cardVals(card)
+  const keepN = swapBottomCount(G, side, card, at0, mineVals)
+  const j = 0
+  if (card.rank === JACK || mineVals.length === 0 || G.pile.length === 0 || j === at0 || G.pile[j].rank === JACK) return { at: -1, n: keepN }
+  const pv = pileValsAt(G, j)
+  if (pv.length === 0) return { at: -1, n: keepN }
+  const keepJ = G.pileVals[j]
+  G.pileVals[j] = mineVals.slice(0)
+  let n
+  if (at0 >= 0) { const keep0 = G.pileVals[at0]; G.pileVals[at0] = pv.slice(0); n = swapBottomCount(G, side, card, at0, pv); G.pileVals[at0] = keep0 }
+  else n = swapBottomCount(G, side, card, -1, pv)
+  G.pileVals[j] = keepJ
+  // 强制（默认）：有得换就换；SB_OPT=1：换完收得更多才换
+  if (process.env.SB_OPT === '1' && n <= keepN) return { at: -1, n: keepN }
+  return { at: j, n: n }
+}
+// ---------- 〈handwild〉 ----------
+// 手里（不含 card）点数含 v 的牌有几张
+function handWildCount(G, side, card, v) {
+  let n = 0
+  const hand = G.hands[side]
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i] === card) continue
+    if (cardVals(hand[i]).indexOf(v) >= 0) n++
+  }
+  return n
+}
+// 挑变成哪个点数（还没落堆时调）：每种手牌点数 v 都试 —— 顺子（它按 v、手里同点数的当通配）和普通匹配（按 v）取大
+function handWildPick(G, side, card, skills) {
+  const hand = G.hands[side]
+  const seen = []
+  const mode = hwMode(skills)
+  // HANDWILD_PICK=min〔2026-11-10 用户「变成手牌最小的点数」〕：不挑 —— 候选只剩手里（不含它）最小的那个点数；其余点数先塞进 seen 跳过
+  // HANDWILD_PICK=max〔同日用户「改成最大的点数试试」〕：同 min，取手里（不含它）最大的点数（J 按 11）
+  if (mode === 'min' || mode === 'max') {
+    const wantMax = mode === 'max'
+    let lo = null
+    for (let i = 0; i < hand.length; i++) {
+      if (hand[i] === card) continue
+      const hv = cardVals(hand[i])
+      // 〔同日用户：「变成手里最小的非 0 点数」〕跳过 0
+      for (let k = 0; k < hv.length; k++) if (hv[k] > 0 && (lo === null || (wantMax ? hv[k] > lo : hv[k] < lo))) lo = hv[k]
+    }
+    for (let i = 0; i < hand.length; i++) {
+      if (hand[i] === card) continue
+      const hv = cardVals(hand[i])
+      for (let k = 0; k < hv.length; k++) if (hv[k] !== lo && seen.indexOf(hv[k]) < 0) seen.push(hv[k])
+    }
+  }
+  let bestV = null
+  let bestN = -1
+  const v0 = card.value
+  const e0 = card.extra
+  for (let i = 0; i < hand.length; i++) {
+    if (hand[i] === card) continue
+    // HANDWILD_COLOR=1〔2026-11-10 用户「变成 1 张同颜色手牌的点数」〕：只挑跟它同颜色的（失去花色 isRedSuit 返回 NaN，不算）；当通配的那几张不限颜色
+    if (process.env.HANDWILD_COLOR === '1' && isRedSuit(hand[i].suit) !== isRedSuit(card.suit)) continue
+    // HANDWILD_PICK=pair〔2026-11-10 用户「展示手牌两张相同颜色的牌，选择 1 张变成其点数」〕：它的颜色在手里（不含打出那张）至少 2 张才能选（失去花色不算）
+    // HANDWILD_PICK=pairmax〔同日用户「展示同色两张，变成其点数大的 1 张」〕：它要能当一对同色牌里「点数大的那张」—— 手里（不含打出那张）另有一张同色、点数不比它大的
+    if (mode === 'pairmax') { const r0 = isRedSuit(hand[i].suit); const c0 = cardVals(hand[i])[0]; let ok = false; for (const h of hand) { if (h === card || h === hand[i] || isRedSuit(h.suit) !== r0) continue; const hv = cardVals(h); if (hv.length > 0 && c0 !== undefined && hv[0] <= c0) { ok = true; break } } if (!ok) continue }
+    if (mode === 'pair') { const r0 = isRedSuit(hand[i].suit); let same = 0; for (const h of hand) if (h !== card && isRedSuit(h.suit) === r0) same++; if (same < 2) continue }
+    const hv = cardVals(hand[i])
+    for (let k = 0; k < hv.length; k++) {
+      const v = hv[k]
+      if (seen.indexOf(v) >= 0) continue
+      seen.push(v)
+      // HANDWILD_WILD=0〔2026-11-10 用户「变成 1 张手牌的点数；【顺子匹配】」〕：去掉「这个点数的手牌视为通配」
+      const hw = process.env.HANDWILD_WILD === '0' ? 0 : handWildCount(G, side, card, v)
+      const best = bestChain(G, side, -1, [v], Object.assign({}, pileAsOpt(), { handWild: hw }), card)
+      const st = best === null ? 0 : best.count - (FLOW_HAND_FATE === 'keep' ? best.handAt.length : 0) - (best.handWild || 0)
+      card.value = v
+      card.extra = []
+      const at = catchStart(G, card, side, skills, false)
+      const n0 = at >= 0 ? catchCountAt(G, card, side, skills, at) : 0
+      card.value = v0
+      card.extra = e0
+      const n = st > n0 ? st : n0
+      if (n > bestN) { bestN = n; bestV = v }
+    }
+  }
+  return { v: bestV, n: bestN < 0 ? 0 : bestN }
+}
+// ---------- 〈foeswap〉 ----------
+// 某一方手里最好的一张这一手能收几张（普通匹配 / 21，跟 AI 同一对函数）
+function bestHandCatch(G, side) {
+  let best = 0
+  for (const c of G.hands[side]) {
+    const sk = skillsOf(G, side, c)
+    const at = catchStart(G, c, side, sk, false)
+    const n = at >= 0 ? catchCountAt(G, c, side, sk, at) : 0
+    if (n > best) best = n
+  }
+  return best
+}
+function foeSwapFor(G, side, played) {
+  const st = PROTO_STAT.foeswap
+  st.fires++
+  const other = side === ME ? FOE : ME
+  const hand = G.hands[other]
+  const cands = []
+  for (let h = 0; h < hand.length; h++) {
+    const c = hand[h]
+    if (c.rank === JACK) continue
+    const v = cardVals(c)
+    let clash = false
+    for (let k = 0; k < G.pile.length && !clash; k++) if (v.length && anyEquals(v, pileValsAt(G, k), 0)) clash = true
+    if (clash) continue
+    for (let k = 0; k < G.pile.length; k++) {
+      if (G.pile[k] === played || G.pile[k].rank === JACK) continue
+      if (G.stacked.some(function (x) { return x.host === G.pile[k] })) continue
+      cands.push([h, k])
+    }
+  }
+  if (cands.length === 0) { st.noCand++; return }
+  // 试算：真换、量、换回
+  const swapIn = function (h, k) {
+    const hc = G.hands[other][h], pc = G.pile[k]
+    const save = { vals: G.pileVals[k], suit: G.pileSuit[k], burn: G.pileBurn[k], guard: G.pileGuard[k], byFoe: G.pileByFoe[k] }
+    G.hands[other][h] = pc
+    G.pile[k] = hc; G.pileVals[k] = cardVals(hc); G.pileSuit[k] = hc.suit; G.pileBurn[k] = 0; G.pileGuard[k] = GUARD_NONE
+    return function () { G.hands[other][h] = hc; G.pile[k] = pc; G.pileVals[k] = save.vals; G.pileSuit[k] = save.suit; G.pileBurn[k] = save.burn; G.pileGuard[k] = save.guard; G.pileByFoe[k] = save.byFoe }
+  }
+  const base = bestHandCatch(G, side) - bestHandCatch(G, other)
+  let best = null, bestS = process.env.FS_FORCE === '1' ? -1e9 : base
+  for (const [h, k] of cands) {
+    const undo = swapIn(h, k)
+    const sc = bestHandCatch(G, side) - bestHandCatch(G, other)
+    undo()
+    if (sc > bestS) { bestS = sc; best = [h, k] }
+  }
+  if (!best) { st.skipped++; return }
+  const [h, k] = best
+  const hc = takeFromHand(G, other, h)
+  dropFrostHandSim(G, hc); dropKeys(G, hc); dropLeaveTags(G, hc)
+  G.burnHand = G.burnHand.filter(function (c) { return c !== hc })
+  const pc = G.pile[k]
+  cleanAt0(G, pc)
+  G.pile[k] = hc; G.pileVals[k] = cardVals(hc); G.pileSuit[k] = hc.suit; G.pileBurn[k] = 0; G.pileGuard[k] = GUARD_NONE; G.pileByFoe[k] = other === FOE
+  giveTo(G, other, pc, true)
+  st.swapped++
+}
 function swapStepApply(G, card, j) {
   const pv = pileValsAt(G, j)
   const mine = cardVals(card)
@@ -11629,6 +11823,28 @@ function playFor(G, side, index, ai) {
     }
   }
   // 〈colorshift〉：变在落堆之前（跟映照同一个位置，理由同上）。只改 value / extra，牌面 rank 不动（槽已经按原牌面点过了）
+  // 〈handwild〉：落堆之前变成挑中的手牌点数（强制；手里没牌就不变）
+  if (hwOn(skills)) {
+    const st = PROTO_STAT.handwild
+    st.fires++
+    // HANDWILD_DRAW=1〔2026-11-10 用户「抽 1 张牌，变成 1 张手牌的点数；【顺子匹配】」〕：先抽 1 张进手，再挑（含刚抽的）。AI 挑牌 / 屯牌按抽之前估（低估抽牌那份）
+    if (process.env.HANDWILD_DRAW === '1' && G.deck.length > 0 && drawFor(G, side) !== null) st.drawn = (st.drawn || 0) + 1
+    const pick = handWildPick(G, side, card, skills)
+    G.handWildSet = null
+    if (pick.v !== null && card.rank !== JACK) { card.value = pick.v; card.extra = []; st.set++; G.handWildSet = card }
+    if (pick.v !== null) { st.vHist = st.vHist || {}; st.vHist[pick.v] = (st.vHist[pick.v] || 0) + 1 }
+  }
+  // 〈drawwild〉：同 drawas（抽 1 张、变成它的点数）；通配额度在判顺子时按手里同点数的张数给
+  if (has(skills, SK.DRAWWILD)) {
+    const st = PROTO_STAT.drawwild
+    st.fires++
+    const got = G.deck.length > 0 ? drawFor(G, side) : null
+    if (got !== null) {
+      st.drawn++
+      const v = cardVals(got)
+      if (v.length > 0 && card.rank !== JACK) { card.value = v[0]; card.extra = v.slice(1) }
+    }
+  }
   // 〈drawas〉：落堆之前抽 1 张、变成它的点数（照 swapstep 的位置 —— 落堆快照取新点数）
   if (has(skills, SK.DRAWAS)) {
     const st = PROTO_STAT.drawas
@@ -12698,6 +12914,8 @@ function resolveMatch(G, side, card, cardSkills, sink) {
   burnTagAfter(G, card, side)
   burnNextAfter(G, card)
   layerAfter(G)
+  // 〈foeswap〉/ 新压舱（PRESS_MODE=swap）：这一手结算完之后交换
+  if ((has(cardSkills, SK.FOESWAP) || (has(cardSkills, SK.PRESS) && PRESS_MODE === 'swap')) && !G.foeSwapBusy) foeSwapFor(G, side, card)
   // 〈drawrank〉诊断量具 DR_PILEKEEP=1：只在打出那一手用抽到的点数，结算完还留在堆上就恢复原来的点数 —— 查「堆上 A 被变掉、21 填料变贵」
   if (process.env.DR_PILEKEEP === '1' && G.drawRank && G.drawRank.card === card) { const at = G.pile.indexOf(card); if (at >= 0) G.pileVals[at] = cardVals(card) }
   // 〈rockself〉：结算完还在堆上 = 落堆了，贴上【顽石】
@@ -15814,14 +16032,17 @@ const HOLDSTR = process.env.HOLDSTR !== undefined ? parseInt(process.env.HOLDSTR
 // （名字没改，现在它只认「不当通配」的那几种）
 function straightLineOf(G, side, card) {
   const sk = skillsOf(G, side, card)
-  if (has(sk, SK.FLOW) || has(sk, SK.SWAPFLOW) || has(sk, SK.ICEWILD)) return false
+  if ((has(sk, SK.FLOW) && FLOW_MODE === 'self') || has(sk, SK.SWAPFLOW) || has(sk, SK.ICEWILD)) return false
   if (has(sk, SK.FLOWPASS)) return FLOWPASS_MODE === 'old' && !STRAIGHT_SKILL_WILD
   if (kwSelf(sk, 'straight')) return CHAIN_SELF === 'own'
-  if (has(sk, SK.FOEFLOW) || has(sk, SK.SWAPSTEP) || has(sk, SK.PILEAS) || has(sk, SK.SWAPSTRAIGHT)) return true
-  return flowTagOn(G, card) && FLOW_KEY_SELF === 'own'
+  if (has(sk, SK.FOEFLOW) || has(sk, SK.SWAPSTEP) || has(sk, SK.PILEAS) || has(sk, SK.SWAPSTRAIGHT) || has(sk, SK.SWAPBOTTOM) || hwOn(sk)) return true
+  // 带着通配的（〈wildflowtag〉贴的）打出时当通配 → 不屯（「对通配不用」）
+  return flowTagOn(G, card) && FLOW_KEY_SELF === 'own' && G.wildTag.indexOf(card) < 0
 }
 function holdStrCount(G, side, card) {
   const sk = skillsOf(G, side, card)
+  // 〈handwild〉：打出时点数会变，判屯只看变完之后的估值（用户：「判屯要按照除此牌外最小的非 0 牌来看」）—— 原点数的普通匹配用不上
+  if (hwOn(sk)) return handWildPick(G, side, card, sk).n
   const at = catchStart(G, card, side, sk, false)
   const n = at >= 0 ? catchCountAt(G, card, side, sk, at) : 0
   const h = harvestCount(G, card, sk, side, true)
@@ -15830,6 +16051,8 @@ function holdStrCount(G, side, card) {
 // 比收成那一圈用（照冰钥匙 iceHoldBlocks）
 function maxdHoldBlocks(G, side, idx) {
   if (HOLDSTR > 0 && straightLineOf(G, side, G.hands[side][idx])) {
+    // 诊断〔2026-11-10 查〈handwild〉斜率〕：按技能牌点数记判屯（问 / 屯 / 估收成之和 / 手里张数之和）
+    if (process.env.HW_DIAG === '1') { const c0 = G.hands[side][idx]; const nn = holdStrCount(G, side, c0); const d = PROTO_STAT.hwDiag = PROTO_STAT.hwDiag || {}; const k = c0.rank; d[k] = d[k] || { asked: 0, held: 0, nSum: 0, hand: 0, n0: 0 }; d[k].asked++; if (nn < HOLDSTR) d[k].held++; d[k].nSum += nn; d[k].hand += G.hands[side].length; if (nn === 0) d[k].n0++; let lo = null, same = 0; for (const h of G.hands[side]) { if (h === c0) continue; if (h.rank === c0.rank) same++; for (const v of cardVals(h)) if (v > 0 && (lo === null || v < lo)) lo = v } d[k].lo = d[k].lo || {}; d[k].lo[lo] = (d[k].lo[lo] || 0) + 1; d[k].same = (d[k].same || 0) + same }
     const b = holdStrCount(G, side, G.hands[side][idx]) < HOLDSTR
     PROTO_STAT.holdStr.asked++
     if (b) PROTO_STAT.holdStr.held++
@@ -16665,7 +16888,8 @@ function afterPlay(G, side, skills, played, ai) {
     }
   }
   // 【传顺】「它带上【通配】」〔2026-11-09〕：跟石顺那句同一个时点（判顺子之前）
-  if (STRAIGHT_SKILL_WILD && has(skills, SK.FLOWALL) && inPile(G, played) && G.wildTag.indexOf(played) < 0) G.wildTag.push(played)
+  // 〔2026-11-10 传顺换成「堆上 1 张牌带上【通配】」→ 只有 FLOWALL_MODE=self（上一版）才给它自己贴〕
+  if (STRAIGHT_SKILL_WILD && FLOWALL_MODE === 'self' && has(skills, SK.FLOWALL) && inPile(G, played) && G.wildTag.indexOf(played) < 0) G.wildTag.push(played)
   // 【石顺】：自己带石墙（落在堆上才贴），给 1 张手牌顺子钥匙 + 通配
   if (has(skills, SK.STONELINE)) {
     if (inPile(G, played)) {
@@ -16963,7 +17187,7 @@ function afterPlay(G, side, skills, played, ai) {
   // 【凌流】（原型）跟伏流走同一条路 —— 它的差别只有「自带冰」那一条
   //（贴在落堆那一下，见 protoOnLand）。**共用 `FLOW_TAG_N`**，
   // 所以 `FLOW_TAG_N=0 vs icewild icewild` 跟同档的 flow 一减就是冰的净值
-  if (has(skills, SK.FLOW) || has(skills, SK.ICEWILD)) {
+  if ((has(skills, SK.FLOW) && FLOW_MODE === 'self') || has(skills, SK.ICEWILD)) {
     straightFor(G, side, played)
   }
   // 【让流】：**只有带标签的那张**走这条线〔2026-10-21〕。
@@ -17000,6 +17224,49 @@ function afterPlay(G, side, skills, played, ai) {
       if (still >= 0) G.pileVals[still] = orig
     }
   }
+  // 新伏流（FLOW_MODE=tag）跟〈wildflowtag〉同一块
+  if (has(skills, SK.WILDFLOWTAG) || (has(skills, SK.FLOW) && FLOW_MODE === 'tag')) {
+    const st = PROTO_STAT.wildflowtag
+    st.fires++
+    const n = process.env.WFT_N ? parseInt(process.env.WFT_N, 10) : 1
+    for (let k = 0; k < n; k++) {
+      if (!doFlowTag(G, side)) { st.noHand++; break }
+      const c = G.flowHand[G.flowHand.length - 1]
+      if (G.wildTag.indexOf(c) < 0) G.wildTag.push(c)
+      st.tagged++
+    }
+  }
+  if (has(skills, SK.SWAPBOTTOM)) {
+    const st = PROTO_STAT.swapbottom
+    st.fires++
+    const at0 = pileIndexOf(G, played)
+    if (at0 >= 0) {
+      const pick = swapBottomPick(G, side, played, at0)
+      if (pick.at < 0) st.noBottom++
+      const orig0 = G.pileVals[at0]
+      let origJ = null
+      let jCard = null
+      if (pick.at >= 0) {
+        jCard = G.pile[pick.at]
+        origJ = G.pileVals[pick.at]
+        const pv = pileValsAt(G, pick.at)
+        G.pileVals[pick.at] = pileValsAt(G, at0).slice(0)
+        G.pileVals[at0] = pv.slice(0)
+      }
+      const was = G.stat.caught[side]
+      straightFor(G, side, played, { tagN: 0, opt: swapBottomOpt(), noSelfTag: true })
+      if (G.stat.caught[side] > was) {
+        st.straightHit++
+        if (pick.at >= 0) st.swapped++
+      } else if (pick.at >= 0) {
+        // 凑不成：两张都恢复（「顺子匹配时」才换），按原点数走普通匹配
+        const a = pileIndexOf(G, played)
+        if (a >= 0) G.pileVals[a] = orig0
+        const b = G.pile.indexOf(jCard)
+        if (b >= 0) G.pileVals[b] = origJ
+      }
+    }
+  }
   if (has(skills, SK.SWAPSTRAIGHT)) {
     const st = PROTO_STAT.swapstraight
     st.fires++
@@ -17030,9 +17297,41 @@ function afterPlay(G, side, skills, played, ai) {
       }
     }
   }
+  if (hwOn(skills)) {
+    const st = PROTO_STAT.handwild
+    const at0 = pileIndexOf(G, played)
+    let hw = 0
+    // 这一手真变了点数才有「这个点数」—— 没变（手里没有能挑的牌）就不给通配
+    if (at0 >= 0 && G.handWildSet === played && process.env.HANDWILD_WILD !== '0') {
+      const v = pileValsAt(G, at0)
+      for (let k = 0; k < v.length; k++) hw = Math.max(hw, handWildCount(G, side, played, v[k]))
+    }
+    st.wildSum += hw
+    const was = G.stat.caught[side]
+    straightFor(G, side, played, { tagN: 0, opt: Object.assign({}, pileAsOpt(), { handWild: hw }), noSelfTag: true })
+    if (G.stat.caught[side] > was) st.straightHit++
+  }
+  if (has(skills, SK.DRAWWILD)) {
+    const st = PROTO_STAT.drawwild
+    const at0 = pileIndexOf(G, played)
+    let hw = 0
+    if (at0 >= 0 && process.env.DRAWWILD_WILD !== '0') {
+      const v = pileValsAt(G, at0)
+      const hand = G.hands[side]
+      for (let i = 0; i < hand.length; i++) {
+        const hv = cardVals(hand[i])
+        for (let k = 0; k < hv.length; k++) if (v.indexOf(hv[k]) >= 0) { hw++; break }
+      }
+    }
+    st.wildSum += hw
+    const was = G.stat.caught[side]
+    straightFor(G, side, played, { tagN: 0, opt: Object.assign({}, pileAsOpt(), { handWild: hw }), noSelfTag: true })
+    if (G.stat.caught[side] > was) st.straightHit++
+  }
   if (has(skills, SK.DRAWAS)) {
     const was = G.stat.caught[side]
-    straightFor(G, side, played, { tagN: 0, opt: pileAsOpt(), noSelfTag: true })
+    // 〔2026-11-10〕DRAWAS_STEP=2：「相差 2 也算顺子」（用户评价「抽 1 张牌变成其点数，顺子匹配，相差 2 也算顺子」）；默认 1 = 原读法
+    straightFor(G, side, played, { tagN: 0, opt: Object.assign(pileAsOpt(), { step: process.env.DRAWAS_STEP ? parseInt(process.env.DRAWAS_STEP, 10) : 1 }), noSelfTag: true })
     if (G.stat.caught[side] > was) PROTO_STAT.drawas.straightHit++
   }
   if (has(skills, SK.SWAPSTEP)) {
@@ -17481,12 +17780,23 @@ function afterPlay(G, side, skills, played, ai) {
       }
     }
   }
-  if (has(skills, SK.SWAPCARD) || has(skills, SK.UNHOOK) || has(skills, SK.PRESS)) {
+  if (has(skills, SK.SWAPCARD) || has(skills, SK.UNHOOK) || (has(skills, SK.PRESS) && PRESS_MODE !== 'swap')) {
     const which = has(skills, SK.SWAPCARD) ? SK.SWAPCARD
       : (has(skills, SK.UNHOOK) ? SK.UNHOOK : SK.PRESS)
     const other = side === ME ? FOE : ME
     if (G.hands[other].length > 0) {
       doTakeFrom(G, side, which, ai.takePick(G, side), ai)
+      // 〔2026-11-10 量具 · 用户评价「查看对方手牌，选 任意 张洗回牌库」〕PRESS_MODE（默认 one = 现行压舱）：
+      //   danger = 再把他手里的 J 和现在钓得中堆上的牌全洗掉；all = 整手洗掉。只对压舱生效
+      if (which === SK.PRESS && PRESS_MODE !== 'one') {
+        const st = PROTO_STAT.pressAny
+        st.fires++
+        st.shuffled++
+        for (let i = G.hands[other].length - 1; i >= 0; i--) {
+          const c = G.hands[other][i]
+          if (PRESS_MODE === 'all' || c.rank === JACK || canCatch(G, c, other)) { shuffleBack(G, takeFromHand(G, other, i)); st.shuffled++ }
+        }
+      }
     }
   }
   if (has(skills, SK.FREEZE) && inPile(G, played)) {
@@ -18442,6 +18752,12 @@ const PROTO_STAT = {
   pileas: { fires: 0, copied: 0, straightHit: 0 },
   drawas: { fires: 0, drawn: 0, set: 0, straightHit: 0 },
   swapstraight: { fires: 0, swapped: 0, straightHit: 0 },
+  drawwild: { fires: 0, drawn: 0, wildSum: 0, straightHit: 0 },
+  handwild: { fires: 0, set: 0, wildSum: 0, straightHit: 0 },
+  swapbottom: { fires: 0, swapped: 0, straightHit: 0, noBottom: 0 },
+  wildflowtag: { fires: 0, tagged: 0, noHand: 0 },
+  pressAny: { fires: 0, shuffled: 0 },
+  foeswap: { fires: 0, swapped: 0, noCand: 0, skipped: 0 },
   colorshift: { steal: 0, tagged: 0, tagCashed: 0, drawn: 0, marked: 0, fires: 0, changed: 0, up: 0, down: 0, shown: 0, gainSum: 0, rescued: 0 },
   reflectmore: { bottomPair: 0, bottomSetup: 0, suitFires: 0, suitChanged: 0, suitCards: 0, foeFires: 0, foeKilled: 0, foeWeak: 0, markTagged: 0 },
   pairnp: { fires: 0, paired: 0, soloNeg: 0, cashed: 0 },
@@ -19144,11 +19460,18 @@ function protoOnLand(G, side, skills, card, ai) {
   }
   // 【传顺】：手里能贴的全贴（跟上面〈kwtag〉顺子 + KW_TAGALL 同一个调用、同一个位置 —— 该逐位相同）
   // 〔2026-11-09 用户定：传顺改成「它带上【通配】；1 张手牌带上【顺子匹配】」—— 贴那 1 张照石顺（straightKeyPick）。FLOWALL_ALL=1 复现旧的全贴〕
-  if (has(skills, SK.FLOWALL)) {
-    if (process.env.FLOWALL_ALL === '1') flowTagAll(G, side)
+  // 〔2026-11-10 用户定：传顺换成「堆上 1 张牌带上【通配】；1 张手牌带上【顺子匹配】」（= 已删顺递）。FLOWALL_MODE：
+  //   pile（默认 = 游戏）手牌那张照石顺 straightKeyPick、堆上那张照顺递 wildKeyPile（拿钥匙估）· self = 11-09「它带上【通配】；1 张」· all = 更早的全贴（FLOWALL_ALL=1 也认）〕
+  if (has(skills, SK.FLOWALL) && FLOWALL_MODE !== 'handmax') {
+    if (FLOWALL_MODE === 'all') flowTagAll(G, side)
     else {
       const at = straightKeyPick(G, side)
-      if (at >= 0 && !flowTagOn(G, G.hands[side][at])) G.flowHand.push(G.hands[side][at])
+      let key = null
+      if (at >= 0 && !flowTagOn(G, G.hands[side][at])) { key = G.hands[side][at]; G.flowHand.push(key) }
+      if (FLOWALL_MODE === 'pile') {
+        const w = wildKeyPile(G, side, card, key)
+        if (w >= 0) G.wildTag.push(G.pile[w])
+      }
     }
   }
   // 〈reflecttag〉：手牌 RT_N 张带上【映照】（兑现在以后的出牌上，见 playFor 里 reflectOn 那一段）
@@ -21259,7 +21582,9 @@ function bestChain(G, side, at0, mine, opt, card) {
   const show = opt.self === 'show' ? handByVal(G, side, deepest.length) : null
   let best = null
   const top = deepest.length - 1
-  for (let a = 0; a <= top; a++) {
+  // 〔2026-11-10 用户定全局规则：「0 一律不能进顺子」—— 区间从 1 起，0 那一格永远不在链上（0 点的牌按自己的点数凑不成顺子）。
+  //   用户：「不用重量。毕竟你也弄不出 0 点数牌」〕
+  for (let a = 1; a <= top; a++) {
     for (let b = a + STRAIGHT_MIN - 1; b <= top; b++) {
       // 同一张 A 不能在一条顺子里当两次
       if (a <= 1 && b >= HIGH_ACE) continue
@@ -21271,6 +21596,7 @@ function bestChain(G, side, at0, mine, opt, card) {
       let lo = -1
       let hasMine = false
       let ok = true
+      let handWildUsed = 0
       const handAt = []
       for (let v = a; v <= b; v++) {
         if (deepest[v] >= 0) {
@@ -21300,6 +21626,10 @@ function bestChain(G, side, at0, mine, opt, card) {
           //
           // 这一行值约 1.75 分（它让伏流能当「自带通配 + 差 1」用）
           if (at === at0) hasMine = true
+        } else if (handWildUsed < (opt.handWild || 0)) {
+          // 〈drawwild〉手里当通配的那几张：补任意一格，留在手里、不收走（不进 onPile）
+          handWildUsed++
+          gap = 0
         } else if (opt.self === 'wild' && wild === 0) {
           wild = 1
           gap = 0
@@ -21323,14 +21653,14 @@ function bestChain(G, side, at0, mine, opt, card) {
       // 'own' 那一档：顺子必须含它自己的点数
       if (opt.self === 'own' && !hasMine) continue
       // **数的是张数不是区间长度** —— step=2 时区间里有空位
-      const count = onPile + handAt.length + wild
+      const count = onPile + handAt.length + wild + handWildUsed
       if (count < STRAIGHT_MIN) continue
       // 判据照旧：先比张数，张数相同取最深（见 bestStraight 那段）
       if (best === null || count > best.count
         || (count === best.count && lo >= 0 && lo < best.lo)) {
         best = {
           from: a, to: b, count: count, lo: lo,
-          handAt: handAt, deepest: deepest,
+          handAt: handAt, deepest: deepest, handWild: handWildUsed,
           // 这条链用掉的那几张堆上通配的**位置** —— chainHarvest 要靠它
           // 把它们收走（它们不在 deepest 里，所以不记就收不着）
           wildAt: wildAts.slice(0, used)
@@ -22243,14 +22573,18 @@ function harvestCount(G, card, skills, side, specialOnly) {
   const cast = !specialOnly && has(skills, SK.CAST)
   // 【伏流】也要在这儿估 —— 它是第四条匹配线，catchStart 对它一概返回 −1，
   // 漏了的后果是这件技能在 AI 手里**整件作废**（见 straightCount）
-  if (has(skills, SK.FLOW)) return straightCount(G, side, card)
+  if (has(skills, SK.FLOW) && FLOW_MODE === 'self') return straightCount(G, side, card)
   // 〈kwself〉顺子 / 顺序档：AI 估值照伏流 / 顺序标签那两行（不加的话 AI 不挑时机，量出来偏低一大截）
   if (kwSelf(skills, 'straight')) return straightCount(G, side, card)
   if (has(skills, SK.FLOWPASS) && FLOWPASS_MODE === 'old') return STRAIGHT_SKILL_WILD ? straightCount(G, side, card) : straightCount(G, side, card, flowKeyOpt())
   // 〈swapstep〉：换完之后的最好收成（顺子 / 普通匹配取大）
   if (has(skills, SK.SWAPSTEP)) return swapStepPick(G, side, card, skills).n
+  // 〈handwild〉：变完之后的最好收成（顺子 / 普通匹配取大）
+  if (hwOn(skills)) return handWildPick(G, side, card, skills).n
   // 〈swapstraight〉：只估顺子（换不换都在里面）
   if (has(skills, SK.SWAPSTRAIGHT)) return swapStraightPick(G, side, card, -1).n
+  // 〈swapbottom〉：只估顺子（换不换都在里面）
+  if (has(skills, SK.SWAPBOTTOM)) return swapBottomPick(G, side, card, -1).n
   // 〈pileas〉：只估顺子（普通匹配按原点数，AI 自己那一路已经算了）
   if (has(skills, SK.PILEAS)) return pileAsPick(G, side, card, -1).n
   // 〈reflectx〉两条带匹配线的档：按「不用映照」估（映照能补的那一张没算进去 ⇒ AI 低估 ⇒ 下限）
@@ -22264,6 +22598,8 @@ function harvestCount(G, card, skills, side, specialOnly) {
   // 漏了这一行的后果不是「估得差一点」，是**整件作废**
   //（catchStart 对第四条匹配线一概返回 −1，于是 AI 从不主动打那张，
   //  而这件技能唯一的兑现口就是「把贴了标签的那张打出去」）
+  // 〈wildflowtag〉贴的那张：带着通配 → 按「自己当通配」估（伏流那套）
+  if (flowTagOn(G, card) && G.wildTag.indexOf(card) >= 0) return straightCount(G, side, card)
   if (flowTagOn(G, card)) return straightCount(G, side, card, flowKeyOpt())
   // 〈槽钥〉顺序档 —— 漏这一行 = AI 看不见这条线 = 整件作废（照 flowTagOn）
   if (orderTagOn(G, card)) return orderCount(G, side, card)
@@ -22953,7 +23289,7 @@ module.exports = {
   //
   // 它是纯函数（`reflectScore` 改完 card 再改回来，`catchStart` 传 `null` 当
   // 诊断出口），所以 AI 侧随便调，不会污染任何计数
-  reflectPick, colorShiftPick,
+  reflectPick, colorShiftPick, hwOn,
   // 「这一手带不带映照」的**唯一判定** —— `ai.js` 必须调它，
   // 不能自己写 `has(skills, SK.REFLECT)`：`REFLECT_WITH` 那个旋钮
   // 会让别的技能也带上映照，两边各写一份必然分叉〔2026-10-21〕

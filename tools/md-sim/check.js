@@ -546,6 +546,13 @@ const CASES = [
   },
   {
     // 〔2026-11-09〕〈layer2〉【堆叠】第二版：叠在上面（盖住、宿主换人、原地判）/ 叠在下面（不进堆）两条路都绕开 pushPile
+    // 〔2026-11-10〕〈foeswap〉：对方手牌 ↔ 堆上交换（不走 pushPile / takeAt），守恒和「堆上不许有对子」最容易在这儿出错
+    key: 'foeswap', label: '〈foeswap〉对方手牌和堆上交换',
+    build: function () {
+      return { mine: kitOf('lockold', ['foeswap', 'wild']), foe: kitOf('lockold', ['foeswap', 'lockdraw']), myRole: -1 }
+    }
+  },
+  {
     key: 'layer2', label: '〈layer2〉【堆叠】第二版 + 野火 + 封凌',
     build: function () {
       return {

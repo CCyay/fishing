@@ -2279,6 +2279,12 @@ function printDraftTagDiag() {
     console.log('    发动 ' + pp.fires + ' 次：成对贴上 ' + pct(pp.paired / pp.fires) + ' · 只贴负电 ' + pct(pp.soloNeg / pp.fires)
       + ' · 那张正电手牌靠正负特殊匹配钓到 ' + pp.cashed + ' 次（' + pct(pp.cashed / Math.max(1, pp.paired)) + '）')
   }
+  // 〈handwild〉〔2026-11-10〕
+  const hwd = R.PROTO_STAT.handwild
+  if (hwd && hwd.fires > 0) console.log('\n  ---- 诊断：〈handwild〉----\n    发动 ' + hwd.fires + ' 次 · 变了点数 ' + hwd.set + ' · 手里当通配平均 ' + f2(hwd.wildSum / Math.max(1, hwd.fires)) + ' 张 · 凑成顺子 ' + hwd.straightHit + ' 次（' + pct(hwd.straightHit / hwd.fires) + '）')
+  // 〈drawwild〉〔2026-11-10〕
+  const dw = R.PROTO_STAT.drawwild
+  if (dw && dw.fires > 0) console.log('\n  ---- 诊断：〈drawwild〉----\n    发动 ' + dw.fires + ' 次 · 抽到 ' + dw.drawn + ' · 手里当通配平均 ' + f2(dw.wildSum / Math.max(1, dw.fires)) + ' 张 · 凑成顺子 ' + dw.straightHit + ' 次（' + pct(dw.straightHit / dw.fires) + '）')
   // 〈swapstraight〉〔2026-11-09〕
   const sw = R.PROTO_STAT.swapstraight
   if (sw && sw.fires > 0) console.log('\n  ---- 诊断：〈swapstraight〉----\n    发动 ' + sw.fires + ' 次 · 凑成顺子 ' + sw.straightHit + ' 次（' + pct(sw.straightHit / sw.fires) + '），其中靠互换凑成 ' + sw.swapped + ' 次')
@@ -2334,6 +2340,30 @@ function printDraftTagDiag() {
     console.log('    叠了 ' + ly.merges + ' 次、叠下去 ' + ly.stackedCards + ' 张 · 叠完平均 ' + (ly.merges ? (ly.depthSum / ly.merges).toFixed(2) : '-') + ' 层（最深 ' + ly.depthMax + '）')
     console.log('    整叠收走：贴的人 ' + ly.wholeSelf + ' 次 / ' + ly.wholeSelfCards + ' 张 · 对手 ' + ly.wholeOpp + ' 次 / ' + ly.wholeOppCards + ' 张')
     console.log('    只剥一层：贴的人 ' + ly.peelSelf + ' 次 · 对手 ' + ly.peelOpp + ' 次 · 剥层时留在叠里 ' + ly.keptCards + ' 张')
+  }
+  // 〈foeswap〉〔2026-11-10〕
+  const fsw = R.PROTO_STAT.foeswap
+  if (fsw && fsw.fires > 0) {
+    console.log('\n  ---- 诊断：〈foeswap〉对方 1 张手牌和堆上交换 ----')
+    console.log('    发动 ' + fsw.fires + ' 次 · 换了 ' + fsw.swapped + ' · 没有合法组合 ' + fsw.noCand + ' · AI 不换 ' + fsw.skipped)
+  }
+  // 压舱「任意张」量具〔2026-11-10〕
+  const pany = R.PROTO_STAT.pressAny
+  if (pany && pany.fires > 0) {
+    console.log('\n  ---- 诊断：压舱任意张（PRESS_MODE=' + (process.env.PRESS_MODE || 'one') + '）----')
+    console.log('    发动 ' + pany.fires + ' 次 · 洗回 ' + pany.shuffled + ' 张（' + (pany.shuffled / pany.fires).toFixed(2) + ' 张 / 次）')
+  }
+  // 〈wildflowtag〉〔2026-11-10〕
+  const wft = R.PROTO_STAT.wildflowtag
+  if (wft && wft.fires > 0) {
+    console.log('\n  ---- 诊断：〈wildflowtag〉1 张手牌带上【通配】和【顺子匹配】----')
+    console.log('    发动 ' + wft.fires + ' 次 · 贴上 ' + wft.tagged + ' 张 · 没得贴 ' + wft.noHand)
+  }
+  // 〈swapbottom〉〔2026-11-09〕
+  const sbt = R.PROTO_STAT.swapbottom
+  if (sbt && sbt.fires > 0) {
+    console.log('\n  ---- 诊断：〈swapbottom〉顺子匹配时跟堆底交换点数（SB_OPT=' + (process.env.SB_OPT || '0') + ' · SB_STEP=' + (process.env.SB_STEP || '2') + '）----')
+    console.log('    发动 ' + sbt.fires + ' 次 · 凑成顺子 ' + sbt.straightHit + '（其中换了点数 ' + sbt.swapped + '）· 没得换 ' + sbt.noBottom)
   }
   // 〈drawrank〉〔2026-11-09〕
   const dr = R.PROTO_STAT.drawrank

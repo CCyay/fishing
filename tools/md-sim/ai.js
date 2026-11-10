@@ -1554,6 +1554,8 @@ function pickCardCore(G, side) {
     // 〔2026-11-05 量具〕ICE_AI=1：估收成时扣掉收不走的冰牌（这张手里不带冰 = 没豁免）。默认关 = 现行 AI 不看冰
     if (process.env.ICE_AI === '1' && at >= 0 && caught > 0 && !R.frostOnHand(G, card)) caught = Math.max(0, caught - R.icedIn(G, at, G.pile.length - 1))
     const harvest = R.harvestCount(G, card, skills, side)
+    // 〈handwild〉〔2026-11-10〕：打出时点数会变，原点数的普通匹配用不上 —— 收成直接取变完之后的估值（harvestCount 那一支已含「顺子 / 普通匹配取大」）
+    if (R.hwOn(skills)) { caught = harvest; spend = harvest }
     if (harvest > caught) {
       caught = harvest
       spend = harvest

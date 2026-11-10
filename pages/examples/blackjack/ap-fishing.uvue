@@ -615,7 +615,7 @@
     </view>
     <!-- 顺递：挑一张自己的手牌贴【顺子匹配】（照零递那块） -->
     <view v-if="flowDraftPending" class="tide-box">
-      <text class="tide-text">{{ flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : flowDraftSk == SK_FLOWALL ? '传顺：它已经带上通配；点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
+      <text class="tide-text">{{ flowDraftSk == SK_FLOW ? '伏流：点一张手牌贴上通配和顺子匹配（打出它时凑顺子，它当任意点数）· J 和无点数的点不动' : flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : flowDraftSk == SK_FLOWALL ? '传顺：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
       <view class="tide-actions">
         <view id="ap-flowdraft-skip" class="tide-btn tide-btn-plain" @click="onFlowDraft(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
@@ -2696,6 +2696,7 @@
   //   排空时在「摘钥匙」那一步**一次性写回**数组，所以停一下再回来不会重复
   let stealTailTook : boolean[] = []
   let stealTailHold : boolean[] = []
+  let stealTailFoeSwap : boolean[] = []
   let stealTailChain : boolean[] = []
   let stealTailHook : boolean[] = []
   let stealTailBurn : boolean[] = []
@@ -3590,6 +3591,8 @@
   //   chainArmed    这一手【连递】该续贴吗（resolveMatch 里判「凑成」之后定）
   const tookThisHand : boolean[] = [false, false]
   const holdArmed : boolean[] = [false, false]
+  //   foeSwapArmed  这一手带着【压舱】吗（打出那一刻立；endPlayTag 里兑现 —— 「这一手结算完之后」）
+  const foeSwapArmed : boolean[] = [false, false]
   //   hookArmed     这一手带着【磁钩】吗（打出那一刻定）。被抢走时存档成 false —— 匹配上了只是被抢，不算「匹配失败」
   const hookArmed : boolean[] = [false, false]
   // 【磁针】的后半句〔2026-11-09〕：同 hookArmed（打出那一刻立、被抢走时清掉、endPlayTag 里兑现）
@@ -4199,7 +4202,7 @@
     }
     if (flowDraftPending.value) {
       return flowDraftSk.value == SK_FLOWPASS ? '你的回合 · 续流'
-        : (flowDraftSk.value == SK_STONELINE ? '你的回合 · 石顺' : flowDraftSk.value == SK_FLOWALL ? '你的回合 · 传顺' : '你的回合 · 顺递')
+        : flowDraftSk.value == SK_FLOW ? '你的回合 · 伏流' : (flowDraftSk.value == SK_STONELINE ? '你的回合 · 石顺' : flowDraftSk.value == SK_FLOWALL ? '你的回合 · 传顺' : '你的回合 · 顺递')
     }
     if (chainDraftPending.value) {
       return '你的回合 · 连递'
@@ -4274,7 +4277,7 @@
   // 压舱 / 摘钩 / 对换共用一块提示，这儿按技能出话
   const takeText = computed<string>(() : string => {
     if (taking(SK_PRESS)) {
-      return '压舱：点庄家一张手牌，塞回牌库洗掉'
+      return '压舱：点庄家一张手牌（不能是 J、不能是堆上已有的点数），然后点堆上一张跟它交换'
     }
     if (taking(SK_UNHOOK)) {
       return '摘钩：点庄家一张手牌，拿到你手上'
@@ -5959,6 +5962,9 @@
 
   // 凝水 / 净水等着的时候那条提示
   const pilePickText = computed<string>(() : string => {
+    if (pickingPile(SK_PRESS)) {
+      return '压舱：点堆上一张，跟庄家那张交换（不能点你刚打出的那张、J、叠着的）'
+    }
     if (pickingPile(SK_CALM)) {
       return '凝水：点堆上一张给它贴保护 —— 那张被收走时不走一次'
     }
@@ -6013,6 +6019,9 @@
     if (pilePick.value < 0) {
       return false
     }
+    if (pickingPile(SK_PRESS)) {
+      return foeSwapPileOk(index)
+    }
     if (pickingPile(SK_WILD)) {
       return pileBurnAt(index) == 0 && !wardAt(index) && !frostAt(index)
     }
@@ -6053,6 +6062,10 @@
     //   它借这一排点，照换水借手牌那一排的先例 —— 所以岔在最前面〕
     const which = pilePick.value
     if (which < 0) {
+      return
+    }
+    if (which == SK_PRESS) {
+      onFoeSwapPile(index)
       return
     }
     // 点不着的格子当没点（界面上它也没高亮，见 canPickAt）——
@@ -8571,6 +8584,7 @@
     const armSide = byFoe ? 1 : 0
     tookThisHand[armSide] = false
     holdArmed[armSide] = hasTrigger(skills, SK_HOLDTAG)
+    foeSwapArmed[armSide] = hasTrigger(skills, SK_PRESS)
     hookArmed[armSide] = hasTrigger(skills, SK_HOOK)
     poleFailArmed[armSide] = hasTrigger(skills, SK_POLEFAIL)
     chainArmed[armSide] = false
@@ -9081,6 +9095,7 @@
     const vs = byFoe ? 1 : 0
     stealTailTook.push(tookThisHand[vs])
     stealTailHold.push(holdArmed[vs])
+    stealTailFoeSwap.push(foeSwapArmed[vs])
     stealTailChain.push(chainArmed[vs])
     // 磁钩：这一手是被抢的那一方 = 它**匹配上了** → 存 false，还原回去就不会当成「匹配失败」去抽牌
     stealTailHook.push(false)
@@ -9133,6 +9148,7 @@
         const vsi = side ? 1 : 0
         tookThisHand[vsi] = stealTailTook[i]
         holdArmed[vsi] = stealTailHold[i]
+        foeSwapArmed[vsi] = stealTailFoeSwap[i]
         chainArmed[vsi] = stealTailChain[i]
         hookArmed[vsi] = stealTailHook[i]
         // 磁针同电钩：被抢走不算匹配失败（stealTailHook 存的恒是 false，这儿直接清）
@@ -9161,6 +9177,7 @@
       stealTailDrop.pop()
       stealTailTook.pop()
       stealTailHold.pop()
+      stealTailFoeSwap.pop()
       stealTailChain.pop()
       stealTailHook.pop()
       stealTailBurn.pop()
@@ -10674,15 +10691,13 @@
     // **排在收色、撒网后面，野火前面** —— 跟那两件同组（都是「换一条
     // 判定线」的收牌技能），而排在野火前面照的是野火那条注释的同一个理由：
     // 收牌的先收完，点火的最后来
-    // 【传顺】【石顺】「它带上【通配】」〔2026-11-09 用户定〕：贴在顺子判定之前（照模拟器：afterPlay 里先贴）。
-    // 首次进 afterPlayTail 一定从 TAIL_EBB 起，所以这儿每手都走得到；addWild 自带去重
-    if (from <= TAIL_FLOW && lastPlayed != null && inPile(lastPlayed!)
-      && (hasTrigger(skills, SK_FLOWALL) || hasTrigger(skills, SK_STONELINE))) {
-      addWild(lastPlayed!)
-    }
+    // 〔这儿原先给传顺 / 石顺打出那张贴【通配】（2026-11-09）。石顺同日去掉了通配，传顺 2026-11-10 换成「堆上 1 张牌带上【通配】」
+    //   （贴在停人那一串里，flowDraftWild）—— 这一段没有住户了，删了〕
     // 〔2026-11-09 用户定续流换成「手牌都带上【顺子匹配】」：它自己不再走顺子（原「它带上【通配】；【顺子匹配】；…」这儿有一支 straightCore(…, '续流', …, true)，删了）〕
-    if (from <= TAIL_FLOW && hasTrigger(skills, SK_FLOW)) {
-      if (straightFor(byFoe, skills)) {
+    // 〔2026-11-10 用户定伏流换成「1 张手牌带上【通配】和【顺子匹配】」：它自己不再走顺子（原先这儿 straightFor(byFoe, skills)，删了）〕
+    // 【传顺】〔2026-11-10〕「变成手里最大的点数；【顺子匹配】；这个点数的手牌视为【通配】」—— 见 flowAllFor
+    if (from <= TAIL_FLOW && lastPlayed != null && hasTrigger(skills, SK_FLOWALL)) {
+      if (flowAllFor(byFoe, skills)) {
         return
       }
     } else if (from <= TAIL_FLOW && lastPlayed != null && flowKeyOn(lastPlayed!)) {
@@ -10690,7 +10705,8 @@
       // `selfWild=false` = **它自己也不当通配**，按自己的点数参与（desc 只有「带上【顺子匹配】」那半句）。
       // 〔2026-10-30 改：原先 straightCore 一律给它自己贴通配 = desc↔实现不一致（用户指出）。
       //   跟模拟器 `FLOW_KEY_SELF=own`（现行默认）同一条路〕
-      if (straightCore(byFoe, skills, '流钥', false, false, false)) {
+      // 〔2026-11-10〕钥匙牌自己带着【通配】（新伏流贴的）→ 它当通配（selfWild=true）；不带的照旧按自己的点数
+      if (straightCore(byFoe, skills, '流钥', false, false, isWild(lastPlayed!))) {
         return
       }
     }
@@ -10972,10 +10988,9 @@
           : ' 褪点：庄家手里的 ' + n + ' 张牌失去花色。')
       }
     }
-    if ((hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_UNHOOK)
-      || hasTrigger(skills, SK_PRESS)) && askFirst(SK_UNHOOK)) {
-      const which = hasTrigger(skills, SK_SWAPCARD) ? SK_SWAPCARD
-        : (hasTrigger(skills, SK_UNHOOK) ? SK_UNHOOK : SK_PRESS)
+    // 〔2026-11-10 压舱换成「查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）」—— 从这一块拿出去了，挂在 endPlayTag（这一手结算完之后）〕
+    if ((hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_UNHOOK)) && askFirst(SK_UNHOOK)) {
+      const which = hasTrigger(skills, SK_SWAPCARD) ? SK_SWAPCARD : SK_UNHOOK
       const theirs = byFoe ? hand.value : foeHand.value
       if (theirs.length > 0) {
         if (!byFoe) {
@@ -11102,7 +11117,7 @@
         key = flowKey.value[flowKey.value.length - 1]
         message.value = message.value + ' 庄家顺递：手里 1 张带上了顺子匹配。'
       }
-      flowDraftWild(byFoe, key)
+      flowDraftWild(byFoe, key, '顺递')
     }
     // 【续流】〔2026-11-09 用户定换效果：「手牌都带上【顺子匹配】」〕—— 照【传顺】那段自动贴、不停人（传顺另多「它带上【通配】」）。
     //   原「它带上【通配】；【顺子匹配】；1 张手牌带上【顺子匹配】」的挑牌（flowDraftSk = SK_FLOWPASS 那一路）不再进；模板里那几句提示留着、走不到。
@@ -11172,6 +11187,24 @@
         }
       }
     }
+    // 【伏流】〔2026-11-10 用户定换效果：「1 张手牌带上【通配】和【顺子匹配】」〕—— 同一张手牌贴两个标签：顺子钥匙（flowKey）+ 通配（addWild，按牌对象存，落堆自动带着）。
+    //   挑法照石顺（你挑：flowDraftPending，onFlowDraft 里给 SK_FLOW 补通配；庄家：stoneLinePick）。模拟器 FLOW_MODE=tag（默认）
+    if (hasTrigger(skills, SK_FLOW) && askFirst(SK_FLOW)) {
+      if (!byFoe) {
+        if (flowKeyPick(false) >= 0) {
+          flowDraftSk.value = SK_FLOW
+          flowDraftPending.value = true
+          return
+        }
+      } else {
+        const at = stoneLinePick(true)
+        if (at >= 0) {
+          flowKey.value = flowKey.value.concat([foeHand.value[at]])
+          addWild(foeHand.value[at])
+          message.value = message.value + ' 庄家伏流：手里 1 张带上了通配和顺子匹配。'
+        }
+      }
+    }
     // 【石顺】〔2026-10-30〕：它带上【石墙】；1 张手牌带上【顺子匹配】（flowKey）。挑法共用 flowDraftPending 那块；
     // 庄家照 stoneLinePick（跟模拟器 straightKeyPick 同一把尺子）
     if (hasTrigger(skills, SK_STONELINE) && lastPlayed != null && askFirst(SK_STONELINE)) {
@@ -11192,22 +11225,10 @@
         }
       }
     }
-    // 【传顺】〔2026-11-09 改〕「它带上【通配】；1 张手牌带上【顺子匹配】」—— 贴那 1 张照石顺：你挑（flowDraftPending）、庄家 stoneLinePick
-    if (hasTrigger(skills, SK_FLOWALL) && askFirst(SK_FLOWALL)) {
-      if (!byFoe) {
-        if (flowKeyPick(false) >= 0) {
-          flowDraftSk.value = SK_FLOWALL
-          flowDraftPending.value = true
-          return
-        }
-      } else {
-        const at = stoneLinePick(true)
-        if (at >= 0) {
-          flowKey.value = flowKey.value.concat([foeHand.value[at]])
-          message.value = message.value + ' 庄家传顺：手里 1 张带上了顺子匹配。'
-        }
-      }
-    }
+    // 【传顺】〔2026-11-10 改〕「堆上 1 张牌带上【通配】；1 张手牌带上【顺子匹配】」（= 已删顺递的效果）——
+    // 手牌那张：你挑（flowDraftPending，挑完 onFlowDraft 接着贴通配）、庄家 stoneLinePick；堆上那张由程序挑（flowDraftWild，照顺递）
+    // 〔传顺 2026-11-10 再换效果：不再贴手牌标签 / 堆上通配（原先这儿你挑 flowDraftPending、庄家 stoneLinePick + flowDraftWild），
+    //   改成在顺子段 flowAllFor 里变点数 + 手牌通配。flowDraftSk == SK_FLOWALL 那几处文案留着、走不到〕
     // 【零递】〔2026-11-06 用户定：「置 0；手牌点数最大的 1 张牌带上【21 匹配】」〕—— 没得挑，所以不停人：
     // 手里能贴的牌（非 J、有点数、还没贴过）里点数最大的那张贴上。原先「你挑、停下来等」那一路（zeroDraftPending）不再走，代码留着
     if (hasTrigger(skills, SK_ZERODRAFT) && askFirst(SK_ZERODRAFT)) {
@@ -12031,21 +12052,25 @@
     }
     flowDraftPending.value = false
     const sk = flowDraftSk.value
-    // 只有顺递挑完还要给堆上贴通配；续流 / 石顺都不贴（石顺：用户定「别单独出现通配」）
-    const pass = sk != SK_FLOWDRAFT
-    const name = sk == SK_FLOWPASS ? '续流' : (sk == SK_STONELINE ? '石顺' : sk == SK_FLOWALL ? '传顺' : '顺递')
+    // 顺递 / 传顺挑完还要给堆上贴通配（传顺 2026-11-10 换成顺递的效果）；续流 / 石顺不贴
+    const pass = sk != SK_FLOWDRAFT && sk != SK_FLOWALL
+    const name = sk == SK_FLOW ? '伏流' : (sk == SK_FLOWPASS ? '续流' : (sk == SK_STONELINE ? '石顺' : sk == SK_FLOWALL ? '传顺' : '顺递'))
     flowDraftSk.value = -1
     let key : PlainCard | null = null
     if (index >= 0) {
       key = hand.value[index]
       flowKey.value = flowKey.value.concat([key!])
-      message.value = name + '：' + cardName(key!) + ' 带上了顺子匹配。'
+      // 新伏流：同一张再带上【通配】
+      if (sk == SK_FLOW) {
+        addWild(key!)
+      }
+      message.value = name + '：' + cardName(key!) + (sk == SK_FLOW ? ' 带上了通配和顺子匹配。' : ' 带上了顺子匹配。')
     } else {
       message.value = name + '：你没贴。'
     }
-    // 只有顺递有「堆上 1 张牌带上【通配】」那半句
+    // 顺递 / 传顺有「堆上 1 张牌带上【通配】」那半句
     if (!pass) {
-      flowDraftWild(false, key)
+      flowDraftWild(false, key, name)
     }
     askNext()
   }
@@ -12055,7 +12080,7 @@
   // 跟庄家估带标签手牌同一个函数），取最多的；一样多（含全是 0）或没钥匙就贴堆顶那张。
   // 程序挑、不让玩家点 —— 堆是明的、钥匙是自己的，照易流 / 抬水「它算得准，所以它不猜」。
   // ⚠ 兑现在下一手、中间对手要打一张，这个估法假设堆不变（模拟器同）
-  function flowDraftWild(byFoe : boolean, key : PlainCard | null) {
+  function flowDraftWild(byFoe : boolean, key : PlainCard | null, name : string) {
     const at0 = lastPlayed == null ? -1 : pileIndexOf(lastPlayed!)
     let best = -1
     let most = 0
@@ -12086,7 +12111,7 @@
       return
     }
     addWild(pile.value[best])
-    message.value = message.value + (byFoe ? ' 庄家顺递' : ' 顺递') + '：给堆上第 ' + (best + 1) + ' 张贴上【通配】。'
+    message.value = message.value + (byFoe ? ' 庄家' : ' ') + name + '：给堆上第 ' + (best + 1) + ' 张贴上【通配】。'
   }
 
   // 零递：你挑中了自己第 index 张（-1 表示不贴）
@@ -12525,6 +12550,10 @@
       onBackwater(index)
       return
     }
+    if (taking(SK_PRESS)) {
+      onFoeSwapFoe(index)
+      return
+    }
     if (takeSkill.value >= 0) {
       // 【死水】挑不动的那几张（J、已经废过的）点了不该有反应 ——
       // 不拦的话 doDead 里那道闸会静静地吃掉这一下，而 deadLeft 已经减了，
@@ -12603,6 +12632,10 @@
   function onTakeFrom(index : number) {
     const which = takeSkill.value
     if (which < 0) {
+      return
+    }
+    if (which == SK_PRESS) {
+      onFoeSwapFoe(index)
       return
     }
     // ---- 【死水】要挑 DEAD_COUNT 张，所以它自己管状态 ----
@@ -13644,6 +13677,119 @@
   // 判据照原来两个函数那条：**先比张数，张数相同取最深**。
   // 次判据非有不可 —— 同样长的顺子常有好几条，而「先找到的赢」
   // 会默默地总选点数小的那条（系统性偏向堆的一头）
+  // ---------- 【顺子匹配】手牌补格〔2026-11-09 用户定新规〕----------
+  // 凑顺子时手里的牌可以补格（**J 也行，算 11 点**），补进来的**留在手里、不收走**；
+  // 顺子里堆上至少 1 张，**实际收走（堆上那几张 + 当通配的它自己）至少 2 张**才算凑成。手牌补几张不限。
+  // chainHand[v] = 这一手手里有点数 v 的牌。调用方判顺子之前设（chainHandFor）、判完清成 []（= 不补）——
+  // bestChainCore 和 markChain 都读它，两处按同一个顺序分配（手牌补格排在堆上点数之后、堆上通配之前，跟模拟器 bestChain 同序）。
+  // A 只当 1 不当 14（模拟器 handByVal 同口径）。模拟器旋钮：FLOW_HAND=99 FLOW_HAND_FATE=keep STRAIGHT_TAKE_MIN=2 STRAIGHT_HAND_J=1（默认）
+  let chainHand : boolean[] = [] as boolean[]
+  // markChain 顺手数一下手牌补了几格（播报用）
+  let chainHandUsed : number = 0
+  // 【传顺】〔2026-11-10〕「这个点数的手牌视为【通配】」：这一手手里当通配的张数（补任意一格，留在手里、不收走、不算堆上张数）。
+  // 跟 chainHand 同一套：调用方判顺子前设、判完清成 0；bestChainCore / markChain 同序读（堆上通配之后、它自己当通配之前，跟模拟器 bestChain 的 handWild 同序）
+  let chainHandWild : number = 0
+  // 手里（不含 skip）最大的点数；没有有点数的牌返回 −1（J 按 11，跟它的 cardVals 一致）
+  function handMaxOf(byFoe : boolean, skip : PlainCard | null) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let best = -1
+    for (let i = 0; i < mine.length; i++) {
+      if (skip != null && mine[i] == skip) {
+        continue
+      }
+      const vals = cardVals(mine[i])
+      for (let k = 0; k < vals.length; k++) {
+        if (vals[k] > best) {
+          best = vals[k]
+        }
+      }
+    }
+    return best
+  }
+  // 手里（不含 skip）点数含 v 的牌有几张
+  function handCountOf(byFoe : boolean, skip : PlainCard | null, v : number) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let n = 0
+    for (let i = 0; i < mine.length; i++) {
+      if (skip != null && mine[i] == skip) {
+        continue
+      }
+      if (cardVals(mine[i]).indexOf(v) >= 0) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+  // 【传顺】结算：它变成手里最大的点数（堆上快照一起改，照 applyMirrorSelf），手里这个点数的牌当通配，再按自己的点数判顺子。
+  // 手里没有有点数的牌 → 不变、也不给通配（「这个点数」不存在），照常按原点数判。返回 true = 凑成了（从 TAIL_WADE 接着走）
+  function flowAllFor(byFoe : boolean, skills : number[]) : boolean {
+    if (lastPlayed == null) {
+      return false
+    }
+    const card = lastPlayed!
+    const at0 = pileIndexOf(card)
+    if (at0 < 0) {
+      return false
+    }
+    const v = handMaxOf(byFoe, null)
+    let hw = 0
+    if (v > 0 && card.rank != JACK) {
+      card.value = v
+      card.extra = [] as number[]
+      const next = pileVals.value.slice(0)
+      next[at0] = cardVals(card)
+      pileVals.value = next
+      hw = handCountOf(byFoe, null, v)
+      message.value = message.value + (byFoe ? ' 庄家传顺：' : ' 传顺：') + '变成 ' + faceOfValue(v) + ' 点，手里 ' + hw + ' 张当通配。'
+    }
+    chainHandWild = hw
+    const got = straightCore(byFoe, skills, '传顺', false, false, false)
+    chainHandWild = 0
+    return got
+  }
+  // 庄家估传顺能收几张（落堆之前）：照 flowKeyCount，点数换成手里（不含它）最大的、加手牌通配额度
+  function flowAllCount(card : PlainCard, byFoe : boolean) : number {
+    const v = handMaxOf(byFoe, card)
+    const vals : number[] = v > 0 ? [v] : cardVals(card)
+    const at = pile.value.length
+    const deepest = withHighAce(pinVals(deepestByVal(-1, byFoe), vals, at))
+    chainHand = chainHandFor(byFoe, card)
+    chainHandWild = v > 0 ? handCountOf(byFoe, card, v) : 0
+    const span = bestChainCore(deepest, wildAtsOf(-1, byFoe).length, false, 1, at)
+    chainHand = [] as boolean[]
+    chainHandWild = 0
+    if (span[0] < 0) {
+      return 0
+    }
+    let n = 0
+    for (let i = span[0]; i <= span[1]; i++) {
+      if (deepest[i] >= 0) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+  function chainHandFor(byFoe : boolean, skip : PlainCard | null) : boolean[] {
+    const mine = byFoe ? foeHand.value : hand.value
+    const out : boolean[] = []
+    for (let v = 0; v <= HIGH_ACE; v++) {
+      out.push(false)
+    }
+    for (let i = 0; i < mine.length; i++) {
+      const c = mine[i]
+      if (skip != null && c == skip) {
+        continue
+      }
+      const vals = cardVals(c)
+      for (let k = 0; k < vals.length; k++) {
+        const v = vals[k]
+        if (v >= 0 && v < HIGH_ACE) {
+          out[v] = true
+        }
+      }
+    }
+    return out
+  }
   function bestChainAt(deepest : number[], wildRoom : number,
     selfWild : boolean, step : number) : number[] {
     return bestChainCore(deepest, wildRoom, selfWild, step, -1)
@@ -13659,7 +13805,8 @@
     let bestCount = 0
     let bestLo = -1
     const top = deepest.length - 1
-    for (let a = 0; a <= top; a++) {
+    // 〔2026-11-10 用户定全局规则：「0 一律不能进顺子」—— 区间从 1 起，0 那一格永远不在链上（模拟器 bestChain 同一行）〕
+    for (let a = 1; a <= top; a++) {
       for (let b = a + STRAIGHT_MIN - 1; b <= top; b++) {
         // 同一张 A 不能在一条顺子里当两次（1 和 14 都在区间里，见 withHighAce）
         if (a <= 1 && b >= HIGH_ACE) {
@@ -13669,19 +13816,29 @@
         let lo = -1
         let gap = 0
         let room = wildRoom
+        let hwLeft = chainHandWild
         let selfLeft = selfWild ? 1 : 0
         let broken = false
         let hasMust = mustAt < 0
+        // 堆上那几张（含堆上的通配）—— 新规那两道闸要数它
+        let onPile = 0
         for (let v = a; v <= b; v++) {
           if (deepest[v] >= 0) {
             gap = 0
             count = count + 1
+            onPile = onPile + 1
             if (deepest[v] == mustAt) {
               hasMust = true
             }
             if (lo < 0 || deepest[v] < lo) {
               lo = deepest[v]
             }
+            continue
+          }
+          // 手牌补格〔2026-11-09 新规〕：留在手里、不收走，所以不进 onPile、不动 lo
+          if (v < chainHand.length && chainHand[v]) {
+            count = count + 1
+            gap = 0
             continue
           }
           if (room > 0) {
@@ -13701,6 +13858,14 @@
             //（通配那张牌确实在堆上、而且确实会被收走，所以它该算进 lo）
             room = room - 1
             count = count + 1
+            onPile = onPile + 1
+            gap = 0
+            continue
+          }
+          // 【传顺】手里当通配的那几张：补任意一格，留在手里、不收走（不进 onPile、不动 lo）
+          if (hwLeft > 0) {
+            hwLeft = hwLeft - 1
+            count = count + 1
             gap = 0
             continue
           }
@@ -13718,6 +13883,10 @@
           }
         }
         if (broken || !hasMust || count < STRAIGHT_MIN) {
+          continue
+        }
+        // 新规两道闸：堆上至少 1 张；实际收走 ≥ 2（堆上那几张 + 当通配的它自己）。没有手牌补格时链 ≥ 3 全在堆上，自动满足
+        if (onPile < 1 || onPile + (selfWild ? 1 : 0) < 2) {
           continue
         }
         if (count > bestCount || (count == bestCount && lo >= 0 && lo < bestLo)) {
@@ -13748,15 +13917,27 @@
   function markChain(wanted : boolean[], deepest : number[],
     span : number[], wildAts : number[], selfWild : boolean) {
     let used = 0
+    let hwLeft = chainHandWild
     let selfLeft = selfWild ? 1 : 0
+    chainHandUsed = 0
     for (let v = span[0]; v <= span[1]; v++) {
       if (deepest[v] >= 0) {
         wanted[deepest[v]] = true
         continue
       }
+      // 手牌补的那一格：不收（跟 bestChainCore 同序 —— 排在堆上通配前面）
+      if (v < chainHand.length && chainHand[v]) {
+        chainHandUsed = chainHandUsed + 1
+        continue
+      }
       if (used < wildAts.length) {
         wanted[wildAts[used]] = true
         used = used + 1
+        continue
+      }
+      // 【传顺】手牌通配补的那一格：不收（同 bestChainCore 的顺序）
+      if (hwLeft > 0) {
+        hwLeft = hwLeft - 1
         continue
       }
       if (selfLeft > 0) {
@@ -14088,8 +14269,10 @@
     const deepest = withHighAce(free ? deepestByVal(at0, byFoe)
       : pinVals(deepestByVal(-1, byFoe), pileValsAt(at0), at0))
     const wildAts = wildAtsOf(at0, byFoe)
+    chainHand = chainHandFor(byFoe, null)
     const span = bestChainCore(deepest, wildAts.length, free, 1, free ? -1 : at0)
     if (span[0] < 0) {
+      chainHand = [] as boolean[]
       message.value = message.value + who
         + '凑不出顺子（要连着 ' + STRAIGHT_MIN + ' 个点数）。'
       // 〔2026-11-09 用户定：词条去掉「凑不成的话它带上【通配】」—— 原先这儿给不当通配的（顺子标签）补贴通配，删了。
@@ -14112,6 +14295,10 @@
       wanted.push(i == at0)
     }
     markChain(wanted, deepest, span, wildAts, free)
+    chainHand = [] as boolean[]
+    if (chainHandUsed > 0) {
+      message.value = message.value + who + '手里补了 ' + chainHandUsed + ' 张（留在手里）。'
+    }
     const taken = harvestIndices(wanted)
     message.value = message.value + who + '凑成 '
       + valueFace(span[0]) + '–' + valueFace(span[1]) + ' 的顺子，收走 '
@@ -14617,6 +14804,197 @@
   // 所以共用 takeSkill 这一个状态，这儿按技能分三路。
   //
   // 对换要挑两次（先拿他的，再给自己的），第二步落在 doGiveBack
+  // ---------- 【压舱】〔2026-11-10 上架；模拟器原型〈foeswap〉〕----------
+  // 第一步挑中的那张（对方手牌下标）；-1 = 还没挑
+  let foeSwapFoeAt = -1
+  // 对方那张能不能换上去：不是 J、点数不是堆上已有的（换完堆上不会有对子）
+  function foeSwapCardOk(card : PlainCard) : boolean {
+    if (card.rank == JACK) {
+      return false
+    }
+    const v = cardVals(card)
+    for (let k = 0; k < pile.value.length; k++) {
+      const pv = pileValsAt(k)
+      for (let a = 0; a < v.length; a++) {
+        if (pv.indexOf(v[a]) >= 0) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+  // 堆上第 k 张能不能换下来：不是这一手刚打出的那张、不是 J、不是一叠的宿主
+  function foeSwapPileOk(k : number) : boolean {
+    if (k < 0 || k >= pile.value.length) {
+      return false
+    }
+    const c = pile.value[k]
+    if (lastPlayed != null && c == lastPlayed!) {
+      return false
+    }
+    if (c.rank == JACK) {
+      return false
+    }
+    for (let i = 0; i < stacked.value.length; i++) {
+      if (stacked.value[i].host == c) {
+        return false
+      }
+    }
+    return true
+  }
+  // 有没有至少一组合法的（对方那张 × 堆上那张）。byFoe = 打出压舱的是不是庄家
+  function foeSwapHasPair(byFoe : boolean) : boolean {
+    const theirs = byFoe ? hand.value : foeHand.value
+    let anyCard = false
+    for (let i = 0; i < theirs.length; i++) {
+      if (foeSwapCardOk(theirs[i])) {
+        anyCard = true
+      }
+    }
+    if (!anyCard) {
+      return false
+    }
+    for (let k = 0; k < pile.value.length; k++) {
+      if (foeSwapPileOk(k)) {
+        return true
+      }
+    }
+    return false
+  }
+  // 真换：victimIsFoe = 被换的是庄家的手牌
+  function doFoeSwap(victimIsFoe : boolean, h : number, k : number) {
+    const card = takeFromHand(victimIsFoe, h)
+    // 手牌标签跟着换了地方就作废（照摘钩那一串）；堆上那一格的火 / 保护归零
+    dropFrostHand(card)
+    dropStoneHand(card)
+    dropMatchKey(card)
+    dropDraftKey(card)
+    dropZeroKey(card)
+    dropFadeKey(card)
+    dropFlowKey(card)
+    dropTraitorKey(card)
+    dropBurnHand(card)
+    const old = pile.value[k]
+    cleanAt0(old)
+    const nextPile = pile.value.slice(0)
+    nextPile[k] = card
+    pile.value = nextPile
+    const nextVals = pileVals.value.slice(0)
+    nextVals[k] = cardVals(card)
+    pileVals.value = nextVals
+    const nextSuit = pileSuit.value.slice(0)
+    nextSuit[k] = card.suit
+    pileSuit.value = nextSuit
+    const nextBurn = pileBurn.value.slice(0)
+    nextBurn[k] = 0
+    pileBurn.value = nextBurn
+    const nextGuard = pileGuard.value.slice(0)
+    nextGuard[k] = GUARD_NONE
+    pileGuard.value = nextGuard
+    const nextByFoe = pileByFoe.value.slice(0)
+    nextByFoe[k] = victimIsFoe
+    pileByFoe.value = nextByFoe
+    // 换下来的那张进他手里，明置（它刚才就在堆上，谁都看见了）
+    if (victimIsFoe) {
+      foeHand.value = foeHand.value.concat([old])
+      foeShown.value = foeShown.value.concat([true])
+    } else {
+      hand.value = hand.value.concat([old])
+      handSeen.value = handSeen.value.concat([true])
+    }
+    message.value = message.value + (victimIsFoe
+      ? ' 压舱：庄家的 ' + cardName(card) + ' 换到堆上，' + cardName(old) + ' 到了它手里。'
+      : ' 庄家压舱：你的 ' + cardName(card) + ' 换到堆上，' + cardName(old) + ' 到了你手里。')
+  }
+  // 某一方手里最好的一张现在能收几张（普通匹配 / 21，跟庄家估值同一对函数）
+  function bestHandCatchOf(byFoe : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let best = 0
+    for (let i = 0; i < mine.length; i++) {
+      const sk = skillsOf(byFoe, mine[i])
+      const at = catchStart(mine[i], byFoe, sk, false)
+      const n = catchCountCut(at, false, mine[i])
+      if (n > best) {
+        best = n
+      }
+    }
+    return best
+  }
+  // 庄家打出压舱：所有合法组合都试（真换、量、整条数组换回原来那几个对象），挑「它 − 你」最大的；都不比不换好就不换
+  function foeSwapAuto() {
+    const p0 = pile.value
+    const v0 = pileVals.value
+    const s0 = pileSuit.value
+    const h0 = hand.value
+    let bestH = -1
+    let bestK = -1
+    let bestS = bestHandCatchOf(true) - bestHandCatchOf(false)
+    for (let h = 0; h < h0.length; h++) {
+      if (!foeSwapCardOk(h0[h])) {
+        continue
+      }
+      for (let k = 0; k < p0.length; k++) {
+        if (!foeSwapPileOk(k)) {
+          continue
+        }
+        const np = p0.slice(0)
+        np[k] = h0[h]
+        const nv = v0.slice(0)
+        nv[k] = cardVals(h0[h])
+        const ns = s0.slice(0)
+        ns[k] = h0[h].suit
+        const nh = h0.slice(0)
+        nh[h] = p0[k]
+        pile.value = np
+        pileVals.value = nv
+        pileSuit.value = ns
+        hand.value = nh
+        const sc = bestHandCatchOf(true) - bestHandCatchOf(false)
+        pile.value = p0
+        pileVals.value = v0
+        pileSuit.value = s0
+        hand.value = h0
+        if (sc > bestS) {
+          bestS = sc
+          bestH = h
+          bestK = k
+        }
+      }
+    }
+    if (bestH >= 0) {
+      doFoeSwap(false, bestH, bestK)
+    }
+  }
+  // 你：第一步点了庄家第 index 张（-1 = 放过）
+  function onFoeSwapFoe(index : number) {
+    if (index >= 0 && (index >= foeHand.value.length || !foeSwapCardOk(foeHand.value[index]))) {
+      return
+    }
+    takeSkill.value = -1
+    if (index < 0) {
+      message.value = message.value + ' 压舱：你放过了。'
+      tagResumeGo()
+      return
+    }
+    foeSwapFoeAt = index
+    pilePick.value = SK_PRESS
+  }
+  // 你：第二步点了堆上第 index 张（-1 = 不换）
+  function onFoeSwapPile(index : number) {
+    if (index >= 0 && !foeSwapPileOk(index)) {
+      return
+    }
+    pilePick.value = -1
+    const h = foeSwapFoeAt
+    foeSwapFoeAt = -1
+    if (index >= 0 && h >= 0 && h < foeHand.value.length) {
+      doFoeSwap(true, h, index)
+    } else {
+      message.value = message.value + ' 压舱：你没换。'
+    }
+    tagResumeGo()
+  }
+
   function doTakeFrom(byFoe : boolean, skill : number, index : number) {
     const theirs = byFoe ? hand.value : foeHand.value
     if (index < 0 || index >= theirs.length) {
@@ -16181,6 +16559,19 @@
           + (got != null ? '没钓上，摸了 1 张，它带上了正电。' : '没钓上，牌库空了没摸到。')
       }
     }
+    // ---- 【压舱】〔2026-11-10〕：查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）----
+    // 你：先点他一张（借摘钩那块 takeSkill = SK_PRESS），再点堆上一张（借镜水那块 pilePick = SK_PRESS），点完 tagResumeGo 接回来；
+    // 庄家：所有合法组合都试一遍，挑「它下一手最多收几张 − 你下一手最多收几张」最大的（照模拟器 foeSwapFor）。没有合法组合就不发动
+    if (foeSwapArmed[si]) {
+      foeSwapArmed[si] = false
+      if (foeSwapHasPair(byFoe)) {
+        if (!byFoe) {
+          takeSkill.value = SK_PRESS
+          return true
+        }
+        foeSwapAuto()
+      }
+    }
     // ---- 【忍递】：这一手**一张牌都没拿到** → 贴 1 张 ----
     //
     // ⚠ 判的是「没拿到牌」，不是「没匹配上」—— 四条收牌路
@@ -17351,7 +17742,13 @@
     // 牌当普通饵打出去）。伏流是第四条匹配线，`catchStart` 对它一概返回 −1，
     // 所以漏在这儿的后果不是「庄家打得笨一点」，是**这件技能在庄家手里
     // 整件作废** —— 而那会让模拟器量出来的两侧严重失衡
-    if (hasTrigger(skills, SK_FLOW)) {
+    // 〔2026-11-10 伏流换效果后它自己不走顺子 —— 原来这儿 straightCount，删了〕
+    // 新伏流贴的钥匙带着【通配】→ 按「自己当通配」估（跟原来伏流同一个估法）
+    // 【传顺】〔2026-11-10〕变成手里最大的点数 + 手牌通配 —— 见 flowAllCount
+    if (hasTrigger(skills, SK_FLOWALL)) {
+      return flowAllCount(card, byFoe)
+    }
+    if (flowKeyOn(card) && isWild(card)) {
       return straightCount(card, byFoe)
     }
     // 【流钥】/【顺递】贴过的牌 —— 漏这一行 = AI 看不见这条线 = 整件作废（照 flowTagOn）。
@@ -17490,7 +17887,9 @@
     //   漏了这儿的后果不是「AI 打得笨一点」，是**整件技能在庄家手里作废**
     //  （catchStart 对第四条匹配线一概返回 −1，见那段注释）〕
     const deepest = withHighAce(deepestByVal(-1, byFoe))
+    chainHand = chainHandFor(byFoe, card)
     const span = bestChainAt(deepest, wildAtsOf(-1, byFoe).length, true, 1)
+    chainHand = [] as boolean[]
     if (span[0] < 0) {
       return 0
     }
@@ -17510,7 +17909,9 @@
   function flowKeyCount(card : PlainCard, byFoe : boolean) : number {
     const at = pile.value.length
     const deepest = withHighAce(pinVals(deepestByVal(-1, byFoe), cardVals(card), at))
+    chainHand = chainHandFor(byFoe, card)
     const span = bestChainCore(deepest, wildAtsOf(-1, byFoe).length, false, 1, at)
+    chainHand = [] as boolean[]
     if (span[0] < 0) {
       return 0
     }
@@ -17559,7 +17960,9 @@
   // `n` 从 1 起算 —— 它自己当通配，是链上的一员，一定跟着走
   function wadeCount(card : PlainCard, byFoe : boolean) : number {
     const deepest = withHighAce(deepestByVal(-1, byFoe))
+    chainHand = chainHandFor(byFoe, card)
     const span = bestChainAt(deepest, wildAtsOf(-1, byFoe).length, true, 2)
+    chainHand = [] as boolean[]
     if (span[0] < 0) {
       return 0
     }
@@ -18358,6 +18761,7 @@
     stealTailDrop = []
     stealTailTook = []
     stealTailHold = []
+    stealTailFoeSwap = []
     stealTailChain = []
     stealTailHook = []
     stealTailBurn = []
