@@ -50,6 +50,8 @@ const CARDS = [
 let num = 27
 for (const [k, n] of [['burn', '赤礁烧炭工'], ['stone', '沙垒筑堤工'], ['ice', '深渊君主'], ['flow', '东海龙王']])
   for (const v of ['base', 'H', 'D', 'HD', 'DD']) CARDS.push([num++, n + (v === 'base' ? '' : v), 's-' + k + '-' + v])
+// 〔2026-11-11〕盐田晒网人系列只有点数槽：基础 / D / DD → 卡号 47 / 48 / 49
+for (const v of ['base', 'D', 'DD']) CARDS.push([num++, '盐田晒网人' + (v === 'base' ? '' : v), 's-salt-' + v])
 // P[c][难度][关] = 玩家尺子刻度的过关率（0~1）：白板实测过 COEF；FIXED 那几张直接读玩家尺子实测
 const P = {}
 for (const [c, , f] of CARDS) {

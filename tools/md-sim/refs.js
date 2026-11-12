@@ -411,7 +411,6 @@ const SIM_ONLY = {
   icedraw: '冰钓',
   icecolor: '冰色',
   icekey: '凝钥',
-  lockback: '锁冰收',
   thaw: '化冰',
   thawdraw: '融冰',
   icedraft: '冰吃水',

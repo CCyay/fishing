@@ -1241,6 +1241,8 @@
     SK_ZERODRAFT,
     // 升钩〔2026-11-04 上架〕：比它大 1 个顺位的 1 张手牌明置变成 J
     SK_NEXTJACK,
+    // 对钩〔2026-11-12 上架，同日改成「它变成 J」〕：展示手里 1 对，它变成 J
+    SK_PAIRJACK,
     // 褪递〔2026-10-29 深夜上架〕：【褪色】；1 张手牌带上【收零】
     SK_FADETAG,
     // 顺递：给 1 张手牌贴【顺子匹配】（照零递那套挑牌）
@@ -1265,6 +1267,7 @@
     SK_DECKZERO,
     SK_PINRANK,
     SK_FADEPOINT,
+    SK_DECKBLEACH,
     SK_COPYSUIT,
     SK_COPYRANK,
     // 漂白（2026-11-02）：对方的手牌都【失去花色】
@@ -1282,7 +1285,7 @@
     SK_DUMPBAIT,
     // 【暗饵】〔2026-11-10〕：将手牌最多 2 张以【暗牌】交给对方
     SK_DARKBAIT,
-    // 【暗潮】〔2026-11-10〕：将对方全部手牌洗回牌库，摸入等量暗牌
+    // 【暗潮】〔2026-11-11 换效果〕：将对方非暗牌手牌洗回牌库，再摸 4 张暗牌
     SK_DARKSWAP,
     SK_NARROW,
     SK_CREEL,
@@ -5143,7 +5146,8 @@
       return poleCatch(card, byFoe, skills, sink)
     }
     const size = pile.value.length
-    if (card.rank == JACK) {
+    // 【对钩】还在手里估值时：凑得出一对，它打出去就是 J（真结算时 afterPlayTail 已经把它改成 J 了）
+    if (card.rank == JACK || pairJackAsJ(card, byFoe, skills)) {
       // J 通吃：不管落堆顶还是堆底，整堆都收。
       // 沉底时要的是「最高那张」（收到堆顶），普通时是「最深那张」
       if (size == 0) {
@@ -7334,6 +7338,8 @@
 
   // 【锈锚】置 0 几张。模拟器 rules.js 的 DECKZERO_N 默认值必须一样
   const DECKZERO_N : number = 2
+  // 【暗潮】再摸几张暗牌（2026-11-11 用户定 4）。模拟器 rules.js 的 DARKSWAP_DRAW 默认值必须一样
+  const DARKSWAP_DRAW : number = 4
   // 【锈锚】将牌库顶 2 张牌置 0（J 也置 0 —— 牌面改成 0，照 markDead）。已经是 0 的照样占名额。
   // 记进 deadCards：摸进谁手里都带「废」标（明置）、0 点、只响 0 点槽。模拟器〈deckzero〉同一个数
   function deckZero(byFoe : boolean) {
@@ -7353,6 +7359,23 @@
     }
     if (n > 0) {
       message.value = message.value + (byFoe ? ' 庄家锈锚：' : ' 锈锚：') + '牌库顶 ' + n + ' 张置 0。'
+    }
+  }
+
+  // 【褪库】（盐田晒网人系列专属）失去花色几张。模拟器 rules.js 的 DECKBLEACH_N 默认值必须一样
+  const DECKBLEACH_N : number = 4
+  // 【褪库】将牌库顶 4 张牌失去花色（照【漂白】改牌面：suit 空串）。已经没花色的照样占名额。模拟器〈deckbleach〉同一个数
+  function deckBleach(byFoe : boolean) {
+    let n = 0
+    for (let k = 0; k < DECKBLEACH_N && k < deck.value.length; k++) {
+      const card = deck.value[deck.value.length - 1 - k]
+      if (card.suit != '') {
+        card.suit = ''
+        n = n + 1
+      }
+    }
+    if (n > 0) {
+      message.value = message.value + (byFoe ? ' 庄家褪库：' : ' 褪库：') + '牌库顶 ' + n + ' 张失去花色。'
     }
   }
 
@@ -7998,6 +8021,8 @@
   // 从前它不带侧 —— 因为它读的全是「这张牌身上的东西」（牌面、点数卡、
   // 这张触发的技能）。归十是第一件**从角色来、改自己手牌点数**的效果，
   // 所以侧这一层第一次有了必要
+  // 【素映】的开关：landVals 打开它，valuesOf 那一支就不借点数（声明放在两个函数前面 —— 编到 Kotlin 时局部函数只认得前面声明过的变量）
+  let blankMirrorOff : boolean = false
   function valuesOf(card : PlainCard, byFoe : boolean, skills : number[]) : number[] {
     // ---- 【封竿】：被封的那个点数，你打出来算 **0 点** ----
     //
@@ -8020,6 +8045,26 @@
     // 技能不触发那一半在 skillsOf 里。两边都要，缺一边就不是废牌
     if (isDead(card)) {
       return [0]
+    }
+    // ---- 【素映】（盐田晒网人系列的庄家规矩）：庄家打出无花色牌时，点数**可以**变成跟堆上 1 张无花色牌相同 ----
+    //
+    // 点数 = 它自己的 ∪ 堆上每张无花色牌的点数；catchStart 取钓得最深的那个 = 「可以变成」挑最好的。
+    // 只在判钓牌那一下成立 —— 落堆记的是它自己的点数（landVals 把 blankMirrorOff 打开），不然没钓中的那张会带着借来的点数躺在堆上。
+    // 排在废牌那一行后面（废了就是 0）。模拟器 rules.js valuesOf 的〈blankmirror〉同一条
+    if (byFoe && !blankMirrorOff && card.suit == '' && hasFoeSpecial('blankmirror')) {
+      const out = cardVals(card)
+      for (let i = 0; i < pile.value.length; i++) {
+        if (pile.value[i] == card || pile.value[i].suit != '') {
+          continue
+        }
+        const vs = pileValsAt(i)
+        for (let k = 0; k < vs.length; k++) {
+          if (out.indexOf(vs[k]) < 0) {
+            out.push(vs[k])
+          }
+        }
+      }
+      return out
     }
     // ---- 【零递】：置 0 ----
     // 0 点钓不到任何牌（0 对 0 不算相等），可它还在点数轴上 ——
@@ -8384,7 +8429,11 @@
   // 落堆 —— 漏一处，将来加在这一层的效果就对那条路失效。
   function landVals(card : PlainCard, byFoe : boolean, skills : number[],
     sink : boolean) : number[] {
-    return valuesOf(card, byFoe, skills)
+    // 【素映】借点数只在判钓牌那一下成立，落堆记它自己的点数（见 valuesOf 那一支）
+    blankMirrorOff = true
+    const out = valuesOf(card, byFoe, skills)
+    blankMirrorOff = false
+    return out
   }
 
   // 〔---------- landVals 这一层 2026-10-16 清空了 ----------
@@ -8900,6 +8949,15 @@
     const at = catchStart(card!, byFoe, skills, sink)
     // 【正电】×【负电】特殊匹配〔2026-11-05〕：紧跟 catchStart 读它记下的那一笔
     const viaElec = at >= 0 && elecHitNow
+    // 【素映】播报：关掉借点数再判一次，只有靠借才钓到 / 钓得更深时才说。放在 viaElec 后面：catchStart 会改 elecHitNow
+    if (byFoe && at >= 0 && card!.suit == '' && hasFoeSpecial('blankmirror')) {
+      blankMirrorOff = true
+      const own = catchStart(card!, byFoe, skills, sink)
+      blankMirrorOff = false
+      if (own < 0 || own > at) {
+        message.value = message.value + ' 庄家素映：无花色牌借了堆上无花色牌的点数。'
+      }
+    }
     // 【特殊匹配不能被抢】〔2026-10-29 用户定〕：这一手靠【21 匹配】收 → 下面两处都不问抢。
     // 顺子 / 花色 / 顺序匹配走 afterPlayTail 的 startSweep，本来就不经过 askSteal，所以这儿只管 21
     const via21 = (at >= 0 && draftCatchAt(card!, byFoe, skills, valuesOf(card!, byFoe, skills), sink) == at) || viaElec
@@ -9703,6 +9761,10 @@
     // 【锈锚】（沉船打捞人专属）：牌库顶 2 张置 0
     if (hasTrigger(skills, SK_DECKZERO)) {
       deckZero(byFoe)
+    }
+    // 【褪库】（盐田晒网人系列专属）：牌库顶 4 张失去花色
+    if (hasTrigger(skills, SK_DECKBLEACH)) {
+      deckBleach(byFoe)
     }
     // ---- 带「优先」那几件的播报摆在最前面 ----
     //
@@ -11340,6 +11402,20 @@
         return
       }
     }
+    // 【对钩】〔2026-11-12，同日改成「它变成 J」〕：展示手里 1 对，它变成 J。没有对子不发动；不用挑，不停人。
+    // 排在匹配之前（这一段都在匹配之前），所以变完这一手就按 J 通吃；堆是空的就照 J 的规矩只勾走它自己。
+    // 估值那一头（出牌 / 抢牌挑哪张）在 catchStart 的 J 那一支认它（pairJackAsJ）
+    if (hasTrigger(skills, SK_PAIRJACK) && lastPlayed != null && lastPlayed!.rank != JACK && askFirst(SK_PAIRJACK)) {
+      const pair = pairJackPair(byFoe, lastPlayed!)
+      if (pair.length == 2) {
+        const mine = byFoe ? foeHand.value : hand.value
+        const was = cardName(lastPlayed!)
+        lastPlayed!.rank = JACK
+        lastPlayed!.value = 11
+        lastPlayed!.extra = [] as number[]
+        message.value = message.value + (byFoe ? ' 庄家对钩：' : ' 对钩：') + '展示了 ' + cardName(mine[pair[0]]) + ' 和 ' + cardName(mine[pair[1]]) + '，' + was + ' 变成了 J。'
+      }
+    }
     // 【褪递】〔2026-10-29 深夜，同晚换效果〕：对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】。
     // 对方那张**随机**（desc 没写「翻开」，看不到他的牌 —— 照模拟器 FS_PICK=rand）；J / 贴过的不贴。
     // 它自己照常匹配、不置 0。收零那张你用的时候要挑，所以会停下来等（照零递）
@@ -11588,28 +11664,32 @@
         }
       }
     }
-    // 【暗潮】〔2026-11-10〕将对方全部手牌洗回牌库，摸入等量暗牌 —— 不用挑，双方同一段。
-    // 照模拟器 rules.js 〈darkswap〉：先一张张洗回（shuffleBack 摘掉身上的手牌标签，含旧的暗牌），再摸回同样张数，摸到的记进 darkKey
+    // 【暗潮】〔2026-11-11 用户定换效果：原「将对方全部手牌洗回牌库，摸入等量暗牌」〕将对方非暗牌手牌洗回牌库，再摸 DARKSWAP_DRAW 张暗牌 ——
+    // 不用挑，双方同一段。照模拟器 rules.js 〈darkswap〉DARKSWAP_KEEP：暗着的留在手里（darkKeyOn —— 明置着的不算暗，照样洗回），
+    // 其余一张张洗回（shuffleBack 摘掉身上的手牌标签），然后**固定**摸 4 张（不按洗回的张数），摸到的记进 darkKey；牌库不够有几张摸几张
     if (hasTrigger(skills, SK_DARKSWAP)) {
       const victim = !byFoe
       const n = victim ? foeHand.value.length : hand.value.length
-      if (n > 0) {
-        for (let i = n - 1; i >= 0; i--) {
+      let back = 0
+      for (let i = n - 1; i >= 0; i--) {
+        const one = victim ? foeHand.value[i] : hand.value[i]
+        if (!darkKeyOn(one)) {
           shuffleBack(takeFromHand(victim, i))
+          back = back + 1
         }
-        let got = 0
-        for (let k = 0; k < n; k++) {
-          const card = drawFor(victim)
-          if (card == null) {
-            break
-          }
-          darkKey.value = darkKey.value.concat([card!])
-          got = got + 1
-        }
-        message.value = message.value + (byFoe
-          ? (' 庄家暗潮：你的 ' + n + ' 张手牌洗回牌库，换摸了 ' + got + ' 张暗牌（你看不见它们，打出落堆才翻开）。')
-          : (' 暗潮：庄家的 ' + n + ' 张手牌洗回牌库，换摸了 ' + got + ' 张暗牌。'))
       }
+      let got = 0
+      for (let k = 0; k < DARKSWAP_DRAW; k++) {
+        const card = drawFor(victim)
+        if (card == null) {
+          break
+        }
+        darkKey.value = darkKey.value.concat([card!])
+        got = got + 1
+      }
+      message.value = message.value + (byFoe
+        ? (' 庄家暗潮：你的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌（你看不见它们，打出落堆才翻开）。')
+        : (' 暗潮：庄家的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌。'))
     }
     // 滤饵：先摸 SIFT_DRAW 张，**然后**从手里（含刚摸的）挑 SIFT_BACK 张退回牌库。
     //
@@ -12336,6 +12416,7 @@
     askNext()
   }
 
+
   // 褪递：你挑中了自己第 index 张贴【收零】（-1 表示不贴）
   function onFadeTag(index : number) {
     if (!fadeTagPending.value) {
@@ -13026,6 +13107,28 @@
       }
     }
     return hits[0]
+  }
+
+  // ---------- 【对钩】〔2026-11-12，同日改成「它变成 J」〕----------
+  // 「1 对」= 手里（不含 card 自己）牌面点数相同的 2 张；J、0 点、无点数、废牌凑不成对（照 nextJackOk）。
+  // 跟模拟器 pairjack 同一个判法（tojPairReady）。返回那一对的两个下标，没有就是空
+  function pairJackPair(byFoe : boolean, card : PlainCard) : number[] {
+    const mine = byFoe ? foeHand.value : hand.value
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i] == card || !nextJackOk(mine[i])) {
+        continue
+      }
+      for (let k = i + 1; k < mine.length; k++) {
+        if (mine[k] != card && mine[k].rank == mine[i].rank && nextJackOk(mine[k])) {
+          return [i, k]
+        }
+      }
+    }
+    return [] as number[]
+  }
+  // 估值用：这张（还在手里）打出去会不会变成 J
+  function pairJackAsJ(card : PlainCard, byFoe : boolean, skills : number[]) : boolean {
+    return card.rank != JACK && hasTrigger(skills, SK_PAIRJACK) && pairJackPair(byFoe, card).length == 2
   }
 
   // 〔2026-11-05 用户定「J 也可以贴结冰。不然 J 会被拦」〕J 不再排除，手里有没带冰的 J 就先挑它（带冰的 J 打出有豁免，能连冰收走整堆）。照模拟器 iceKeyPick
@@ -13865,6 +13968,16 @@
   // 【传顺】〔2026-11-10〕「这个点数的手牌视为【通配】」：这一手手里当通配的张数（补任意一格，留在手里、不收走、不算堆上张数）。
   // 跟 chainHand 同一套：调用方判顺子前设、判完清成 0；bestChainCore / markChain 同序读（堆上通配之后、它自己当通配之前，跟模拟器 bestChain 的 handWild 同序）
   let chainHandWild : number = 0
+  // 【龙鳞】〔2026-11-10 · 东海龙王〕庄家顺子匹配时跟打出那张同颜色的手牌当通配：chainHandFor 顺手算好（同花色张数 + 手牌总张数上限），
+  // clearChainHand 一起清。上限 −1 = 不限（照旧）。跟模拟器 bestChain 的 scalewild 同口径：按自己点数补的不受限，当通配那几格要
+  // 「已用手牌（补格 + 通配）< 上限」
+  let chainSuitWild : number = 0
+  let chainHandCap : number = -1
+  function clearChainHand() {
+    chainHand = [] as boolean[]
+    chainSuitWild = 0
+    chainHandCap = -1
+  }
   // 手里（不含 skip）最大的点数；没有有点数的牌返回 −1（J 按 11，跟它的 cardVals 一致）
   function handMaxOf(byFoe : boolean, skip : PlainCard | null) : number {
     const mine = byFoe ? foeHand.value : hand.value
@@ -13932,7 +14045,7 @@
     chainHand = chainHandFor(byFoe, card)
     chainHandWild = v > 0 ? handCountOf(byFoe, card, v) : 0
     const span = bestChainCore(deepest, wildAtsOf(-1, byFoe).length, false, 1, at)
-    chainHand = [] as boolean[]
+    clearChainHand()
     chainHandWild = 0
     if (span[0] < 0) {
       return 0
@@ -13947,6 +14060,25 @@
   }
   function chainHandFor(byFoe : boolean, skip : PlainCard | null) : boolean[] {
     const mine = byFoe ? foeHand.value : hand.value
+    // 【龙鳞】同颜色那几张（参照 = 要打的那张；结算时它已落堆，用 lastPlayed）。失去花色的没有颜色，两头都不算
+    chainSuitWild = 0
+    chainHandCap = -1
+    const ref0 : PlainCard | null = skip != null ? skip : lastPlayed
+    if (byFoe && hasFoeSpecial('scalewild') && ref0 != null && ref0!.suit != '') {
+      let n = 0
+      let total = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (mine[i] == ref0) {
+          continue
+        }
+        total = total + 1
+        if (mine[i].suit != '' && isRedSuit(mine[i].suit) == isRedSuit(ref0!.suit)) {
+          n = n + 1
+        }
+      }
+      chainSuitWild = n
+      chainHandCap = total
+    }
     const out : boolean[] = []
     for (let v = 0; v <= HIGH_ACE; v++) {
       out.push(false)
@@ -13992,7 +14124,8 @@
         let lo = -1
         let gap = 0
         let room = wildRoom
-        let hwLeft = chainHandWild
+        let hwLeft = chainHandWild + chainSuitWild
+        let handUsed = 0
         let selfLeft = selfWild ? 1 : 0
         let broken = false
         let hasMust = mustAt < 0
@@ -14014,6 +14147,7 @@
           // 手牌补格〔2026-11-09 新规〕：留在手里、不收走，所以不进 onPile、不动 lo
           if (v < chainHand.length && chainHand[v]) {
             count = count + 1
+            handUsed = handUsed + 1
             gap = 0
             continue
           }
@@ -14038,9 +14172,10 @@
             gap = 0
             continue
           }
-          // 【传顺】手里当通配的那几张：补任意一格，留在手里、不收走（不进 onPile、不动 lo）
-          if (hwLeft > 0) {
+          // 【传顺】【龙鳞】手里当通配的那几张：补任意一格，留在手里、不收走（不进 onPile、不动 lo）
+          if (hwLeft > 0 && (chainHandCap < 0 || handUsed < chainHandCap)) {
             hwLeft = hwLeft - 1
+            handUsed = handUsed + 1
             count = count + 1
             gap = 0
             continue
@@ -14093,7 +14228,8 @@
   function markChain(wanted : boolean[], deepest : number[],
     span : number[], wildAts : number[], selfWild : boolean) {
     let used = 0
-    let hwLeft = chainHandWild
+    let hwLeft = chainHandWild + chainSuitWild
+    let handUsed = 0
     let selfLeft = selfWild ? 1 : 0
     chainHandUsed = 0
     for (let v = span[0]; v <= span[1]; v++) {
@@ -14104,6 +14240,7 @@
       // 手牌补的那一格：不收（跟 bestChainCore 同序 —— 排在堆上通配前面）
       if (v < chainHand.length && chainHand[v]) {
         chainHandUsed = chainHandUsed + 1
+        handUsed = handUsed + 1
         continue
       }
       if (used < wildAts.length) {
@@ -14111,9 +14248,10 @@
         used = used + 1
         continue
       }
-      // 【传顺】手牌通配补的那一格：不收（同 bestChainCore 的顺序）
-      if (hwLeft > 0) {
+      // 【传顺】【龙鳞】手牌通配补的那一格：不收（同 bestChainCore 的顺序和上限）
+      if (hwLeft > 0 && (chainHandCap < 0 || handUsed < chainHandCap)) {
         hwLeft = hwLeft - 1
+        handUsed = handUsed + 1
         continue
       }
       if (selfLeft > 0) {
@@ -14448,7 +14586,7 @@
     chainHand = chainHandFor(byFoe, null)
     const span = bestChainCore(deepest, wildAts.length, free, 1, free ? -1 : at0)
     if (span[0] < 0) {
-      chainHand = [] as boolean[]
+      clearChainHand()
       message.value = message.value + who
         + '凑不出顺子（要连着 ' + STRAIGHT_MIN + ' 个点数）。'
       // 〔2026-11-09 用户定：词条去掉「凑不成的话它带上【通配】」—— 原先这儿给不当通配的（顺子标签）补贴通配，删了。
@@ -14471,7 +14609,7 @@
       wanted.push(i == at0)
     }
     markChain(wanted, deepest, span, wildAts, free)
-    chainHand = [] as boolean[]
+    clearChainHand()
     if (chainHandUsed > 0) {
       message.value = message.value + who + '手里补了 ' + chainHandUsed + ' 张（留在手里）。'
     }
@@ -18076,7 +18214,7 @@
     const deepest = withHighAce(deepestByVal(-1, byFoe))
     chainHand = chainHandFor(byFoe, card)
     const span = bestChainAt(deepest, wildAtsOf(-1, byFoe).length, true, 1)
-    chainHand = [] as boolean[]
+    clearChainHand()
     if (span[0] < 0) {
       return 0
     }
@@ -18098,7 +18236,7 @@
     const deepest = withHighAce(pinVals(deepestByVal(-1, byFoe), cardVals(card), at))
     chainHand = chainHandFor(byFoe, card)
     const span = bestChainCore(deepest, wildAtsOf(-1, byFoe).length, false, 1, at)
-    chainHand = [] as boolean[]
+    clearChainHand()
     if (span[0] < 0) {
       return 0
     }
@@ -18149,7 +18287,7 @@
     const deepest = withHighAce(deepestByVal(-1, byFoe))
     chainHand = chainHandFor(byFoe, card)
     const span = bestChainAt(deepest, wildAtsOf(-1, byFoe).length, true, 2)
-    chainHand = [] as boolean[]
+    clearChainHand()
     if (span[0] < 0) {
       return 0
     }

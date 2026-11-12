@@ -1357,8 +1357,17 @@ function pickCard(G, side) {
       try { k = pickCardCore(G, side) } finally { G.hands[side] = hand }
       const card = k >= 0 && k < known.length ? known[k] : null
       const catches = card !== null && (card.rank === R.JACK || R.canCatch(G, card, side) || R.harvestCount(G, card, R.skillsOf(G, side, card), side) > 0)
-      at = catches ? hand.indexOf(card) : hand.indexOf(darkHand[R.randInt(G.rng, darkHand.length)])
+      // 〔2026-11-11 量具〕DARK_PLAY=hoard：明牌钓不到时照样打那张明牌当饵、暗牌屯着（「屯着暗牌只打明牌」这个应对）；默认 blind = 上面那条
+      if (catches) at = hand.indexOf(card)
+      else if (DARK_PLAY === 'hoard' && card !== null) at = hand.indexOf(card)
+      else at = hand.indexOf(darkHand[R.randInt(G.rng, darkHand.length)])
+      const ds = darkStat()
+      ds.decide++
+      if (catches) ds.catchKnown++
+      else if (card !== null && at === hand.indexOf(card)) ds.bait++
+      else ds.blind++
     }
+    if (known.length === 0) { darkStat().decide++; darkStat().allDark++ }
   } else {
     at = pickCardCore(G, side)
   }
@@ -1372,6 +1381,20 @@ function pickCard(G, side) {
 // 料牌打出之后，**下一手**是不是接上了提款牌。
 // 这一笔只记账、不改决策 —— 要是接连率本来就高，那就不需要再加一个
 // 「连击」旋钮；低的话才值得加。**先量再决定**，别两件一起上
+// 〔2026-11-11 量具〕暗牌打法旋钮 + 诊断口（见上面【暗牌】那段）。诊断是全局累加，绝对数不可读、比值可读
+const DARK_PLAY = process.env.DARK_PLAY || 'blind'
+function darkStat() {
+  if (!R.PROTO_STAT.darkplay) {
+    R.PROTO_STAT.darkplay = { decide: 0, catchKnown: 0, bait: 0, blind: 0, allDark: 0 }
+    process.on('exit', function () {
+      const d = R.PROTO_STAT.darkplay
+      console.log('  ---- 诊断：暗牌打法 DARK_PLAY=' + DARK_PLAY + ' · 有暗牌的手 ' + d.decide
+        + '：明牌能钓 ' + d.catchKnown + ' / 明牌当饵 ' + d.bait + ' / 盲打 ' + d.blind + ' / 整手全暗 ' + d.allDark + ' ----')
+    })
+  }
+  return R.PROTO_STAT.darkplay
+}
+
 function comboTally(G, side, at) {
   const ranks = comboRanksOf(G, side)
   if (!ranks) return

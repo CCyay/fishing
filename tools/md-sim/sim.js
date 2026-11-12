@@ -3477,6 +3477,8 @@ function printTailDiag() {
   if (tj && tj.fires > 0) console.log('  诊断：〈tojack〉发动 ' + tj.fires + ' 次 · 变成 J ' + tj.made + ' 张（其中原是 0 点牌 ' + tj.fromZero + '）· 没得变 ' + tj.none + ' 次')
   const kj = R.PROTO_STAT.keyjack
   if (kj && kj.fires > 0) console.log('  诊断：〈keyjack〉发动 ' + kj.fires + ' 次 · 贴钥匙 ' + kj.tagged + ' 张 · 变成 J ' + kj.made + ' 张（其中原是 0 点牌 ' + kj.fromZero + '）· 本来就是 J ' + kj.wasJack + ' 张')
+  const pj = R.PROTO_STAT.pairjack
+  if (pj && pj.fires > 0) console.log('  诊断：【对钩】发动 ' + pj.fires + ' 次 · 变成 J ' + pj.asJack + '（' + (100 * pj.asJack / pj.fires).toFixed(1) + '%）· 其中空堆勾走自己 ' + pj.emptyPile + ' · 抢牌时 ' + pj.inSteal + ' · 通吃时平均收堆 ' + (pj.asJack - pj.emptyPile > 0 ? (pj.pileSum / (pj.asJack - pj.emptyPile)).toFixed(2) : '-') + ' 张（不含它）')
   const nj = R.PROTO_STAT.nextjack
   if (nj && nj.fires > 0) console.log('  诊断：〈nextjack〉发动 ' + nj.fires + ' 次 · 变成 J ' + nj.made + ' 张 · 手里没有下一顺位 ' + nj.none + ' 次 · 打出的牌没有下一顺位 ' + nj.noRank + ' 次')
   const hd = R.PROTO_STAT.hold

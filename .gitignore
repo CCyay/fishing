@@ -19,3 +19,4 @@ tools/md-sim/crlf-fix.js
 tools/md-sim/out-*/
 # 模拟器的私用副本：另一个会话同时改 tools/md-sim 时，量数改在这儿跑（不进仓库）
 tools/md-sim-b/
+tools/md-sim-c/

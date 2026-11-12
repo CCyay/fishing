@@ -28,12 +28,12 @@ s-ice-D	{"name":"深渊君主D","rules":["rev"],"slots":[[["lockcolor","lockdraw
 s-ice-HD	{"name":"深渊君主HD","rules":["rev"],"slots":[[["lockcolor","lockdraw","icebomb"],1,true],[["lockcolor","lockdraw","icebomb"],1,false]]}
 s-ice-DD	{"name":"深渊君主DD","rules":["rev"],"slots":[[["lockcolor","lockdraw","icebomb"],1,false],[["lockcolor","lockdraw","icebomb"],1,false]]}
 s-ice-S	{"name":"深渊君主S","rules":["rev"],"slots":[["lockcolor",1,true],["lockdraw",1,false],["icebomb",1,false]]}
-s-flow-base	{"name":"东海龙王","rules":["rev","murk"],"slots":[]}
-s-flow-H	{"name":"东海龙王H","rules":["rev","murk"],"slots":[[["flow","flowall","flowpass"],1,true]]}
-s-flow-D	{"name":"东海龙王D","rules":["rev","murk"],"slots":[[["flow","flowall","flowpass"],1,false]]}
-s-flow-HD	{"name":"东海龙王HD","rules":["rev","murk"],"slots":[[["flow","flowall","flowpass"],1,true],[["flow","flowall","flowpass"],1,false]]}
-s-flow-DD	{"name":"东海龙王DD","rules":["rev","murk"],"slots":[[["flow","flowall","flowpass"],1,false],[["flow","flowall","flowpass"],1,false]]}
-s-flow-S	{"name":"东海龙王S","rules":["rev","murk"],"slots":[["flow",1,true],["flowall",1,false],["flowpass",1,false]]}
+s-flow-base	{"name":"东海龙王","rules":["scalewild"],"slots":[]}
+s-flow-H	{"name":"东海龙王H","rules":["scalewild"],"slots":[[["flow","flowall","flowpass"],1,true]]}
+s-flow-D	{"name":"东海龙王D","rules":["scalewild"],"slots":[[["flow","flowall","flowpass"],1,false]]}
+s-flow-HD	{"name":"东海龙王HD","rules":["scalewild"],"slots":[[["flow","flowall","flowpass"],1,true],[["flow","flowall","flowpass"],1,false]]}
+s-flow-DD	{"name":"东海龙王DD","rules":["scalewild"],"slots":[[["flow","flowall","flowpass"],1,false],[["flow","flowall","flowpass"],1,false]]}
+s-flow-S	{"name":"东海龙王S","rules":["scalewild"],"slots":[["flow",1,true],["flowall",1,false],["flowpass",1,false]]}
 s-burn-base	{"name":"赤礁烧炭工","rules":["char"],"slots":[]}
 s-burn-H	{"name":"赤礁烧炭工H","rules":["char"],"slots":[[["kindle","wild"],1,true]]}
 s-burn-D	{"name":"赤礁烧炭工D","rules":["char"],"slots":[[["kindle","wild"],1,false]]}
@@ -41,3 +41,6 @@ s-burn-HD	{"name":"赤礁烧炭工HD","rules":["char"],"slots":[[["kindle","wild
 s-burn-DD	{"name":"赤礁烧炭工DD","rules":["char"],"slots":[[["kindle","wild"],1,false],[["kindle","wild"],1,false]]}
 s-burn-S	{"name":"赤礁烧炭工S","rules":["char"],"slots":[["kindle",1,false],["wild",2,false]]}
 s-stone-S	{"name":"沙垒筑堤工S","rules":["toll"],"slots":[["stonefull",1,true],["stonehue",1,false],["stoneline",1,false]]}
+s-salt-base	{"name":"盐田晒网人","rules":["blankmirror"],"slots":[]}
+s-salt-D	{"name":"盐田晒网人D","rules":["blankmirror"],"slots":[[["deckbleach","bleach"],2,false]]}
+s-salt-DD	{"name":"盐田晒网人DD","rules":["blankmirror"],"slots":[[["deckbleach","bleach"],2,false],[["deckbleach","bleach"],2,false]]}

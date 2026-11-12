@@ -886,7 +886,8 @@ const SKILLS = [
   { key: 'icecolor', name: '〈icecolor〉' },
   { key: 'icekey', name: '〈icekey〉' },
   { key: 'lockdraw', name: '封凌' },
-  { key: 'lockback', name: '〈lockback〉' },
+  // 〔2026-11-11 删〈lockback〉锁冰收（用户定）：「从堆上拿 2 张回手」的结冰族对照件，smoke 在 mirror 槽 0 跑出死循环（400 回合没结束）。
+  //   SK.LOCKBACK 改成 SK_GONE〕
   { key: 'lockcolor', name: '隔凌' },
   // 化冰：去掉堆上所有冰，手里同样张数的牌贴冰
   { key: 'thaw', name: '〈thaw〉' },
@@ -1126,6 +1127,9 @@ const SKILLS = [
   //   改牌对象（rank '0' / value 0，照 handReflectFor 的 HR_RANK 写法）。只放在〈zerodeck〉的花色槽里（专属，固定）
   // 〔同日上架为【锈锚】（沉船打捞人专属）：用户定「每次置 0 牌库顶 2 张」「牌库顶的 J 也置 0」→ DZ_N 默认 2〕
   { key: 'deckzero', name: '锈锚' },
+  // 〈deckbleach〉〔2026-11-11 用户设计 · 庄家专属，失去花色系列的点数槽〕「牌库顶 N 张牌【失去花色】」→ 2026-11-11 上架为【褪库】（盐田晒网人系列，N=4）。DECKBLEACH_N（默认 4）。
+  //   失去花色照漂白的写法（suit 换成每张一个的哨兵 '∅n'），已经没花色的照样占名额。诊断口 PROTO_STAT.deckbleach
+  { key: 'deckbleach', name: '褪库' },
   // 庄家专属〔2026-11-04 · 渔政巡查员H / D / S，照 draw-skills〕
   { key: 'pinrank', name: '封点' },
   { key: 'fadepoint', name: '褪点' },
@@ -1146,6 +1150,11 @@ const SKILLS = [
   // 〈tojack〉〔2026-11-03 用户要评价「1 张手牌变成 J」〕：打出时把自己 1 张手牌永久变成 J（AI 挑最没用的那张 —— ai.swapPick；已经是 J 的不挑）。
   //   照置 0 那一路直接改牌面（rank → 'J'、value → 11、点数卡清掉）。TOJ_PICK=best：挑最有用的那张（对照）
   { key: 'tojack', name: '〈tojack〉' },
+  // 【对钩】〔2026-11-12 用户定上架；同日改成「展示手里 1 对，它变成 J」（原型 = md-sim-c 的〈rainbowj〉RBJ_MODE=pair，台账一百五十）〕
+  //   打出时手里剩下的牌里有一对（判法 tojPairReady：J / 0 点 / 无点数凑不成对）→ 它变成 J：堆上有别的牌 → 这一手按 J 通吃（G.prJack，照〈asjack〉）；
+  //   堆是空的 → 改牌面成 J，照「J 落在空堆上只勾走自己」。AI：harvestCount / 抢牌挑牌（stealTryCore 的 nJack）都认它；屯 = 凑得出一对而且堆上有牌才 ready。
+  //   诊断口 PROTO_STAT.pairjack。上午那一版「其中 1 张明置变成 J」= TOJ_PAIR=1 one tojack（台账一百四十七 / 一百四十八）
+  { key: 'pairjack', name: '对钩', hold: function (G, side, idx) { return G.pile.length > 0 && tojPairReady(G, side, idx) } },
   // 〈keyjack〉〔2026-11-04 用户要评价「给全部手牌带上【钥匙】；【钥匙】：带【钥匙】的牌再次带上【钥匙】时变成 J」〕：
   //   打出时手里每张：已带钥匙 → 变成 J（照〈tojack〉改牌面）；没带 → 带上。G.keyTag = 带钥匙的牌（Set，按牌认）
   { key: 'keyjack', name: '〈keyjack〉' },
@@ -1375,8 +1384,9 @@ const SKILLS = [
   { key: 'peektake', name: '〈peektake〉' },
   //〈darkdraw〉「对方摸 N 张暗牌」〔2026-11-10 · 用户要评价〕DARKDRAW_N（默认 1）；DARKDRAW_LIT=1 = 摸的是明牌（拆「暗」和「塞牌」两份用）
   { key: 'darkdraw', name: '〈darkdraw〉' },
-  // 【暗潮】「将对方全部手牌洗回牌库，摸入等量暗牌」〔2026-11-10 用户定上架 = 原型〈darkswap〉N=全部；名字代起；台账一百三十五〕
-  // DARKSWAP_N（默认 99 = 全部 = 游戏里那件；1/2/3 是评价时量的档）；
+  // 【暗潮】「将对方非暗牌手牌洗回牌库，再摸 4 张暗牌」〔2026-11-11 用户定换效果；台账一百三十九〕DARKSWAP_KEEP（默认开）/ DARKSWAP_DRAW（默认 4）
+  // 旧版「将对方全部手牌洗回牌库，摸入等量暗牌」〔2026-11-10 上架 = 原型〈darkswap〉N=全部；台账一百三十五〕= DARKSWAP_KEEP=0：
+  // DARKSWAP_N（默认 99 = 全部；1/2/3 是评价时量的档）；
   // 挑哪几张：DARKSWAP_PICK=rand（默认，盲挑 —— 你看不见他的手牌）| best（挑他最能钓的，上界）；DARKSWAP_LIT=1 = 摸的是明牌（拆「暗」那一份）
   { key: 'darkswap', name: '暗潮' },
   { key: 'reflectbottom', name: '〈reflectbottom〉' },
@@ -2324,7 +2334,7 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), BIGNUM: skAt('bignum'), VAULT: skAt('vault'), HANDMAX: skAt('handmax'), COLORSHIFT: skAt('colorshift'), POLETAG: skAt('poletag'), POLEPASS: skAt('polepass'), POLEDRAW: skAt('poledraw'), POLEMARK: skAt('polemark'), POLEDRAWTAG: skAt('poledrawtag'), POLEPASSDRAW: skAt('polepassdraw'), POLEHUE: skAt('polehue'), POLESUITALL: skAt('polesuitall'), POLECOLORALL: skAt('polecolorall'), POLEFAIL: skAt('polefail'), POLEHUEPASS: skAt('polehuepass'), SWAPSTEP: skAt('swapstep'), PILEAS: skAt('pileas'), DRAWAS: skAt('drawas'), SWAPSTRAIGHT: skAt('swapstraight'), DRAWWILD: skAt('drawwild'), HANDWILD: skAt('handwild'), DECKORDER: skAt('deckorder'), PEEKTAKE: skAt('peektake'), DARKDRAW: skAt('darkdraw'), DARKSWAP: skAt('darkswap'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), DECKBLEACH: skAt('deckbleach'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), PAIRJACK: skAt('pairjack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), BIGNUM: skAt('bignum'), VAULT: skAt('vault'), HANDMAX: skAt('handmax'), COLORSHIFT: skAt('colorshift'), POLETAG: skAt('poletag'), POLEPASS: skAt('polepass'), POLEDRAW: skAt('poledraw'), POLEMARK: skAt('polemark'), POLEDRAWTAG: skAt('poledrawtag'), POLEPASSDRAW: skAt('polepassdraw'), POLEHUE: skAt('polehue'), POLESUITALL: skAt('polesuitall'), POLECOLORALL: skAt('polecolorall'), POLEFAIL: skAt('polefail'), POLEHUEPASS: skAt('polehuepass'), SWAPSTEP: skAt('swapstep'), PILEAS: skAt('pileas'), DRAWAS: skAt('drawas'), SWAPSTRAIGHT: skAt('swapstraight'), DRAWWILD: skAt('drawwild'), HANDWILD: skAt('handwild'), DECKORDER: skAt('deckorder'), PEEKTAKE: skAt('peektake'), DARKDRAW: skAt('darkdraw'), DARKSWAP: skAt('darkswap'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
   LAYER: skAt('layer'), LAYER2: skAt('layer2'), BURNHAND: skAt('burnhand'), BURNHUE: skAt('burnhue'), DRAWRANK: skAt('drawrank'), SWAPBOTTOM: skAt('swapbottom'), WILDFLOWTAG: skAt('wildflowtag'), FOESWAP: skAt('foeswap'),
@@ -2332,7 +2342,7 @@ const SK = {
   // 2026-10-28 的三件 21 匹配原型（立项注释在 SK 表那三行上面）
   HOLDTAG: skAt('holdtag'), CHAINTAG: skAt('chaintag'), HUETAG: skAt('huetag'),
   DYEPILE: skAt('dyepile'), SUITSPREAD: skAt('suitspread'), VOIDSUIT: skAt('voidsuit'), SNOWCOVER: skAt('snowcover'), SUITALL: skAt('suitall'), SUITCOLOR: skAt('suitcolor'), SPREADDRAFT: skAt('spreaddraft'), EXACTDRAFT: skAt('exactdraft'), ZERODRAFT: skAt('zerodraft'), MINUSTAG: skAt('minustag'), ATAG: skAt('atag'), CMARK: skAt('cmark'), TAGMANY: skAt('tagmany'), THAWDRAW: skAt('thawdraw'),
-  LOCKDRAW: skAt('lockdraw'), LOCKBACK: skAt('lockback'), LOCKCOLOR: skAt('lockcolor'),
+  LOCKDRAW: skAt('lockdraw'), LOCKBACK: SK_GONE, LOCKCOLOR: skAt('lockcolor'),
   COLDHUE: SK_GONE,
   // 霜降 2026-10-15 删了（『结冰族四件』那一节的结论：结凌和霜降两件都删）。
   // 钉成 SK_GONE 而不是继续查表 —— **这是同一个坑的第二次**
@@ -7530,7 +7540,7 @@ function selfFrost(lo) {
     || has(lo, SK.ICEWILD)
     || has(lo, SK.ICELOCK) || has(lo, SK.ICEDRAW) || has(lo, SK.ICECOLOR) || has(lo, SK.ICEKEY)
     // 〔2026-11-05 隔凌改成「抽 1 张牌；手牌都带上【结冰】」—— **不再自带**，LOCKCOLOR_MODE=old 才算自带〕
-    || has(lo, SK.LOCKDRAW) || has(lo, SK.LOCKBACK) || (has(lo, SK.LOCKCOLOR) && process.env.LOCKCOLOR_MODE === 'old')
+    || has(lo, SK.LOCKDRAW) || (has(lo, SK.LOCKCOLOR) && process.env.LOCKCOLOR_MODE === 'old')
     || (THAW_SELF && (has(lo, SK.THAW) || has(lo, SK.THAWDRAW)))
     || has(lo, SK.ICEDRAFT)
   // 〔【冻结】2026-10-20 进过这一行（自带【结冰】），**2026-10-21 撤了** ——
@@ -10018,6 +10028,20 @@ function valuesOf(G, card, skills) {
   //   差别只在废牌触发了花色槽上改点数的技能时：顺色 / 齐顶原先会按那件技能算点数，收色 / 一色 / 传色 / 冻结 / 花色钥匙原先给 []。
   //   现在造废牌的是浑水 / 缩水 / 回水（死水已下架），源码对它们都走这一行
   if (G.deadCards && G.deadCards.indexOf(card) >= 0) return [0]
+  // 〈blankmirror〉庄家规矩〔2026-11-11 用户设计 · 失去花色系列〕「打出无花色牌时，其点数**可以**变成跟堆上 1 张无花色牌相同」：
+  //   这张（在带规矩那一方手里 / 由它打出）没花色 → 点数 = 它自己的 ∪ 堆上每张无花色牌的点数（catchStart 取钓得最深的那个 = 「可以变成」挑最好的）。
+  //   排在废牌那一行后面（废了就是 0）、技能改点数那一串前面（这个系列的庄家技能都不改点数）。诊断口 PROTO_STAT.blankmirror
+  if (G && !G.bmOff && G.foeRules && G.foeRules.indexOf('blankmirror') >= 0 && typeof card.suit === 'string' && card.suit.charAt(0) === '∅'
+    && G.pile.length > 0 && ownerOf(G, card) === FOE) {
+    const out = cardVals(card).slice(0)
+    for (let i = 0; i < G.pile.length; i++) {
+      const pc = G.pile[i]
+      if (pc === card || !(typeof pc.suit === 'string' && pc.suit.charAt(0) === '∅')) continue
+      const vs = pileValsAt(G, i)
+      for (let k = 0; k < vs.length; k++) if (out.indexOf(vs[k]) < 0) out.push(vs[k])
+    }
+    return out
+  }
   // 〔原先这儿有一支「死水废掉的牌算 0 点，判在最前面盖掉下面所有分支」。
   //   死水改成「把牌变成 0 点牌」之后不需要了：`cardVals` 读 card.value
   //   就是 0。
@@ -10292,6 +10316,11 @@ function valuesOf(G, card, skills) {
 //     这个区分本身是对的，以后再有落堆专属的效果就加在这儿；
 //   sink 这个参数留着是因为调用方都在传，而且落堆位置将来可能又要紧
 function landVals(G, card, skills, sink) {
+  // 〈blankmirror〉借点数只在判钓牌那一下（catchStart）成立；落堆记的是它自己的点数 —— 不然没钓中的那张会带着借来的几个点数躺在堆上，谁都能钓
+  if (G.foeRules && G.foeRules.indexOf('blankmirror') >= 0) {
+    G.bmOff = true
+    try { return valuesOf(G, card, skills) } finally { G.bmOff = false }
+  }
   return valuesOf(G, card, skills)
 }
 
@@ -11517,6 +11546,17 @@ function playFor(G, side, index, ai) {
     // 这张是〈pairnp〉贴的正电手牌：真打出时是不是靠正负特殊匹配钓到的（catchStart 刚判过 → G.elecHit）
     const at = catchStart(G, card, side, magSk, false)
     if (at >= 0 && G.elecHit) PROTO_STAT.pairnp.cashed++
+  }
+  // 〈blankmirror〉诊断：庄家打出无花色牌 —— 关掉规矩再估一次，看是不是靠借点数才钓到 / 钓得更深
+  if (side === FOE && G.foeRules && G.foeRules.indexOf('blankmirror') >= 0 && typeof card.suit === 'string' && card.suit.charAt(0) === '∅') {
+    const st = PROTO_STAT.blankmirror = PROTO_STAT.blankmirror || { plays: 0, needed: 0, deeper: 0 }
+    st.plays++
+    const withIt = catchStart(G, card, side, magSk, false)
+    G.bmOff = true
+    const without = catchStart(G, card, side, magSk, false)
+    G.bmOff = false
+    if (withIt >= 0 && without < 0) st.needed++
+    else if (withIt >= 0 && withIt < without) st.deeper++
   }
   if (has(magSk, SK.POSNEG)) {
     const st = PROTO_STAT.posneg
@@ -12796,7 +12836,9 @@ function stealTryCore(G, side, myCount, myLo, myHi) {
     const sjOk = c.rank !== JACK && G.pile.length > 0 && has(sk, SK.STEALJACK)
       && (process.env.SJ_MODE !== 'vsjack' || !!G.jackPlay) && !(process.env.SJ_ONCE === '1' && G.sjUsed && G.sjUsed[foe])
     const sjTop = process.env.SJ_TOP ? parseInt(process.env.SJ_TOP, 10) : 0
-    const nJack = sjOk ? (sjTop > 0 ? Math.min(G.pile.length, sjTop) + 1 : catchCountAt(G, c, foe, sk, 0)) : 0
+    // 【对钩】凑得出一对时它打出去就是 J → 抢牌挑牌也按 J 估（结算走 afterPlay 那段 prJack，同一个 pairJackOk）
+    const pjOk = c.rank !== JACK && G.pile.length > 0 && has(sk, SK.PAIRJACK) && pairJackOk(G, foe, c)
+    const nJack = sjOk ? (sjTop > 0 ? Math.min(G.pile.length, sjTop) + 1 : catchCountAt(G, c, foe, sk, 0)) : (pjOk ? catchCountAt(G, c, foe, sk, 0) : 0)
     // 〔2026-11-09 用户定〕估的必须是**真打出去会怎么收**。结算顺序 特殊匹配（顺子 / 花色 / 顺序 / 收零…）→ 燃烧收火 → 普通匹配（含 21、正电钓负电），
     //   前一步收成了这张牌就走了、后面不再判。所以：特殊匹配收得到 → 只算它；否则带火且堆上已有别的火 → 只算收火那几张；否则普通匹配。
     //   原先是三者取大 → 准抢之后真收的是另一批，被抢那一段没人收，堆上留下一对（pair-scan：野火单带 161 / 79130 步）。
@@ -15255,6 +15297,19 @@ function rxSetRank(card, y) {
 // 诊断口 PROTO_STAT.deckzero：fires / zeroed（真改了几张）/ drawnMine / drawnFoe（之后被谁摸走 —— 在 drawFor 里数）
 // 〔上架后默认 2（= 游戏里【锈锚】的样子，源码 ap-fishing.uvue 的 DECKZERO_N 同一个数）〕
 const DECKZERO_N = process.env.DZ_N ? parseInt(process.env.DZ_N, 10) : 2
+// 默认 4 = 游戏里【褪库】那一档（2026-11-11 用户选 ×2 · 4，台账一百四十·甲）；跟 ap-fishing 的 DECKBLEACH_N 同一个数
+const DECKBLEACH_N = process.env.DECKBLEACH_N ? parseInt(process.env.DECKBLEACH_N, 10) : 4
+function deckBleachFor(G, side) {
+  const st = PROTO_STAT.deckbleach = PROTO_STAT.deckbleach || { fires: 0, stripped: 0 }
+  st.fires++
+  for (let k = 0; k < DECKBLEACH_N && k < G.deck.length; k++) {
+    const c = G.deck[G.deck.length - 1 - k]
+    if (typeof c.suit === 'string' && c.suit.charAt(0) === '∅') continue
+    nosuitSeq++
+    c.suit = '∅' + nosuitSeq
+    st.stripped++
+  }
+}
 function deckZeroFor(G, side) {
   const st = PROTO_STAT.deckzero = PROTO_STAT.deckzero || { fires: 0, zeroed: 0 }
   st.fires++
@@ -16109,6 +16164,26 @@ function loHasHold(lo) {
   for (const v of lo.rankOwner) if (v >= 0 && SKILLS[v] && SKILLS[v].hold) return true
   return false
 }
+// 〈tojack〉对子版 / 【对钩】的屯条件：打出 hand[idx] 之后，手里剩下的牌里有没有对子（J / 0 点 / 无点数不算，照结算那段）
+function tojPairReady(G, side, idx) {
+  const hand = G.hands[side]
+  const cnt = {}
+  for (let k = 0; k < hand.length; k++) {
+    if (k === idx) continue
+    const r = hand[k].rank
+    if (r === JACK || r === ZERO_RANK || r === BLANK_RANK) continue
+    cnt[r] = (cnt[r] || 0) + 1
+    if (cnt[r] >= 2) return true
+  }
+  return false
+}
+// 【对钩】card 打出去会不会变成 J：手里（不含 card）有没有一对。card 还在手里（估值）/ 已经打出（结算）都能用
+function pairJackOk(G, side, card) {
+  const hand = G.hands[side] || []
+  const idx = hand.indexOf(card)
+  if (idx >= 0) return tojPairReady(G, side, idx)
+  return tojPairReady(G, side, -1)
+}
 function holdStateOf(G, side, idx) {
   let has = false
   if (ICE_HOLD_K > 0 && frostOnHand(G, G.hands[side][idx]) && loHasIce(G.loadouts[side])) {
@@ -16408,6 +16483,16 @@ function afterPlay(G, side, skills, played, ai) {
     if (G.stealing) st.inSteal++
     else if (G.pile.length > 1) { G.prJack = played; G.asjPlay = played; st.asJack++; st.pileSum += G.pile.length - 1 }
   }
+  if (has(skills, SK.PAIRJACK) && played && played.rank !== JACK) {
+    const st = PROTO_STAT.pairjack
+    st.fires++
+    if (pairJackOk(G, side, played)) {
+      st.asJack++
+      if (G.stealing) st.inSteal++
+      if (G.pile.length > 1) { G.prJack = played; st.pileSum += G.pile.length - 1 }
+      else { played.rank = JACK; played.value = 11; played.extra = []; st.emptyPile++ }
+    }
+  }
   if (has(skills, SK.JSUB) && played && played.rank !== JACK) {
     const st = PROTO_STAT.jsub
     st.fires++
@@ -16424,6 +16509,7 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.HANDREFLECT)) handReflectFor(G, side, played)
   if (has(skills, SK.REFLECTX)) reflectXFor(G, side, played)
   if (has(skills, SK.DECKZERO)) deckZeroFor(G, side)
+  if (has(skills, SK.DECKBLEACH)) deckBleachFor(G, side)
   if (has(skills, SK.RANKZERO)) rankZeroFor(G, side, played)
   // 【石化】的**寿命口**〔2026-10-26 加〕：每一手数一次「堆上现在立着几堵墙」。
   // `liveSum / tags` = **一堵墙平均在堆上活几手**，而这正是用户问的那个前提
@@ -16847,19 +16933,7 @@ function afterPlay(G, side, skills, played, ai) {
       addFrostHand(G, got)
     }
   }
-  // 锁冰收：从堆上拿 2 张回手（不含它自己，不计分）
-  if (has(skills, SK.LOCKBACK)) {
-    for (let n = 0; n < 2; n++) {
-      const at = reclaimPick(G, side, played, skills)
-      if (at < 0) break
-      const card = G.pile[at]
-      G.held = G.held.filter(function (h) { return h.source !== card })
-      removePileAt(G, at)
-      G.hands[side].push(card)
-      G.seen[side].push(true)
-      if (process.env.LOCKBACK_ICE) addFrostHand(G, card)
-    }
-  }
+  // 〔锁冰收〈lockback〉2026-11-11 删了（用户定），这儿原先是它「从堆上拿 2 张回手」那一段〕
   // 【隔凌】〔2026-10-30 用户改〕：摸 1 张；手里跟**摸上来那张同颜色**的牌都贴【结冰】（含它自己）。
   // 旧版「跟打出那张（它）不同颜色」留在 `LOCKCOLOR_REF=played`。牌库空 = 没摸到 → 新版一张不贴
   // 〔2026-11-05 用户定：隔凌「自带【结冰】；摸 1 张牌，跟摸上来的牌同颜色的手牌都贴上【结冰】」→「抽 1 张牌；手牌都带上【结冰】」〕
@@ -18119,9 +18193,14 @@ function afterPlay(G, side, skills, played, ai) {
     const opp = side === ME ? FOE : ME
     const st = PROTO_STAT.darkswap = PROTO_STAT.darkswap || { fires: 0, back: 0, drawn: 0, backCatch: 0, drawnCatch: 0 }
     st.fires++
+    // 〔2026-11-11 用户定 = 游戏里那件〕DARKSWAP_KEEP（默认开）：只洗回他的**非暗牌**（暗着的留在手里），然后固定摸 DARKSWAP_DRAW 张暗牌（默认 4，
+    //   跟源码 ap-fishing 的 DARKSWAP_DRAW 同一个数），不按洗回的张数。DARKSWAP_KEEP=0 = 旧版「全部洗回、摸等量」（台账一百三十五，配 DARKSWAP_N）
+    const keepDark = process.env.DARKSWAP_KEEP !== '0'
+    const lit = keepDark ? G.hands[opp].filter(function (c) { return !isDark(G, opp, c) }) : null
     let k = 0
     for (; k < n && G.hands[opp].length > 0; k++) {
-      let at = randInt(G.rng, G.hands[opp].length)
+      if (keepDark && k >= lit.length) break
+      let at = keepDark ? G.hands[opp].indexOf(lit[k]) : randInt(G.rng, G.hands[opp].length)
       if (pick === 'best') {
         at = G.hands[opp].findIndex(function (c) { return c.rank === JACK || canCatch(G, c, opp) })
         if (at < 0) at = randInt(G.rng, G.hands[opp].length)
@@ -18131,7 +18210,8 @@ function afterPlay(G, side, skills, played, ai) {
       shuffleBack(G, c)
       st.back++
     }
-    for (let i = 0; i < k; i++) {
+    const drawN = keepDark ? (process.env.DARKSWAP_DRAW ? parseInt(process.env.DARKSWAP_DRAW, 10) : 4) : k
+    for (let i = 0; i < drawN; i++) {
       const got = G.deck.length > 0 ? drawFor(G, opp) : null
       if (got === null) break
       st.drawn++
@@ -18951,6 +19031,7 @@ const PROTO_STAT = {
   // 〈keyjack〉：发动 / 贴上钥匙几张 / 变成 J 几张（其中原是 0 点牌）/ 本来就是 J
   // 〈nextjack〉：发动 / 变成 J / 手里没有下一顺位 / 打出的牌没有下一顺位（J、无点数、K 在 NJ_WRAP=0 时）
   nextjack: { fires: 0, made: 0, none: 0, noRank: 0 },
+  pairjack: { fires: 0, asJack: 0, pileSum: 0, inSteal: 0, emptyPile: 0 },
   // 〈givejack〉：发动 / 给出几张（其中对方当场钓得着的）/ 没得给 / 拿到 J / 牌库没 J / GJ_NEED=1 时整件不发动
   // 〈flipjack〉：发动 / 翻到 J（全拿那一档）/ 拿进手几张（其中 J）/ 没 J 时摸了几张 / 牌库空
   flipjack: { fires: 0, hit: 0, taken: 0, jacks: 0, drew: 0, empty: 0 },
@@ -21689,6 +21770,14 @@ function bestChain(G, side, at0, mine, opt, card) {
     if (i !== (free ? at0 : -1) && isWildAt(G, i)) wildAts.push(i)
   }
   const wildRoom = wildAts.length
+  // 【龙鳞】庄家规矩 scalewild〔2026-11-10 用户定 · 东海龙王，替换逆钩 + 浊水〕「庄家进行顺子匹配时，跟打出那张同颜色的手牌都能当作【通配】」：
+  //   手里（不含打出那张）同颜色的每张都能补任意一格，留在手里、不收走；按自己点数补（handAt）+ 当通配合计不超过手牌张数。
+  //   失去花色的没有颜色（isRedSuit 返回 NaN，跟谁都不等）。同日先上的是「同花色」档，改成同颜色 —— 台账一百三十六·乙 / 丙
+  //  （「全部手牌 / 黑色 / ♠」那三档是 /tmp/cs/simdw 副本里量的，没进主线）
+  const allHw = hasSpecial(G, side, 'scalewild') && !!card && typeof card.suit === 'string' && card.suit.charAt(0) !== '∅'
+  const swHand = allHw ? G.hands[side].filter(function (c) { return c !== card }) : []
+  const handLen = swHand.length
+  const hwRoom = allHw ? Math.max(opt.handWild || 0, swHand.filter(function (c) { return isRedSuit(c.suit) === isRedSuit(card.suit) }).length) : (opt.handWild || 0)
   // 'show' 那一档：它能当的点数**限于手里有的那几个**（展示那张，牌不消耗）。
   // 打出的那张已经离手了（playFor 开头 takeFromHand），所以这张表天然不含它。
   //
@@ -21742,7 +21831,7 @@ function bestChain(G, side, at0, mine, opt, card) {
           //
           // 这一行值约 1.75 分（它让伏流能当「自带通配 + 差 1」用）
           if (at === at0) hasMine = true
-        } else if (handWildUsed < (opt.handWild || 0)) {
+        } else if (handWildUsed < hwRoom && (!allHw || handAt.length + handWildUsed < handLen)) {
           // 〈drawwild〉手里当通配的那几张：补任意一格，留在手里、不收走（不进 onPile）
           handWildUsed++
           gap = 0
@@ -21807,6 +21896,8 @@ function chainHarvestCore(G, side, at0, opt, span, exclude) {
   const best = bestChain(G, side, at0, pileValsAt(G, at0), opt,
     at0 >= 0 && at0 < G.pile.length ? G.pile[at0] : null)
   if (best === null) return null
+  // 【龙鳞】诊断口（含 AI 估算时的调用）：凑成的链里用了几张「同花色手牌当通配」
+  if (hasSpecial(G, side, 'scalewild')) { const st = PROTO_STAT.scalewild = PROTO_STAT.scalewild || { chains: 0, used: 0, cards: 0 }; st.chains++; if (best.handWild > 0) { st.used++; st.cards += best.handWild } }
   const deepest = best.deepest
   // 打出那张只有当通配（伏流）时才一定收走；涉水那张没参与顺子就留在堆上
   const selfIn = opt.self === 'wild' || opt.self === 'show'
@@ -22642,6 +22733,8 @@ function harvestCount(G, card, skills, side, specialOnly) {
   if (sweep > 0) return sweep
   // 冰雷：这张钥匙能引爆我的雷 → 整堆
   if (!specialOnly && bombReady(G, card, side)) return G.pile.length
+  // 【对钩】凑得出一对 → 按 J 通吃估（整堆 + 它自己）
+  if (!specialOnly && has(skills, SK.PAIRJACK) && card.rank !== JACK && G.pile.length > 0 && pairJackOk(G, side, card)) return G.pile.length + 1
   // 〈rangematch〉：凑得成就按这条线估（特殊匹配优先，凑成了这一手就没有普通匹配）
   if (has(skills, SK.RANGEMATCH) || (G.rangeKey && G.rangeKey.indexOf(card) >= 0)) {
     const rw = rangeWanted(G, card, skills, -1)

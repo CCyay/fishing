@@ -605,5 +605,8 @@ process.on('exit', function () {
   const p = R.PROTO_STAT.patrol
   const fr = R.PROTO_STAT.foeRule
   if (fr) console.log('诊断（庄家规矩，三档合计）：炙水挡 ' + fr.charLocked + ' · 硬壳挡 ' + fr.shellLocked + '（都含 AI 试算）· 过闸 ' + fr.toll + ' 张 · 走水 ' + fr.leak + ' 张 · 守滩垫 ' + fr.guard + ' · 再钩 ' + fr.again + ' · 挑潮 ' + fr.pick + ' · 枯水不补 ' + fr.dryup)
+  // 〔2026-11-11〕失去花色系列（〈blankmirror〉规矩 /〈deckbleach〉/ 漂白）
+  const bm = R.PROTO_STAT.blankmirror, db = R.PROTO_STAT.deckbleach, ns = R.PROTO_STAT.nosuit
+  if (bm || db) console.log('诊断（失去花色系列，三档合计）：庄家打无花色牌 ' + (bm ? bm.plays : 0) + ' 次，靠借点数才钓到 ' + (bm ? bm.needed : 0) + ' · 钓得更深 ' + (bm ? bm.deeper : 0) + ' · 牌库顶失去花色 发动 ' + (db ? db.fires : 0) + ' 次 / ' + (db ? db.stripped : 0) + ' 张 · 漂白发动 ' + (ns ? ns.fires : 0) + ' 次（剥对方 ' + (ns ? ns.strippedFoe : 0) + ' 张）')
   if (p) console.log('诊断：封点发动 ' + p.pinFires + ' 次、置 0 ' + p.pinned + ' 张 · 褪点发动 ' + p.fadeFires + ' 次、失去花色 ' + p.faded + ' 张（三档难度合计）')
 })

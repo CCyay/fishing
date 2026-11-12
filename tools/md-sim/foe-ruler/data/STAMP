@@ -1,3 +1,6 @@
 {"date":"2026-11-09","rules":"8a2ea8fbc5b9","ai":"178680e2ee4a","campaign":"fc7f22f2db24","only":"all","note":"标定那一跑（副本 md-sim-b）"}
 {"date":"2026-11-10","rules":"71304b9fc255","ai":"178680e2ee4a","campaign":"af2fd72cff16","only":["s-flow-H","s-flow-D","s-flow-HD","s-flow-DD","s-flow-S"]}
 {"date":"2026-11-10","rules":"68cc0984a9ae","ai":"9bb66bfc7b81","campaign":"af2fd72cff16","only":["d03"]}
+{"date":"2026-11-10","rules":"349027cce018","ai":"bf0e7f20ddb6","campaign":"af2fd72cff16","only":["s-flow-base","s-flow-H","s-flow-D","s-flow-HD","s-flow-DD","s-flow-S"]}
+{"date":"2026-11-10","rules":"be74b55fad6d","ai":"bf0e7f20ddb6","campaign":"af2fd72cff16","only":["s-flow-base","s-flow-H","s-flow-D","s-flow-HD","s-flow-DD","s-flow-S"]}
+{"date":"2026-11-11","rules":"0da1a105788e","ai":"efa3e16cf6fe","campaign":"730ae7c3c651","only":["s-salt-base","s-salt-D","s-salt-DD"]}

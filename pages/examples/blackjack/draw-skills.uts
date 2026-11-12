@@ -2138,6 +2138,28 @@ export const DRAW_SKILLS : DrawSkill[] = [
     desc: '1 张比它大 1 个顺位的手牌明置变成 J（顺位 A 2 … 10 Q K A，跳过 J）'
   },
   {
+    // ---------- 对钩：展示手里 1 对，它变成 J〔2026-11-12 用户定上架；同日改效果〕----------
+    //
+    // 名字是用户选的。上午上架的是「展示手里 1 对，其中 1 张明置变成 J」（原型〈tojack〉对子版，屯 A +3.83 / ♥ +8.26，价 105，
+    // 台账一百四十七 / 一百四十八）；同日用户定换成这一版（原型 md-sim-c〈rainbowj〉`RBJ_MODE=pair`，台账一百五十）：
+    // 分数跟上午那版基本打平，规则更简单（不用挑、不长期明置手里的 J），那一对两张都留着。
+    // 「1 对」= 打出它之后手里剩下的牌里同点数的 2 张。J、0 点（0 和 0 不算相等）、无点数都凑不成对，desc 不另写。
+    // 没有对子 = 不发动。变成 J 之后就照 J 的规矩：堆上有牌就通吃，堆空就只勾走它自己。
+    // desc 里写「它」不写「此牌」（文件头 desc 规则：「它」= 这张效果牌）
+    //
+    // ⚠ **打法：要屯**（给 AI / 写代码的人看，desc 不写）：留着带它的牌，等手里另有一对、堆上有牌再打。
+    //   模拟器里是技能表项上的 `hold` 标注，量数默认按屯打。庄家 AI 还不会屯 —— 目前也没有庄家带它。
+    //   抢牌那条路很值钱（凑得出一对时拿它当 J 去抢），模拟器的抢牌挑牌、源码的 stealGainOf（走 catchStart）都认它
+    //
+    // md-sim（`pairjack`，R8，one 口径，20000 局，SE 0.13~0.14；台账第一百五十一节）：
+    //   **屯（默认）** A 槽 **+3.51**（D +0.06，Δ胜率 +10.37）/ 5 +3.49 / K +3.60 / ♥ 槽 +8.19（Δ胜率 +23.50）
+    //   不屯（SKILL_HOLD=0）A +2.08 / ♥ +5.73
+    // 价 = 取整到 5（39 + 16.8 × 3.51）= 100（照 A 槽定价）
+    key: 'pairjack', name: '对钩', unlock: 100,
+    first: false,
+    desc: '展示手里 1 对，它变成 J'
+  },
+  {
     // ---------- 【镜水】〔2026-10-30 上架 · 用户定〕----------
     //
     // 用户提案「对堆上 1 张牌使用映照」，定读法甲；【映照】同日定稿成「可以展示 1 张**同花色**手牌，
@@ -2528,16 +2550,18 @@ export const DRAW_SKILLS : DrawSkill[] = [
     desc: '将手牌最多 2 张以【暗牌】交给对方'
   },
   {
-    // ---------- 【暗潮】「将对方全部手牌洗回牌库，摸入等量暗牌」〔2026-11-10 用户定上架；名字代起〕----------
+    // ---------- 【暗潮】「将对方非暗牌手牌洗回牌库，再摸 4 张暗牌」〔2026-11-10 用户定上架；名字代起；2026-11-11 用户定换效果〕----------
     //
-    // 对方手里的牌一张张洗回牌库（shuffleBack，身上的手牌标签照常摘），再摸回同样张数，摸到的都是【暗牌】。
-    // 不用挑（全部），所以没有挑牌界面。模拟器 `one darkswap`（默认 DARKSWAP_N=99）。R8 实测（台账一百三十五 · `one` · 20000 局 · SE 0.14）：
-    //   A 槽 **+3.13 / D −0.19**、♥ 槽 +8.30。⚠ 摸回明牌的对照是 −1.05 —— 分数全在「暗」那一份，靠 AI 的盲打规则，要打折看。
-    //   选「全部」是因为只有这一档对方整手是暗牌、下一手必然盲打（1~2 张时他屯着暗牌只打明牌就躲开了）
-    // 价：按 X 39 + 16.8 × 3.13 = 91.6 → **90**
-    key: 'darkswap', name: '暗潮', unlock: 90,
+    // 对方手里**不是暗牌**的一张张洗回牌库（shuffleBack，身上的手牌标签照常摘；明置着的不算暗，照样洗回），暗着的留在手里；
+    // 然后**固定**摸 4 张（不按洗回的张数），都是【暗牌】—— 他原有暗牌时手牌会超过 4 张。不用挑，所以没有挑牌界面。
+    // 模拟器 `one darkswap`（默认 DARKSWAP_KEEP=1、DARKSWAP_DRAW=4）。R8 实测（台账一百三十九 · `one` · 20000 局 · SE 0.14）：
+    //   A 槽 **+4.10 / D −0.11**、♥ 槽 +12.19（局长 −4.7%）。摸 3 张那档 A +2.48。⚠ 「暗」那一份靠 AI 的盲打规则；
+    //   「屯着暗牌只打明牌」量过更亏（台账一百三十八），所以那个应对不是高估的来源
+    // 旧版「将对方全部手牌洗回牌库，摸入等量【暗牌】」A +3.13 / ♥ +8.30，价 90（台账一百三十五）
+    // 价：按 X 39 + 16.8 × 4.10 = 107.9 → **110**
+    key: 'darkswap', name: '暗潮', unlock: 110,
     first: false,
-    desc: '将对方全部手牌洗回牌库，摸入等量【暗牌】'
+    desc: '将对方非暗牌手牌洗回牌库，再摸 4 张【暗牌】'
   },
   // ---- 挂在牌上的两件 ----
   //
@@ -3729,6 +3753,14 @@ export const DRAW_SKILLS : DrawSkill[] = [
     key: 'fadepoint', name: '褪点', unlock: 0,
     first: false,
     desc: '玩家手牌跟玩家点数槽相同点数的牌【失去花色】'
+  },
+  {
+    // 褪库〔2026-11-11 · 用户设计，庄家专属：盐田晒网人系列的点数槽（跟漂白挑一）；名字代起〕。牌库顶 4 张失去花色，照【漂白】改牌面；
+    // 已经没花色的照样占名额。牌库是共用的 —— 谁摸到谁拿着没花色的牌（庄家没有花色槽，伤不到自己）。
+    // 模拟器〈deckbleach〉（DECKBLEACH_N 默认 4，跟 ap-fishing 的 DECKBLEACH_N 同一个数）。白板尺子见台账一百四十·甲 / 乙。unlock 0：不卖
+    key: 'deckbleach', name: '褪库', unlock: 0,
+    first: false,
+    desc: '牌库顶 4 张牌【失去花色】'
   },
   {
     // 照花〔2026-11-04 · 用户设计，庄家专属：镜魔H / S 的花色槽〕：打出触发它的牌时，从**玩家花色槽**里装着的技能挑 1 件，
@@ -5227,6 +5259,8 @@ export const SK_SUITCOLOR : number = skillIndexOf('suitcolor')
 export const SK_ZERODRAFT : number = skillIndexOf('zerodraft')
 // 升钩（2026-11-04）：比它大 1 个顺位的 1 张手牌明置变成 J
 export const SK_NEXTJACK : number = skillIndexOf('nextjack')
+// 对钩（2026-11-12，同日改效果）：展示手里 1 对，它变成 J
+export const SK_PAIRJACK : number = skillIndexOf('pairjack')
 // 褪递（2026-10-29 深夜，同晚换效果）：对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】
 export const SK_FADETAG : number = skillIndexOf('fadetag')
 // 垫吃（2026-10-29）：垫在堆上 1 张牌下面，以那张牌进行【21 匹配】；空堆直接打出
@@ -5265,6 +5299,8 @@ export const SK_DECKZERO : number = skillIndexOf('deckzero')
 // 庄家专属〔2026-11-04 · 渔政巡查员〕
 export const SK_PINRANK : number = skillIndexOf('pinrank')
 export const SK_FADEPOINT : number = skillIndexOf('fadepoint')
+// 褪库（2026-11-11 · 盐田晒网人系列，庄家专属）：牌库顶 4 张失去花色
+export const SK_DECKBLEACH : number = skillIndexOf('deckbleach')
 // 照花 / 照点（2026-11-04 · 镜魔一族，庄家专属）
 export const SK_COPYSUIT : number = skillIndexOf('copysuit')
 export const SK_COPYRANK : number = skillIndexOf('copyrank')
