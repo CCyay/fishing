@@ -112,7 +112,7 @@
             <!-- 【死水】废掉的标出来。不标的话那张牌看着跟别的一样，
                  而它打出来什么也不发生 —— 那就是规则坏了的感觉 -->
             <text v-else-if="isDead(card)" class="card-dead-tag">废</text>
-            <!-- 【叛变】：你的策反贴的，它一直明着 -->
+            <!-- 【叛变】：你的策反贴的。牌背上印「叛」，牌面照旧盖着（2026-11-17 去掉明置） -->
             <text v-if="traitorOn(card)" class="card-dead-tag">叛</text>
           </view>
         </view>
@@ -430,6 +430,10 @@
          实测这个「挑」值 0.905 分（X 的 57%），是这件技能一多半的价值；
          而误伤已经降到 0.13%（理论完美是 0）—— 所以这块 UI 要让人看清
          手里哪些牌当场钓得着 -->
+    <!-- 三色：跟滤饵同形（点手牌退回牌库，退够自己关），只多一条 —— 退完剩下的还得凑得齐 triKeep 种花色 -->
+    <view v-if="triPending" class="tide-box">
+      <text class="tide-text">{{ '三色：已摸 ' + triDrew + ' 张，点手牌退回牌库 —— 留下 ' + triKeep + ' 张不同花色的（还要退 ' + (hand.length - triKeep) + ' 张）' }}</text>
+    </view>
     <view v-if="siftPending" class="tide-box">
       <text class="tide-text">{{ '滤饵：已摸 ' + siftDrew + ' 张，点手牌退回牌库重洗 —— 还要退 ' + siftLeft + ' 张' }}</text>
     </view>
@@ -511,6 +515,16 @@
       <view class="tide-actions">
         <view id="ap-pole-done" class="tide-btn tide-btn-plain" @click="onPoleDone()">
           <text class="tide-btn-text tide-btn-text-plain">{{ poleShownN > 0 ? '就这样' : '不展示' }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 【电钩】〔2026-11-17〕：点手牌一张张亮（第一张定颜色，之后只认同颜色），至少 2 张，亮的都带上正电；按钮收尾 -->
+    <view v-if="hookShowPending" class="tide-box">
+      <text class="tide-text">{{ '电钩：点手牌展示同颜色的牌（J、已带正电的也能亮来凑数），至少 2 张，亮的都带上正电。已亮 ' + hookShownN + ' 张' }}</text>
+      <view class="tide-actions">
+        <view id="ap-hook-done" class="tide-btn tide-btn-plain" @click="onHookShowDone()">
+          <text class="tide-btn-text tide-btn-text-plain">{{ hookShownN >= 2 ? '就这样' : (hookShownN == 0 ? '不展示' : '不够 2 张，不发动') }}</text>
         </view>
       </view>
     </view>
@@ -1006,7 +1020,7 @@
             <text v-if="fadeKeyOn(card)" class="hand-draft-tag">褪</text>
             <!-- 手里带【顺子匹配】（流钥贴的） -->
             <text v-if="flowKeyOn(card)" class="hand-flow-tag">顺</text>
-            <!-- 手里带【叛变】（对方的策反贴的）：一直明着，打出后剩下的手牌全部置 0 -->
+            <!-- 手里带【叛变】（对方的策反贴的）：庄家知道是哪张、看不见牌面（2026-11-17 去掉明置）；打出后剩下的手牌全部置 0 -->
             <text v-if="traitorOn(card)" class="hand-draft-tag">叛</text>
         <!-- 【引火】预约的火。紧挨着「冰」—— 两个同时挂上
              （引火 + 藏凌）的时候它们落堆就相消，所以玩家看到两个标签
@@ -1386,6 +1400,8 @@
     SK_TRAITOR,
     // 策连〔2026-11-17 上架〕
     SK_TRAITORHUE,
+    // 三色〔2026-11-17 上架〕
+    SK_TRISUIT,
     ORDER_MIN,
     ORDER_FULL_MIN,
     STRAIGHT_MIN,
@@ -2335,6 +2351,11 @@
   // 这一次已经退回去几张了（照 swapDone —— 结算文案要报**真退了几张**，
   // 不能报 SIFT_BACK：手里点空了会少退）
   const siftDone = ref<number>(0)
+  // 【三色】挑牌：照滤饵那三个。triKeep = 要留几张（手里花色种数，最多 3）—— 退到手里只剩这么多张就自己关
+  const triPending = ref<boolean>(false)
+  const triKeep = ref<number>(0)
+  const triDrew = ref<number>(0)
+  const triDone = ref<number>(0)
   // 冻结等你挑庄家的一张手牌（挑的是位置 —— 那几张多半盖着）
   const freezePending = ref<boolean>(false)
   // 浑水等你盲选庄家的手牌（挑的是位置 —— 照冻结；**不**走 takeSkill，那条会把整手翻开）
@@ -3452,7 +3473,7 @@
   // 带它的牌打出时置 0（valuesOf），落堆后褪色（afterPlayTail 开头）。生命周期照 zeroKey：
   // 打出那一手用掉（endPlay 摘）、洗回牌库 / 换主人也摘。模拟器那边是 `G.fadeKey`
   const fadeKey = ref<PlainCard[]>([] as PlainCard[])
-  // 【叛变】（策反贴的）：手里带它的牌一直明着；打出后，打出它的一方手里剩下的牌全部置 0（endPlay 开头兑现）。
+  // 【叛变】（策反贴的）：双方都知道哪张带着它、看不见牌面（2026-11-17 去掉明置，原「一直明着」）；打出后，打出它的一方手里剩下的牌全部置 0（endPlay 开头兑现）。
   // 跟别的手牌标签同一套生命周期：打出那一手用掉、洗回牌库 / 换主人也摘。**ref** —— 牌上要印「叛」
   const traitorKey = ref<PlainCard[]>([] as PlainCard[])
   function traitorOn(card : PlainCard) : boolean {
@@ -4158,12 +4179,15 @@
       // 【滤饵】强制退满，没退够不许出牌（比换水那条更硬 ——
       // 换水可以按钮收尾，这件没有「不退」那条路）
       && !siftPending.value
+      // 【三色】同理：没退到只剩 triKeep 张不许出牌
+      && !triPending.value
       && takeSkill.value < 0 && giveBack.value < 0 && !twinPending.value
       && pilePick.value < 0
       && !reflectHandPending.value
       && !inductHandPending.value
       && !mirrorSelfPending.value
       && !polePending.value
+      && !hookShowPending.value
       && !mimicHandPending.value
       // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
       && !giftPending.value
@@ -4210,6 +4234,9 @@
     }
     if (baitPending.value) {
       return baitDark.value ? '你的回合 · 暗饵' : '你的回合 · 倒饵'
+    }
+    if (triPending.value) {
+      return '你的回合 · 三色（还要退 ' + (hand.value.length - triKeep.value) + ' 张）'
     }
     // 滤饵报**还差几张**（照分饵那条：不报的话点完一张看着像卡住了）
     if (siftPending.value) {
@@ -4295,6 +4322,9 @@
     }
     if (polePending.value) {
       return '你的回合 · 磁极'
+    }
+    if (hookShowPending.value) {
+      return '你的回合 · 电钩'
     }
     if (mimicHandPending.value) {
       return '你的回合 · 拟饵'
@@ -5181,9 +5211,9 @@
     }
     // 【封竿】原先在这儿直接拦（被封的点数什么都钓不到）。改成了「算 0 点」，
     // 在 valuesOf 最前面判 —— 0 点钓不到按点数的牌，按花色的照样能用
-    const hook = hasTrigger(skills, SK_HOOK)
-    // 【正电】：磁钩是它自己带，导电贴在手牌上〔2026-11-05〕
-    const mag = hook || magKeyOn(card) || hasTrigger(skills, SK_MAGREFLECT)
+    // 【正电】：导电 / 电钩贴在手牌上，电镜它自己带〔2026-11-05〕
+    // 〔2026-11-17 电钩换效果（展示同颜色手牌贴正电）：它自己不再带正电，`hook` 那一项撤了〕
+    const mag = magKeyOn(card) || hasTrigger(skills, SK_MAGREFLECT)
     // 【负电】第三句：这张自己带负电 → 堆上的负电对它不起作用
     const negBlocked = negHandOn(card)
     // 〔顺色那条花色线 2026-10-25 撤了 —— 它改成变点数（见 valuesOf），走普通匹配〕
@@ -5468,10 +5498,8 @@
     if (takeSkill.value >= 0) {
       return true
     }
-    // 【叛变】：带它的牌一直明着 —— 按牌认，不按下标（下标会随出牌挪动）
-    if (index < foeHand.value.length && traitorOn(foeHand.value[index])) {
-      return true
-    }
+    // 〔【叛变】2026-11-17 去掉明置（用户定）：原先这儿「带它的牌一直明着」直接返回 true。
+    //   现在只在牌背上印「叛」（见模板 card-tags，盖着的牌也印），牌面照旧盖着〕
     return index < foeShown.value.length && foeShown.value[index]
   }
 
@@ -5480,10 +5508,7 @@
     if (heldOn(SK_LANTERN, true)) {
       return true
     }
-    // 【叛变】：带它的牌一直明着（庄家看得见）—— 按牌认
-    if (index < hand.value.length && traitorOn(hand.value[index])) {
-      return true
-    }
+    // 〔【叛变】2026-11-17 去掉明置（用户定）：原先这儿「带它的牌一直明着（庄家看得见）」返回 true —— 撤了〕
     // 【催钩】（拔钩人系列的庄家规矩）：你手里的 J 一直明置
     if (index < hand.value.length && hand.value[index].rank == JACK && hasFoeSpecial('jimpulse')) {
       return true
@@ -8751,7 +8776,7 @@
     tookThisHand[armSide] = false
     holdArmed[armSide] = hasTrigger(skills, SK_HOLDTAG)
     foeSwapArmed[armSide] = hasTrigger(skills, SK_PRESS)
-    hookArmed[armSide] = hasTrigger(skills, SK_HOOK)
+    // 〔2026-11-17 电钩换效果：后半句「匹配失败时抽 1 张牌」撤了，hookArmed 不再上膛（数组和存档那几处留着，恒为 false）〕
     poleFailArmed[armSide] = hasTrigger(skills, SK_POLEFAIL)
     chainArmed[armSide] = false
     // ---- 进场 ----
@@ -11012,17 +11037,17 @@
       if (inPile(lastPlayed!)) {
         addStone(lastPlayed!)
       }
-      // 〔2026-10-30 削弱：手牌只给**跟堆底同颜色**的（堆底在 afterPlayTail 入口记的 stoneBottomSuit）〕
+      // 〔2026-10-30 削弱成「手牌跟堆底同颜色的」（用 afterPlayTail 入口记的 stoneBottomSuit）；
+      //   2026-11-17 用户定改回「它和你手里的牌都带上【石墙】」—— R8 下原版只有 A +3.63（台账一百九十一），
+      //   削它的理由（R7 +4.87 贴着上限）不在了。stoneBottomSuit 现在没人读，记它的那两行留着〕
       const mine = byFoe ? foeHand.value : hand.value
       let walled = 0
       for (let i = 0; i < mine.length; i++) {
-        if (sameColor(mine[i].suit, stoneBottomSuit)) {
-          addStoneHand(mine[i])
-          walled = walled + 1
-        }
+        addStoneHand(mine[i])
+        walled = walled + 1
       }
       message.value = message.value + (byFoe ? ' 庄家满墙：' : ' 满墙：')
-        + (walled > 0 ? '手里 ' + walled + ' 张跟堆底同颜色的牌带上了石墙。' : '它带上了石墙，手里没有跟堆底同颜色的牌。')
+        + (walled > 0 ? '它和手里 ' + walled + ' 张牌都带上了石墙。' : '它带上了石墙，手里没牌了。')
     }
     // ---- 停人那一串从这儿起：每件 `askFirst` 只问一次，挑完 askNext 从 TAIL_ASK 重入 ----
     if (!byFoe) {
@@ -11123,8 +11148,9 @@
         const at = pool[Math.floor(Math.random() * pool.length)]
         traitorKey.value = traitorKey.value.concat([theirs[at]])
         message.value = message.value + (byFoe
-          ? ' 庄家策反：你的 ' + cardName(theirs[at]) + ' 带上了【叛变】（明着；打出后你剩下的手牌全部置 0）。'
-          : ' 策反：庄家的 ' + cardName(theirs[at]) + ' 带上了【叛变】。')
+          ? ' 庄家策反：你的 ' + cardName(theirs[at]) + ' 带上了【叛变】（打出后你剩下的手牌全部置 0）。'
+          // 〔2026-11-17 叛变去掉明置：庄家那张不报牌面（原「庄家的 X 带上了【叛变】」）—— 牌背上印「叛」，你知道是哪一张〕
+          : ' 策反：庄家 1 张手牌带上了【叛变】。')
       }
       // 〔2026-11-03 用户定：策反加上「1 张手牌带上【收零】」（叛变 + 收零）。原型〈traitorzero〉（台账第五十二节 R7、第五十八·戊 R8）：R8 A 槽 +2.46（对手先清 0 点牌）/ 照常出牌 +3.18，♥ +10.38 / +11.26。
       //   贴收零走回水那一套：你点一张（backTagPending → onBackTag），庄家照 foeZeroKeyPick〕
@@ -11173,8 +11199,9 @@
         tagged = tagged + 1
       }
       if (tagged > 0) {
+        // 〔2026-11-17 叛变去掉明置：庄家那几张不报牌面，只报张数〕
         message.value = message.value + (byFoe ? ' 庄家策连' : ' 策连') + (shownText == '' ? '' : '（展示了 ' + shownText + '）') + '：'
-          + (byFoe ? '你的 ' : '庄家的 ') + taggedText + ' 带上了【叛变】' + (byFoe ? '（明着；打出后你剩下的手牌全部置 0）。' : '。')
+          + (byFoe ? '你的 ' + taggedText + ' 带上了【叛变】（打出后你剩下的手牌全部置 0）。' : '庄家 ' + tagged + ' 张手牌带上了【叛变】。')
       }
     }
     // 【漂白】：对方**此刻**手里的牌都失去花色（永久，落堆后也没有；之后新摸的不受影响）。
@@ -11430,6 +11457,22 @@
           magKey.value = magKey.value.concat([foeHand.value[at]])
           message.value = message.value + ' 庄家导电：手里 1 张带上了正电。'
         }
+      }
+    }
+    // 【电钩】〔2026-11-17 用户定换效果〕：展示至少 2 张同颜色手牌，带上【正电】。
+    //   你：点手牌一张张亮（第一张定颜色，之后只认同颜色；J、已带正电的也能亮来凑数），按钮收尾（hookShowPending）；
+    //   庄家：照模拟器 magShowColor 挑颜色、那个颜色全亮（hookShowFoe）。哪个颜色都凑不出 2 张就不发动
+    if (hasTrigger(skills, SK_HOOK) && askFirst(SK_HOOK)) {
+      if (!byFoe) {
+        if (hookShowColorN(hand.value, true) >= 2 || hookShowColorN(hand.value, false) >= 2) {
+          hookShowPending.value = true
+          hookShownN.value = 0
+          hookShown = [] as number[]
+          return
+        }
+        message.value = message.value + ' 电钩：手里凑不出 2 张同颜色的牌。'
+      } else {
+        hookShowFoe()
       }
     }
     // 【伏流】〔2026-11-10 用户定换效果：「1 张手牌带上【通配】和【顺子匹配】」〕—— 同一张手牌贴两个标签：顺子钥匙（flowKey）+ 通配（addWild，按牌对象存，落堆自动带着）。
@@ -11845,6 +11888,36 @@
         if (drew > 0 || back > 0) {
           message.value = message.value + ' 庄家滤饵，摸 ' + drew + ' 张、退 ' + back + ' 张重洗。'
         }
+      }
+    }
+    // 【三色】〔2026-11-17〕：抽牌直到手牌有 3 种花色（牌库空了就停），选 3 种花色各 1 张带上【花色匹配】，其余手牌洗回牌库。
+    // 玩家侧照滤饵：摸完停下来，点手牌退回牌库，退到只剩 triKeep 张（不同花色）自己关（onTri）。
+    // 庄家侧照模拟器 trisuitFor（foeTriPick）。抽上来的又洗回去、回合末照常补满 —— 手牌张数不变
+    if (hasTrigger(skills, SK_TRISUIT) && askFirst(SK_TRISUIT)) {
+      let drew = 0
+      while (suitKinds(byFoe ? foeHand.value : hand.value) < 3) {
+        if (drawFor(byFoe) == null) {
+          break
+        }
+        drew = drew + 1
+      }
+      const keep = Math.min(3, suitKinds(byFoe ? foeHand.value : hand.value))
+      if (!byFoe) {
+        triKeep.value = keep
+        triDrew.value = drew
+        triDone.value = 0
+        if (hand.value.length > keep) {
+          message.value = message.value + ' 三色：摸了 ' + drew + ' 张，退到只剩 ' + keep + ' 张不同花色的。'
+          triPending.value = true
+          return
+        }
+        // 手里正好是 keep 张不同花色 —— 不用挑，直接贴
+        const n = triTag(false)
+        message.value = message.value + ' 三色：摸了 ' + drew + ' 张，' + n + ' 张手牌带上【花色匹配】。'
+      } else {
+        const back = foeTriPick(keep)
+        const n = triTag(true)
+        message.value = message.value + ' 庄家三色，摸 ' + drew + ' 张、退 ' + back + ' 张重洗，' + n + ' 张手牌带上【花色匹配】。'
       }
     }
     // 择饵：摊开牌库顶**五张**，挑一张**进手牌**，剩下的洗回牌库〔2026-11-03 用户定新版；原先是「挑一张留顶，其余沉底」〕。
@@ -12764,6 +12837,115 @@
     } else {
       message.value = message.value + ' 导电：正电那张你没贴。'
     }
+    askNext()
+  }
+
+  // ---------- 【电钩】展示同颜色手牌贴正电〔2026-11-17〕 ----------
+  const hookShowPending = ref<boolean>(false)
+  const hookShownN = ref<number>(0)
+  let hookShown : number[] = [] as number[]
+  // 一手牌里某个颜色有几张（失去花色的没颜色；J、已带正电的照算 —— 能亮来凑数）
+  function hookShowColorN(mine : PlainCard[], red : boolean) : number {
+    let n = 0
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].suit != '' && isRedSuit(mine[i].suit) == red) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+  // 庄家：照模拟器 magShowColor —— 两个颜色各看能贴的牌里「跟堆上顺位相邻的张数」最多那张（= magKeyPick 的标准），
+  // 大的胜；一样多比整个颜色的相邻总数。只能挑至少 2 张的颜色；挑定了那个颜色全亮、能贴的全贴
+  function hookShowFoe() {
+    const mine = foeHand.value
+    let pick = -1
+    let pickBest = -1
+    let pickSum = -1
+    for (let side = 0; side < 2; side++) {
+      const red = side == 0
+      if (hookShowColorN(mine, red) < 2) {
+        continue
+      }
+      let best = 0
+      let sum = 0
+      for (let i = 0; i < mine.length; i++) {
+        if (mine[i].suit == '' || isRedSuit(mine[i].suit) != red || !magKeyable(mine[i])) {
+          continue
+        }
+        const vals = cardVals(mine[i])
+        let n = 0
+        for (let k = 0; k < pile.value.length; k++) {
+          if (pile.value[k].rank != JACK && magAdj(vals, pileValsAt(k))) {
+            n = n + 1
+          }
+        }
+        if (n > best) {
+          best = n
+        }
+        sum = sum + n
+      }
+      if (pick < 0 || best > pickBest || (best == pickBest && sum > pickSum)) {
+        pick = side
+        pickBest = best
+        pickSum = sum
+      }
+    }
+    if (pick < 0) {
+      message.value = message.value + ' 庄家电钩：凑不出 2 张同颜色的牌。'
+      return
+    }
+    const red = pick == 0
+    const add : PlainCard[] = []
+    let shown = 0
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i].suit == '' || isRedSuit(mine[i].suit) != red) {
+        continue
+      }
+      foeShown.value = withFlag(foeShown.value, i)
+      shown = shown + 1
+      if (magKeyable(mine[i])) {
+        add.push(mine[i])
+      }
+    }
+    magKey.value = magKey.value.concat(add)
+    message.value = message.value + ' 庄家电钩：亮了 ' + shown + ' 张' + (red ? '红' : '黑') + '牌，' + add.length + ' 张带上了正电。'
+  }
+  // 你点了第 index 张手牌：亮它。第一张定颜色，之后不同颜色的、亮过的、失去花色的点了不算
+  function onHookShowHand(index : number) {
+    if (!hookShowPending.value || index < 0 || index >= hand.value.length) {
+      return
+    }
+    const c = hand.value[index]
+    if (hookShown.indexOf(index) >= 0 || c.suit == '') {
+      return
+    }
+    if (hookShown.length > 0 && isRedSuit(hand.value[hookShown[0]].suit) != isRedSuit(c.suit)) {
+      return
+    }
+    hookShown.push(index)
+    hookShownN.value = hookShown.length
+    handSeen.value = withFlag(handSeen.value, index)
+  }
+  function onHookShowDone() {
+    if (!hookShowPending.value) {
+      return
+    }
+    if (hookShown.length >= 2) {
+      const add : PlainCard[] = []
+      for (let k = 0; k < hookShown.length; k++) {
+        const c = hand.value[hookShown[k]]
+        if (magKeyable(c)) {
+          add.push(c)
+        }
+      }
+      magKey.value = magKey.value.concat(add)
+      message.value = message.value + ' 电钩：亮了 ' + hookShown.length + ' 张，' + add.length + ' 张带上了正电。'
+    } else {
+      message.value = message.value + ' 电钩：' + (hookShown.length > 0 ? '只亮了 1 张，不够 2 张，' : '没展示，') + '不发动。'
+    }
+    hookShowPending.value = false
+    hookShownN.value = 0
+    hookShown = [] as number[]
     askNext()
   }
 
@@ -16220,6 +16402,126 @@
     askNext()
   }
 
+  // ---------- 【三色】〔2026-11-17〕 ----------
+  // 这几张牌里有几种花色（失去花色的牌 suit 是 ''，不算一种）
+  function suitKinds(cards : PlainCard[]) : number {
+    const seen : string[] = []
+    for (let i = 0; i < cards.length; i++) {
+      const s = cards[i].suit
+      if (s != '' && seen.indexOf(s) < 0) {
+        seen.push(s)
+      }
+    }
+    return seen.length
+  }
+  // 退掉 cards[index] 之后，剩下的还凑得齐 keep 种花色吗
+  function triCanDrop(cards : PlainCard[], index : number, keep : number) : boolean {
+    const rest : PlainCard[] = []
+    for (let i = 0; i < cards.length; i++) {
+      if (i != index) {
+        rest.push(cards[i])
+      }
+    }
+    return suitKinds(rest) >= keep
+  }
+  // 留下的手牌（J 除外 —— J 带花色匹配没用）都带上【花色匹配】，返回新贴了几张
+  function triTag(byFoe : boolean) : number {
+    const cards = byFoe ? foeHand.value : hand.value
+    let n = 0
+    for (let i = 0; i < cards.length; i++) {
+      if (cards[i].rank != JACK && !matchKeyOn(cards[i])) {
+        matchKey.value = matchKey.value.concat([cards[i]])
+        n = n + 1
+      }
+    }
+    return n
+  }
+  // 玩家点了第 index 张手牌：退回牌库。退掉它会凑不齐 triKeep 种花色就不让退
+  // 退牌那一行照滤饵 / 换水（takeFromHand + shuffleBack），不另写一份
+  function onTri(index : number) {
+    if (!triPending.value) {
+      return
+    }
+    if (index < 0 || index >= hand.value.length) {
+      return
+    }
+    if (!triCanDrop(hand.value, index, triKeep.value)) {
+      message.value = '三色：退掉 ' + cardName(hand.value[index]) + ' 就凑不齐 ' + triKeep.value + ' 种花色了，换一张。'
+      return
+    }
+    const card = takeFromHand(false, index)
+    shuffleBack(card)
+    triDone.value = triDone.value + 1
+    message.value = '你把 ' + cardName(card) + ' 退回牌库重洗了。'
+    if (hand.value.length > triKeep.value) {
+      return
+    }
+    triPending.value = false
+    const drew = triDrew.value
+    const back = triDone.value
+    triDrew.value = 0
+    triDone.value = 0
+    const n = triTag(false)
+    message.value = '三色：你摸了 ' + drew + ' 张、退回 ' + back + ' 张重洗，' + n + ' 张手牌带上【花色匹配】。'
+    askNext()
+  }
+  // 庄家挑法（照模拟器 trisuitFor）：每张牌的分 = J 100（留住 J）/ 已带花色匹配 50 + / 否则堆上同花色几张；
+  // 每种花色取分最高那张，再取分最高的 keep 种花色留下，其余洗回牌库。返回退了几张
+  function foeTriScore(card : PlainCard) : number {
+    if (card.rank == JACK) {
+      return 100
+    }
+    let n = matchKeyOn(card) ? 50 : 0
+    for (let k = 0; k < pile.value.length; k++) {
+      if (sameSuit(pileSuitAt(k), card.suit, true)) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+  function foeTriPick(keep : number) : number {
+    const cards = foeHand.value
+    // 每种花色分最高那张（并列取靠前的）
+    const bestAt : number[] = []
+    for (let i = 0; i < cards.length; i++) {
+      if (cards[i].suit == '') {
+        continue
+      }
+      let found = -1
+      for (let j = 0; j < bestAt.length; j++) {
+        if (cards[bestAt[j]].suit == cards[i].suit) {
+          found = j
+        }
+      }
+      if (found < 0) {
+        bestAt.push(i)
+      } else if (foeTriScore(cards[i]) > foeTriScore(cards[bestAt[found]])) {
+        bestAt[found] = i
+      }
+    }
+    // 取分最高的 keep 种
+    const kept : PlainCard[] = []
+    while (kept.length < keep && bestAt.length > 0) {
+      let top = 0
+      for (let j = 1; j < bestAt.length; j++) {
+        if (foeTriScore(cards[bestAt[j]]) > foeTriScore(cards[bestAt[top]])) {
+          top = j
+        }
+      }
+      kept.push(cards[bestAt[top]])
+      bestAt.splice(top, 1)
+    }
+    let back = 0
+    for (let i = foeHand.value.length - 1; i >= 0; i--) {
+      if (kept.indexOf(foeHand.value[i]) >= 0) {
+        continue
+      }
+      shuffleBack(takeFromHand(true, i))
+      back = back + 1
+    }
+    return back
+  }
+
   // 把一张牌塞回牌库并**真洗进去**。
   //
   // 不是插在底下 —— 插底的话你数得出它什么时候回来，那就不叫「换掉」了。
@@ -16980,22 +17282,9 @@
           + (got != null ? '没钓上，摸了 1 张，它带上了磁极。' : '没钓上，牌库空了没摸到。')
       }
     }
-    // ---- 【磁钩】后半句〔2026-11-05〕：匹配失败 → 抽 1 张，那张带上【正电】 ----
-    //
-    // 「匹配失败」= 这一手一张没收到（tookThisHand）**而且不是被抢走** ——
-    // 被抢那条路在 pushStealTail 里把 hookArmed 存成 false 了。不停人（抽的是哪张由牌库定，没得挑）。
-    // 模拟器那边是 HOOK_FAIL=nomatch（同一个读法），实测 A 槽 +2.71（台账九十·丙）
-    if (hookArmed[si]) {
-      hookArmed[si] = false
-      if (!tookThisHand[si]) {
-        const got = drawFor(byFoe)
-        if (got != null) {
-          magKey.value = magKey.value.concat([got!])
-        }
-        message.value = message.value + (byFoe ? ' 庄家电钩：' : ' 电钩：')
-          + (got != null ? '没钓上，摸了 1 张，它带上了正电。' : '没钓上，牌库空了没摸到。')
-      }
-    }
+    // 〔【磁钩 / 电钩】后半句「匹配失败 → 抽 1 张，那张带上【正电】」原先在这儿兑现（2026-11-05 加）。
+    //   2026-11-17 电钩换成「展示至少 2 张同颜色手牌，带上【正电】」，这一段删了 —— hookArmed 不再上膛。
+    //   「匹配失败」的读法（被抢走不算失败）留给照它写的【磁针】后半句（poleFailArmed，上面那一段）〕
     // ---- 【压舱】〔2026-11-10〕：查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）----
     // 你：先点他一张（借摘钩那块 takeSkill = SK_PRESS），再点堆上一张（借镜水那块 pilePick = SK_PRESS），点完 tagResumeGo 接回来；
     // 庄家：所有合法组合都试一遍，挑「它下一手最多收几张 − 你下一手最多收几张」最大的（照模拟器 foeSwapFor）。没有合法组合就不发动
@@ -17706,6 +17995,11 @@
       onBait(index)
       return
     }
+    // 三色同理：点手牌是「挑这张退回牌库」
+    if (triPending.value) {
+      onTri(index)
+      return
+    }
     // 滤饵同理：点手牌是「挑这张退回牌库」（刚摸上来的那几张也在这一排里，
     // 一样能退 —— 「从摸的和原有的里一起挑」是这件技能的全部机制）
     if (siftPending.value) {
@@ -17739,6 +18033,11 @@
     // 磁极：点手牌是「亮这张」
     if (polePending.value) {
       onPoleHand(index)
+      return
+    }
+    // 电钩：点手牌是「亮这张」
+    if (hookShowPending.value) {
+      onHookShowHand(index)
       return
     }
     // 感电第二步：点手牌是「给这张贴正电」
@@ -19144,10 +19443,50 @@
     }
     return false
   }
+  // 【花色匹配】屯牌〔2026-11-17 · 照模拟器 suitHoldState / suitHoldKeep，台账一百八十〕：
+  // 收色 / 一色本身、手里贴了花色匹配的牌（传色 / 石影贴的）这一手凑得成才打；传色本身不屯（屯它反而亏）。
+  // 凑不成的几张里只屯一张（堆上同花色最多的，并列取靠前的），别的照常当饵 —— 全屯的话花色槽 13 张会把手占满
+  function foeSuitHoldState(card : PlainCard) : string {
+    const skills = skillsOf(true, card)
+    if (!(hasTrigger(skills, SK_HUE) || hasTrigger(skills, SK_SUITIFY) || matchKeyOn(card))) {
+      return ''
+    }
+    return harvestCount(card, skills, true, false) > 0 ? 'ready' : 'hold'
+  }
+  function foeSuitHoldKeep() : number {
+    let best = -1
+    let bestN = -1
+    for (let j = 0; j < foeHand.value.length; j++) {
+      const c = foeHand.value[j]
+      if (c.rank == JACK || foeSuitHoldState(c) != 'hold') {
+        continue
+      }
+      // 收色比的是堆底的花色（它会先变成堆底那张的花色）
+      const target = hasTrigger(skillsOf(true, c), SK_HUE) && pile.value.length > 0 ? pileSuitAt(0) : c.suit
+      let n = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (sameSuit(pileSuitAt(i), target, true)) {
+          n = n + 1
+        }
+      }
+      if (n > bestN) {
+        bestN = n
+        best = j
+      }
+    }
+    return best
+  }
   // 'ready' = 条件成立了，这一手没牌钓得着就先打它；'hold' = 先留着、不当饵；'' = 不归屯管
   function foeHoldState(card : PlainCard) : string {
     if (level.value.random || card.rank == JACK) {
       return ''
+    }
+    const suitHold = foeSuitHoldState(card)
+    if (suitHold == 'ready') {
+      return 'ready'
+    }
+    if (suitHold == 'hold' && foeSuitHoldKeep() == foeHand.value.indexOf(card)) {
+      return 'hold'
     }
     const skills = skillsOf(true, card)
     // 【升钩】手里有比它大 1 个顺位的牌才打（模拟器 nextJackReady）
@@ -19209,6 +19548,11 @@
     siftLeft.value = 0
     siftDrew.value = 0
     siftDone.value = 0
+    // 三色那四个同理
+    triPending.value = false
+    triKeep.value = 0
+    triDrew.value = 0
+    triDone.value = 0
     freezePending.value = false
     murkPending.value = false
     murkLeft.value = 0
@@ -19261,6 +19605,9 @@
     polePending.value = false
     poleShown = [] as number[]
     poleSkills = [] as number[]
+    hookShowPending.value = false
+    hookShownN.value = 0
+    hookShown = [] as number[]
     negHand.value = [] as PlainCard[]
     negPile.value = [] as PlainCard[]
     draftKey.value = [] as PlainCard[]

@@ -111,7 +111,8 @@ const FOE_ROLES = [
   // 特殊技那一处（再钩 ↔ 封竿）**两条都没模**，所以它不改变任何数 ——
   // 同步只为别让副本跟源码分叉
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false], ['cast', 1, false]] },
+  // 〔撒网 2026-11-17 下架，从这一行拿掉。⚠ 这一行本来就跟源码对不上：源码 11-16 起鲸落拾骨人是系列（回水 / 策反 / 零递），没同步〕
+  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false]] },
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
   // 〔2026-10-30 关底野火改进花色槽（照 draw-levels.uts）〕
   // 2026-11-02 再钩 → 逆钩（照源码）。两条都不在 MODELED_SP 里，所以这一关的模拟数不变
@@ -289,7 +290,9 @@ const PLAYER_POOL = [
   // 〔【零吃】zeroself 2026-10-29 上架、当晚撤下 —— 从池子里拿掉〕
   // 〔涉水 2026-10-29 撤了，从池子里拿掉〕
   // 〔【褪递】2026-10-29 深夜上架、2026-10-30 下架 —— 从池子里拿掉〕
-  'zerodraft', 'peak', 'unhook', 'suitify', 'cast', 'suited',
+  // 〔一色 2026-11-17 下架、换上【三色】trisuit（价 100、屯着打 A +3.73）—— 池子一动，通关率绝对数不可比〕
+  // 〔撒网 2026-11-17 下架 —— 从池子里拿掉〕
+  'zerodraft', 'peak', 'unhook', 'trisuit', 'suited',
   // 〔2026-11-04 上架【升钩】，价 90、R8 X +3.03（屯着打，ai.js NJ_HOLD 默认开）—— 池子一动，通关率绝对数不可比〕
   'nextjack',
   // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。

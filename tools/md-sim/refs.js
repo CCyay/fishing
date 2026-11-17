@@ -532,6 +532,8 @@ const SIM_ONLY = {
   chain: '〈chain〉（原型 · 2026-10-30 从游戏撤下的【传火】：跟堆底同颜色的牌带上【燃烧】。CHAIN_HUE / CHAIN_BOTTOM_SELF / CHAIN_PHASE / CHAIN_WINDOW / CHAIN_SKIP_OPEN。墓碑在 DEAD_SKILLS）',
   flowdraft: '〈flowdraft〉（原型 · 2026-10-30 从游戏撤下的【顺递】：堆上 1 张牌带上【通配】；1 张手牌带上【顺子匹配】。墓碑在 DEAD_SKILLS）',
   swapflow: '〈swapflow〉（原型 · 2026-10-29 从游戏撤下的【易流】：它带上【通配】；可以把 1 张手牌跟堆上 1 张替换；【顺子匹配】。SWAPFLOW_SELF / SWAPFLOW_N）',
+  suitify: '〈suitify〉（原型 · 2026-11-17 从游戏撤下的【一色】：若它的花色是堆上数量最多的（含它自己，并列不算），整堆变成它的花色；【花色匹配】。屯着打 A +6.10 超档，换成【三色】。墓碑在 DEAD_SKILLS）',
+  swap: '〈swap〉（原型 · 2026-11-17 从游戏撤下的【换水】：选任意张自己的手牌洗回牌库。墓碑在 DEAD_SKILLS）',
   minus2n: '〈minus2n〉（原型 · 堆上其他牌 −N，它的点数变成 2N；【21 匹配】。M2N_N）',
   fadesplit: '〈fadesplit〉（原型 · 对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】。FS_PICK=rand|best）',
   magself: '〈magself〉（原型 · 2026-11-05：【磁吸】—— 它自己带磁吸，= 磁钩改成顺位相差 1）',

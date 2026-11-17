@@ -341,12 +341,17 @@ const FOE = 1
 // **这张表的位置不再是下标** —— 下标由 skAt() 按 key 查（见下）。
 // 所以增删只动这一处，顺序也可以随便调
 const SKILLS = [
+  // 【电钩】〔2026-11-17 用户定换效果：「展示至少 2 张同颜色手牌，带上【正电】」（台账一百八十五·乙，原型〈magshow〉MS_MIN=2）〕
+  //   自己挑一个颜色、至少亮这个颜色 HOOK_SHOW_MIN（默认 2）张手牌（J、已带正电的也能亮来凑数），亮的都带上【正电】；凑不出就不发动。它自己**不再**带正电。
+  //   结算位置照导电（protoOnLand，落堆之后、判定之前）；挑颜色见 magShowColor。模拟器里展示没代价 → 挑定颜色后能贴的全贴。
+  //   HOOK_OLD=1 复现旧电钩「【正电】；匹配失败时抽 1 张牌，那张带上【正电】」（HOOK_FAIL / HOOK_MAG 那几档都要配它才生效）
   { key: 'hook', name: '电钩' },  // 〔2026-11-05 改名：原磁钩；词条【磁吸】→【正电】〕
   { key: 'tide', name: '观潮' },
   // 〔窥视、照水 2026-10-16 删了（源码那边同一天）。同洪水那个办法：
   //   条目删掉、`SK.PEEK` / `SK.LANTERN` 钉 SK_GONE，于是 `peekFor`
   //   和照水那几段留着也不会跑〕
-  { key: 'swap', name: '换水' },
+  // 〔换水 2026-11-17 从游戏下架（用户定）—— 源码表项删了、墓碑在 DEAD_SKILLS。key 留着当原型（照〈swapflow〉），旧数用它复现〕
+  { key: 'swap', name: '〈swap〉' },
   { key: 'suited', name: '顺色' },
   // 〔【冻结】2026-11-02 下架（用户定：不再设计在场效果）—— 源码表项删了、墓碑在 DEAD_SKILLS。
   //   实现（isFrozen 的冻结支、FREEZE_* 旋钮）留着当死代码；isFrozen 本身还被叛变那几件借用〕
@@ -405,10 +410,15 @@ const SKILLS = [
   //   所以 `floodFor` / `FLOOD_CAP` / `FLOOD_STOP` / `ai.js` 的 `FLOOD_RUSH` **留着也不会跑**。
   //   删因见 `draw-skills.uts` 的 `DEAD_SKILLS`（槽越宽越亏：♥ / A ×1.95，♥ 槽局长 −27%）〕
   { key: 'pick', name: '择饵' },
-  { key: 'suitify', name: '一色' },
+  // 〔一色 2026-11-17 从游戏下架（用户定「下架一色」）—— 源码表项删了、墓碑在 DEAD_SKILLS。key 留着当原型（照〈swapflow〉），
+  //   旧数（台账一百八十 / 一百八十一）用它复现。屯着打 A +6.10 超档，换成【三色】〕
+  { key: 'suitify', name: '〈suitify〉' },
+  // 【三色】〔2026-11-17 上架（用户「没选中的手牌全洗回（手牌只剩3张不同花色的牌）这个效果加入游戏」）· 台账一百八十七〕
+  //   抽牌直到手牌有 3 种花色，选 3 种花色各 1 张带上【花色匹配】，其余手牌洗回牌库。见 trisuitFor
+  { key: 'trisuit', name: '三色' },
   { key: 'peak', name: '齐顶' },
   { key: 'hue', name: '收色' },
-  { key: 'cast', name: '撒网' },
+  // 〔【撒网】`cast` 2026-11-17 下架（用户「目前不用奇偶」）—— 条目删掉，`SK.CAST` 钉 `SK_GONE`，所以 `castFor` / `CAST_MODE` 留着也不会跑。墓碑在 `DEAD_SKILLS`〕
   { key: 'press', name: '压舱' },
   { key: 'unhook', name: '摘钩' },
   // 〔对换 2026-10-27 删了（用户定）：X +5.75 顶穿档位上限 5.5，而且它是
@@ -2236,7 +2246,7 @@ const SK = {
   //   `FLOOD_MIN` 默认 0 = 闸关着，而源码侧本来就没有这道闸 —— 两边同值〕
   // 洪水 2026-10-29 再删（见 SKILLS 表那段）
   FLOOD: SK_GONE,
-  PICK: skAt('pick'), SUITIFY: skAt('suitify'),
+  PICK: skAt('pick'), SUITIFY: skAt('suitify'), TRISUIT: skAt('trisuit'),
   // ---- 【沉底】也删了〔2026-10-14〕----
   //
   // 先把它从**强制**改成**可以**（接【逆流】那套 `sinkPays` 启发式），
@@ -2254,7 +2264,7 @@ const SK = {
   // 删掉的只是「沉底」这一件点数技能
   // 第二批（照钓鱼的贴纸、排竿的道具移植）
   PEAK: skAt('peak'), HUE: skAt('hue'),
-  CAST: skAt('cast'), PRESS: skAt('press'), UNHOOK: skAt('unhook'),
+  CAST: SK_GONE, PRESS: skAt('press'), UNHOOK: skAt('unhook'),
   // 【窄口】槽技能 2026-11-01 删（常驻技 SP.NARROW 还在）
   NARROW: SK_GONE,
   // 〔对换 2026-10-27 删了（用户定）—— **钉 SK_GONE，不整条删**：
@@ -4784,7 +4794,8 @@ const STONEFULL_N = process.env.STONEFULL_N ? parseInt(process.env.STONEFULL_N, 
 // 'bottom' = **手牌跟堆底同颜色**的牌（用户定的那一版：「它带上【石墙】，手牌跟堆底同颜色的牌带上【石墙】」，堆底取法照传色：匹配之前那张）；
 // 'color' / 'suit' = 跟它同颜色 / 同花色（用户否了这种条件，留作对照）
 // ⚠ 默认 2026-10-30 翻成 'bottom' = 游戏里的满墙（用户定削弱）。全手版 = STONEFULL_MATCH=all（复现 +4.87 那批）
-const STONEFULL_MATCH = process.env.STONEFULL_MATCH || 'bottom'
+// 🔴 〔2026-11-17 默认翻回 'all' = 游戏里的满墙（用户定改回原版「它和你手里的牌都带上【石墙】」；R8 下 A +3.63，台账一百九十一）。现行之前那一版 = STONEFULL_MATCH=bottom〕
+const STONEFULL_MATCH = process.env.STONEFULL_MATCH || 'all'
 // 石顺它自己带不带【通配】。⚠ 默认 2026-10-30 翻成**不带** = 游戏里的石顺（用户：「尽量不要有单独的通配出现」）；原案 = STONELINE_WILD=1
 // 〔2026-11-09 默认跟 STRAIGHT_SKILL_WILD 走（用户定石顺加【通配】）；STONELINE_WILD=0 / 1 显式覆盖〕
 // 〔2026-11-09 同日再改：用户定石顺去掉【通配】→ 默认不带；STONELINE_WILD=1 复现带通配那一版〕
@@ -7296,6 +7307,34 @@ function giveColorOk(card) {
 // 【明置】跟着牌走〔2026-11-10 用户定「洗回牌库 置0 和明置 标签 不丢」，照源码 openCards〕：
 // G.seen 按手牌下标存，牌一离手就没了 —— 离手时记下「它这时明置着没有」，drawFor 摸回来照它还原。
 // 置 0 本来就跟着牌走（改的是 rank）
+// 【三色】：抽到手里有 3 种花色（牌库空了就停；失去花色的不算一种），每种花色留 1 张（4 种都有时留 3 种）带上【花色匹配】，其余手牌洗回牌库。
+// AI 挑法（源码庄家 foeTriPick 同一套）：每张牌的分 = J 100（留住 J；J 带标签没用，不贴）/ 已带花色匹配 50 + / 否则堆上同花色几张；
+// 每种花色取分最高那张，再取分最高的 3 种花色。原型〈suit3〉SUIT3_BACK=all 那一档（台账一百八十七）
+function trisuitFor(G, side) {
+  const st = PROTO_STAT.trisuit
+  st.fires++
+  const hand = G.hands[side]
+  const suitsIn = function () { const m = {}; for (const c of hand) if (c.suit) m[c.suit] = true; return Object.keys(m).length }
+  while (suitsIn() < 3) { if (drawFor(G, side) === null) break; st.draws++ }
+  if (suitsIn() < 3) st.short++
+  const score = function (c) {
+    if (c.rank === JACK) return 100
+    let n = matchKeyOn(G, c) ? 50 : 0
+    for (let k = 0; k < G.pile.length; k++) if (suitMatchAt(G, k, c, side)) n++
+    return n
+  }
+  const bestOf = {}
+  for (const c of hand) {
+    if (!c.suit) continue
+    if (!bestOf[c.suit] || score(c) > score(bestOf[c.suit])) bestOf[c.suit] = c
+  }
+  const picks = Object.keys(bestOf).map(function (k) { return bestOf[k] }).sort(function (a, b) { return score(b) - score(a) }).slice(0, 3)
+  for (const c of picks) if (c.rank !== JACK && !matchKeyOn(G, c)) { G.matchKey.push(c); st.tagged++; keyDiag(G).given++ }
+  for (let i = hand.length - 1; i >= 0; i--) {
+    if (picks.indexOf(hand[i]) >= 0) continue
+    shuffleBack(G, takeFromHand(G, side, i)); st.backed++
+  }
+}
 function takeFromHand(G, side, index) {
   const card = G.hands[side][index]
   if (!G.openCards) G.openCards = new Set()
@@ -10534,6 +10573,9 @@ const MAG_WRAP = process.env.MAG_WRAP !== '0'
 const MAG_N = process.env.MAG_N ? parseInt(process.env.MAG_N, 10) : 1
 // 磁钩走【磁吸】（默认，= 游戏里那版）；HOOK_MAG=0 = 旧的「点数相差 1」
 const HOOK_MAG = process.env.HOOK_MAG !== '0'
+// 〔2026-11-17 电钩换效果〕HOOK_OLD=1 = 旧电钩（它自己带正电 + 匹配失败抽牌）；默认 = 新电钩（展示同颜色手牌贴正电，见 protoOnLand）
+const HOOK_OLD = process.env.HOOK_OLD === '1'
+const HOOK_SHOW_MIN = parseInt(process.env.HOOK_SHOW_MIN || '2', 10)
 // HOOK_FAIL：'' 关（默认 = 游戏里那版）/ fail =「匹配失败时抽 1 张牌并带上【磁吸】」/ always =「抽 1 张牌并带上【磁吸】」
 // 〔2026-11-05 用户定上游戏：默认 nomatch = 游戏里那版「【磁吸】；匹配失败时抽 1 张牌，那张带上【磁吸】」。HOOK_FAIL=off 复现上一版（只有【磁吸】）〕
 const HOOK_FAIL = process.env.HOOK_FAIL === 'off' ? '' : (process.env.HOOK_FAIL || 'nomatch')
@@ -10688,7 +10730,7 @@ function catchStartCore(G, card, side, skills, sink) {
   // 〈stealjack〉SJ_TOP=N：当 J 抢的那一手只收堆顶 N 张（照逆涌）
   if (G.prJack === card && size > 0 && process.env.SJ_TOP && G.sjTopCard === card) return Math.max(0, size - parseInt(process.env.SJ_TOP, 10))
   if (G.prJack === card && size > 0) return sink ? size - 1 : 0
-  const hook = has(skills, SK.HOOK)
+  const hook = HOOK_OLD && has(skills, SK.HOOK)
   const mag = magOn(G, card) || (!G.magOff && (has(skills, SK.MAGSELF) || has(skills, SK.POSNEG) || has(skills, SK.MAGREFLECT)))
   // 【负电】：这张打出去会给整堆通电 → 判定时整堆都按带负电算（真结算时 protoOnLand 已经贴上了，这儿是让 AI 试算也看得见）
   // 〈posneg〉：它会挑堆上任意 1 张贴负电 → 试算时每一张都按「可能带负电」算（它真正挑的就是钓得最深的那张）
@@ -11823,7 +11865,7 @@ function playFor(G, side, index, ai) {
   // 【负电】NEG_WHEN=after：这一手打出时就记下「它会不会通电」（结算完它可能已经被收走、标签也摘了）
   const negLater = NEG_WHEN === 'after' && negCharges(G, card, skills)
   if (negLater) G.negHand = G.negHand.filter(function (c) { return c !== card })
-  const hookWas = ((HOOK_FAIL === 'fail' || HOOK_FAIL === 'nomatch') && has(skills, SK.HOOK)) ? G.stat.caught[side] : -1
+  const hookWas = (HOOK_OLD && (HOOK_FAIL === 'fail' || HOOK_FAIL === 'nomatch') && has(skills, SK.HOOK)) ? G.stat.caught[side] : -1
   // 被抢：stealTry 记在**抢牌那一方**的下标上
   const hookSteals = G.stat.steal.stolen[side === ME ? FOE : ME]
   // 〈polefail〉：同一个捕获点（这一手开头的收牌数）
@@ -13838,6 +13880,45 @@ function dropLeaveTags(G, card) {
 
 // 〈magtag〉贴哪张：没带磁吸、不是 J、点数在顺位里；贴上之后「现在打收几张」涨得最多的。
 // 一样多（多半全是 0 —— 堆会变）就挑堆上顺位相邻的牌最多的那张
+// 【电钩】挑哪个颜色（true = 红，false = 黑，NaN = 不发动）〔2026-11-17 · 从原型〈magshow〉搬来，台账一百八十五·甲 / 乙〕：
+// 只能挑手里**至少 min（HOOK_SHOW_MIN）张**的颜色（J、已带正电的也算 —— 能亮来凑数；失去花色的没颜色）。
+// 两个颜色各算「能贴的牌里，贴上后现在多收几张」的最大值（= magPick 的标准），大的胜；一样多比能贴的牌跟堆上顺位相邻的总数
+function magShowColor(G, side, min) {
+  const hand = G.hands[side]
+  const best = { true: [-1, -1], false: [-1, -1] }
+  const cnt = { true: 0, false: 0 }
+  for (const c of hand) { const r0 = isRedSuit(c.suit); if (r0 === true || r0 === false) cnt[r0]++ }
+  for (const c of hand) {
+    const red = isRedSuit(c.suit)
+    if (c.rank === JACK || G.magKey.indexOf(c) >= 0 || (red !== true && red !== false)) continue
+    const vals = cardVals(c)
+    if (!vals.some(function (v) { return MAG_ORD.indexOf(v) >= 0 })) continue
+    const sk = skillsOf(G, side, c)
+    const a0 = catchStart(G, c, side, sk, false)
+    G.magKey.push(c)
+    const a1 = catchStart(G, c, side, sk, false)
+    G.magKey.pop()
+    const gain = (a1 >= 0 ? G.pile.length - a1 : 0) - (a0 >= 0 ? G.pile.length - a0 : 0)
+    let adj = 0
+    for (let k = 0; k < G.pile.length; k++) if (G.pile[k].rank !== JACK && magAdj(vals, pileValsAt(G, k))) adj++
+    const b = best[red]
+    if (gain > b[0]) b[0] = gain
+    b[1] = Math.max(b[1], 0) + adj
+  }
+  if (cnt[true] < min) best[true] = [-1, -1]
+  if (cnt[false] < min) best[false] = [-1, -1]
+  const r = best[true], k = best[false]
+  if (min > 1) {
+    // 诊断口：凑不够 / 导电会挑的那张所在颜色被挡掉
+    const st = PROTO_STAT.magtag
+    if (cnt[true] < min && cnt[false] < min) st.minFail++
+    const at = magPick(G, side)
+    if (at >= 0) { const pr = isRedSuit(hand[at].suit); if ((pr === true || pr === false) && cnt[pr] < min) st.minLost++ }
+  }
+  if (r[0] < 0 && k[0] < 0) return NaN
+  if (r[0] !== k[0]) return r[0] > k[0]
+  return r[1] >= k[1]
+}
 function magPick(G, side) {
   const hand = G.hands[side]
   let best = -1, bestGain = -1, bestAdj = -1
@@ -16489,7 +16570,34 @@ function iceHoldBlocks(G, side, idx) {
   if (blocked) PROTO_STAT.iceHold.held++
   return blocked
 }
+// 〔2026-11-17 · 用户「更换屯牌打法 收色 的X会不会提高」「把几张 花色匹配 的都按这个重量一下，并更新」· 台账一百八十〕
+// 带【花色匹配】的牌屯着打：收色 / 一色本身、手里贴了花色匹配的牌（传色 / 石影贴的）—— 这一手凑得成花色匹配才打，凑不成不当饵。
+//   传色**本身不屯**：量过屯它，A +2.83 / ♥ −2.38（每打一张给同颜色手牌全贴，屯的越屯越多），只屯贴的牌 A +3.15 / ♥ +8.31。
+//   SUIT_HOLD_MAX（默认开）：凑不成的几张里只屯堆上同花色最多的那一张（并列取靠前的）。全屯的话 ♥ 槽 13 张把手占满，一色 ♥ 8.91 → 6.22、传色崩到 −2.00；只屯一张两槽都不亏。
+//   SUIT_HOLD=0 = 不屯（复现之前）；SUIT_HOLD_MAX=0 = 全屯（对照）
+const SUIT_HOLD = process.env.SUIT_HOLD !== '0'
+const SUIT_HOLD_MAX = process.env.SUIT_HOLD_MAX !== '0'
+function suitHoldState(G, side, idx) {
+  const c = G.hands[side][idx]
+  const sk = skillsOf(G, side, c)
+  if (!(sk.indexOf(SK.HUE) >= 0 || sk.indexOf(SK.SUITIFY) >= 0 || matchKeyOn(G, c))) return ''
+  return harvestCount(G, c, sk, side) > 0 ? 'ready' : 'hold'
+}
+// 凑不成的那几张里留哪一张屯：堆上跟它（收色 = 跟堆底）同花色的张数最多的，并列取靠前的；-1 = 没有
+function suitHoldKeep(G, side) {
+  let best = -1, bestN = -1
+  for (let j = 0; j < G.hands[side].length; j++) {
+    if (suitHoldState(G, side, j) !== 'hold') continue
+    const c = G.hands[side][j]
+    const t = skillsOf(G, side, c).indexOf(SK.HUE) >= 0 && G.pile.length > 0 ? { suit: pileSuitAt(G, 0), rank: c.rank } : c
+    let n = 0
+    for (let i = 0; i < G.pile.length; i++) if (suitMatchAt(G, i, t, side)) n++
+    if (n > bestN) { bestN = n; best = j }
+  }
+  return best
+}
 function loHasHold(lo) {
+  if (SUIT_HOLD) for (const v of lo.suitOwner.concat(lo.rankOwner, lo.rankOwner2 || [])) if ([SK.HUE, SK.SUITIFY, SK.SUITCOLOR, SK.STONEHUE, SK.TRISUIT].indexOf(v) >= 0) return true
   if (HOLDSTR > 0) return true
   // 21 匹配的牌可能来自任何一件技能贴的标签，所以开着 HOLD21 就一律走屯牌那一段（holdStateOf 对别的牌返回 ''，不改它们的打法）
   if (HOLD21 > 0) return true
@@ -16522,6 +16630,12 @@ function pairJackOk(G, side, card) {
 }
 function holdStateOf(G, side, idx) {
   let has = false
+  // 【花色匹配】屯牌（SUIT_HOLD，见 suitHoldState）：凑得成就 ready；凑不成的几张里只屯一张（SUIT_HOLD_MAX），别的照常当饵
+  if (SUIT_HOLD) {
+    const st = suitHoldState(G, side, idx)
+    if (st === 'ready') return 'ready'
+    if (st === 'hold' && (!SUIT_HOLD_MAX || suitHoldKeep(G, side) === idx)) has = true
+  }
   if (ICE_HOLD_K > 0 && frostOnHand(G, G.hands[side][idx]) && loHasIce(G.loadouts[side])) {
     if (unfrozenPile(G) >= ICE_HOLD_K) return 'ready'
     has = true
@@ -16678,6 +16792,8 @@ function afterPlay(G, side, skills, played, ai) {
   if (has(skills, SK.TRAITOR)) {
     traitorFor(G, side)
     if (process.env.TRAITOR_ZERO !== '0') zeroKeyTag(G, side)
+    // TRAITOR_DRAFT=max〔2026-11-17 · 用户「盲选对方 1 张手牌带上【叛变】；手牌点数最大的 1 张牌带上【21 匹配】」〕：后半句照零递（doDraftTag max），配 TRAITOR_ZERO=0 去掉收零
+    if (process.env.TRAITOR_DRAFT === 'max' && doDraftTag(G, side, null, 'max')) PROTO_STAT.tagdraft.tagged++
   }
   // 【策连】：叛变按手里跟堆底同颜色的张数加码，不带收零
   if (has(skills, SK.TRAITORHUE)) traitorFor(G, side, 'hue')
@@ -17529,6 +17645,7 @@ function afterPlay(G, side, skills, played, ai) {
       }
     }
   }
+  if (has(skills, SK.TRISUIT)) trisuitFor(G, side)
   // 【传遍】（原型）：手里的牌都带上【花色匹配】（J 除外）
   if (has(skills, SK.SUITALL)) {
     const mine = G.hands[side]
@@ -19088,6 +19205,8 @@ const PROTO_STAT = {
   //   cashed【b】打出几次 / hits 其中成功几次 / got 成功时收走几张（含自己）
   // 收色 HUE_MODE=bottom：发动几次 / 花色真被改了几次 / 凑成几次 / 收走几张（含自己）
   huebottom: { fires: 0, changed: 0, hits: 0, got: 0 },
+  // 【三色】发动几次 / 抽了几张 / 新贴几张花色匹配 / 洗回几张 / 牌库摸空也凑不齐 3 种花色几次
+  trisuit: { fires: 0, draws: 0, tagged: 0, backed: 0, short: 0 },
   wallx: { suitFires: 0, suitTags: 0, sealFires: 0, sealSelf: 0, sealVoid: 0 },
   atag: { fires: 0, nSum: 0, nBig: 0, zeroed: 0, tagged: 0, cashed: 0, hits: 0, got: 0 },
   // 〈cmark〉：fires 发动几次 / layerSum 每次压的层数之和 / zeroed 新压出几张 0 点
@@ -19401,7 +19520,7 @@ const PROTO_STAT = {
   wildkey: { fires: 0, keyed: 0, wild: 0 },
   // 〈kwtag〉：发动 / 贴成
   kwtag: { fires: 0, tagged: 0 },
-  magtag: { fires: 0, tagged: 0, played: 0, needed: 0, deeper: 0 },
+  magtag: { fires: 0, tagged: 0, played: 0, needed: 0, deeper: 0, none: 0, minFail: 0, minLost: 0 },
   magself: { played: 0, needed: 0, deeper: 0 },
   hookfail: { fires: 0, failed: 0, stolen: 0, tagged: 0 },
   neg: { tagged: 0, charges: 0, chargedCards: 0, needOwn: 0, needOld: 0 },
@@ -20101,7 +20220,7 @@ function protoOnLand(G, side, skills, card, ai) {
     if (ok) st.tagged++
   }
   // 〔2026-11-05 量具〕磁钩 HOOK_FAIL=always：「【磁吸】，抽 1 张牌并带上【磁吸】」—— 打出那一刻结算（匹配之前），摸上来那张带磁吸
-  if (HOOK_FAIL === 'always' && has(skills, SK.HOOK)) {
+  if (HOOK_OLD && HOOK_FAIL === 'always' && has(skills, SK.HOOK)) {
     const st = PROTO_STAT.hookfail
     st.fires++
     const got = drawFor(G, side)
@@ -20122,6 +20241,19 @@ function protoOnLand(G, side, skills, card, ai) {
       G.negHand.push(pool[randInt(G.rng, pool.length)])
       PROTO_STAT.neg.tagged++
     }
+  }
+  // 【电钩】（现行）：挑一个颜色，至少亮 HOOK_SHOW_MIN 张，亮的里面能贴的都带上【正电】〔2026-11-17，照原型〈magshow〉MS_MIN=2〕
+  if (!HOOK_OLD && has(skills, SK.HOOK)) {
+    const st = PROTO_STAT.magtag
+    st.fires++
+    const refRed = magShowColor(G, side, HOOK_SHOW_MIN)
+    let n = 0
+    for (const c of G.hands[side]) {
+      if (c.rank === JACK || G.magKey.indexOf(c) >= 0 || isRedSuit(c.suit) !== refRed) continue
+      if (!cardVals(c).some(function (v) { return MAG_ORD.indexOf(v) >= 0 })) continue
+      G.magKey.push(c); st.tagged++; n++
+    }
+    if (n === 0) st.none++
   }
   // 〈magtag〉：N 张手牌带上【磁吸】
   if (has(skills, SK.MAGTAG) || has(skills, SK.NEGMAG)) {
@@ -20565,10 +20697,11 @@ const BAIT_REFILL = process.env.BAIT_REFILL !== '0'
 //   **那两格的「不许互减」仍然成立**，而且它正是后来 N 这条线能一次量全的理由：
 //   抽 N 洗 **N−1** 手牌净 0 → `refill` 全程空转 → **六格全无盲补、可以互减**
 //  （实测六格「我方出牌」全是 23.0，一位不差）。「钉死 1」那句是定稿前的话，已被用户否掉〕
-const SIFT_DRAW = process.env.SIFT_DRAW ? parseInt(process.env.SIFT_DRAW, 10) : 3
-const SIFT_BACK = process.env.SIFT_BACK ? parseInt(process.env.SIFT_BACK, 10) : 2
-// 〔2026-11-03 用户定上游戏，默认 3 = 游戏里那一版；SIFT_MIN=0 复现旧版〕
-const SIFT_MIN = process.env.SIFT_MIN !== undefined ? parseInt(process.env.SIFT_MIN, 10) : 3
+// 〔2026-11-17 用户定「滤饵 换成 摸4洗3」：默认 3 / 2 / 3 → 4 / 3 / 4（= 游戏里那一版）。复现旧版传 SIFT_DRAW=3 SIFT_BACK=2 SIFT_MIN=3〕
+const SIFT_DRAW = process.env.SIFT_DRAW ? parseInt(process.env.SIFT_DRAW, 10) : 4
+const SIFT_BACK = process.env.SIFT_BACK ? parseInt(process.env.SIFT_BACK, 10) : 3
+// 〔2026-11-03 用户定上游戏，默认 3 = 游戏里那一版；SIFT_MIN=0 复现旧版〕〔2026-11-17 跟着摸 4 改成 4〕
+const SIFT_MIN = process.env.SIFT_MIN !== undefined ? parseInt(process.env.SIFT_MIN, 10) : 4
 // 〔2026-11-03 用户定：换水是纯打法问题 —— 牌库空时选 0 张。默认 1 = 牌库空时 AI 不换（= 游戏里庄家那一条）；SWAP_MIN=0 复现旧 AI〕
 const SWAP_MIN = process.env.SWAP_MIN !== undefined ? parseInt(process.env.SWAP_MIN, 10) : 1
 // 【抢牌】之后谁先补牌〔2026-11-03 用户定规则：「第一个打出匹配的一方先补牌」〕：

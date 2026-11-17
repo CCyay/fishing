@@ -28,7 +28,8 @@ const LIST = [
   ['结冰 · 封凌', 'lockdraw', 'lockold', 0, {}],
   ['花色 · 收色', 'hue', 'lockold', 0, {}],
   ['顺序 · 插流', 'orderins', 'lockold', 0, {}],
-  ['收零 · 缩水', 'zerodrop', 'lockold', 0, {}],
+  // 〔2026-11-17 缩水 11-16 下架、这一格跑崩了 —— 收零族换回水（「【腐蚀】；1 张手牌带上【收零】」）当代表〕
+  ['收零 · 回水', 'backwater', 'lockold', 0, {}],
   ['♥ 槽 · 伏流', 'flow', 'mirror', 0, {}],
 ]
 const FILE = path.join(__dirname, 'anchors.json')

@@ -1880,6 +1880,9 @@ function cmdOne(args) {
 //       → `hits/flushed`（撞点数置 0 的占比 = 这个机制的损耗面）
 //         → **最后才看分**。
 function printHeapDiag() {
+  // 【三色】〔2026-11-17〕：每次抽几张 / 新贴几张花色匹配 / 洗回几张（抽 ≈ 洗回 = 手牌张数不变）
+  const ts = R.PROTO_STAT.trisuit
+  if (ts && ts.fires > 0) console.log('\n  ---- 诊断：【三色】---- 发动 ' + ts.fires + ' 次 · 抽 ' + (ts.draws / ts.fires).toFixed(2) + ' 张/次 · 新贴 ' + (ts.tagged / ts.fires).toFixed(2) + ' 张/次 · 洗回 ' + (ts.backed / ts.fires).toFixed(2) + ' 张/次 · 牌库摸空也凑不齐 3 种花色 ' + ts.short + ' 次')
   const h = R.PROTO_STAT.heap
   if (h.fires === 0 && h.tags === 0) return
   console.log('\n  ---- 诊断：【堆牌】 ----')
@@ -2253,6 +2256,8 @@ function printDraftTagDiag() {
     console.log('\n  ---- 诊断：〈magtag〉（MAG_N=' + (process.env.MAG_N || '1') + '）----')
     console.log('    发动 ' + mg.fires + ' 次：贴上 ' + f2(mg.tagged / mg.fires) + ' 张/次 · 带磁吸打出 ' + mg.played
       + '（兑现率 ' + pct(mg.played / Math.max(1, mg.tagged)) + '）')
+    if (mg.none) console.log('    没有能贴的牌 ' + mg.none + ' 次（' + pct(mg.none / mg.fires) + '）')
+    if (mg.minFail || mg.minLost) console.log('    电钩：同颜色凑不够 ' + mg.minFail + ' 次（' + pct(mg.minFail / mg.fires) + '）· 导电那张的颜色被挡掉 ' + mg.minLost + ' 次（' + pct(mg.minLost / mg.fires) + '）')
     console.log('    打出时：只有靠磁吸才钓得到 ' + pct(mg.needed / Math.max(1, mg.played)) + ' · 靠磁吸钓得更深 ' + pct(mg.deeper / Math.max(1, mg.played)))
   }
   const ms = R.PROTO_STAT.magself
