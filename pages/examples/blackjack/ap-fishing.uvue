@@ -758,7 +758,7 @@
 
     <!-- 冻结：挑庄家一张手牌锁住。借它那排点 —— 盖着的也点得中，
          你挑的是位置不是牌面 -->
-    <!-- 浑水：盲选庄家两张手牌，翻开并置 0（J 也算）。借庄家那排点 —— 盖着的也点得中。
+    <!-- 浑水〔2026-11-16 换成「【腐蚀】，展示跟堆底同颜色的手牌：每展示 1 张，此牌的效果再发动 1 次」〕：盲选庄家 1 + 同颜色张数 张，翻开并置 0（J 也算）。借庄家那排点 —— 盖着的也点得中。
          没有「不选」：置 0 只对你有利，没有不选的理由 -->
     <!-- 缩水：盲选庄家一张手牌明置置 0（J 也算），之后他手里每有 1 张 0 点牌全堆 −3（照浑水那块） -->
     <view v-if="shrinkPending" class="tide-box">
@@ -954,7 +954,7 @@
             :class="{
               'card-hint': canPlay && !darkKeyOn(card) && canCatch(card, false),
               'card-new': index == newIndex,
-              'card-frozen': isFrozen(card),
+              'card-frozen': isFrozen(card) || jackLocked(card),
               'card-steal': stealPending && !darkKeyOn(card) && canStealWith(card),
               'card-back': darkKeyOn(card)
             }"
@@ -1032,6 +1032,7 @@
                  跟推牌并排 —— 同一手牌可能两个标签都带着（两件技能各贴过） -->
             <text v-if="sinkTagText(card) != ''" class="hand-sink-tag">{{ sinkTagText(card) }}</text>
             <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
+            <text v-else-if="jackLocked(card)" class="card-frozen-tag">锁</text>
             <text v-else-if="foeKnows(index)" class="card-seen">被看</text>
             </view>
           </view>
@@ -1383,6 +1384,8 @@
     SK_ORDERSWAP,
     SK_PILEREFLECT,
     SK_TRAITOR,
+    // 策连〔2026-11-17 上架〕
+    SK_TRAITORHUE,
     ORDER_MIN,
     ORDER_FULL_MIN,
     STRAIGHT_MIN,
@@ -5481,6 +5484,10 @@
     if (index < hand.value.length && traitorOn(hand.value[index])) {
       return true
     }
+    // 【催钩】（拔钩人系列的庄家规矩）：你手里的 J 一直明置
+    if (index < hand.value.length && hand.value[index].rank == JACK && hasFoeSpecial('jimpulse')) {
+      return true
+    }
     return index < handSeen.value.length && handSeen.value[index]
   }
 
@@ -5566,6 +5573,23 @@
       }
     }
     return -1
+  }
+
+  // 【叠放】〔2026-11-12 用户定：「被收走时只收走最下面的牌」—— 等于 10-28 撤掉的【保护】那套结算并进叠放〕
+  // 第 index 张那一叠最下面那张在 stacked 里的下标，-1 = 没有叠。同一个宿主的几条按「上 → 下」排
+  //（垫在下面的 push 到最后），所以最后那条就是最下面。跟模拟器 rules.js 的 stackBottomAt 同一个判法
+  function stackBottomAt(index : number) : number {
+    if (index < 0 || index >= pile.value.length) {
+      return -1
+    }
+    const card = pile.value[index]
+    let at = -1
+    for (let i = 0; i < stacked.value.length; i++) {
+      if (stacked.value[i].host == card) {
+        at = i
+      }
+    }
+    return at
   }
 
   // 第 index 张底下压着几张**不算盾的**（抬水垫的 / 净水埋的）。
@@ -5897,7 +5921,8 @@
       clearFrostAt(index)
       return 0
     }
-    const ward = wardUnder(index)
+    // 〔2026-11-12〕底下有叠：只收走最下面那 1 张（算 1 张），宿主连同剩下的留在堆上（原先只有【保护】这样，现在所有叠放都这样）
+    const ward = stackBottomAt(index)
     if (ward >= 0) {
       const shield = pullStacked(ward)
       if (shield != null) {
@@ -5925,7 +5950,8 @@
     if (!iceBlindNow && frostAt(index)) {
       return true
     }
-    return wardAt(index)
+    // 〔2026-11-12〕口径跟 takeAt 一起换成「底下有叠就留下」（原先只认保护）
+    return stackBottomAt(index) >= 0
   }
 
   // 摘掉 stacked 里第 at 条，返回那张牌（保护被消耗时用）
@@ -6850,6 +6876,19 @@
   function isFrozen(card : PlainCard) : boolean {
     for (let i = 0; i < held.value.length; i++) {
       if (held.value[i].skill == SK_FREEZE && held.value[i].target == card) {
+        return true
+      }
+    }
+    return false
+  }
+  // 【催钩】〔2026-11-16 · 拔钩人系列的庄家规矩〕：你手里有 J 时，别的牌打不出（出牌、抢牌都算）—— 必须先打 J。
+  // 只管玩家（庄家规矩的边界照硬壳 / 枯水）。模拟器 rules.js isFrozen 里 jimpulse 那一支同一条
+  function jackLocked(card : PlainCard) : boolean {
+    if (card.rank == JACK || !hasFoeSpecial('jimpulse') || hand.value.indexOf(card) < 0) {
+      return false
+    }
+    for (let i = 0; i < hand.value.length; i++) {
+      if (hand.value[i].rank == JACK) {
         return true
       }
     }
@@ -9135,6 +9174,9 @@
 
   // 你手里这张抢得动吗（模板里的金边和 onStealWith 的闸共用这一条）
   function canStealWith(card : PlainCard) : boolean {
+    if (jackLocked(card)) {
+      return false
+    }
     return stealGainOf(card, false) > stealTarget.value
   }
 
@@ -9364,6 +9406,10 @@
     const card = hand.value[index]
     if (isFrozen(card)) {
       uni.showToast({ title: '这张被冻住了，抢不了', icon: 'none' })
+      return
+    }
+    if (jackLocked(card)) {
+      uni.showToast({ title: '催钩：手里有 J，只能拿 J 抢', icon: 'none' })
       return
     }
     // 【暗牌】看不见它能收几张 —— 不拿它抢（照模拟器）
@@ -10735,12 +10781,13 @@
     if (lastPlayed != null && hasTrigger(skills, SK_ZERODROP) && shrinkDoneCard != lastPlayed) {
       shrinkDoneCard = lastPlayed
       // 〔2026-10-30 改成盲选（照浑水）：池子 = 他还没置 0 的牌，J 也在里面〕
-      if (!byFoe && murkPool(false).length > 0) {
+      // 〔2026-11-16 desc 改成【腐蚀】：他整手都已置 0 就先让他抽 1 张（corrodeReady）〕
+      if (!byFoe && corrodeReady(false)) {
         shrinkPending.value = true
         shrinkSkills = skills
         return
       }
-      if (byFoe) {
+      if (byFoe && corrodeReady(true)) {
         const pool = murkPool(true)
         if (pool.length > 0) {
           const at = pool[Math.floor(Math.random() * pool.length)]
@@ -11026,23 +11073,37 @@
         }
       }
     }
-    // 【浑水】：对方先抽 1 张（不自动置 0），然后盲选他 2 张明置置 0（J 也算）。
-    // 照模拟器 rules.js 的 drawzero blind 档：池子 = 他还没置 0 的牌，随机挑
+    // 【浑水】〔2026-11-16 用户定换效果：原「对方抽 1 张牌，之后盲选对方 2 张手牌明置置 0」〕
+    // 「【腐蚀】，展示跟堆底同颜色的手牌：每展示 1 张，此牌的效果再发动 1 次」—— 一共腐蚀 1 + 同颜色张数 次，每次先过 corrodeReady。
+    // 展示 = 自动全亮（没有不亮的理由），只在消息里报，不明置。堆底 = 它落堆之后的第 0 张（堆空过就是它自己，照满墙）；失去花色的没有颜色。
+    // 照模拟器 rules.js 的〈zerorepeat〉ZR_REF=color ZR_DRAW=1（台账一百七十三·丙）
     if (hasTrigger(skills, SK_MURK) && askFirst(SK_MURK)) {
-      drawFor(!byFoe)
-      const room = murkPool(byFoe).length
-      if (room > 0) {
-        if (!byFoe) {
-          murkLeft.value = room < 2 ? room : 2
+      const bottomSuit = pile.value.length > 0 ? pileSuitAt(0) : (lastPlayed != null ? lastPlayed!.suit : '')
+      const mine = byFoe ? foeHand.value : hand.value
+      let rep = 0
+      let shown = ''
+      for (let i = 0; i < mine.length; i++) {
+        if (sameColor(mine[i].suit, bottomSuit)) {
+          rep = rep + 1
+          shown = shown + (shown == '' ? '' : '、') + cardName(mine[i])
+        }
+      }
+      if (rep > 0) {
+        message.value = message.value + (byFoe ? ' 庄家浑水：展示 ' : ' 浑水：展示 ') + shown + '，腐蚀多发动 ' + rep + ' 次。'
+      }
+      if (!byFoe) {
+        if (corrodeReady(false)) {
+          murkLeft.value = 1 + rep
           murkPending.value = true
           return
         }
+      } else {
         // 庄家是真的盲选 —— 随机（它看得见你的牌也不许挑，那就不叫盲选了）
-        for (let n = 0; n < 2; n++) {
-          const pool = murkPool(true)
-          if (pool.length == 0) {
+        for (let n = 0; n < 1 + rep; n++) {
+          if (!corrodeReady(true)) {
             break
           }
+          const pool = murkPool(true)
           const at = pool[Math.floor(Math.random() * pool.length)]
           markDead(true, at, true, '浑水')
           handSeen.value = withFlag(handSeen.value, at)
@@ -11079,6 +11140,41 @@
           zeroKey.value = zeroKey.value.concat([foeHand.value[mine]])
           message.value = message.value + ' 庄家策反：手里 1 张带上了收零。'
         }
+      }
+    }
+    // 【策连】〔2026-11-17〕：盲选对方 1 张手牌带上【叛变】；展示跟堆底同颜色的手牌，每展示 1 张再盲选 1 张。
+    // 展示自动全亮（照模拟器 AI 全展示）。堆底 = 落堆之后最下面那张（照传色 / 磁场）；失去花色的不算同色（sameColor 认空串）
+    if (hasTrigger(skills, SK_TRAITORHUE) && askFirst(SK_TRAITORHUE)) {
+      const theirs = byFoe ? hand.value : foeHand.value
+      const mine = byFoe ? foeHand.value : hand.value
+      const bottomSuit = pile.value.length > 0 ? pileSuitAt(0) : ''
+      let shownText = ''
+      let n = 1
+      for (let i = 0; i < mine.length; i++) {
+        if (sameColor(mine[i].suit, bottomSuit)) {
+          n = n + 1
+          shownText = shownText + (shownText == '' ? '' : '、') + cardName(mine[i])
+        }
+      }
+      const pool : number[] = []
+      for (let i = 0; i < theirs.length; i++) {
+        if (!traitorOn(theirs[i])) {
+          pool.push(i)
+        }
+      }
+      let tagged = 0
+      let taggedText = ''
+      while (tagged < n && pool.length > 0) {
+        const k = Math.floor(Math.random() * pool.length)
+        const at = pool[k]
+        pool.splice(k, 1)
+        traitorKey.value = traitorKey.value.concat([theirs[at]])
+        taggedText = taggedText + (taggedText == '' ? '' : '、') + cardName(theirs[at])
+        tagged = tagged + 1
+      }
+      if (tagged > 0) {
+        message.value = message.value + (byFoe ? ' 庄家策连' : ' 策连') + (shownText == '' ? '' : '（展示了 ' + shownText + '）') + '：'
+          + (byFoe ? '你的 ' : '庄家的 ') + taggedText + ' 带上了【叛变】' + (byFoe ? '（明着；打出后你剩下的手牌全部置 0）。' : '。')
       }
     }
     // 【漂白】：对方**此刻**手里的牌都失去花色（永久，落堆后也没有；之后新摸的不受影响）。
@@ -11453,9 +11549,10 @@
     }
     // 【回水】〔2026-10-30〕：盲选对方 1 张手牌明置置 0（J 也算，照浑水），再给自己 1 张手牌贴【收零】（照褪递）。
     // 它自己照常匹配、不置 0。你出它时停两下：先点庄家那排，再点自己的手牌（onBackwater → onBackTag → resolveMatch）
+    // 〔2026-11-16 desc 改成【腐蚀】：他整手都已置 0 就先让他抽 1 张（corrodeReady）〕
     if (hasTrigger(skills, SK_BACKWATER) && lastPlayed != null && askFirst(SK_BACKWATER)) {
       if (!byFoe) {
-        if (murkPool(false).length > 0) {
+        if (corrodeReady(false)) {
           backPending.value = true
           return
         }
@@ -11465,7 +11562,7 @@
         }
       } else {
         // 庄家是真的盲选 —— 随机（照浑水）
-        const pool = murkPool(true)
+        const pool = corrodeReady(true) ? murkPool(true) : ([] as number[])
         if (pool.length > 0) {
           const at = pool[Math.floor(Math.random() * pool.length)]
           markDead(true, at, true, '回水')
@@ -15539,6 +15636,20 @@
     return out
   }
 
+  // 【腐蚀】〔2026-11-16 用户定关键词〕要置 0 之前先看一眼：对方手牌都已经是 0 点 → 对方先抽 1 张（这张就是这一次置 0 的目标）。
+  // 返回这一次有没有能置 0 的牌（牌库空、抽不到 → false，这一次不发动）。浑水 / 缩水 / 回水三处共用 —— 复制一份逻辑，两份必然分叉
+  function corrodeReady(byFoe : boolean) : boolean {
+    if (murkPool(byFoe).length > 0) {
+      return true
+    }
+    if (deck.value.length == 0) {
+      return false
+    }
+    drawFor(!byFoe)
+    message.value = message.value + (byFoe ? ' 腐蚀：你的手牌都已置 0，你先抽 1 张。' : ' 腐蚀：庄家的手牌都已置 0，庄家先抽 1 张。')
+    return murkPool(byFoe).length > 0
+  }
+
   // 缩水：你盲选了庄家第 index 张 → 置 0（明置）→ 全堆减 → 从 afterPlayTail 入口接着走（收零在后面那段）
   function onShrink(index : number) {
     if (!shrinkPending.value) {
@@ -15568,7 +15679,8 @@
     // 明置：翻开这一张（foeOpen 读 foeShown）
     foeShown.value = withFlag(foeShown.value, index)
     murkLeft.value = murkLeft.value - 1
-    if (murkLeft.value > 0 && murkPool(false).length > 0) {
+    // 下一次腐蚀之前照样先过 corrodeReady（庄家整手都置 0 了就让他先抽 1 张）
+    if (murkLeft.value > 0 && corrodeReady(false)) {
       return
     }
     murkPending.value = false
@@ -17726,6 +17838,11 @@
       uni.showToast({ title: '这张被冻住了，打不出去', icon: 'none' })
       return
     }
+    // 【催钩】手里有 J 就得先打 J
+    if (jackLocked(hand.value[index])) {
+      uni.showToast({ title: '催钩：手里有 J，必须先打 J', icon: 'none' })
+      return
+    }
     const card = hand.value[index]
     newIndex.value = -1
     // 出牌记录先预约（**必须在 playFor 前面**，理由见 logPlay 那段）。
@@ -18698,6 +18815,10 @@
       if (isFrozen(card)) {
         continue
       }
+      // 【屯】门槛没到的（冰钥匙 / 21 匹配 / 顺子匹配）钓得着也先不打（照模拟器 iceHoldBlocks / maxdHoldBlocks）
+      if (foeHoldBlocks(card)) {
+        continue
+      }
       // ---- 【捏 J】堆太薄就先不打 J〔2026-10-27〕 ----
       //
       // J 通吃整堆，所以它的收成**就是堆长 + 1** —— 空堆打 J 只收 1 张，
@@ -18787,8 +18908,33 @@
     if (best >= 0) {
       return best
     }
+    // ---- 【屯】走到这儿 = 这一手没牌钓得着〔2026-11-16 从模拟器 ai.js pickCardCore 挑饵那一段搬过来〕 ----
+    // 要屯的牌条件成立了就先打它（钓得着的那一支在上面主循环里照常比收成）；条件不成立就不当饵扔 ——
+    // 手里只剩这种牌时由 randomFree 兜底（= 忍不住）
+    let readyAt = -1
+    let readyScore = 99.0
+    const held : number[] = []
+    for (let i = 0; i < foeHand.value.length; i++) {
+      const card = foeHand.value[i]
+      if (card.rank == JACK || isFrozen(card)) {
+        continue
+      }
+      const hs = foeHoldState(card)
+      if (hs == 'ready') {
+        const s = baitRisk(card) * 1.0
+        if (s < readyScore) {
+          readyScore = s
+          readyAt = i
+        }
+      } else if (hs == 'hold') {
+        held.push(i)
+      }
+    }
+    if (readyAt >= 0) {
+      return readyAt
+    }
     if (!level.value.smart) {
-      return randomFree()
+      return randomFreeExcept(held)
     }
     let fewest = 99
     for (let i = 0; i < foeHand.value.length; i++) {
@@ -18803,6 +18949,10 @@
     for (let i = 0; i < foeHand.value.length; i++) {
       const card = foeHand.value[i]
       if (card.rank == JACK || isFrozen(card)) {
+        continue
+      }
+      // 要屯的牌不当饵
+      if (held.indexOf(i) >= 0) {
         continue
       }
       let score = baitRisk(card) * 1.0
@@ -18935,6 +19085,96 @@
       }
     }
     return free.length == 0 ? -1 : free[Math.floor(Math.random() * free.length)]
+  }
+  // 同上，但先不挑 skip 里那几张；挑不出来再退回 randomFree（= 忍不住）
+  function randomFreeExcept(skip : number[]) : number {
+    const free : number[] = []
+    for (let i = 0; i < foeHand.value.length; i++) {
+      if (!isFrozen(foeHand.value[i]) && skip.indexOf(i) < 0) {
+        free.push(i)
+      }
+    }
+    return free.length == 0 ? randomFree() : free[Math.floor(Math.random() * free.length)]
+  }
+
+  // ---------- 庄家的「屯」打法〔2026-11-16 · 用户「给源码庄家补上屯牌」〕----------
+  // 照模拟器：rules.js 的 holdStateOf / maxdHoldBlocks / iceHoldBlocks + 技能表项的 hold 标注，ai.js pickCardCore 挑饵那一段。
+  // 模拟器量庄家强度（foe-ruler 白板尺子、campaign）一直是按屯着打量的，源码这边原先不会屯 —— 实机比抽档表偏易。
+  // 新手关（level.random）照旧完全随机，不走这儿（模拟器同样：随机档 pickCard 开头就随机返回）。
+  // 门槛照模拟器默认值：21 匹配 / 顺子匹配「收 3 张以上才打」（HOLD21 / HOLDSTR = 3）、冰钥匙「堆上没带冰的 ≥ 3 张」（ICE_HOLD_K = 3）
+  const FOE_HOLD_N = 3
+  // 庄家配装里有没有结冰那几件（照模拟器 loHasIce：封凌 / 隔凌 / 冰雷）
+  function foeHasIce() : boolean {
+    const lo = foeLoadout.value
+    const ice : number[] = [SK_LOCKDRAW, SK_LOCKCOLOR, SK_ICEBOMB]
+    for (let k = 0; k < ice.length; k++) {
+      if (ice[k] >= 0 && (lo.suitOwner.indexOf(ice[k]) >= 0 || lo.rankOwner.indexOf(ice[k]) >= 0)) {
+        return true
+      }
+    }
+    return false
+  }
+  function unfrozenCount() : number {
+    let n = 0
+    for (let i = 0; i < pile.value.length; i++) {
+      if (!frostAt(i)) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+  // 门槛没到、钓得着也先别打：冰钥匙 / 21 匹配 / 按自己点数走的顺子匹配（带通配的不屯 —— 模拟器「对通配不用」）
+  function foeHoldBlocks(card : PlainCard) : boolean {
+    if (level.value.random || card.rank == JACK) {
+      return false
+    }
+    if (frostOnHand(card) && foeHasIce()) {
+      return unfrozenCount() < FOE_HOLD_N
+    }
+    const skills = skillsOf(true, card)
+    if (flowKeyOn(card) && wildCards.value.indexOf(card) < 0) {
+      const at = catchStart(card, true, skills, false)
+      const n = Math.max(flowKeyCount(card, true), at >= 0 ? catchCountCut(at, false, card) : 0)
+      return n < FOE_HOLD_N
+    }
+    if (draftKeyOn(card) || hasTrigger(skills, SK_HANDMAX)) {
+      const at = catchStart(card, true, skills, false)
+      const n = at >= 0 ? catchCountCut(at, false, card) : 0
+      return n < FOE_HOLD_N
+    }
+    return false
+  }
+  // 'ready' = 条件成立了，这一手没牌钓得着就先打它；'hold' = 先留着、不当饵；'' = 不归屯管
+  function foeHoldState(card : PlainCard) : string {
+    if (level.value.random || card.rank == JACK) {
+      return ''
+    }
+    const skills = skillsOf(true, card)
+    // 【升钩】手里有比它大 1 个顺位的牌才打（模拟器 nextJackReady）
+    if (hasTrigger(skills, SK_NEXTJACK)) {
+      return nextJackHits(true, card).length > 0 ? 'ready' : 'hold'
+    }
+    // 【对钩】手里另有一对、堆上有牌才打（模拟器 pairjack 的 hold）
+    if (hasTrigger(skills, SK_PAIRJACK)) {
+      return pile.value.length > 0 && pairJackPair(true, card).length == 2 ? 'ready' : 'hold'
+    }
+    // 【策连】手里（不含它）有 1 张跟堆底同颜色才打；堆空时堆底就是它自己（模拟器 trHueReady）
+    if (hasTrigger(skills, SK_TRAITORHUE)) {
+      const bottom = pile.value.length > 0 ? pileSuitAt(0) : card.suit
+      for (let i = 0; i < foeHand.value.length; i++) {
+        if (foeHand.value[i] != card && sameColor(foeHand.value[i].suit, bottom)) {
+          return 'ready'
+        }
+      }
+      return 'hold'
+    }
+    if (frostOnHand(card) && foeHasIce()) {
+      return unfrozenCount() >= FOE_HOLD_N ? 'ready' : 'hold'
+    }
+    if ((flowKeyOn(card) && wildCards.value.indexOf(card) < 0) || draftKeyOn(card) || hasTrigger(skills, SK_HANDMAX)) {
+      return foeHoldBlocks(card) ? 'hold' : 'ready'
+    }
+    return ''
   }
 
   function newGame() {

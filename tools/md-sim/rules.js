@@ -1154,6 +1154,51 @@ const SKILLS = [
   //   打出时手里剩下的牌里有一对（判法 tojPairReady：J / 0 点 / 无点数凑不成对）→ 它变成 J：堆上有别的牌 → 这一手按 J 通吃（G.prJack，照〈asjack〉）；
   //   堆是空的 → 改牌面成 J，照「J 落在空堆上只勾走自己」。AI：harvestCount / 抢牌挑牌（stealTryCore 的 nJack）都认它；屯 = 凑得出一对而且堆上有牌才 ready。
   //   诊断口 PROTO_STAT.pairjack。上午那一版「其中 1 张明置变成 J」= TOJ_PAIR=1 one tojack（台账一百四十七 / 一百四十八）
+  //〈takenpush〉〔2026-11-13 · 用户：「评价 被收走时，推牌 2」；用户定读法：它（这件技能的牌打出后）被收走时，当场从牌库翻 2 张到堆上〕
+  //   打出时它记进 G.tpTag（不记是谁打的 —— 谁收走都触发）；takeAtCore 里它真离场（收走 / 整叠带走）才算，冰挡住、叠里只剥了别的不算。
+  //   那一手结算完（resolveMatch 尾巴）从牌库顶翻 TP_N 张（默认 2）落堆顶，撞点数的按 0 点落（照旧【推牌】的 surgePushOne）；牌库不够 TP_N 张就不翻（偶数不翻奇偶）。
+  //   AI 不知道这一层（不会避开收它、也不会避免拿它自己去钓）。诊断口 PROTO_STAT.takenpush：打出 / 触发（打它的一方自己收 vs 对方收）/ 翻了几张 / 牌库不够
+  { key: 'takenpush', name: '〈takenpush〉' },
+  //〈xmatch〉「X：带 X 标签的牌可以互相匹配；技能：自带 X」〔2026-11-13〕实现见 valuesOf 上面那段（虚拟点数 X_V）
+  { key: 'xmatch', name: '〈xmatch〉' },
+  //〈xpass〉「自带 X；1 张手牌带上 X」〔2026-11-13 用户〕手牌那张记进 G.xHand（打出落堆时 landVals 带上 X_V、随即从表里摘掉）。
+  //   挑哪张（AI，启发式 = 下限）：现在钓不到东西的优先，同样的挑点数大的；J 不贴。诊断口 PROTO_STAT.xmatch（xOnly = 关掉 X 就钓不中的次数）
+  { key: 'xpass', name: '〈xpass〉' },
+  //〈shrinktag〉「N 张手牌带上【缩小】」〔2026-11-13〕SHRINK_N（默认 1；99 = 全贴）。【缩小】判法见 halfMatch。诊断口 PROTO_STAT.shrink（halfOnly = 关掉缩小就钓不中）
+  { key: 'shrinktag', name: '〈shrinktag〉' },
+  //〈fragfoe〉〔2026-11-13 · 用户：「脆弱：堆上有跟此牌相同点数的牌时，此牌点数置 0。技能：对方手牌全带上【脆弱】」〕
+  //   【脆弱】挂在手牌上（G.fragile：牌 → 贴它的一方），只要还在手里、堆上出现同点数的牌（点数表有交集）就当场置 0（doDead，明置）。
+  //   什么时候查：贴完立刻查一次；之后每一手结算完（resolveMatch 尾巴）、每次补牌完（refill 尾巴）各查一次 —— 堆变了的时刻都覆盖到。
+  //   打出去 = 离手，标签跟着没（不带到堆上）。J（堆上从来没有 11）和已经是 0 的不贴。诊断口 PROTO_STAT.fragile
+  { key: 'fragfoe', name: '〈fragfoe〉' },
+  //〈impulse〉〔2026-11-16 · 用户：「冲动：手牌带【冲动】标签的牌必须优先打出」〕标签挂在手牌上（G.impulse），持有人手里有带它的牌时只能打带它的（几张就几张里挑）；
+  //   出牌 / 抢牌都算（走 isFrozen）。打出去就离手、标签没了。载体 IMP_MODE：blind = 盲选对方 1 张（明置，默认）/ pick = 看他手牌挑 1 张（J 优先，
+  //   其次现在钓得中的 = 逼他匹配、送去被抢）/ catch = 他手里现在钓得中的都贴。诊断口 PROTO_STAT.impulse
+  { key: 'impulse', name: '〈impulse〉' },
+  //〈pileswap〉〔2026-11-16 · 用户：「改变牌堆排序是否可行」→ 先量纯换位的基准；同日加「查看对方手牌，选择堆上 2 张牌交换位置」〕
+  //   「可以选择堆上 2 张牌交换位置」（不带【顺序匹配】）。时机：落堆之后、匹配之前（照调序）；打出的这张不参与换（它在堆顶、是这一手的出牌）。
+  //   挑法（穷举，照「自选位置类技能要穷举实现」那条）：
+  //     ① 钓得中（普通匹配）→ 把钓得中的最深那张换到堆底 = 整堆收走；
+  //     ② 钓不中 → 换成「对方下一手最多能收几张」最小的那个排列（PS_VIEW=1：看他真手牌算 = 「查看对方手牌，…」那一版；
+  //        默认 0：不看，按外面剩的同点数加权估）。都不比不换好就不换。PS_DEF=0 关掉 ②（只看进攻）。
+  //   AI 估值：harvestCount / 抢牌挑牌都按「钓得中 → 整堆」估。诊断口 PROTO_STAT.pileswap
+  { key: 'pileswap', name: '〈pileswap〉' },
+  //〈gateline〉〔2026-11-16 · 用户：「【闸门】：普通匹配时此牌及此牌底下的牌不会被收走，除非是跟此牌同点数的匹配。技能：【闸门】，1 张手牌带上顺子匹配」〕
+  //   【闸门】贴在堆上那张牌上（G.gate，不记是谁贴的）。〔同日补：J 通吃收到闸门为止、闸门收走、底下的留下〕普通匹配（不含 J 通吃、不含 21 / 顺子 / 花色 / 顺序 / 收零这些特殊匹配）
+  //   收的那一段里有闸门 → 只收闸门**以上**的牌 + 打出的那张，闸门和它底下的留下；打出的牌跟闸门同点数（点数表有交集）就不拦。
+  //   有几道取最高那一道。挡了不消耗（闸门一直在，直到被 J / 同点数 / 特殊匹配收走）。沉底那一支不管（落堆底的收法另一回事）。
+  //   结算在 resolveMatchCore 落堆顶那一支（石墙截断后面）；AI 估值 / 抢牌比张数走 catchCountAt 的外包。顺子钥匙照石顺（straightKeyPick → G.flowHand）。
+  //   GATE_KEY=0 = 只有【闸门】那半句（拆分用）。诊断口 PROTO_STAT.gate
+  { key: 'gateline', name: '〈gateline〉' },
+  //〈twin21〉〔2026-11-16 · 用户：「把 2 张手牌的点数变成 21」；用户定：两张各自变成 21 点、明置〕
+  //   改的是点数（value = 21、extra 清空），牌面 rank 不动（槽照旧按牌面触发 —— 照【归十】「只改点数」那条；源码真做时要定牌面跟不跟着变）。
+  //   场上没有别的 21，所以这两张只能互相匹配（J 照收、钓中它下面的牌时它跟着走）。21 匹配的预算 = 21 − 21 = 0，走不了那条线。
+  //   挑哪两张（AI，启发式 = 下限）：现在钓不到东西的优先，同样的挑点数小的；J、0 点、无点数、已经是 21 的不挑。诊断口 PROTO_STAT.twin21
+  { key: 'twin21', name: '〈twin21〉' },
+  //〈restrain〉〔2026-11-16 · 用户：「对方手牌都带上【克制】。【克制】：只要手牌有带【克制】标签的手牌，自己不能补牌」〕
+  //   标签挂在手牌上（G.restrain），持有人手里还有带它的牌就不补（refill 外包里拦）；打出去就离手、标签没了。J 也贴。
+  //   诊断口 PROTO_STAT.restrain：发动 / 贴几张 / 少补的回合（拦下几次 refill）/ 拦下时手里平均几张
+  { key: 'restrain', name: '〈restrain〉' },
   { key: 'pairjack', name: '对钩', hold: function (G, side, idx) { return G.pile.length > 0 && tojPairReady(G, side, idx) } },
   // 〈keyjack〉〔2026-11-04 用户要评价「给全部手牌带上【钥匙】；【钥匙】：带【钥匙】的牌再次带上【钥匙】时变成 J」〕：
   //   打出时手里每张：已带钥匙 → 变成 J（照〈tojack〉改牌面）；没带 → 带上。G.keyTag = 带钥匙的牌（Set，按牌认）
@@ -1202,7 +1247,7 @@ const SKILLS = [
   //   收零 = resolveMatch 里那条现成的「堆上有 0 点牌 → 连它自己收走全部 0 点牌」特殊匹配
   //   ZD_WHO=foe|mine：「手牌」读成对方的（默认）还是你自己的 —— 原话没说，两种都量
   //   ZD_STEP：每张 0 减几点（默认 3）
-  { key: 'zerodrop', name: '缩水' },
+  // 〔【缩水】zerodrop 2026-11-16 用户定下架：点数减少 + 收零让 1~3 点的槽把自己的小牌（最好的料）吃掉，槽不平（台账一百七十五·甲）。SK.ZERODROP → SK_GONE；墓碑在 draw-skills 的 DEAD_SKILLS〕
   // ---------- 2026-10-29 夜 · 用户要评价：「置0，21匹配」----------
   //〈zeroself〉=「置 0；【21 匹配】」—— 已删【吃水】（「【21 匹配】」，预算 = 21 − 它的点数）再加一句置 0，
   //   于是预算恒 21、跟槽上印的点数脱钩（吃水 R4：A 2.89 / 7 1.62 / K 0.62 就死在那条斜率上）。
@@ -1679,7 +1724,11 @@ const SKILLS = [
   { key: 'turncoat', name: '〈turncoat〉' },
   // 〈traitor〉【叛变】第三版〔2026-11-02〕：对方抽 1，盲选他 1 张带【叛变】；叛变牌打出后他手牌全部置 0 —— 见 traitorFor
   // 〔2026-11-02 上架成【策反】（用户定）。默认值 = 游戏那一档：TR_DRAW=0（没有「对方抽 1」）、TRAITOR_AI=naive〕
-  { key: 'traitor', name: '策反' },
+  // 〔2026-11-16 · 用户「增加打法对比（手牌有 N 张跟堆底同颜色的才打）」〕TR_HUE_HOLD=N：带屯标注 —— 手里（不含它）跟堆底同颜色的牌够 N 张才 ready，不够就不当饵扔（堆空时堆底 = 它自己）
+  { key: 'traitor', name: '策反', hold: process.env.TR_HUE_HOLD ? trHueReady : undefined },
+  // 【策连】〔2026-11-17 用户定上架，策反保留〕「盲选对方 1 张手牌带上【叛变】；可以展示跟堆底同颜色的手牌，每展示 1 张再盲选 1 张带上【叛变】」
+  //   = 策反的 TRAITOR_N=hue 那一档、不带收零（台账一百六十八）。屯：手里（不含它）有 1 张跟堆底同颜色才打（trHueReady，TR_HUE_HOLD 不设时按 1）
+  { key: 'traitorhue', name: '策连', hold: function (G, side, idx) { return trHueReady(G, side, idx, 1) } },
   // 〈traitorzero〉〔2026-11-02 · 用户要评价〕对方 1 张手牌带上【叛变】（照策反 traitorFor），自己 1 张手牌带上【收零】（照回水 zeroKeyTag）
   // 〔2026-11-03 并进【策反】（用户定）—— 这个原型留着当对照，跟现行策反逐位同一件事〕
   { key: 'traitorzero', name: '〈traitorzero〉' },
@@ -2334,7 +2383,7 @@ const SK = {
   STONEPICK: SK_GONE, STONEHUE: skAt('stonehue'),
   STONEBASE: skAt('stonebase'), STONEFULL: skAt('stonefull'),
   // 塞墙 2026-10-29 判废（墓碑在 SKILLS）；埋墙留着
-  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), DECKBLEACH: skAt('deckbleach'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), PAIRJACK: skAt('pairjack'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: skAt('zerodrop'), ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), BIGNUM: skAt('bignum'), VAULT: skAt('vault'), HANDMAX: skAt('handmax'), COLORSHIFT: skAt('colorshift'), POLETAG: skAt('poletag'), POLEPASS: skAt('polepass'), POLEDRAW: skAt('poledraw'), POLEMARK: skAt('polemark'), POLEDRAWTAG: skAt('poledrawtag'), POLEPASSDRAW: skAt('polepassdraw'), POLEHUE: skAt('polehue'), POLESUITALL: skAt('polesuitall'), POLECOLORALL: skAt('polecolorall'), POLEFAIL: skAt('polefail'), POLEHUEPASS: skAt('polehuepass'), SWAPSTEP: skAt('swapstep'), PILEAS: skAt('pileas'), DRAWAS: skAt('drawas'), SWAPSTRAIGHT: skAt('swapstraight'), DRAWWILD: skAt('drawwild'), HANDWILD: skAt('handwild'), DECKORDER: skAt('deckorder'), PEEKTAKE: skAt('peektake'), DARKDRAW: skAt('darkdraw'), DARKSWAP: skAt('darkswap'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
+  STONEHAND: SK_GONE, STONEDECK: skAt('stonedeck'), STONEPASS: skAt('stonepass'), HEAPWALL: skAt('heapwall'), PUSHWALL: skAt('pushwall'), ZEROTAG: skAt('zerotag'), SORTDRAFT: skAt('sortdraft'), STACKDRAFT: SK_GONE, WILDKEY: skAt('wildkey'), FLOWDRAFT: skAt('flowdraft'), FLOWALL: skAt('flowall'), FLOWPASS: skAt('flowpass'), REFLECTTAG: skAt('reflecttag'), DECKZERO: skAt('deckzero'), DECKBLEACH: skAt('deckbleach'), COPYFOE: skAt('copyfoe'), COPYSUIT: skAt('copysuit'), COPYRANK: skAt('copyrank'), RANKZERO: skAt('rankzero'), ZEROFETCHJ: skAt('zerofetchj'), TOJACK: skAt('tojack'), PAIRJACK: skAt('pairjack'), XMATCH: skAt('xmatch'), XPASS: skAt('xpass'), SHRINKTAG: skAt('shrinktag'), FRAGFOE: skAt('fragfoe'), IMPULSE: skAt('impulse'), PILESWAP: skAt('pileswap'), GATELINE: skAt('gateline'), TWIN21: skAt('twin21'), RESTRAIN: skAt('restrain'), TAKENPUSH: skAt('takenpush'), KEYJACK: skAt('keyjack'), NEXTJACK: skAt('nextjack'), GIVEJACK: skAt('givejack'), FLIPJACK: skAt('flipjack'), NOSTEAL: skAt('nosteal'), KWSELF: skAt('kwself'), KWTAG: skAt('kwtag'), DRAWZERO: skAt('drawzero'), MURK: skAt('murk'), ZERODROP: SK_GONE, ZEROSELF: skAt('zeroself'), MINUS2N: skAt('minus2n'), BOARDSELF: SK_GONE, BOARDFOE: SK_GONE, ZEROFOE: skAt('zerofoe'), ZEROMINUS: skAt('zerominus'), ZEROHEAP: skAt('zeroheap'), BOTTOMZERO: skAt('bottomzero'), BOTTOMHARVEST: skAt('bottomharvest'), FADETAG: SK_GONE, FADEBOARD: SK_GONE, FADESPLIT: skAt('fadesplit'), MAGTAG: skAt('magtag'), MAGREFLECT: skAt('magreflect'), REFLECTBOTTOM: skAt('reflectbottom'), MAXDRAFT: skAt('maxdraft'), BIGNUM: skAt('bignum'), VAULT: skAt('vault'), HANDMAX: skAt('handmax'), COLORSHIFT: skAt('colorshift'), POLETAG: skAt('poletag'), POLEPASS: skAt('polepass'), POLEDRAW: skAt('poledraw'), POLEMARK: skAt('polemark'), POLEDRAWTAG: skAt('poledrawtag'), POLEPASSDRAW: skAt('polepassdraw'), POLEHUE: skAt('polehue'), POLESUITALL: skAt('polesuitall'), POLECOLORALL: skAt('polecolorall'), POLEFAIL: skAt('polefail'), POLEHUEPASS: skAt('polehuepass'), SWAPSTEP: skAt('swapstep'), PILEAS: skAt('pileas'), DRAWAS: skAt('drawas'), SWAPSTRAIGHT: skAt('swapstraight'), DRAWWILD: skAt('drawwild'), HANDWILD: skAt('handwild'), DECKORDER: skAt('deckorder'), PEEKTAKE: skAt('peektake'), DARKDRAW: skAt('darkdraw'), DARKSWAP: skAt('darkswap'), REFLECTSUIT: skAt('reflectsuit'), REFLECTFOE: skAt('reflectfoe'), REFLECTMARK: skAt('reflectmark'), NEGFOE: skAt('negfoe'), NEGSELF: skAt('negself'), NEGMAG: skAt('negmag'), POSNEG: skAt('posneg'), PAIRNP: skAt('pairnp'), MAGSELF: skAt('magself'), BACKWATER: skAt('backwater'), FOEFLOW: skAt('foeflow'), WALLORDER: skAt('wallorder'), WALLZERO: skAt('wallzero'), WALLTOP: skAt('walltop'), NESTSELF: skAt('nestself'), NESTHAND: skAt('nesthand'), NESTALL: skAt('nestall'), NESTFOE: skAt('nestfoe'), TRAPZERO: skAt('trapzero'), NOSUIT: skAt('bleach'), PINRANK: skAt('pinrank'), FADEPOINT: skAt('fadepoint'),
   // 【堆牌】机制的最小载体〔2026-10-26 · 原型〕，以及用户当天要评价的两件
   // 〔BOARDGIVE 2026-10-27 删（上架当天删的，X −1.14）〕
   LAYER: skAt('layer'), LAYER2: skAt('layer2'), BURNHAND: skAt('burnhand'), BURNHUE: skAt('burnhue'), DRAWRANK: skAt('drawrank'), SWAPBOTTOM: skAt('swapbottom'), WILDFLOWTAG: skAt('wildflowtag'), FOESWAP: skAt('foeswap'),
@@ -2497,7 +2546,7 @@ const SK = {
   RANGETAG: skAt('rangetag'),
   BETRAY: skAt('betray'),
   TURNCOAT: skAt('turncoat'),
-  TRAITOR: skAt('traitor'),
+  TRAITOR: skAt('traitor'), TRAITORHUE: skAt('traitorhue'),
   TRAITORZERO: skAt('traitorzero'),
   FETCHJ: skAt('fetchj'),
   JSUB: skAt('jsub'),
@@ -7376,6 +7425,128 @@ function wardUnder(G, i) {
   return -1
 }
 
+// 【叠放】〔2026-11-12 用户定：「被收走时只收走最下面的牌」—— 等于 10-28 撤掉的【保护】那套结算并进叠放〕
+// 第 i 张那一叠最下面那张在 G.stacked 里的下标（-1 = 没有叠）。G.stacked 里同一个宿主的几条按「上 → 下」排（垫在下面的 push 到最后），
+// 所以最后那条就是最下面。STACK_RULE=old 复现之前「整叠一起走」（旧数要复现时用；那时保护走 wardUnder）
+const STACK_RULE = process.env.STACK_RULE || 'bottom'
+// 〈takenpush〉它离场了：记一笔，结算完推牌
+const TP_N = process.env.TP_N ? parseInt(process.env.TP_N, 10) : 2
+// 〈shrink〉【缩小】〔2026-11-13 用户：「此牌能够匹配点数是自己 1 半的牌（向上取整）」；技能「N 张手牌带上【缩小】」〕
+//   mine 里任一个 2~13 的点数 m，堆上那张含 ceil(m/2) 就算（A 的一半还是 A = 本来就钓得到，不多什么）。0 点 / 无点数没有一半
+// 〈fragfoe〉【脆弱】：手里带它、堆上有同点数 → 置 0
+const IMP_MODE = process.env.IMP_MODE || 'blind'
+function impulseTag(G, side) {
+  if (!G.impulse) G.impulse = new Set()
+  const other = side === ME ? FOE : ME
+  const hand = G.hands[other]
+  const st = PROTO_STAT.impulse
+  st.fires++
+  const free = []
+  for (let i = 0; i < hand.length; i++) if (!G.impulse.has(hand[i])) free.push(i)
+  if (free.length === 0) return
+  const tag = function (i) { G.impulse.add(hand[i]); st.tagged++; if (hand[i].rank === JACK) st.jack++; if (G.seen && G.seen[other]) G.seen[other][i] = true }
+  if (IMP_MODE === 'catch') { for (const i of free) if (canCatch(G, hand[i], other)) tag(i); return }
+  // 〔2026-11-16 庄家版「玩家手里的 J 带上【冲动】」〕jack：只贴对方手里的 J
+  if (IMP_MODE === 'jack') { for (const i of free) if (hand[i].rank === JACK) tag(i); return }
+  if (IMP_MODE === 'pick') {
+    let at = free.find(function (i) { return hand[i].rank === JACK })
+    if (at === undefined) at = free.find(function (i) { return canCatch(G, hand[i], other) })
+    if (at === undefined) at = free[0]
+    tag(at)
+    return
+  }
+  tag(free[randInt(G.rng, free.length)])
+}
+function fragileSweep(G) {
+  // 〈fragall〉庄家规矩〔2026-11-16 · 「玩家手牌都带上【脆弱】」做成庄家角色技〕：玩家手里每一张都算带【脆弱】（新摸的也是）
+  // 〈fragsuit〉庄家规矩〔2026-11-16 · 「玩家某花色的手牌带上【脆弱】」〕：每局开头随机定一个花色（照【封竿】每关随机封一个点数），玩家手里那个花色的牌都算带【脆弱】
+  const fragSuitOn = G.foeRules && G.foeRules.indexOf('fragsuit') >= 0
+  if (fragSuitOn && !G.fragSuit) G.fragSuit = SUITS[randInt(G.rng, 4)]
+  if ((G.foeRules && G.foeRules.indexOf('fragall') >= 0) || fragSuitOn) {
+    const hand = G.hands[ME]
+    for (let i = 0; i < hand.length; i++) {
+      const c = hand[i]
+      if (isZero(c) || c.rank === JACK) continue
+      if (fragSuitOn && G.foeRules.indexOf('fragall') < 0 && c.suit !== G.fragSuit) continue
+      const v = cardVals(c)
+      let hit = false
+      for (let k = 0; k < G.pile.length && !hit; k++) if (anyEquals(v, pileValsAt(G, k), 0)) hit = true
+      if (!hit) continue
+      doDead(G, FOE, i, false)
+      if (isZero(c)) { PROTO_STAT.fragile.zeroed++; PROTO_STAT.fragile.ruleZeroed = (PROTO_STAT.fragile.ruleZeroed || 0) + 1; if (G.seen && G.seen[ME]) G.seen[ME][i] = true }
+    }
+  }
+  if (!G.fragile || G.fragile.size === 0) return
+  for (const side of [ME, FOE]) {
+    const hand = G.hands[side]
+    for (let i = 0; i < hand.length; i++) {
+      const c = hand[i]
+      if (!G.fragile.has(c)) continue
+      if (isZero(c) || c.rank === JACK) { G.fragile.delete(c); continue }
+      const v = cardVals(c)
+      let hit = false
+      for (let k = 0; k < G.pile.length && !hit; k++) if (anyEquals(v, pileValsAt(G, k), 0)) hit = true
+      if (!hit) continue
+      const by = G.fragile.get(c)
+      G.fragile.delete(c)
+      doDead(G, by, i, false)
+      if (isZero(c)) { PROTO_STAT.fragile.zeroed++; if (G.seen && G.seen[side]) G.seen[side][i] = true }
+    }
+  }
+}
+function halfMatch(mine, theirs) {
+  for (let a = 0; a < mine.length; a++) {
+    const m = mine[a]
+    if (m < 2 || m > 13) continue
+    if (theirs.indexOf(Math.ceil(m / 2)) >= 0) return true
+  }
+  return false
+}
+const SHRINK_N = process.env.SHRINK_N ? parseInt(process.env.SHRINK_N, 10) : 1
+function shrinkTag(G, side) {
+  if (!G.shrinkHand) G.shrinkHand = new Set()
+  const cands = G.hands[side].filter(function (c) { return c.rank !== JACK && !G.shrinkHand.has(c) && cardVals(c).some(function (v) { return v >= 2 && v <= 13 }) })
+  // 挑法（启发式 = 下限）：现在钓不到东西的优先，同样的挑点数大的（一半落在中段，更常见）
+  cands.sort(function (a, b) { const ka = (canCatch(G, a, side) ? 0 : 100) + Math.max.apply(null, cardVals(a)); const kb = (canCatch(G, b, side) ? 0 : 100) + Math.max.apply(null, cardVals(b)); return kb - ka })
+  for (let k = 0; k < cands.length && k < SHRINK_N; k++) { G.shrinkHand.add(cands[k]); PROTO_STAT.shrink.tagged++ }
+}
+function xPassTag(G, side) {
+  if (!G.xHand) G.xHand = new Set()
+  const hand = G.hands[side]
+  let best = null, bestKey = -1
+  for (const c of hand) {
+    if (c.rank === JACK || G.xHand.has(c)) continue
+    const v = cardVals(c)
+    const key = (canCatch(G, c, side) ? 0 : 100) + (v.length ? Math.min.apply(null, v) : 0)
+    if (key > bestKey) { bestKey = key; best = c }
+  }
+  if (best) { G.xHand.add(best); PROTO_STAT.xmatch.tagged++ }
+}
+function tpTaken(G, card, side) {
+  if (!G.tpTag || !G.tpTag.has(card)) return
+  const owner = G.tpTag.get(card)
+  G.tpTag.delete(card)
+  G.tpPending = (G.tpPending || 0) + 1
+  if (owner === side) PROTO_STAT.takenpush.bySelf++; else PROTO_STAT.takenpush.byFoe++
+}
+function tpFlush(G, side) {
+  while (G.tpPending > 0) {
+    G.tpPending--
+    if (G.deck.length < TP_N) { PROTO_STAT.takenpush.short++; continue }
+    for (let k = 0; k < TP_N; k++) { surgePushOne(G, G.deck.pop(), side, false); PROTO_STAT.takenpush.pushed++ }
+  }
+}
+function stackBottomAt(G, i) {
+  if (STACK_RULE === 'old') return wardUnder(G, i)
+  // 带【堆叠】的牌在收（〈layer〉〈layer2〉的钥匙）：整叠收走 → 不挡（走 takeStack 那条整叠路）。口径照 layerPeelPrep 的 whole
+  if (G.layerMode && (G.layerPlay || G.layer2Play) && !G.tolling && !G.guarding) return -1
+  if (i < 0 || i >= G.pile.length) return -1
+  const card = G.pile[i]
+  let at = -1
+  for (let k = 0; k < G.stacked.length; k++) if (G.stacked[k].host === card) at = k
+  return at
+}
+
 // 第 i 张底下压着几张**不算盾的**（抬水垫的 / 净水埋的 / 合流吃的）。
 // 它回答「收走这一叠值几分」—— 盾不算，因为盾不是收成，它是「还得再收一次」
 function underCount(G, i) {
@@ -7670,7 +7841,7 @@ function blockedAt(G, i) {
   // 挡冰挡火那两条**仍然读标签**（`lightAt` / `addFrostAt` / 燃尽）——
   // 那两条按规则本来就不消耗保护，所以跟有没有弹药无关。
   // **同一个关键词，两个问题，两个读法。**
-  return wardUnder(G, i) >= 0
+  return stackBottomAt(G, i) >= 0
 }
 
 // ---------- 【燃烧】那一族 ----------
@@ -8460,7 +8631,7 @@ function returnAt(G, wanted) {
       if (!G.iceBlind && frostAt(G, i)) {
         clearFrostAt(G, i)
       } else {
-        const ward = wardUnder(G, i)
+        const ward = stackBottomAt(G, i)
         if (ward >= 0) {
           const shield = pullStacked(G, ward)
           if (shield) { G.deck.push(shield); back++ }
@@ -9735,10 +9906,11 @@ function takeAtCore(G, i, gone, side) {
       return 0
     }
   }
-  const ward = wardUnder(G, i)
+  // 〔2026-11-12〕底下有叠：只收走最下面那 1 张（算 1 张），宿主连同剩下的留在堆上（原先只有【保护】这样，现在所有叠放都这样）
+  const ward = stackBottomAt(G, i)
   if (ward >= 0) {
     const shield = pullStacked(G, ward)
-    if (shield) gone.push(shield.rank)
+    if (shield) { gone.push(shield.rank); tpTaken(G, shield, side) }
     // 诊断：这一层盾是谁收牌时打掉的（验「拢水在喂分给对手」那个嫌疑）。
     // ⚠ **张数不少**：垫牌替宿主离场、算一分，所以 `return 1` 照旧 ——
     // 这正是【保护】和【结冰】的分野（冰是「不走**也不计分**」，真的少收）
@@ -9751,6 +9923,7 @@ function takeAtCore(G, i, gone, side) {
   //   takeAt 这一处判得准** —— 结冰那支 return 0（牌没走）、
   //   保护那支是盾代替它走（牌也没走），两种都不算离场〕
   gone.push(G.pile[i].rank)
+  tpTaken(G, G.pile[i], side)
   let n = 1
   const under = takeStack(G, i)
   for (let k = 0; k < under.length; k++) {
@@ -10022,7 +10195,19 @@ function tenValsSim(card) {
   return out
 }
 
+// 〈xmatch〉〔2026-11-13 · 用户：「X：带 X 标签的牌可以互相匹配；技能：自带 X」〕
+//   做法：带 X 的牌在点数表里多一个虚拟点数 X_V（不在顺位里、不是 0、远大于 13），所以「点数相等 = 两个点数表有交集」那条判定直接认它。
+//   打出时 valuesOf 加上（catchStart / 抢牌 / AI 估值都走这儿），落堆时 landVals 走 valuesOf，所以堆上那张也带着 —— 不记是谁打的，谁带 X 都能钓它。
+//   普通匹配（能被抢）。21 匹配按最小点数算预算、顺子只认顺位 —— X_V 都碰不到。J 不加（J 本来就通吃）。诊断口 PROTO_STAT.xmatch
+const X_V = 777
 function valuesOf(G, card, skills) {
+  const v = valuesOfCore(G, card, skills)
+  if (G && G.xOff) return v
+  const xSelf = skills && (has(skills, SK.XMATCH) || has(skills, SK.XPASS))
+  if (card.rank !== JACK && (xSelf || (G && G.xHand && G.xHand.has(card))) && v.indexOf(X_V) < 0) return v.concat([X_V])
+  return v
+}
+function valuesOfCore(G, card, skills) {
   // 🔴 **废牌（被置 0 的牌）一律 [0]，判在最前面、盖掉下面所有分支**〔2026-10-30 · fingerprint 审计第 5 条，用户定「模拟器对齐源码」〕。
   //   源码 valuesOf 一直是这样（「废了就是废了，不该还受别的技能摆布」）；模拟器这儿原先**有意**删了这一支（见下面那段墓碑）。
   //   差别只在废牌触发了花色槽上改点数的技能时：顺色 / 齐顶原先会按那件技能算点数，收色 / 一色 / 传色 / 冻结 / 花色钥匙原先给 []。
@@ -10603,6 +10788,8 @@ function catchStartCore(G, card, side, skills, sink) {
       if (hitUp && hitDown) PROTO_STAT.hook.both++
       if (hitUp || hitDown) { best = i; break }
     }
+    // 〈shrink〉【缩小】：带它的牌还能匹配点数是自己一半（向上取整）的牌。普通匹配；J 不吃（堆上那张是 J 也不算）
+    if (((G.shrinkHand && G.shrinkHand.has(card)) || (side === FOE && G.foeRules && G.foeRules.indexOf('shrinkall') >= 0)) && G.pile[i].rank !== JACK && halfMatch(mine, theirs)) { best = i; break }
     // 【磁吸】：普通匹配的第四条线（J 不吃这条 —— J 本来就不在顺位里）
     if (mag && G.pile[i].rank !== JACK && magAdj(mine, theirs)) { best = i; break }
     // 【负电】：堆上这张带负电 → 它可以当顺位差 1 的点数被匹配（J 不吃这条）
@@ -10948,6 +11135,16 @@ function freezePayTry(G, side, ai, forced) {
   st.gainSum += frozenEst - bestFree
 }
 function isFrozen(G, card) {
+  // 〈impulse〉【冲动】：手里有带【冲动】的牌时，不带的那些这一手打不出（接冻结那条现成的路 —— 出牌 / 抢牌 / playableCount 都读它）
+  // 〈jimpulse〉庄家规矩〔2026-11-16 · 「玩家手里的 J 带上【冲动】」的规矩版〕：玩家手里有 J 时只能先打 J
+  if (G.foeRules && G.foeRules.indexOf('jimpulse') >= 0 && card.rank !== JACK && G.hands[ME].indexOf(card) >= 0 && G.hands[ME].some(function (c) { return c.rank === JACK })) {
+    PROTO_STAT.impulse.ruleLocks = (PROTO_STAT.impulse.ruleLocks || 0) + 1
+    return true
+  }
+  if (G.impulse && G.impulse.size > 0 && !G.impulse.has(card)) {
+    const holder = G.hands[ME].indexOf(card) >= 0 ? ME : (G.hands[FOE].indexOf(card) >= 0 ? FOE : -1)
+    if (holder >= 0 && G.hands[holder].some(function (c) { return G.impulse.has(c) })) return true
+  }
   // 【窄口】stuck 档：开局被挑中的那张（还在原主手里、而且没到解除时机）
   if (G.stuck && G.stuck.has(card) && !(NARROW_STUCK_END === 'empty' && G.deck.length === 0)) {
     if (G.hands[ME].indexOf(card) >= 0 || G.hands[FOE].indexOf(card) >= 0) return true
@@ -11511,6 +11708,7 @@ function colorShiftPickCore(G, side, card, skills, sink) {
 }
 
 function playFor(G, side, index, ai) {
+  if (G.foeRules && (G.foeRules.indexOf('fragall') >= 0 || G.foeRules.indexOf('fragsuit') >= 0)) fragileSweep(G)
   noteHandStat(G, side, index)
   // 〈traitor〉：打的是叛变牌 → 记在持有人名下，这一手结算完（resolveMatch 外包里）兑现置 0
   if (G.traitor && index >= 0 && index < G.hands[side].length && G.traitor.has(G.hands[side][index])) {
@@ -11822,7 +12020,9 @@ function playFor(G, side, index, ai) {
   if (G.layer2Hand) G.layer2Hand.delete(card)
   if (G.layer2Play) layer2Init(G)
   if (has(skills, SK.LAYER2)) {
-    for (const c of G.hands[side]) if (G.layer2Hand.get(c) !== side) { G.layer2Hand.set(c, side); PROTO_STAT.layer2.handTagged++ }
+    const fresh = G.hands[side].filter(function (c) { return G.layer2Hand.get(c) !== side })
+    if (LAYER2_TAG_N < fresh.length) fresh.sort(function (a, b) { return (a.rank === JACK ? 99 : layerOutside(G, side, a.rank)) < (b.rank === JACK ? 99 : layerOutside(G, side, b.rank)) ? 1 : -1 })
+    for (let k = 0; k < fresh.length && k < LAYER2_TAG_N; k++) { G.layer2Hand.set(fresh[k], side); PROTO_STAT.layer2.handTagged++ }
   }
   const sink = iceSink || heldSink || stowSink || freezeSink || G.layerIns === -1 || wantReverse(G, side, card, skills) || (side === FOE && foeRule(G, 'drift'))
   // ---------- 【映照】：展示 1 张手牌，这张变成跟它相同（点数和花色）----------
@@ -12837,7 +13037,9 @@ function stealTryCore(G, side, myCount, myLo, myHi) {
       && (process.env.SJ_MODE !== 'vsjack' || !!G.jackPlay) && !(process.env.SJ_ONCE === '1' && G.sjUsed && G.sjUsed[foe])
     const sjTop = process.env.SJ_TOP ? parseInt(process.env.SJ_TOP, 10) : 0
     // 【对钩】凑得出一对时它打出去就是 J → 抢牌挑牌也按 J 估（结算走 afterPlay 那段 prJack，同一个 pairJackOk）
-    const pjOk = c.rank !== JACK && G.pile.length > 0 && has(sk, SK.PAIRJACK) && pairJackOk(G, foe, c)
+    const pjOk = (c.rank !== JACK && G.pile.length > 0 && has(sk, SK.PAIRJACK) && pairJackOk(G, foe, c))
+      // 〈pileswap〉钓得中就能把那张换到堆底 → 按整堆估（结算走 afterPlay 那段）
+      || (c.rank !== JACK && G.pile.length > 0 && has(sk, SK.PILESWAP) && catchStart(G, c, foe, sk, false) >= 0)
     const nJack = sjOk ? (sjTop > 0 ? Math.min(G.pile.length, sjTop) + 1 : catchCountAt(G, c, foe, sk, 0)) : (pjOk ? catchCountAt(G, c, foe, sk, 0) : 0)
     // 〔2026-11-09 用户定〕估的必须是**真打出去会怎么收**。结算顺序 特殊匹配（顺子 / 花色 / 顺序 / 收零…）→ 燃烧收火 → 普通匹配（含 21、正电钓负电），
     //   前一步收成了这张牌就走了、后面不再判。所以：特殊匹配收得到 → 只算它；否则带火且堆上已有别的火 → 只算收火那几张；否则普通匹配。
@@ -12976,7 +13178,38 @@ function zeroHarvestStepCore(G, side, card, skills) {
 
 // 〈pilereflect〉诊断外包：对子那一支发动后，这一手结算完那张还在堆上 = 当手漏收（pairMissed）
 function resolveMatch(G, side, card, cardSkills, sink) {
+  // 〈takenpush〉打出时贴上（值 = 打它的一方，只给诊断口用）
+  if (has(cardSkills, SK.TAKENPUSH) && card.rank !== JACK) { if (!G.tpTag) G.tpTag = new Map(); G.tpTag.set(card, side); PROTO_STAT.takenpush.played++ }
   resolveMatchCore(G, side, card, cardSkills, sink)
+  // 〈xpass〉手牌带的 X 打出这一手用完（落堆那一刻 landVals 已经把 X_V 记进堆上那一格）
+  if (G.xHand) G.xHand.delete(card)
+  // 〈fragfoe〉带【脆弱】打出去了（没被置 0 就离手）—— 标签跟着没
+  if (G.fragile && G.fragile.has(card)) { G.fragile.delete(card); PROTO_STAT.fragile.playedSafe++ }
+  if (has(cardSkills, SK.FRAGFOE)) {
+    if (!G.fragile) G.fragile = new Map()
+    const other = side === ME ? FOE : ME
+    PROTO_STAT.fragile.fires++
+    for (const c of G.hands[other]) if (c.rank !== JACK && !isZero(c) && !G.fragile.has(c)) { G.fragile.set(c, side); PROTO_STAT.fragile.tagged++ }
+  }
+  fragileSweep(G)
+  if (G.impulse && G.impulse.has(card)) { G.impulse.delete(card); PROTO_STAT.impulse.forcedPlays++ }
+  if (has(cardSkills, SK.IMPULSE)) impulseTag(G, side)
+  // 〈twin21〉诊断：打出的是 21（变过的），这一手钓没钓中
+  if (cardVals(card).indexOf(21) >= 0) PROTO_STAT.twin21.played++
+  if (has(cardSkills, SK.TWIN21)) twin21Make(G, side)
+  // 〈restrain〉打出去 = 离手，标签跟着没；技能发动：对方手牌全贴
+  if (G.restrain && G.restrain.has(card)) G.restrain.delete(card)
+  if (has(cardSkills, SK.RESTRAIN)) {
+    if (!G.restrain) G.restrain = new Set()
+    const other = side === ME ? FOE : ME
+    PROTO_STAT.restrain.fires++
+    for (const c of G.hands[other]) if (!G.restrain.has(c)) { G.restrain.add(c); PROTO_STAT.restrain.tagged++ }
+  }
+  // 〈shrink〉手牌那层【缩小】打出这一手用掉
+  if (G.shrinkHand && G.shrinkHand.has(card)) { G.shrinkHand.delete(card); PROTO_STAT.shrink.played++ }
+  if (has(cardSkills, SK.SHRINKTAG)) shrinkTag(G, side)
+  if (G.tpPending) tpFlush(G, side)
+  if (has(cardSkills, SK.XPASS)) xPassTag(G, side)
   // 〈marktag〉第三版：「（无论是否收牌）之后给堆上的牌带上【A】」
   markTagAfter(G, card)
   burnTagAfter(G, card, side)
@@ -13186,6 +13419,13 @@ function resolveMatchCore(G, side, card, cardSkills, sink) {
   }
   if (has(skills, SK.MINUSTAG) || has(skills, SK.ATAG)) G.mineOverride = { card: card, vals: vals }
   const at = catchStart(G, card, side, skills, sink)
+  if (G.shrinkHand && G.shrinkHand.has(card) && at >= 0) { G.shrinkHand.delete(card); try { if (catchStart(G, card, side, skills, sink) < 0) PROTO_STAT.shrink.halfOnly++ } finally { G.shrinkHand.add(card) } }
+  // 〈xmatch〉〈xpass〉诊断：这一手带 X —— 关掉 X 还钓不钓得中 / 钓得一样深吗
+  if (card.rank !== JACK && (has(skills, SK.XMATCH) || has(skills, SK.XPASS) || (G.xHand && G.xHand.has(card)))) {
+    const st = PROTO_STAT.xmatch
+    st.plays++
+    if (at >= 0) { G.xOff = true; try { const a2 = catchStart(G, card, side, skills, sink); if (a2 < 0) st.xOnly++; else if (a2 > at) st.xDeeper = (st.xDeeper || 0) + 1 } finally { G.xOff = false } }
+  }
   // 【正电】/【负电】特殊匹配（ELEC_SPECIAL）：这一次 catchStart 是靠它返回的 → 跟 21 匹配一样不问抢
   const viaElec = ELEC_SPECIAL && at >= 0 && !!G.elecHit
   // 【特殊匹配不能被抢】〔2026-10-29 用户定〕：这一手靠【21 匹配】收 → 下面两处都不问抢。
@@ -13302,6 +13542,27 @@ function resolveMatchCore(G, side, card, cardSkills, sink) {
         ? G.pile.length - stoneBandTake(G, p, card, G.pile.length - from, side)
         : (stoneHit(G, p, card, p - at, side) ? p + 1 : p)
       notePoisonScore(G, full, G.pile.length - from)
+    }
+    // 〈gateline〉【闸门】：普通匹配（不是 21、不是 J）收的那一段里有闸门 → 只收闸门以上的
+    if (!via21 && card.rank !== JACK) {
+      const g = gateHighest(G, card, skills, from, G.pile.length - 2)
+      if (g >= 0) {
+        const st = PROTO_STAT.gate
+        st.blocks++
+        st.kept += g - from + 1
+        if (G.gateBy && G.gateBy.get(G.pile[g]) === side) st.selfBlocks++
+        from = g + 1
+      }
+    }
+    // 〔同日用户补：「【闸门】会被 J 收走，但【闸门】底下的牌不会」〕J 通吃：收到最高那道闸门为止（闸门自己收走），它底下的留下。不看同点数
+    if (card.rank === JACK && G.gate && G.gate.size > 0) {
+      const g = gateHighestAny(G, card, from, G.pile.length - 2)
+      if (g > from) {
+        const st = PROTO_STAT.gate
+        st.jBlocks = (st.jBlocks || 0) + 1
+        st.jKept = (st.jKept || 0) + (g - from)
+        from = g
+      }
     }
     // 【抢牌】—— 见沉底那一支里的同一行。**J 通吃也走这儿**（`at = 0`），
     // 所以用户那句「J 也可以被抢」不用另写一支
@@ -13743,7 +14004,19 @@ function dyeKeyPick(G, side, played) {
 
 // 〈layer〉堆叠牌收到的叠是整叠：AI 预估 / 抢牌问价跟着加上叠底下的张数（别的牌收叠只算宿主 1 张，本来就对）
 function catchCountAt(G, card, side, skills, at) {
-  const n = catchCountAtCore(G, card, side, skills, at)
+  const n0 = catchCountAtCore(G, card, side, skills, at)
+  // 〈gateline〉闸门截断（照结算那一段：最高那道拦得住的闸门以上 + 它自己）。估值时 card 还不在堆上
+  let n = n0
+  if (G.gate && G.gate.size > 0 && card.rank !== JACK && at >= 0) {
+    const g = gateHighest(G, card, skills, at, G.pile.length - 1)
+    if (g >= 0 && G.pile.length - g < n) n = G.pile.length - g
+  }
+  // J：收到最高那道闸门（含闸门）+ 它自己
+  if (G.gate && G.gate.size > 0 && card.rank === JACK && at >= 0) {
+    const g = gateHighestAny(G, card, at, G.pile.length - 1)
+    if (g >= 0 && G.pile.length - g + 1 < n) n = G.pile.length - g + 1
+  }
+  // 带【堆叠】的牌收整叠 → 段里每一叠底下的都算（不带的只收最下面 1 张 = 每格 1 张，n 已经是这个数）
   if (!G.layerMode || !(layerKey(G, side, card, skills) || layer2Key(G, side, card, skills))) return n
   return n + layerUnderIn(G, at, G.pile.length - 1)
 }
@@ -13816,6 +14089,7 @@ function noteCatch(G, side, got) {
 
 // 钓到之后：收那一段、记统计（照 finishCatch）
 function finishCatch(G, side, from, count, card, skills) {
+  if (card && card.rank !== JACK && cardVals(card).indexOf(21) >= 0 && from >= 0 && from < G.pile.length && pileValsAt(G, from).indexOf(21) >= 0) PROTO_STAT.twin21.caught++
   // **记的是 collect 返回的实收，不是 count** —— 叠放之后两个数不再相等
   // （被埋的牌跟着走所以可能更多，带盾的宿主留下所以可能更少）
   //
@@ -14206,8 +14480,18 @@ function layer2TopCount(G, side, worth, i) {
   const hi = hit < i ? i : hit
   return (hi - lo + 1) + 1 + layerUnderIn(G, lo, hi)
 }
+// LAYER2_RULE=v3〔2026-11-12 用户：「【堆叠】的牌匹配中就整个叠放收走，否则将其叠放到堆上其他牌的上下方」〕：
+//   钓得中就直接打（走正常匹配，段里的叠整叠收）；钓不中才叠 —— 挑 1 张叠在它上面或下面（AI 照下面「藏」那一段挑），叠上面**不再判匹配**。
+//   默认 v2 = 原先那一版（可以直接打 / 叠上去再判 / 叠下面，AI 挑收得最多的）
+const LAYER2_RULE = process.env.LAYER2_RULE || 'v2'
+// LAYER2_TAG_N：技能牌给几张手牌贴【堆叠】（默认全贴 = 「手牌都带上【堆叠】」；1 = 「1 张手牌带上【堆叠】」，挑外面剩的同点数最多的那张）
+const LAYER2_TAG_N = process.env.LAYER2_TAG_N ? parseInt(process.env.LAYER2_TAG_N, 10) : 99
 function layer2Pick(G, side, card, skills, sink) {
   const at = catchStart(G, card, side, skills, sink)
+  if (LAYER2_RULE === 'v3') {
+    if (at >= 0 || harvestCount(G, card, skills, side, true) > 0) return null
+    return layer2HideV3(G, side, card)
+  }
   let bestN = at < 0 ? 0 : catchCountAt(G, card, side, skills, at)
   let best = null
   const worth = landVals(G, card, [], false)
@@ -14216,6 +14500,25 @@ function layer2Pick(G, side, card, skills, sink) {
     if (n > bestN) { bestN = n; best = { mode: 'top', at: i } }
   }
   if (bestN > 0) return best
+  return layer2Hide(G, side, card)
+}
+// v3 的挑法（叠放只收最下面那张之后，「垫在下面」= 下一次谁碰这一叠就先拿走它 —— 跟 v2 那时候「藏进底下」反过来）：
+//   外面剩的同点数 = 对手钓得着的机会。自己这张比堆上最危险的那格安全 → 盖在那一格上面（把危险的点数换成自己的、它压下去）；
+//   否则垫在最安全那一格底下。J 不当宿主。启发式，算下限
+function layer2HideV3(G, side, card) {
+  let hiAt = -1, hiO = -1, loAt = -1, loO = 99
+  for (let i = 0; i < G.pile.length; i++) {
+    if (G.pile[i].rank === JACK) continue
+    const o = layerOutside(G, side, G.pile[i].rank)
+    if (o > hiO) { hiO = o; hiAt = i }
+    if (o < loO) { loO = o; loAt = i }
+  }
+  if (hiAt < 0) return null
+  const mine = card.rank === JACK ? 99 : layerOutside(G, side, card.rank)
+  if (mine <= hiO) return { mode: 'top', at: hiAt }
+  return { mode: 'under', at: loAt }
+}
+function layer2Hide(G, side, card) {
   // 收不到：藏进一叠底下 —— 挑最上面那张点数外面剩得最少的（打平取底下压得多的）；自己的点数更难钓就盖在上面
   let pick = -1
   let low = 99
@@ -14258,6 +14561,7 @@ function layer2Do(G, l2, side, card) {
   G.pileByFoe[i] = side === FOE
   G.pileBurn[i] = 0
   G.pileGuard[i] = GUARD_NONE
+  if (LAYER2_RULE === 'v3') return
   const hit = raiseMatch(G, i, side)
   if (hit < 0) return
   st.topHit++
@@ -15892,7 +16196,14 @@ const TR_PHASE = process.env.TR_PHASE || 'all'
 // 〔上架后默认改 0：游戏里的【策反】没有「对方抽 1」。TR_DRAW=1 复现第五十节那一版〕
 const TR_DRAW = process.env.TR_DRAW === '1'
 const TR_ZERO = process.env.TR_ZERO !== '0'
-function traitorFor(G, side) {
+function trHueReady(G, side, idx, need) {
+  const hand = G.hands[side]
+  const bc = G.pile.length > 0 ? isRedSuit(pileSuitAt(G, 0)) : isRedSuit(hand[idx].suit)
+  let n = 0
+  for (let k = 0; k < hand.length; k++) { if (k === idx) continue; const r = isRedSuit(hand[k].suit); if ((r === true || r === false) && r === bc) n++ }
+  return n >= (process.env.TR_HUE_HOLD ? parseInt(process.env.TR_HUE_HOLD, 10) : (need || 1))
+}
+function traitorFor(G, side, mode) {
   if (TR_PHASE !== 'all' && (TR_PHASE === 'main') !== (G.deck.length > 0)) return
   const st = PROTO_STAT.traitor
   st.fires++
@@ -15903,12 +16214,23 @@ function traitorFor(G, side) {
   const free = []
   for (let k = 0; k < hand.length; k++) if (!G.traitor.has(hand[k])) free.push(k)
   if (free.length === 0) { st.noHand++; return }
-  const c = hand[free[randInt(G.rng, free.length)]]
-  if (c.rank === JACK) st.tagJ++
-  G.traitor.set(c, side)
-  if (!G.traitorAt) G.traitorAt = new Map()
-  G.traitorAt.set(c, G.stat.plays[foe])
-  st.tagged++
+  // TRAITOR_N〔2026-11-16 · 用户「评价 对方 N 张手牌带上【叛变】」〕：盲选几张（默认 1 = 策反现行；99 = 全贴）
+  let n = process.env.TRAITOR_N && process.env.TRAITOR_N !== 'hue' && mode !== 'hue' ? parseInt(process.env.TRAITOR_N, 10) : 1
+  // TRAITOR_N=hue〔同日 · 用户「对方 1 张手牌带上【叛变】，展示跟堆底同颜色的手牌，每展示 1 张额外发动 1 次效果」〕：
+  //   1 + 自己手里跟堆底同颜色的张数（堆底 = 落堆之后最下面那张，堆上只有它就是它自己 —— 照传色 / 磁场；失去花色的不算同色）。AI 全展示（只付情报代价，AI 不读）
+  if ((process.env.TRAITOR_N === 'hue' || mode === 'hue') && G.pile.length > 0) {
+    const bc = isRedSuit(pileSuitAt(G, 0))
+    for (const c of G.hands[side]) { const r = isRedSuit(c.suit); if ((r === true || r === false) && r === bc) n++ }
+    st.shown = (st.shown || 0) + n - 1
+  }
+  for (let t = 0; t < n && free.length > 0; t++) {
+    const c = hand[free.splice(randInt(G.rng, free.length), 1)[0]]
+    if (c.rank === JACK) st.tagJ++
+    G.traitor.set(c, side)
+    if (!G.traitorAt) G.traitorAt = new Map()
+    G.traitorAt.set(c, G.stat.plays[foe])
+    st.tagged++
+  }
 }
 // 叛变牌那一手结算完：持有人手里剩下的牌全部置 0（以对方身份调 doDead，jackOk = true）
 function traitorPay(G, side) {
@@ -15988,6 +16310,20 @@ function betrayForcePick(G, side) {
   }
   G.betray.delete(hand[best])
   return best
+}
+// 【腐蚀】〔2026-11-16 用户定关键词〕盲选的池子 = 对方还没置 0 的牌；**一张都没有时对方先抽 1 张**（这张就是目标；牌库空 → 空池、不发动）。
+//   浑水 / 缩水 / 回水共用（照源码 corrodeReady）。CORRODE=0 = 旧行为（池子空就不发动）
+function corrodePool(G, side) {
+  const other = side === ME ? FOE : ME
+  const pool = []
+  for (let i = 0; i < G.hands[other].length; i++) if (!isZero(G.hands[other][i])) pool.push(i)
+  if (pool.length > 0 || process.env.CORRODE === '0' || G.deck.length === 0) return pool
+  const got = drawFor(G, other)
+  if (got === null) return pool
+  PROTO_STAT.corrode = PROTO_STAT.corrode || { drawn: 0 }
+  PROTO_STAT.corrode.drawn++
+  pool.push(G.hands[other].indexOf(got))
+  return pool
 }
 function rangeTagFor(G, side, played) {
   const st = PROTO_STAT.rangetag
@@ -16233,7 +16569,106 @@ function giveJackReady(G, side, idx) {
   for (let k = 0; k < hand.length; k++) if (k !== idx && nextJackTarget(wants, hand[k])) return true
   return false
 }
+const PS_VIEW = process.env.PS_VIEW === '1'
+const PS_DEF = process.env.PS_DEF !== '0'
+// 打出的牌 played 之外，堆上钓得中（普通匹配）的最深那张；-1 = 没有
+// 〈gateline〉【闸门】：[lo, hi] 里最高那道拦得住 card 的闸门下标，-1 = 没有
+// J 用：[lo, hi] 里最高那道闸门（不看同点数）
+const TWIN21_N = process.env.TWIN21_N ? parseInt(process.env.TWIN21_N, 10) : 2
+function twin21Make(G, side) {
+  const st = PROTO_STAT.twin21
+  st.fires++
+  const hand = G.hands[side]
+  const cands = []
+  for (let i = 0; i < hand.length; i++) {
+    const c = hand[i]
+    const v = cardVals(c)
+    if (c.rank === JACK || isZero(c) || v.length === 0 || v.indexOf(21) >= 0) continue
+    cands.push(i)
+  }
+  cands.sort(function (a, b) {
+    const ka = (canCatch(G, hand[a], side) ? 100 : 0) + Math.min.apply(null, cardVals(hand[a]))
+    const kb = (canCatch(G, hand[b], side) ? 100 : 0) + Math.min.apply(null, cardVals(hand[b]))
+    return ka - kb
+  })
+  for (let k = 0; k < cands.length && k < TWIN21_N; k++) {
+    const i = cands[k]
+    hand[i].value = 21
+    hand[i].extra = []
+    if (G.seen && G.seen[side]) G.seen[side][i] = true
+    st.made++
+  }
+}
+function gateHighestAny(G, card, lo, hi) {
+  for (let i = hi; i >= lo; i--) { const c = G.pile[i]; if (c && c !== card && G.gate.has(c)) return i }
+  return -1
+}
+function gateHighest(G, card, skills, lo, hi) {
+  if (!G.gate || G.gate.size === 0 || card.rank === JACK) return -1
+  const mine = valuesOf(G, card, skills)
+  for (let i = hi; i >= lo; i--) {
+    const c = G.pile[i]
+    if (!c || c === card || !G.gate.has(c)) continue
+    if (anyEquals(mine, pileValsAt(G, i), 0)) { PROTO_STAT.gate.sameRank++; continue }
+    return i
+  }
+  return -1
+}
+function pileSwapDeepest(G, played, skills) {
+  const mine = valuesOf(G, played, skills)
+  for (let i = 0; i < G.pile.length; i++) {
+    if (G.pile[i] === played || G.pile[i].rank === JACK) continue
+    if (anyEquals(mine, pileValsAt(G, i), 0)) return i
+  }
+  return -1
+}
+// 对方下一手最多收几张（view = 看他真手牌；否则按外面剩的同点数估一个期望）
+function pileSwapDanger(G, side) {
+  const other = side === ME ? FOE : ME
+  if (PS_VIEW) {
+    let best = 0
+    for (const c of G.hands[other]) {
+      const sk = skillsOf(G, other, c)
+      const at = catchStart(G, c, other, sk, false)
+      const n = at >= 0 ? catchCountAt(G, c, other, sk, at) : 0
+      if (n > best) best = n
+    }
+    return best
+  }
+  let sum = 0
+  for (let i = 0; i < G.pile.length; i++) {
+    if (G.pile[i].rank === JACK) continue
+    sum += layerOutside(G, side, G.pile[i].rank) * (G.pile.length - i + 1)
+  }
+  return sum
+}
+function pileSwapFor(G, side, played, skills) {
+  const st = PROTO_STAT.pileswap
+  st.fires++
+  const top = G.pile.indexOf(played)
+  const deep = pileSwapDeepest(G, played, skills)
+  if (deep > 0) { swapPileSlots(G, deep, 0); st.attack++; st.attackGain += deep; return }
+  if (deep === 0) { st.none++; return }
+  if (!PS_DEF) { st.none++; return }
+  const base = pileSwapDanger(G, side)
+  let best = base, ba = -1, bb = -1
+  for (let a = 0; a < G.pile.length; a++) {
+    if (a === top) continue
+    for (let b = a + 1; b < G.pile.length; b++) {
+      if (b === top) continue
+      swapPileSlots(G, a, b)
+      const d = pileSwapDanger(G, side)
+      swapPileSlots(G, a, b)
+      if (d < best) { best = d; ba = a; bb = b }
+    }
+  }
+  if (ba < 0) { st.none++; return }
+  swapPileSlots(G, ba, bb)
+  st.defend++
+  st.defendCut += base - best
+}
 function afterPlay(G, side, skills, played, ai) {
+  if (played && played.rank !== JACK && has(skills, SK.PILESWAP)) pileSwapFor(G, side, played, skills)
   if (has(skills, SK.RANGEMATCH)) rangeMatchFor(G, side, played, skills)
   rangeKeyCash(G, side, played, skills)
   if (has(skills, SK.RANGETAG)) rangeTagFor(G, side, played)
@@ -16244,6 +16679,8 @@ function afterPlay(G, side, skills, played, ai) {
     traitorFor(G, side)
     if (process.env.TRAITOR_ZERO !== '0') zeroKeyTag(G, side)
   }
+  // 【策连】：叛变按手里跟堆底同颜色的张数加码，不带收零
+  if (has(skills, SK.TRAITORHUE)) traitorFor(G, side, 'hue')
   if (has(skills, SK.NOSTEAL)) {
     const st = PROTO_STAT.nosteal
     st.fires++
@@ -16990,6 +17427,19 @@ function afterPlay(G, side, skills, played, ai) {
   // 【传顺】「它带上【通配】」〔2026-11-09〕：跟石顺那句同一个时点（判顺子之前）
   // 〔2026-11-10 传顺换成「堆上 1 张牌带上【通配】」→ 只有 FLOWALL_MODE=self（上一版）才给它自己贴〕
   if (STRAIGHT_SKILL_WILD && FLOWALL_MODE === 'self' && has(skills, SK.FLOWALL) && inPile(G, played) && G.wildTag.indexOf(played) < 0) G.wildTag.push(played)
+  // 〈gateline〉：它带上【闸门】（落在堆上才贴）；1 张手牌带上【顺子匹配】（照石顺）
+  if (has(skills, SK.GATELINE)) {
+    const st = PROTO_STAT.gate
+    st.fires++
+    if (inPile(G, played)) {
+      if (!G.gate) { G.gate = new Set(); G.gateBy = new Map() }
+      G.gate.add(played); G.gateBy.set(played, side); st.placed++
+    }
+    if (process.env.GATE_KEY !== '0') {
+      const at = straightKeyPick(G, side)
+      if (at >= 0 && !flowTagOn(G, G.hands[side][at])) G.flowHand.push(G.hands[side][at])
+    }
+  }
   // 【石顺】：自己带石墙（落在堆上才贴），给 1 张手牌顺子钥匙 + 通配
   if (has(skills, SK.STONELINE)) {
     if (inPile(G, played)) {
@@ -17020,8 +17470,8 @@ function afterPlay(G, side, skills, played, ai) {
     const other = side === ME ? FOE : ME
     st.fires++
     // 〔2026-10-30 用户定：照浑水 —— **盲选** 1 张、J 也算（原先照死水看着挑、J 不能挑）〕
-    const pool = []
-    for (let i = 0; i < G.hands[other].length; i++) if (!isZero(G.hands[other][i])) pool.push(i)
+    // 〔2026-11-16 desc 改成【腐蚀】：池子走 corrodePool（他整手都已置 0 就先抽 1 张）〕
+    const pool = corrodePool(G, side)
     if (pool.length > 0) {
       const at = pool[randInt(G.rng, pool.length)]
       const c = G.hands[other][at]
@@ -17624,8 +18074,8 @@ function afterPlay(G, side, skills, played, ai) {
     const st = PROTO_STAT.backwater
     const other = side === ME ? FOE : ME
     st.fires++
-    const pool = []
-    for (let i = 0; i < G.hands[other].length; i++) if (!isZero(G.hands[other][i])) pool.push(i)
+    // 〔2026-11-16 desc 改成【腐蚀】：池子走 corrodePool〕
+    const pool = ZS_HALF !== 'tag' ? corrodePool(G, side) : []
     if (pool.length > 0 && ZS_HALF !== 'tag') {
       const at = pool[randInt(G.rng, pool.length)]
       const c = G.hands[other][at]
@@ -17656,7 +18106,27 @@ function afterPlay(G, side, skills, played, ai) {
     stripSuits(G, side === ME ? FOE : ME, false)
     if (NOSUIT_WHO === 'both') stripSuits(G, side, true)
   }
-  if (has(skills, SK.DRAWZERO) || has(skills, SK.MURK)) {
+  // 【浑水】〔2026-11-16 用户定换效果〕「【腐蚀】，展示跟堆底同颜色的手牌：每展示 1 张，此牌的效果再发动 1 次」（原型〈zerorepeat〉ZR_REF=color ZR_DRAW=1，台账一百七十三·丙）。
+  //   一共腐蚀 1 + 同颜色张数 次，每次重新盲选（corrodePool）。堆底 = 那时的 G.pile[0]（它已落堆，堆空过就是它自己）；失去花色没有颜色（isRedSuit 回 NaN）。
+  //   MURK_MODE=old 复现旧版「对方抽 1 张牌，之后盲选对方 2 张手牌明置置 0」（走下面 drawzero blind 那一段）。诊断口 PROTO_STAT.murk
+  if (has(skills, SK.MURK) && process.env.MURK_MODE !== 'old') {
+    const st = PROTO_STAT.murk = PROTO_STAT.murk || { fires: 0, reps: 0, zeroed: 0 }
+    st.fires++
+    const other = side === ME ? FOE : ME
+    const bs = G.pile.length > 0 ? pileSuitAt(G, 0) : played.suit
+    let rep = 0
+    for (const c of G.hands[side]) if (c !== played && isRedSuit(c.suit) === isRedSuit(bs)) rep++
+    st.reps += rep
+    for (let n = 0; n <= rep; n++) {
+      const pool = corrodePool(G, side)
+      if (pool.length === 0) break
+      const at = pool[randInt(G.rng, pool.length)]
+      const c = G.hands[other][at]
+      doDead(G, side, at, true)
+      if (isZero(c)) { st.zeroed++; G.seen[other][at] = true }
+    }
+  }
+  if (has(skills, SK.DRAWZERO) || (has(skills, SK.MURK) && process.env.MURK_MODE === 'old')) {
     // 【浑水】固定走 blind 档（不看 DZ_MODE / DZ_NODRAW / DZ_NOZERO —— 那几个是原型的研究旋钮）
     const murk = has(skills, SK.MURK)
     const mode = murk ? 'blind' : DZ_MODE
@@ -19031,6 +19501,15 @@ const PROTO_STAT = {
   // 〈keyjack〉：发动 / 贴上钥匙几张 / 变成 J 几张（其中原是 0 点牌）/ 本来就是 J
   // 〈nextjack〉：发动 / 变成 J / 手里没有下一顺位 / 打出的牌没有下一顺位（J、无点数、K 在 NJ_WRAP=0 时）
   nextjack: { fires: 0, made: 0, none: 0, noRank: 0 },
+  restrain: { fires: 0, tagged: 0, skipped: 0, handSum: 0 },
+  twin21: { fires: 0, made: 0, played: 0, caught: 0 },
+  gate: { fires: 0, placed: 0, blocks: 0, kept: 0, selfBlocks: 0, sameRank: 0 },
+  pileswap: { fires: 0, attack: 0, attackGain: 0, defend: 0, defendCut: 0, none: 0 },
+  impulse: { fires: 0, tagged: 0, jack: 0, forcedPlays: 0 },
+  fragile: { fires: 0, tagged: 0, zeroed: 0, playedSafe: 0 },
+  shrink: { tagged: 0, played: 0, halfOnly: 0 },
+  xmatch: { plays: 0, xOnly: 0, tagged: 0 },
+  takenpush: { played: 0, bySelf: 0, byFoe: 0, pushed: 0, short: 0 },
   pairjack: { fires: 0, asJack: 0, pileSum: 0, inSteal: 0, emptyPile: 0 },
   // 〈givejack〉：发动 / 给出几张（其中对方当场钓得着的）/ 没得给 / 拿到 J / 牌库没 J / GJ_NEED=1 时整件不发动
   // 〈flipjack〉：发动 / 翻到 J（全拿那一档）/ 拿进手几张（其中 J）/ 没 J 时摸了几张 / 牌库空
@@ -22733,6 +23212,8 @@ function harvestCount(G, card, skills, side, specialOnly) {
   if (sweep > 0) return sweep
   // 冰雷：这张钥匙能引爆我的雷 → 整堆
   if (!specialOnly && bombReady(G, card, side)) return G.pile.length
+  // 〈pileswap〉钓得中就能把那张换到堆底 → 整堆 + 它自己
+  if (!specialOnly && has(skills, SK.PILESWAP) && card.rank !== JACK && G.pile.length > 0 && catchStart(G, card, side, skills, false) >= 0) return G.pile.length + 1
   // 【对钩】凑得出一对 → 按 J 通吃估（整堆 + 它自己）
   if (!specialOnly && has(skills, SK.PAIRJACK) && card.rank !== JACK && G.pile.length > 0 && pairJackOk(G, side, card)) return G.pile.length + 1
   // 〈rangematch〉：凑得成就按这条线估（特殊匹配优先，凑成了这一手就没有普通匹配）
@@ -22927,6 +23408,17 @@ function handLimit(G, side) {
 // 模拟器不跑闯关规矩，所以这儿只有涨落
 const FOE_LEAK_DEEP = 7
 function refill(G, side) {
+  // 〈restrain〉手里还有带【克制】的牌 → 这一回合不补
+  if (G.restrain && G.restrain.size > 0 && G.hands[side].some(function (c) { return G.restrain.has(c) })) {
+    PROTO_STAT.restrain.skipped++
+    PROTO_STAT.restrain.handSum += G.hands[side].length
+    fragileSweep(G)
+    return
+  }
+  refillCore(G, side)
+  fragileSweep(G)
+}
+function refillCore(G, side) {
   if (hasSpecial(G, side, SP.CYCLE) && playableCount(G, side) > 0) {
     return
   }

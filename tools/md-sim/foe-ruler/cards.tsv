@@ -5,7 +5,7 @@ d04	{"name":"潮眼引水人","rules":["drift"],"slots":[["tide",1,false],["pick
 d05	{"name":"湾口税吏","rules":["shell"],"slots":[["suited",2,false]]}
 d06	{"name":"雾港守灯人","rules":["dryup"],"slots":[["murk",1,false],["bleach",1,false]]}
 d07	{"name":"涡心祭司","rules":["guard"],"slots":[["orderpile",1,false]]}
-d08	{"name":"鲸落拾骨人","rules":["seal"],"slots":[["zerodraft",1,false],["zerodrop",1,false]]}
+d08	{"name":"鲸落拾骨人S","rules":["seal"],"slots":[["backwater",1,true],["traitor",1,false],["zerodraft",1,false]]}
 d12	{"name":"叠浪弄潮儿","rules":["leak"],"slots":[["handreflect",2,false],["pilereflect",1,false]]}
 d14	{"name":"漫江拉网人","rules":["silt"],"slots":[["hue",1,true]]}
 d16	{"name":"渔政巡查员","rules":["ban"],"slots":[]}
@@ -44,3 +44,14 @@ s-stone-S	{"name":"沙垒筑堤工S","rules":["toll"],"slots":[["stonefull",1,tr
 s-salt-base	{"name":"盐田晒网人","rules":["blankmirror"],"slots":[]}
 s-salt-D	{"name":"盐田晒网人D","rules":["blankmirror"],"slots":[[["deckbleach","bleach"],2,false]]}
 s-salt-DD	{"name":"盐田晒网人DD","rules":["blankmirror"],"slots":[[["deckbleach","bleach"],2,false],[["deckbleach","bleach"],2,false]]}
+s-hook-base	{"name":"拔钩人","rules":["jimpulse"],"slots":[]}
+s-hook-H	{"name":"拔钩人H","rules":["jimpulse"],"slots":[[["pairjack","nextjack","unhook"],1,true]]}
+s-hook-D	{"name":"拔钩人D","rules":["jimpulse"],"slots":[[["pairjack","nextjack","unhook"],1,false]]}
+s-hook-HD	{"name":"拔钩人HD","rules":["jimpulse"],"slots":[[["pairjack","nextjack","unhook"],1,true],[["pairjack","nextjack","unhook"],1,false]]}
+s-hook-DD	{"name":"拔钩人DD","rules":["jimpulse"],"slots":[[["pairjack","nextjack","unhook"],1,false],[["pairjack","nextjack","unhook"],1,false]]}
+s-hook-S	{"name":"拔钩人S","rules":["jimpulse"],"slots":[["pairjack",1,false],["nextjack",1,false],["unhook",1,true]]}
+s-whale-base	{"name":"鲸落拾骨人","rules":["seal"],"slots":[]}
+s-whale-H	{"name":"鲸落拾骨人H","rules":["seal"],"slots":[[["backwater","traitor"],1,true]]}
+s-whale-D	{"name":"鲸落拾骨人D","rules":["seal"],"slots":[[["backwater","traitor"],1,false]]}
+s-whale-HD	{"name":"鲸落拾骨人HD","rules":["seal"],"slots":[[["backwater","traitor"],1,true],[["backwater","traitor"],1,false]]}
+s-whale-DD	{"name":"鲸落拾骨人DD","rules":["seal"],"slots":[[["backwater","traitor"],1,false],[["backwater","traitor"],1,false]]}

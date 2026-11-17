@@ -472,7 +472,10 @@ export function foeSealRank(data : DrawSave, level : number) : string {
       return labels[0]
     }
   }
-  return ''
+  // 〔2026-11-16 用户定：没有点数槽（系列的基础 / H 那几张）就从 A ~ K 里随机封一个，跳过 J —— 原先返回空串，封竿什么都不封，
+  //   跟 desc「每一关随机封一个点数」对不上（台账一百七十七）。开局调一次（ap-fishing 的 sealedRank），所以每局摇一次。模拟器 campaign.js 的 foeKit 同口径〕
+  const ranks : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
+  return ranks[Math.floor(Math.random() * ranks.length)]
 }
 
 // 还没摇过就按当前关号补摇一次。

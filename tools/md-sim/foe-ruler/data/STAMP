@@ -4,3 +4,7 @@
 {"date":"2026-11-10","rules":"349027cce018","ai":"bf0e7f20ddb6","campaign":"af2fd72cff16","only":["s-flow-base","s-flow-H","s-flow-D","s-flow-HD","s-flow-DD","s-flow-S"]}
 {"date":"2026-11-10","rules":"be74b55fad6d","ai":"bf0e7f20ddb6","campaign":"af2fd72cff16","only":["s-flow-base","s-flow-H","s-flow-D","s-flow-HD","s-flow-DD","s-flow-S"]}
 {"date":"2026-11-11","rules":"0da1a105788e","ai":"efa3e16cf6fe","campaign":"730ae7c3c651","only":["s-salt-base","s-salt-D","s-salt-DD"]}
+{"date":"2026-11-16","rules":"68b20749a62f","ai":"efa3e16cf6fe","campaign":"730ae7c3c651","only":["d06"]}
+{"date":"2026-11-16","rules":"d2f06401cb49","ai":"efa3e16cf6fe","campaign":"02f859121cfa","only":["d08","s-whale-base","s-whale-H","s-whale-D","s-whale-HD","s-whale-DD"]}
+{"date":"2026-11-16","rules":"cc994fd0d367","ai":"efa3e16cf6fe","campaign":"02f859121cfa","only":["s-whale-HD","s-whale-DD"]}
+{"date":"2026-11-16","rules":"cc994fd0d367","ai":"efa3e16cf6fe","campaign":"f71a8c9caf37","only":["s-whale-base","s-whale-H"]}

@@ -20,6 +20,9 @@ import {
   SK_SUITED,
   SK_TRAITOR,
   SK_UNHOOK,
+  // 〔2026-11-16 拔钩人系列的技能池：对钩 / 升钩 / 摘钩〕
+  SK_NEXTJACK,
+  SK_PAIRJACK,
   SK_GIFT,
   SK_DEAD,
   // 浑水（2026-10-30）：雾港守灯人那一格从死水换过来
@@ -1173,6 +1176,11 @@ export const DRAW_FOE_SPECIALS : FoeSpecial[] = [
   // 落堆记它自己的点数（landVals 关掉借点数）。模拟器 rules.js valuesOf 的〈blankmirror〉。白板尺子见台账一百四十·乙
   { key: 'blankmirror', name: '素映',
     desc: '庄家打出无花色牌时，它的点数可以变成跟堆上 1 张无花色牌相同' } as FoeSpecial,
+  // ---------- 【催钩】〔2026-11-16 用户设计：拔钩人系列（逼你先出 J；技能池对钩 / 升钩 / 摘钩，庄家自己造 J、拿你的牌）；名字代起〕----------
+  // 实现：ap-fishing 的 jackLocked（你手里有 J 时别的牌打不出、抢牌也只能拿 J）+ foeKnows（你的 J 一直明置）。
+  // 模拟器 rules.js isFrozen 的〈jimpulse〉。单挂这条规矩：白板尺子普通档第 2~12 关过关率 57.2% → 46.6%（台账一百六十三）
+  { key: 'jimpulse', name: '催钩',
+    desc: '玩家手里的 J 明置，而且必须先打出（抢牌也只能拿 J）' } as FoeSpecial,
   // ---------- 下面三条是「角色素材池」那一批带出来的（见 DRAW_FOE_POOL）----------
   //
   // 【炙水】是**硬壳的状态版**：硬壳认花色（♠ 印死，所以是定额），
@@ -1379,13 +1387,13 @@ const FOE_FIXED_LEVELS : number = 2
 // **按难度分开** —— 同一张卡在不同难度下可以进不同的档，也可以哪一档都进不去（太弱 / 太强 / 夹缝 → 那个难度下不出场）。
 // 某一档落进来的卡不够关数时，用离这一档区间最近的卡补齐（用户定），补位的也写在这张表里。
 //
-// FOE_TIER_POOL[难度][档] = 卡号（DRAW_FOE_ROLES 下标 + 1；备选池接在 12 后面）。由 tools/md-sim/foe-ruler/tiers.js --uts 生成〔2026-11-09 白板尺子第一次出表（抢牌估算修复、野火 / 引火换效果之后），复核通关率 39.7 / 19.6 / 4.9（换算值）· 拿玩家尺子实测复核 40.2 / 19.8 / 4.7，台账第一百一十节；**2026-11-10 伏流换效果后只重量东海龙王 5 张（白板尺子 --only），复核 39.1 / 19.6 / 5.1（换算值），台账二百零七；2026-11-10 压舱换效果后只重量礁石海女，复核 39.6 / 19.7 / 5.0（换算值），台账二百一十一；2026-11-10 东海龙王换成【龙鳞】后只重量东海龙王 6 张：同花色档 39.1 / 19.3 / 4.9（台账一百三十六·乙），同日改同颜色档 **40.0 / 20.1 / 4.8**（换算值），基础那张（42）掉出所有档，台账一百三十六·丙**；**2026-11-11 加盐田晒网人三张（47 / 48 / 49，白板尺子 --only），复核 40.3 / 20.3 / 4.9（换算值），基础那张（47）= 白板、掉出所有档，台账一百四十·乙**；11-06 那一版由 out-foestr-1106/ 生成，40.4 / 19.3 / 4.8〕，**改了庄家配装就要用 foe-ruler 重量那一张、重生成**
+// FOE_TIER_POOL[难度][档] = 卡号（DRAW_FOE_ROLES 下标 + 1；备选池接在 12 后面）。由 tools/md-sim/foe-ruler/tiers.js --uts 生成〔2026-11-09 白板尺子第一次出表（抢牌估算修复、野火 / 引火换效果之后），复核通关率 39.7 / 19.6 / 4.9（换算值）· 拿玩家尺子实测复核 40.2 / 19.8 / 4.7，台账第一百一十节；**2026-11-10 伏流换效果后只重量东海龙王 5 张（白板尺子 --only），复核 39.1 / 19.6 / 5.1（换算值），台账二百零七；2026-11-10 压舱换效果后只重量礁石海女，复核 39.6 / 19.7 / 5.0（换算值），台账二百一十一；2026-11-10 东海龙王换成【龙鳞】后只重量东海龙王 6 张：同花色档 39.1 / 19.3 / 4.9（台账一百三十六·乙），同日改同颜色档 **40.0 / 20.1 / 4.8**（换算值），基础那张（42）掉出所有档，台账一百三十六·丙**；**2026-11-11 加盐田晒网人三张（47 / 48 / 49，白板尺子 --only），复核 40.3 / 20.3 / 4.9（换算值），基础那张（47）= 白板、掉出所有档，台账一百四十·乙**；**2026-11-16 缩水下架 → 鲸落拾骨人改系列（S = 11，基础 / H / D / HD / DD = 56 ~ 60）+ 回漩摆渡人（5）退场，重量 d08 + 五张（白板尺子 --only），复核 40.4 / 20.4 / 4.7（换算值）；S（11）困难档离 12 档中心 3.1、基础（56）= 白板，都掉出所有档**；**同日封竿改成「没有点数槽就随机封 A ~ K 一个」后重量基础 / H：H（57）普通档进 9~11，复核 40.3 / 20.3 / 4.6（台账一百七十七）**；**2026-11-16 加拔钩人六张（50 ~ 55，白板尺子），复核 39.8 / 20.0 / 4.7（换算值），基础那张只进简单 3~5、S 只进困难 12，台账一百六十六**；11-06 那一版由 out-foestr-1106/ 生成，40.4 / 19.3 / 4.8〕，**改了庄家配装就要用 foe-ruler 重量那一张、重生成**
 export const FOE_TIER_LEVELS : number[][] = [[3, 4, 5], [6, 7, 8], [9, 10, 11], [12]]
 export const FOE_TIER_NAMES : string[] = ['3~5', '6~8', '9~11', '12']
 const FOE_TIER_POOL : number[][][] = [
-  [[25, 34, 37, 48], [3, 4, 5, 6, 8, 10, 36, 39, 44], [9, 11, 15, 49], [17, 24, 33, 41, 46]],
-  [[5, 10, 29, 34, 37, 48], [3, 6, 11, 36, 44], [4, 8, 9, 15, 24, 33, 46], [13, 16, 26, 28, 35, 39, 43]],
-  [[3, 5, 6, 29, 37, 44], [4, 7, 8, 9, 15, 17, 24, 31, 46], [13, 26, 28, 35, 39, 43, 49], [16, 30, 41, 45]]
+  [[25, 34, 37, 48, 50, 52, 58], [3, 4, 6, 8, 10, 36, 39, 44, 54], [9, 15, 49, 51, 60], [17, 24, 33, 41, 46, 57]],
+  [[10, 29, 34, 37, 48, 58], [3, 6, 36, 44, 52, 60], [4, 8, 9, 15, 24, 33, 46, 51, 54, 57], [13, 16, 26, 28, 35, 39, 43, 53]],
+  [[3, 6, 29, 37, 44, 52, 60], [4, 7, 8, 9, 15, 17, 24, 31, 46, 54, 57], [13, 26, 28, 35, 39, 43, 49, 51, 53], [16, 30, 41, 45, 55, 59]]
 ]
 // 返回长度 = 关数 + 1：前面每一位是第 i+1 关的庄家卡号，**最后一位是 FOE_ORDER_DIFF_BASE + 难度** ——
 // 难度不进存档那一串（见 draw-save 的 KEY_DIFF），而这一轮是按哪个难度抽的得记住（开打前换了难度就要重抽，见 ensureFoeOrder）
@@ -1502,7 +1510,9 @@ export function foeRoleAt(level : number) : FoeRole {
 // 〔同日：镜魔一族照同一条，只列镜魔S —— 下标 10 / 11 / 12（镜魔 / H / D）不进图鉴〕
 // 〔同日：四个系列的基础 / H / D / HD / DD（下标 14 ~ 33）也不进图鉴，只列 S〕
 // 〔2026-11-11：盐田晒网人系列只列 DD —— 下标 34 / 35（基础 / D）不进图鉴〕
-const FOE_BOOK_HIDE : number[] = [6, 7, 8, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]
+// 〔2026-11-16：拔钩人系列只列 S —— 下标 37 ~ 41（基础 / H / D / HD / DD）不进图鉴〕
+// 〔2026-11-16：鲸落拾骨人系列只列 S（卡号 11）—— 下标 43 ~ 47（基础 / H / D / HD / DD）不进图鉴〕
+const FOE_BOOK_HIDE : number[] = [6, 7, 8, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47]
 export function foeBookNums() : number[] {
   // 〔2026-11-04 改成按档排：开头固定的几关 → 普通档 3~5 / 6~8 / 9~11 / 12 → 普通档不出场的〕
   const out : number[] = []
@@ -1562,7 +1572,11 @@ export const FOE_SERIES : FoeSeries[] = [
   { name: '深渊君主', pool: [SK_LOCKCOLOR, SK_LOCKDRAW, SK_ICEBOMB] } as FoeSeries,
   { name: '东海龙王', pool: [SK_FLOW, SK_FLOWALL, SK_FLOWPASS] } as FoeSeries,
   // 〔2026-11-11〕盐田晒网人：只有点数槽（基础 / D / DD），每个槽响 2 个点数
-  { name: '盐田晒网人', pool: [SK_DECKBLEACH, SK_BLEACH] } as FoeSeries
+  { name: '盐田晒网人', pool: [SK_DECKBLEACH, SK_BLEACH] } as FoeSeries,
+  // 〔2026-11-16〕拔钩人：【催钩】逼你先出 J；池子里三件都跟 J 有关（对钩 / 升钩 自己造 J，摘钩 拿你的牌）
+  { name: '拔钩人', pool: [SK_PAIRJACK, SK_NEXTJACK, SK_UNHOOK] } as FoeSeries,
+  // 〔2026-11-16〕鲸落拾骨人：回水 / 策反（HD / DD 抽 2 件，2 件刚好不重复）。S 那张槽是写死的，不读这个池
+  { name: '鲸落拾骨人', pool: [SK_BACKWATER, SK_TRAITOR] } as FoeSeries
 ]
 // 这张卡的技能池（不属于任何系列 → 空）
 export function foeSkillPool(r : FoeRole) : number[] {
@@ -1606,6 +1620,7 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
   // 回漩摆渡人（淤滩）造厚堆 → 湾口税吏（硬壳）让厚堆里一批牌永远死着；
   // 礁石海女（掐口）削你手牌 → 潮眼引水人（偏流）让你钩不着它的牌。
   // 前一关种下的概念，后一关加码
+  // 〔2026-11-16 退场（用户定「回漩摆渡人删除」）：不在任何一档的抽签池里（FOE_TIER_POOL；foe-ruler/tiers.js 的 CARDS 也拿掉了），条目留着 —— 存档按卡号存（照赤潮巡海人）〕
   { name: '回漩摆渡人', specials: ['silt'], slots: [
       // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // 一个点数槽 = 4 张。磁钩是最基础那件，第一关有技能的庄家配它正好
@@ -1778,7 +1793,9 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：顺序匹配（搅动堆的次序） ----
       { skill: SK_ORDERPILE, count: 1, suit: false } as FoeSlot
     ], desc: '漩涡中心。它一色，而它每钓一次就往堆上再垫一张' } as FoeRole,
-  { name: '鲸落拾骨人', specials: ['seal'], slots: [
+  // 〔2026-11-16 缩水下架（用户定），这张卡改成系列的 S（用户定「回水、策反用 HDS」）：回水（花色）· 策反（点数）· 零递（点数）；
+  //   名字加 S（照另外几个系列：S = 原来那张卡）。基础 / H / D / HD / DD 追加在 DRAW_FOE_POOL 表尾（卡号 56 ~ 60），技能池见 FOE_SERIES〕
+  { name: '鲸落拾骨人S', specials: ['seal'], slots: [
       // 〔下面这段注释是 2026-11-03 之前的配装，过去时读〕
       // ---- 封色 + 分水 → 野火 + 磁钩〔2026-10-14，抹点数那一族全删了〕----
       //
@@ -1831,8 +1848,10 @@ export const DRAW_FOE_ROLES : FoeRole[] = [
       //（贴完那张就是一张 catchStart 算得到的牌）。曲线跑 campaign 验过（数在台账）
       // 〔2026-10-29 调难度〕零递 花色槽 → 点数槽 ×1、撒网 2 个标签 → 1 个
       // ---- 2026-11-03 按机制族重配（用户定「庄家角色尽量不要用到相同技能」「要有特色」）：置 0 · 21 匹配（死牌） ----
-      { skill: SK_ZERODRAFT, count: 1, suit: false } as FoeSlot,
-      { skill: SK_ZERODROP, count: 1, suit: false } as FoeSlot
+      // 〔2026-11-16 原「零递 ×1 · 缩水 ×1」→ S 那一套〕
+      { skill: SK_BACKWATER, count: 1, suit: true } as FoeSlot,
+      { skill: SK_TRAITOR, count: 1, suit: false } as FoeSlot,
+      { skill: SK_ZERODRAFT, count: 1, suit: false } as FoeSlot
     ], desc: '鲸落下去的地方。它封掉你一个点数 —— 而它自己也往堆上垫死牌，一路累加着捞、连着同奇偶捞，死牌一张都挡不住它' } as FoeRole,
   // 〔2026-11-02 规矩【再钩】→【逆钩】（用户定）：再钩让它一回合打两张，
   //   双方出牌数对不齐，收摊那条「少的一方补一手」只补得了 1 张、补不平。
@@ -2244,6 +2263,47 @@ export const DRAW_FOE_POOL : FoeRole[] = [
   { name: '盐田晒网人DD', specials: ['blankmirror'], slots: [
       { skill: FOE_POOL_SKILL, count: 2, suit: false } as FoeSlot,
       { skill: FOE_POOL_SKILL, count: 2, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  // ---------- 拔钩人系列〔2026-11-16 · 用户设计；名字代起〕：【催钩】+ 对钩 / 升钩 / 摘钩 挑一 ----------
+  // 照五个系列的格式：基础 / H / D / HD / DD / S，卡号 50 ~ 55。图鉴只列 S（照「四个系列只列 S」）。
+  // 白板尺子（台账一百六十四）：普通档 基础 不出场 · D 6~8 · DD 9~11 · H 9~11 · HD 12 · S 不出场（困难档 12）。
+  // ⚠ 对钩 / 升钩要「屯着打」—— 源码庄家 2026-11-16 起会屯（foeHoldState），跟模拟器量的口径一致
+  { name: '拔钩人', specials: ['jimpulse'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '拔钩人H', specials: ['jimpulse'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '拔钩人D', specials: ['jimpulse'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '拔钩人HD', specials: ['jimpulse'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '拔钩人DD', specials: ['jimpulse'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '拔钩人S', specials: ['jimpulse'], slots: [
+      { skill: SK_PAIRJACK, count: 1, suit: false } as FoeSlot,
+      { skill: SK_NEXTJACK, count: 1, suit: false } as FoeSlot,
+      { skill: SK_UNHOOK, count: 1, suit: true } as FoeSlot
+    ], desc: '逼你先把 J 打掉，它自己手里攒着 J。' } as FoeRole,
+  // ---------- 鲸落拾骨人系列〔2026-11-16 · 用户定「回水、策反用 HDS」〕：【封竿】+ 回水 / 策反 挑一 ----------
+  // S = DRAW_FOE_ROLES 里原来那张（改名鲸落拾骨人S，卡号 11）。这五张卡号 56 ~ 60，图鉴只列 S（FOE_BOOK_HIDE 下标 43 ~ 47）
+  { name: '鲸落拾骨人', specials: ['seal'], slots: NO_SLOTS, desc: '' } as FoeRole,
+  { name: '鲸落拾骨人H', specials: ['seal'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '鲸落拾骨人D', specials: ['seal'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '鲸落拾骨人HD', specials: ['seal'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: true } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
+    ], desc: '' } as FoeRole,
+  { name: '鲸落拾骨人DD', specials: ['seal'], slots: [
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot,
+      { skill: FOE_POOL_SKILL, count: 1, suit: false } as FoeSlot
     ], desc: '' } as FoeRole
 ]
 

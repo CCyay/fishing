@@ -131,7 +131,8 @@ const FOE_ROLES_THEMED = [
   { name: '湾口税吏', specials: ['shell'], slots: [['suited', 2, false]] },
   { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['bleach', 1, false]] },
   { name: '涡心祭司', specials: ['guard'], slots: [['orderpile', 1, false]] },
-  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false], ['zerodrop', 1, false]] },
+  // 〔2026-11-16 缩水下架、鲸落拾骨人改成系列（技能池回水 / 策反），这一格 = S 那张：回水（花色）· 策反（点数）· 零递（点数）〕
+  { name: '鲸落拾骨人S', specials: ['seal'], slots: [['backwater', 1, true], ['traitor', 1, false], ['zerodraft', 1, false]] },
   { name: '深渊君主', specials: ['rev'], slots: [['lockcolor', 1, true], ['lockdraw', 1, false], ['icebomb', 1, false]] }
 ]
 if (process.env.FOE_SET !== 'old') FOE_ROLES.splice(0, FOE_ROLES.length, ...FOE_ROLES_THEMED)
@@ -301,7 +302,7 @@ const PLAYER_POOL = [
   // 〔【死水】2026-10-30 下架 —— 从池子里拿掉〕
   'hue', 'press',
   // 2026-10-29 ~ 30 上架的四件：垫吃 / 顺递 / 浑水 / 缩水〔顺递 2026-10-30 下架，从池子里拿掉〕
-  /* 垫吃 2026-11-06 删 */ 'pilereflect', 'traitor', 'flowall', 'flowpass', 'murk', 'zerodrop', 'backwater', 'stonehue', 'stoneline',
+  /* 垫吃 2026-11-06 删 */ 'pilereflect', 'traitor', 'flowall', 'flowpass', 'murk', /* 缩水 2026-11-16 删 */ 'backwater', 'stonehue', 'stoneline',
   // 2026-10-20 上架的两件，同一天藏凌 / 寒流删了
   'lockdraw', 'lockcolor'
 ]
@@ -431,6 +432,8 @@ function foeKit(rng, level) {
       }
     }
   }
+  // 〔2026-11-16 用户定，照源码 foeSealRank〕没有点数槽就从 A ~ K 里随机封一个（SKILL_RANKS 本来就跳过 J）。只有这种卡才多吃一次 rng，别的卡逐位不变
+  if (foeKitSeal === '' && FOE_ROLES[level].specials.indexOf('seal') >= 0) foeKitSeal = R.pickOne(rng, R.SKILL_RANKS)
   return lo
 }
 

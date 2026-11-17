@@ -3477,6 +3477,24 @@ function printTailDiag() {
   if (tj && tj.fires > 0) console.log('  诊断：〈tojack〉发动 ' + tj.fires + ' 次 · 变成 J ' + tj.made + ' 张（其中原是 0 点牌 ' + tj.fromZero + '）· 没得变 ' + tj.none + ' 次')
   const kj = R.PROTO_STAT.keyjack
   if (kj && kj.fires > 0) console.log('  诊断：〈keyjack〉发动 ' + kj.fires + ' 次 · 贴钥匙 ' + kj.tagged + ' 张 · 变成 J ' + kj.made + ' 张（其中原是 0 点牌 ' + kj.fromZero + '）· 本来就是 J ' + kj.wasJack + ' 张')
+  const rs = R.PROTO_STAT.restrain
+  if (rs && rs.fires > 0) console.log('  诊断：〈restrain〉发动 ' + rs.fires + ' 次 · 贴【克制】' + rs.tagged + ' 张 · 拦下补牌 ' + rs.skipped + ' 次（拦下时手里平均 ' + (rs.skipped ? (rs.handSum / rs.skipped).toFixed(2) : '-') + ' 张）')
+  const tw = R.PROTO_STAT.twin21
+  if (tw && tw.fires > 0) console.log('  诊断：〈twin21〉发动 ' + tw.fires + ' 次 · 变成 21 ' + tw.made + ' 张 · 21 打出 ' + tw.played + ' 张 · 21 钓中 21 ' + tw.caught + ' 次')
+  const gt = R.PROTO_STAT.gate
+  if (gt && gt.fires > 0) console.log('  诊断：〈gateline〉发动 ' + gt.fires + ' 次 · 落堆成闸门 ' + gt.placed + ' · 拦下 ' + gt.blocks + ' 次（留下 ' + gt.kept + ' 张；拦的是贴它那一方自己 ' + gt.selfBlocks + ' 次）· 同点数放行 ' + gt.sameRank + ' 次 · J 只收到闸门 ' + (gt.jBlocks || 0) + ' 次（留下 ' + (gt.jKept || 0) + ' 张）')
+  const ps = R.PROTO_STAT.pileswap
+  if (ps && ps.fires > 0) console.log('  诊断：〈pileswap〉发动 ' + ps.fires + ' 次 · 进攻换（钓中那张换到堆底）' + ps.attack + ' 次、平均多收 ' + (ps.attack ? (ps.attackGain / ps.attack).toFixed(2) : '-') + ' 张 · 防守换 ' + ps.defend + ' 次 · 不换 ' + ps.none + ' 次')
+  const im = R.PROTO_STAT.impulse
+  if (im && im.fires > 0) console.log('  诊断：〈impulse〉发动 ' + im.fires + ' 次 · 贴【冲动】' + im.tagged + ' 张（其中 J ' + im.jack + '）· 被逼着打出 ' + im.forcedPlays + ' 张')
+  const fr = R.PROTO_STAT.fragile
+  if (fr && fr.fires > 0) console.log('  诊断：〈fragfoe〉发动 ' + fr.fires + ' 次 · 贴【脆弱】' + fr.tagged + ' 张 · 被置 0 ' + fr.zeroed + ' 张 · 没被置 0 就打出去 ' + fr.playedSafe + ' 张')
+  const shk = R.PROTO_STAT.shrink
+  if (shk && shk.tagged > 0) console.log('  诊断：〈shrinktag〉手牌贴【缩小】' + shk.tagged + ' 张 · 打出 ' + shk.played + ' 张 · 靠缩小才钓中 ' + shk.halfOnly + ' 次')
+  const xm = R.PROTO_STAT.xmatch
+  if (xm && xm.plays > 0) console.log('  诊断：〈xmatch / xpass〉带 X 打出 ' + xm.plays + ' 次 · 靠 X 才钓中 ' + xm.xOnly + ' 次 · 手牌贴 X ' + xm.tagged + ' 张')
+  const tp = R.PROTO_STAT.takenpush
+  if (tp && tp.played > 0) console.log('  诊断：〈takenpush〉打出 ' + tp.played + ' 次 · 被收走触发：打它的一方自己收 ' + tp.bySelf + ' / 对方收 ' + tp.byFoe + ' · 翻上堆 ' + tp.pushed + ' 张 · 牌库不够没翻 ' + tp.short)
   const pj = R.PROTO_STAT.pairjack
   if (pj && pj.fires > 0) console.log('  诊断：【对钩】发动 ' + pj.fires + ' 次 · 变成 J ' + pj.asJack + '（' + (100 * pj.asJack / pj.fires).toFixed(1) + '%）· 其中空堆勾走自己 ' + pj.emptyPile + ' · 抢牌时 ' + pj.inSteal + ' · 通吃时平均收堆 ' + (pj.asJack - pj.emptyPile > 0 ? (pj.pileSum / (pj.asJack - pj.emptyPile)).toFixed(2) : '-') + ' 张（不含它）')
   const nj = R.PROTO_STAT.nextjack

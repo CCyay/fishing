@@ -25,7 +25,8 @@ for (const l of fs.readFileSync(path.join(dir, 'cards.tsv'), 'utf8').split(/\r?\
   jobs.push({ id, env: { FOE_PROBE: js, FOE_PROBE_LEVELS: '2,3,4,5,6,7,8,9,10,11,12' } })
 }
 if (only && jobs.length !== only.length) throw new Error('cards.tsv 里查不到：' + only.filter(id => id !== 'base' && !jobs.some(j => j.id === id)).join(','))
-const N = 12
+// 〔2026-11-16 12 → 4：用户定模拟器批量并行 ≤ 4 路（12 路卡死界面）〕
+const N = 4
 let next = 0, running = 0, done = 0
 function launch() {
   while (running < N && next < jobs.length) {
