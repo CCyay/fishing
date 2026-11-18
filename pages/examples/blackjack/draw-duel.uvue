@@ -216,7 +216,7 @@
     roleCover,
     slotLabels,
     slotCover,
-    // 布饵人那种固定槽：URL 里那格是 -1，这儿按角色补上专属技能
+    // 虚无行者那种固定槽：URL 里那格是 -1，这儿按角色补上专属技能
     roleFixedSkill
   } from '@/pages/examples/blackjack/draw-skills.uts'
   import {
@@ -416,7 +416,7 @@
     return '双触发：' + text + ' —— 这几张会同时触发两件技能。'
   }
 
-  // 槽上印的标签怎么念：'0' 是 0 点槽（布饵人），单写一个 0 看着像「没有」
+  // 槽上印的标签怎么念：'0' 是 0 点槽（虚无行者），单写一个 0 看着像「没有」
   function slotLabelText(label : string) : string {
     return label == '0' ? '0 点' : label
   }

@@ -1,4 +1,4 @@
-// 一次性标定：白板尺子（本目录）↔ 玩家尺子（out-foestr-1109，鱼塘老板 + 技能池，2026-11-09）
+// 一次性标定：白板尺子（本目录）↔ 玩家尺子（out-foestr-1109，炼金商人 + 技能池，2026-11-09）
 // 每个难度 × 每一档：43 张卡做线性拟合 pond = a + b·blank，把 tiers.js 的 CENTER（玩家尺子刻度）换算到白板刻度，区间半宽 3 → 3 / b
 const path = require('path')
 const log = console.log; console.log = () => {}

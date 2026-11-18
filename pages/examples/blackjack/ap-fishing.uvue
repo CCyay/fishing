@@ -67,7 +67,7 @@
       </view>
       <!-- 点它那排有两种意思，看在等哪件技能：
              冻结 —— 「锁这一张」。那几张多半盖着，所以你挑的是**位置**；
-             压舱 / 摘钩 / 对换 —— 「挑这一张」。这三件把它的手牌全翻开
+             置换 / 摄物 / 对换 —— 「挑这一张」。这三件把它的手牌全翻开
              （见 foeOpen 里认 takeSkill 那条），所以你是看着挑的 -->
       <view class="foe-row">
         <!-- 庄家的堆牌区，顺序跟你那排一致（堆牌 │ 手牌）。堆牌盖着。
@@ -150,7 +150,7 @@
                  点数会被顺色抹掉、被见底压下去；花色会被染水整堆改掉。
                  两样跟牌面对不上的都描色（染水改过的花色描同一个色：
                  「这张不按它印着的那个花色算」是一回事） -->
-            <!-- 【浊水】藏住的那几格：点数印问号、花色留空，
+            <!-- 【迷障】藏住的那几格：点数印问号、花色留空，
                  连「红还是黑」都不描（描了就等于报出花色） -->
             <!-- 上半部：花色放大当底，点数叠在它正中间（白字 + 深色描边）。
                  下半部放标签（card-tags）和效果名 -->
@@ -197,7 +197,7 @@
             <!-- 【石墙】：连续匹配撞停；撞上那张被收走，下面留下。
                  **非标不可** —— 不标的话「这段能收到哪儿」只能靠记 -->
             <text v-if="stoneAt(index) && !murked(index)" class="card-stone-tag">墙</text>
-            <!-- 【空钩】（布饵人）：谁收走这张谁的手牌全部置 0。**非标不可** —— 不标的话对手没法躲 -->
+            <!-- 【反噬】（虚无行者）：谁收走这张谁的手牌全部置 0。**非标不可** —— 不标的话对手没法躲 -->
             <text v-if="index < pile.length && trapOn(pile[index]) && !murked(index)" class="card-trap-tag">钩</text>
             <!-- 【通配】：凑顺子时这张算任意点数。它是**标签**，跟冰 / 烧一样印字 ——
                  光靠紫边认不出来（紫边和护、保护的边色同属一排，一眼分不清），
@@ -218,7 +218,7 @@
               **非标不可**：叠放的牌在屏幕上压根看不见，不标的话
               「这一叠值几分、扛几次」全靠记，而那是叠放的全部决策
             -->
-            <!-- 浊水藏住的格子连角标也不印 —— 「这一叠值几分、扛几次」
+            <!-- 迷障藏住的格子连角标也不印 —— 「这一叠值几分、扛几次」
                  正是它该藏的那类信息 -->
             <!-- ⚠ 下面这条角标（和 .card-warded 那条绿边）**2026-10-28 起永不出现**：
                  【保护】整个撤了，两条来路【凝水】【拢水】同日删，`wardLayers` 恒 0。
@@ -317,18 +317,18 @@
             >{{ one.foe ? '庄' : '你' }}</text
           >
           <!-- 红花色用 play-card-red 而**不是** card-red —— 理由在样式那边，
-               连带记了「择饵那四块正踩着这个坑」 -->
+               连带记了「择符那四块正踩着这个坑」 -->
           <text v-if="one.card != ''" class="play-card" :class="{ 'play-card-red': one.red }">{{ one.card }}</text>
           <text class="play-text">{{ logBody(one) }}</text>
         </view>
       </scroll-view>
     </view>
 
-    <!-- 择饵：摊开牌库顶五张，挑一张留在最上面。
-         跟观潮同一个朝向（挑的是你回合末要补的），但它是精确挑选 ——
-         所以这块得把牌面摆出来点，不能像观潮那样只给「沉/不沉」两颗钮 -->
+    <!-- 择符：摊开牌库顶五张，挑一张留在最上面。
+         跟观星同一个朝向（挑的是你回合末要补的），但它是精确挑选 ——
+         所以这块得把牌面摆出来点，不能像观星那样只给「沉/不沉」两颗钮 -->
     <view v-if="pickPending" class="pick-deck">
-      <text class="tide-text">择饵：挑一张加入手牌，其余洗回牌库</text>
+      <text class="tide-text">择符：挑一张加入手牌，其余洗回牌库</text>
       <view class="pick-deck-row">
         <view
           v-for="(one, pi) in pickTops"
@@ -341,12 +341,12 @@
       </view>
     </view>
 
-    <!-- 分饵：点两下 —— **第一下给自己、第二下给对方**。
+    <!-- 分赐：点两下 —— **第一下给自己、第二下给对方**。
          标签用 `giftPicks` 的下标顺序算（0 = 给自己、1 = 给对方），
          所以它跟 onGiftCard 里那个「顺序就是语义」是同一份约定。
-         点已选中的那张取消（照观潮那条交互） -->
+         点已选中的那张取消（照观星那条交互） -->
     <view v-if="giftPending" class="pick-deck">
-      <text class="tide-text">分饵：点两张 —— 第一张给自己、第二张给庄家，其余沉底（点中的再点一次取消）</text>
+      <text class="tide-text">分赐：点两张 —— 第一张给自己、第二张给庄家，其余沉底（点中的再点一次取消）</text>
       <view class="pick-deck-row">
         <view
           v-for="(one, gi) in giftTops"
@@ -362,14 +362,14 @@
       </view>
     </view>
 
-    <!-- 观潮：你打出触发了它，看一眼牌库顶那两张，**每张单独**选沉不沉。
+    <!-- 观星：你打出触发了它，看一眼牌库顶那两张，**每张单独**选沉不沉。
          那两张是**你自己**回合末要补的（回合末补牌之后朝向变了）。
          从前只有「两张一起沉 / 都不动」两颗钮 —— 一张想要、一张不想要的时候
          两头都不对。现在点一张标记「沉」，再点一次取消，最后按确定 -->
-    <!-- 〔2026-11-10 观潮换成「查看牌库顶 4 张，自定义排序」：按顺序点，第 1 下点的放最上面；再点一次取消；没点到的按原来的先后排在后面。
+    <!-- 〔2026-11-10 观星换成「查看牌库顶 4 张，自定义排序」：按顺序点，第 1 下点的放最上面；再点一次取消；没点到的按原来的先后排在后面。
          你打完先补牌 —— 第 1、3 张是你的，第 2、4 张是庄家的〕 -->
     <view v-if="tidePending" class="tide-box">
-      <text class="tide-text">观潮：按顺序点牌库顶这几张，第 1 下点的放最上面（再点取消，没点的按原顺序排在后面）。你摸第 1、3 张，庄家摸第 2、4 张</text>
+      <text class="tide-text">观星：按顺序点牌库顶这几张，第 1 下点的放最上面（再点取消，没点的按原顺序排在后面）。你摸第 1、3 张，庄家摸第 2、4 张</text>
       <view class="pick-deck-row">
         <view
           v-for="(one, ti) in tideCards"
@@ -403,7 +403,7 @@
       </view>
     </view>
 
-    <!-- 倒饵：挑**任意张**自己的手牌塞给庄家。
+    <!-- 转嫁：挑**任意张**自己的手牌塞给庄家。
          整块照换水那一块（上面那块）—— 同样借手牌那一排挑、
          同样点一张送一张、同样靠右边那颗钮收尾。两块的分别只有一处：
          牌的去向是**对方手上**，不是牌库。
@@ -412,7 +412,7 @@
          回合末只补到下限，所以塞给他一张废牌 = 剥夺他一次摸牌，
          他还要多花一手把它打掉。**所以挑的时候专挑自己最没用的** -->
     <view v-if="baitPending" class="tide-box">
-      <text class="tide-text">{{ baitDark ? (baitDone > 0 ? ('暗饵：已以暗牌交给庄家 ' + baitDone + ' 张，还能再给 ' + (2 - baitDone) + ' 张') : '暗饵：点手牌以暗牌交给庄家，最多 2 张（他看不见它们，打出落堆才翻开）') : (baitDone > 0 ? ('倒饵：已塞给庄家 ' + baitDone + ' 张，还能接着点手牌') : '倒饵：点手牌塞给庄家，想给几张给几张（回合末你会补新的）') }}</text>
+      <text class="tide-text">{{ baitDark ? (baitDone > 0 ? ('匿赠：已以暗牌交给庄家 ' + baitDone + ' 张，还能再给 ' + (2 - baitDone) + ' 张') : '匿赠：点手牌以暗牌交给庄家，最多 2 张（他看不见它们，打出落堆才翻开）') : (baitDone > 0 ? ('转嫁：已塞给庄家 ' + baitDone + ' 张，还能接着点手牌') : '转嫁：点手牌塞给庄家，想给几张给几张（回合末你会补新的）') }}</text>
       <view class="tide-actions">
         <view id="ap-bait-skip" class="tide-btn tide-btn-plain" @click="onBait(-1)">
           <text class="tide-btn-text tide-btn-text-plain">{{ baitDone > 0 ? '给完了' : '不给' }}</text>
@@ -420,22 +420,22 @@
       </view>
     </view>
 
-    <!-- 滤饵：3 张已经摸到手上了，现在挑 2 张退回牌库。
+    <!-- 洗练：3 张已经摸到手上了，现在挑 2 张退回牌库。
          挑的动作同样借手牌那一排（照换水）。
 
          **这一块没有收尾钮**，跟换水那一块的分别就在这儿：
-         滤饵是强制退满的 —— 牌先白给了你，退牌是它的代价。
+         洗练是强制退满的 —— 牌先白给了你，退牌是它的代价。
          退够 SIFT_BACK 张自己关。
 
          实测这个「挑」值 0.905 分（X 的 57%），是这件技能一多半的价值；
          而误伤已经降到 0.13%（理论完美是 0）—— 所以这块 UI 要让人看清
          手里哪些牌当场钓得着 -->
-    <!-- 三色：跟滤饵同形（点手牌退回牌库，退够自己关），只多一条 —— 退完剩下的还得凑得齐 triKeep 种花色 -->
+    <!-- 三色：跟洗练同形（点手牌退回牌库，退够自己关），只多一条 —— 退完剩下的还得凑得齐 triKeep 种花色 -->
     <view v-if="triPending" class="tide-box">
       <text class="tide-text">{{ '三色：已摸 ' + triDrew + ' 张，点手牌退回牌库 —— 留下 ' + triKeep + ' 张不同花色的（还要退 ' + (hand.length - triKeep) + ' 张）' }}</text>
     </view>
     <view v-if="siftPending" class="tide-box">
-      <text class="tide-text">{{ '滤饵：已摸 ' + siftDrew + ' 张，点手牌退回牌库重洗 —— 还要退 ' + siftLeft + ' 张' }}</text>
+      <text class="tide-text">{{ '洗练：已摸 ' + siftDrew + ' 张，点手牌退回牌库重洗 —— 还要退 ' + siftLeft + ' 张' }}</text>
     </view>
 
     <!-- 连竿：加打是**可选的**。要打就直接点手牌（canPlay 故意没把它
@@ -444,11 +444,11 @@
 
          ⚠ **这一块现在玩家看不到**〔2026-10-16 查明〕：连竿 10-14 删了，
          而 `againWaiting` 只在 passTurn 的非庄家分支里立 —— 可
-         `againPending` 只剩【再钩】一个来源，那儿带着 `byFoe &&`。
+         `againPending` 只剩【连击】一个来源，那儿带着 `byFoe &&`。
          详见 afterPlay 里 `SK_AGAIN` 那一支上面那段。
          留着是因为它是「玩家侧加打」唯一的落点；**但它是死的，别照它推断
          玩家现在能做什么** -->
-    <!-- 【红钩】（桃汛客）/【串钩】（串钩手）：额外响哪一件。出牌前随时能换 ——
+    <!-- 【赤鸣】（赤红女巫）/【共鸣】（共鸣歌者）：额外响哪一件。出牌前随时能换 ——
          手牌底下的技能名跟着变，所以打之前就看得见这一张会响什么 -->
     <view v-if="heartPickShown()" class="tide-box">
       <text class="tide-text">{{ heartPickLead() + heartPickName() + '】' }}</text>
@@ -486,6 +486,16 @@
       </view>
     </view>
 
+    <!-- 【截咒】〔2026-11-18〕：庄家要抢你 —— 点一张能打出截咒的牌（金边）截住，或者不截 -->
+    <view v-if="stealCutPending" class="tide-box">
+      <text class="tide-text">{{ '截咒：庄家要抢你这一手（它收 ' + stealCutN + ' 张）。点金边那张打出截咒：抢牌取消，它那张置 0 和截咒一起留在堆上，你照常收 ' + stealCutCaught + ' 张' }}</text>
+      <view class="tide-actions">
+        <view id="ap-stealcut-skip" class="tide-btn tide-btn-plain" @click="onStealCutSkip">
+          <text class="tide-btn-text tide-btn-text-plain">不截</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 凝水 / 净水：挑**堆上**一张。两件共用这一块，提示语按技能换。
          凝水不挑就是白丢一张（牌已经丢弃了，代价已经付了）；
          **净水不挑 = 直接打出**（当普通牌落堆、照常匹配，2026-10-24） -->
@@ -499,9 +509,9 @@
       </view>
     </view>
 
-    <!-- 拟饵第二步：点一张跟那张堆牌同花色的手牌，它变成跟那张相同（明置） -->
+    <!-- 拟形第二步：点一张跟那张堆牌同花色的手牌，它变成跟那张相同（明置） -->
     <view v-if="mimicHandPending" class="tide-box">
-      <text class="tide-text">拟饵：点一张跟那张堆牌同花色的手牌，它变成跟那张相同（这张明置，庄家看得见）· J 不行</text>
+      <text class="tide-text">拟形：点一张跟那张堆牌同花色的手牌，它变成跟那张相同（这张明置，庄家看得见）· J 不行</text>
       <view class="tide-actions">
         <view id="ap-mimic-skip" class="tide-btn tide-btn-plain" @click="onMimicHand(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不变</text>
@@ -519,9 +529,9 @@
       </view>
     </view>
 
-    <!-- 【电钩】〔2026-11-17〕：点手牌一张张亮（第一张定颜色，之后只认同颜色），至少 2 张，亮的都带上正电；按钮收尾 -->
+    <!-- 【引雷】〔2026-11-17〕：点手牌一张张亮（第一张定颜色，之后只认同颜色），至少 2 张，亮的都带上正电；按钮收尾 -->
     <view v-if="hookShowPending" class="tide-box">
-      <text class="tide-text">{{ '电钩：点手牌展示同颜色的牌（J、已带正电的也能亮来凑数），至少 2 张，亮的都带上正电。已亮 ' + hookShownN + ' 张' }}</text>
+      <text class="tide-text">{{ '引雷：点手牌展示同颜色的牌（J、已带正电的也能亮来凑数），至少 2 张，亮的都带上正电。已亮 ' + hookShownN + ' 张' }}</text>
       <view class="tide-actions">
         <view id="ap-hook-done" class="tide-btn tide-btn-plain" @click="onHookShowDone()">
           <text class="tide-btn-text tide-btn-text-plain">{{ hookShownN >= 2 ? '就这样' : (hookShownN == 0 ? '不展示' : '不够 2 张，不发动') }}</text>
@@ -549,9 +559,9 @@
       </view>
     </view>
 
-    <!-- 镜水第二步：点一张跟那张同花色的手牌展示（J 不行），那张牌的点数变成跟它相同 -->
+    <!-- 镜阵第二步：点一张跟那张同花色的手牌展示（J 不行），那张牌的点数变成跟它相同 -->
     <view v-if="reflectHandPending" class="tide-box">
-      <text class="tide-text">{{ '镜水：点一张跟堆上第 ' + (reflectTargetShown + 1) + ' 张同花色的手牌展示，它的点数变成跟那张相同（展示的牌留在手里）· J 不行' }}</text>
+      <text class="tide-text">{{ '镜阵：点一张跟堆上第 ' + (reflectTargetShown + 1) + ' 张同花色的手牌展示，它的点数变成跟那张相同（展示的牌留在手里）· J 不行' }}</text>
       <view class="tide-actions">
         <view id="ap-reflect-skip" class="tide-btn tide-btn-plain" @click="onReflectHand(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不展示</text>
@@ -566,9 +576,9 @@
          保护续层写的是「取消」，因为那时还没有牌离手〕 -->
 
     <!-- 零递：挑一张自己的手牌贴【21 匹配】。借手牌那一排（照冰雷） -->
-    <!-- 安检（2026-11-03）：庄家上回合抽的牌逐张过你的手 —— 放行（留在他手里、明着）/ 置底（他再抽一张）。J 只能放行 -->
+    <!-- 鉴定（2026-11-03）：庄家上回合抽的牌逐张过你的手 —— 放行（留在他手里、明着）/ 置底（他再抽一张）。J 只能放行 -->
     <view v-if="inspectOpen && inspectPending.length > 0" class="tide-box">
-      <text class="tide-text">{{ '安检：庄家抽到 ' + cardName(inspectPending[0]) + (inspectPending[0].rank == 'J' ? ' —— J 不能置底，只能放行' : (deck.length == 0 ? ' —— 牌库空了，只能放行' : ' —— 放行（留在他手里，一直亮着）还是置底（他再抽一张）？')) }}</text>
+      <text class="tide-text">{{ '鉴定：庄家抽到 ' + cardName(inspectPending[0]) + (inspectPending[0].rank == 'J' ? ' —— J 不能置底，只能放行' : (deck.length == 0 ? ' —— 牌库空了，只能放行' : ' —— 放行（留在他手里，一直亮着）还是置底（他再抽一张）？')) }}</text>
       <view class="tide-actions">
         <view id="ap-inspect-keep" class="tide-btn tide-btn-plain" @click="onInspect(true)">
           <text class="tide-btn-text tide-btn-text-plain">放行</text>
@@ -578,7 +588,7 @@
         </view>
       </view>
     </view>
-    <!-- 拣色（2026-11-03 · 新夜钓客）：你上回合摸到的、跟你花色槽同颜色的牌 —— 点一张塞回牌库底再摸 1 张，或者不换。每回合一次 -->
+    <!-- 拣色（2026-11-03 · 新夜行法师）：你上回合摸到的、跟你花色槽同颜色的牌 —— 点一张塞回牌库底再摸 1 张，或者不换。每回合一次 -->
     <view v-if="colorOpen && colorChoices().length > 0" class="tide-box">
       <text class="tide-text">拣色：你摸到这几张同颜色的牌 —— 点一张塞回牌库底、再摸 1 张，或者不换</text>
       <view class="tide-actions">
@@ -595,7 +605,7 @@
         </view>
       </view>
     </view>
-    <!-- 送红（2026-11-04 · 散鱼人）：你摸到的红牌 —— 点一张塞给庄家（它一直亮着）、你再摸 1 张；可以接着送，或者不送了 -->
+    <!-- 送红（2026-11-04 · 赠礼精灵）：你摸到的红牌 —— 点一张塞给庄家（它一直亮着）、你再摸 1 张；可以接着送，或者不送了 -->
     <view v-if="giftOpen && giftChoices().length > 0" class="tide-box">
       <text class="tide-text">送红：你摸到这几张红牌 —— 点一张塞给庄家（它一直亮着）、你再摸 1 张，或者不送了</text>
       <view class="tide-actions">
@@ -612,9 +622,9 @@
         </view>
       </view>
     </view>
-    <!-- 甩货（2026-11-03 · 沉船打捞人）：你抽到 0 点牌 —— 点一张手牌给庄家（明置）、再摸 1 张，或者不给。抽到几次 0 问几次 -->
+    <!-- 弃厄（2026-11-03 · 亡灵术士）：你抽到 0 点牌 —— 点一张手牌给庄家（明置）、再摸 1 张，或者不给。抽到几次 0 问几次 -->
     <view v-if="giveOpen && giveLeft > 0 && hand.length > 0" class="tide-box">
-      <text class="tide-text">{{ '甩货：你抽到了 0 点牌' + (giveLeft > 1 ? '（还能甩 ' + giveLeft + ' 次）' : '') + ' —— 点一张手牌给庄家（它一直亮着）、你再摸 1 张，或者不给' }}</text>
+      <text class="tide-text">{{ '弃厄：你抽到了 0 点牌' + (giveLeft > 1 ? '（还能甩 ' + giveLeft + ' 次）' : '') + ' —— 点一张手牌给庄家（它一直亮着）、你再摸 1 张，或者不给' }}</text>
       <view class="tide-actions">
         <view
           v-for="(one, gi) in hand"
@@ -631,7 +641,7 @@
     </view>
     <!-- 顺递：挑一张自己的手牌贴【顺子匹配】（照零递那块） -->
     <view v-if="flowDraftPending" class="tide-box">
-      <text class="tide-text">{{ flowDraftSk == SK_FLOW ? '伏流：点一张手牌贴上通配和顺子匹配（打出它时凑顺子，它当任意点数）· J 和无点数的点不动' : flowDraftSk == SK_FLOWPASS ? '续流：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : flowDraftSk == SK_FLOWALL ? '传顺：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
+      <text class="tide-text">{{ flowDraftSk == SK_FLOW ? '百变：点一张手牌贴上通配和顺子匹配（打出它时凑顺子，它当任意点数）· J 和无点数的点不动' : flowDraftSk == SK_FLOWPASS ? '连咏：点一张手牌贴上顺子匹配（打出它时凑顺子）· J 和无点数的点不动' : (flowDraftSk == SK_STONELINE ? '石顺：它已经带上石墙；点一张手牌贴上顺子匹配（打出它时凑顺子，顺子不受石墙拦）· J 和无点数的点不动' : flowDraftSk == SK_FLOWALL ? '传顺：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动' : '顺递：点一张手牌贴上顺子匹配（打出它时凑顺子），之后自动给堆上 1 张贴通配 · J 和无点数的点不动') }}</text>
       <view class="tide-actions">
         <view id="ap-flowdraft-skip" class="tide-btn tide-btn-plain" @click="onFlowDraft(-1)">
           <text class="tide-btn-text tide-btn-text-plain">不贴</text>
@@ -648,9 +658,9 @@
       </view>
     </view>
 
-    <!-- 升钩：手里有 2 张以上比它大 1 个顺位的牌，点一张变成 J（明置）。强制，没有「不变」钮 -->
+    <!-- 升格：手里有 2 张以上比它大 1 个顺位的牌，点一张变成 J（明置）。强制，没有「不变」钮 -->
     <view v-if="nextJackPending" class="tide-box">
-      <text class="tide-text">{{ '升钩：点一张 ' + nextJackRank + ' 变成 J（明置）' }}</text>
+      <text class="tide-text">{{ '升格：点一张 ' + nextJackRank + ' 变成 J（明置）' }}</text>
     </view>
 
     <!-- 褪递：对方那张褪色已经贴完，等你挑一张手牌贴【收零】（照零递那块的形制） -->
@@ -663,7 +673,7 @@
       </view>
     </view>
 
-    <!-- 回水：庄家那张已经置 0，等你挑一张手牌贴【收零】（照褪递那块） -->
+    <!-- 回蚀：庄家那张已经置 0，等你挑一张手牌贴【收零】（照褪递那块） -->
     <view v-if="backTagPending" class="tide-box">
       <text class="tide-text">{{ backTagName }}：点一张你的手牌贴上收零（打出时置 0，堆上另有 0 点牌就全收走）· J 和无点数的点不动</text>
       <view class="tide-actions">
@@ -772,20 +782,20 @@
 
     <!-- 冻结：挑庄家一张手牌锁住。借它那排点 —— 盖着的也点得中，
          你挑的是位置不是牌面 -->
-    <!-- 浑水〔2026-11-16 换成「【腐蚀】，展示跟堆底同颜色的手牌：每展示 1 张，此牌的效果再发动 1 次」〕：盲选庄家 1 + 同颜色张数 张，翻开并置 0（J 也算）。借庄家那排点 —— 盖着的也点得中。
+    <!-- 迷雾〔2026-11-16 换成「【腐蚀】，展示跟堆底同颜色的手牌：每展示 1 张，此牌的效果再发动 1 次」〕：盲选庄家 1 + 同颜色张数 张，翻开并置 0（J 也算）。借庄家那排点 —— 盖着的也点得中。
          没有「不选」：置 0 只对你有利，没有不选的理由 -->
-    <!-- 缩水：盲选庄家一张手牌明置置 0（J 也算），之后他手里每有 1 张 0 点牌全堆 −3（照浑水那块） -->
+    <!-- 缩水：盲选庄家一张手牌明置置 0（J 也算），之后他手里每有 1 张 0 点牌全堆 −3（照迷雾那块） -->
     <view v-if="shrinkPending" class="tide-box">
       <text class="tide-text">缩水：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 之后他手里每有 1 张 0 点牌，全堆 −3</text>
     </view>
 
-    <!-- 回水：先盲选庄家一张手牌明置置 0（照浑水那块），再贴自己一张收零（下面 backTagPending 那块） -->
+    <!-- 回蚀：先盲选庄家一张手牌明置置 0（照迷雾那块），再贴自己一张收零（下面 backTagPending 那块） -->
     <view v-if="backPending" class="tide-box">
-      <text class="tide-text">回水：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 之后你挑一张手牌贴上收零</text>
+      <text class="tide-text">回蚀：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 之后你挑一张手牌贴上收零</text>
     </view>
 
     <view v-if="murkPending" class="tide-box">
-      <text class="tide-text">{{ '浑水：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 还要选 ' + murkLeft + ' 张' }}</text>
+      <text class="tide-text">{{ '迷雾：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 还要选 ' + murkLeft + ' 张' }}</text>
     </view>
 
     <view v-if="freezePending" class="tide-box">
@@ -808,7 +818,7 @@
          —— 「翻开手牌」在那种「迟早会兑现的标签」上值 0，所以不翻开是白赚的
          设计空间、不是省事。下一件盲选型技能照这块的写法接 -->
 
-    <!-- 压舱 / 摘钩 / 对换：挑庄家一张手牌。三件共用这一块，
+    <!-- 置换 / 摄物 / 对换：挑庄家一张手牌。三件共用这一块，
          提示语按技能换（见 takeText）—— 它那排这会儿**全是明的**（见 foeOpen）。 -->
     <view v-if="takeSkill >= 0" class="tide-box">
       <text class="tide-text">{{ takeText }}</text>
@@ -830,7 +840,7 @@
     </view>
 
     <!-- 同号：摊开牌库里那几张同点数的（最多 3 张），挑一张。
-         照择饵那块的样式 —— 都是「摆出牌面让你点」 -->
+         照择符那块的样式 —— 都是「摆出牌面让你点」 -->
     <view v-if="twinPending" class="pick-deck">
       <text class="tide-text">同号：牌库里还有这 {{ twinCards.length }} 张同点数的，挑一张拿到手上</text>
       <view class="pick-deck-row">
@@ -909,12 +919,12 @@
          一局之内它会一直变（每补一次就往下走两张） -->
     <text v-if="liveText != ''" class="live-text">{{ liveText }}</text>
 
-    <!-- 【逆流】的开关：角色带着它才出现。
+    <!-- 【逆行】的开关：角色带着它才出现。
          摆在手牌上方 —— 它改的是「这一张打下去落哪头」，
          所以得在你点手牌之前就看得见、按得着。
-         按钮上写的是技能名**逆流**，不是「沉底」—— 沉底是点数槽里的另一件 -->
+         按钮上写的是技能名**逆行**，不是「沉底」—— 沉底是点数槽里的另一件 -->
     <view v-if="hasSinkSpecial" class="sink-row" @click="sinkOn = !sinkOn">
-      <text class="sink-btn" :class="{ 'sink-btn-on': sinkOn }">{{ sinkOn ? '逆流 · 开' : '逆流 · 关' }}</text>
+      <text class="sink-btn" :class="{ 'sink-btn-on': sinkOn }">{{ sinkOn ? '逆行 · 开' : '逆行 · 关' }}</text>
       <text class="sink-note">{{ sinkOn ? '这一张会打到堆底，收「堆底 → 匹配那张」' : '照常落堆顶' }}</text>
     </view>
 
@@ -922,7 +932,7 @@
          留两条还用得上的判据：
          一、**入口的 v-if 就是第一道校验** —— 按钮不出现就是「这个动作
              现在不成立」，玩家不用点进去才发现没得选；
-         二、「你点手牌之前要先决定的事」摆在手牌上方、挨着逆流那个开关，
+         二、「你点手牌之前要先决定的事」摆在手牌上方、挨着逆行那个开关，
              样式借 sink-row（同一个位置、同一种东西）〕 -->
 
     <!-- 你的手牌：点一张打出。牌底下的小字是这张会触发的技能。
@@ -969,7 +979,7 @@
               'card-hint': canPlay && !darkKeyOn(card) && canCatch(card, false),
               'card-new': index == newIndex,
               'card-frozen': isFrozen(card) || jackLocked(card),
-              'card-steal': stealPending && !darkKeyOn(card) && canStealWith(card),
+              'card-steal': (stealPending && !darkKeyOn(card) && canStealWith(card)) || (stealCutPending && canStealCut(false, card)),
               'card-back': darkKeyOn(card)
             }"
             @click="onPlay(index)">
@@ -1018,7 +1028,7 @@
             <text v-if="zeroKeyOn(card)" class="hand-draft-tag">零</text>
             <!-- 手里带【褪色】（对方的褪递贴的）—— 打出时置 0 并褪色 -->
             <text v-if="fadeKeyOn(card)" class="hand-draft-tag">褪</text>
-            <!-- 手里带【顺子匹配】（流钥贴的） -->
+            <!-- 手里带【顺子匹配】（衔咏贴的） -->
             <text v-if="flowKeyOn(card)" class="hand-flow-tag">顺</text>
             <!-- 手里带【叛变】（对方的策反贴的）：庄家知道是哪张、看不见牌面（2026-11-17 去掉明置）；打出后剩下的手牌全部置 0 -->
             <text v-if="traitorOn(card)" class="hand-draft-tag">叛</text>
@@ -1227,7 +1237,7 @@
     SK_POLEDRAW,
     // 【磁场】〔2026-11-09〕：跟堆底同颜色的手牌都带上【磁极】
     SK_POLECOLORALL,
-    // 【拟饵】〔2026-11-06〕：选择 1 张手牌明置，它变成与堆上 1 张同花色的牌相同
+    // 【拟形】〔2026-11-06〕：选择 1 张手牌明置，它变成与堆上 1 张同花色的牌相同
     SK_HANDREFLECT,
     // 【亮底】〔2026-11-06〕：展示手牌，变成手牌里最大的点数；【21 匹配】
     SK_HANDMAX,
@@ -1245,7 +1255,7 @@
     SK_PICK,
     SK_SUITIFY,
     // `SK_SINK`（沉底）**留着** —— 技能 10-15 删了，可它有 4 处引用，
-    // 而那几处是 sink **机制**的入口（【逆流】【偏流】【寒流】都在用）。
+    // 而那几处是 sink **机制**的入口（【逆行】【逆位】【寒流】都在用）。
     // 清它要先把那条路从「沉底的参数」改成「落堆底的参数」，是独立一笔
     SK_SINK,
     SK_AGAIN,
@@ -1254,9 +1264,9 @@
     SK_HUE,
     SK_SUITCOLOR,
     SK_ZERODRAFT,
-    // 升钩〔2026-11-04 上架〕：比它大 1 个顺位的 1 张手牌明置变成 J
+    // 升格〔2026-11-04 上架〕：比它大 1 个顺位的 1 张手牌明置变成 J
     SK_NEXTJACK,
-    // 对钩〔2026-11-12 上架，同日改成「它变成 J」〕：展示手里 1 对，它变成 J
+    // 合璧〔2026-11-12 上架，同日改成「它变成 J」〕：展示手里 1 对，它变成 J
     SK_PAIRJACK,
     // 褪递〔2026-10-29 深夜上架〕：【褪色】；1 张手牌带上【收零】
     SK_FADETAG,
@@ -1264,7 +1274,7 @@
     SK_FLOWDRAFT,
     // 传顺：手里的牌都贴【顺子匹配】（不停人）
     SK_FLOWALL,
-    // 续流：它自己走顺子匹配（不当通配），再给 1 张手牌贴【顺子匹配】（挑法照顺递）
+    // 连咏：它自己走顺子匹配（不当通配），再给 1 张手牌贴【顺子匹配】（挑法照顺递）
     SK_FLOWPASS,
     // 零吃〔2026-10-29 上架、**当晚撤下**〕—— 常量现在是 −1，下面三处 hasTrigger 永不命中（惰性，等攒批清）
     SK_ZEROSELF,
@@ -1277,7 +1287,7 @@
     // 石影 / 石顺（2026-10-30）：它带上【石墙】；1 张手牌带上【花色匹配】/【顺子匹配】
     SK_STONEHUE,
     SK_STONELINE,
-    // 空钩（2026-11-01）：布饵人 ♠ 槽的专属技能
+    // 反噬（2026-11-01）：虚无行者 ♠ 槽的专属技能
     SK_TRAPZERO,
     SK_DECKZERO,
     SK_PINRANK,
@@ -1292,15 +1302,15 @@
     SK_PRESS,
     SK_UNHOOK,
     SK_SWAPCARD,
-    // 【倒饵】〔2026-10-27 上架〕—— 接【对换】的后半句，放开成**任意张**。
+    // 【转嫁】〔2026-10-27 上架〕—— 接【对换】的后半句，放开成**任意张**。
     // 上面那个 `SK_SWAPCARD` 同日起是 −1（对换删了），**留着是有理由的**：
     // 这个文件还有四处读它（2746 的提示文案、7648/7650 的分支、12754 的闸），
     // 而 `triggersOf` 只往列表里塞 `>= 0` 的槽主，所以那四处恒不命中。
     // 整个导出删掉的话它们会拿 `undefined` —— **静默不匹配**，查不出来
     SK_DUMPBAIT,
-    // 【暗饵】〔2026-11-10〕：将手牌最多 2 张以【暗牌】交给对方
+    // 【匿赠】〔2026-11-10〕：将手牌最多 2 张以【暗牌】交给对方
     SK_DARKBAIT,
-    // 【暗潮】〔2026-11-11 换效果〕：将对方非暗牌手牌洗回牌库，再摸 4 张暗牌
+    // 【夜幕】〔2026-11-11 换效果〕：将对方非暗牌手牌洗回牌库，再摸 4 张暗牌
     SK_DARKSWAP,
     SK_NARROW,
     SK_CREEL,
@@ -1316,8 +1326,8 @@
     //   所以它现在在上面那串 import 里。剩下十一件照旧。
     //
     //   **剩下两个还留着，而且不能只看技能死没死**：
-    //     `SK_SINK`  —— sink 机制的入口，【逆流】【偏流】【寒流】都在用；
-    //     `SK_AGAIN` —— `againPending` 那套被庄家规矩【再钩】搭着用。
+    //     `SK_SINK`  —— sink 机制的入口，【逆行】【逆位】【寒流】都在用；
+    //     `SK_AGAIN` —— `againPending` 那套被庄家规矩【连击】搭着用。
     //   这两条要先把机制和技能拆开（给机制起自己的名字），才动得了。
     //
     //   顺序永远是「先删函数、再撤 import」。反过来直接编译不过 ——
@@ -1335,14 +1345,14 @@
     SK_STACKDRAFT,
     SK_WILD,
     SK_DEAD,
-    // 浑水：死水那一族的盲选版（借冻结那种「点位置」的路，不翻开）
+    // 迷雾：死水那一族的盲选版（借冻结那种「点位置」的路，不翻开）
     SK_MURK,
     // 缩水：死水挑 1 张 + 按他手里几张 0 全堆减 + 【收零】
     SK_ZERODROP,
-    // 回水：浑水那种盲选置 0（1 张）+ 自己 1 张手牌贴【收零】（照褪递那一半）
+    // 回蚀：迷雾那种盲选置 0（1 张）+ 自己 1 张手牌贴【收零】（照褪递那一半）
     SK_BACKWATER,
     // 第四条匹配线：顺子。两件对付「11 那个洞」的办法不同 ——
-    // 伏流当通配**填**洞（幅度跟槽标签无关），涉水用差 2 **跨**洞
+    // 百变当通配**填**洞（幅度跟槽标签无关），涉水用差 2 **跨**洞
     SK_FLOW,
     SK_WADE,
     SK_FROST,
@@ -1358,7 +1368,7 @@
     //（每层推几张，固定 2），`SURGE_LAYERS` 是**引潮自己的**（一次贴几层）。
     //
     // ⚠ 2026-10-28 用户「用堆牌 取代 推牌」之后，**推牌已经零载体** ——
-    //   引潮删了（10-28 当天）、薪潮和逆涌换成堆牌。这三个 import **留着**
+    //   引潮删了（10-28 当天）、薪潮和抑王换成堆牌。这三个 import **留着**
     //   是照 `SK_BRIM` 那条删法（先删函数再撤 import，反过来编译不过），
     //   而 `SURGE_PUSH` 还在被**堆牌**用着：堆牌区落堆走 `surgePushOne`
     SK_SURGE,
@@ -1375,10 +1385,10 @@
     //〔2026-11-05 用户定，原「自带【燃烧】；堆牌1，对方堆牌1」。
     //  `FUEL_HEAP` / `FUEL_HEAP_FOE` 跟着删了，墓碑在 draw-skills.uts 原处〕
     SK_FUEL,
-    // 【分饵】：看牌库顶 `GIFT_LOOK` 张，给自己和对手各 1 张（2026-10-16）
+    // 【分赐】：看牌库顶 `GIFT_LOOK` 张，给自己和对手各 1 张（2026-10-16）
     SK_GIFT,
     GIFT_LOOK,
-    // 【滤饵】：摸 `SIFT_DRAW` 张，再挑 `SIFT_BACK` 张手牌退回牌库（2026-10-22）。
+    // 【洗练】：摸 `SIFT_DRAW` 张，再挑 `SIFT_BACK` 张手牌退回牌库（2026-10-22）。
     // 两个常量**必须差 1**（局长中性的来历，见它那段）
     SK_SIFT,
     SIFT_DRAW,
@@ -1400,6 +1410,7 @@
     SK_TRAITOR,
     // 策连〔2026-11-17 上架〕
     SK_TRAITORHUE,
+    SK_STEALCUT,
     // 三色〔2026-11-17 上架〕
     SK_TRISUIT,
     ORDER_MIN,
@@ -1427,14 +1438,14 @@
     ZERODRAFT_N,
     emptyLoadout,
     triggersOf,
-    // 【串钩】那一步追加（见 skillsOf）。它跟 triggersOf 分开是因为
+    // 【共鸣】那一步追加（见 skillsOf）。它跟 triggersOf 分开是因为
     // 它要先知道「这一侧带没带那件常驻技」
     addRankLink,
-    // 【红钩】（桃汛客）同一层，只是认花色不认点数
+    // 【赤鸣】（赤红女巫）同一层，只是认花色不认点数
     addHeartWild,
-    // 红钩能点着的那几件 —— 「换一件」钮跟 addHeartWild 读同一份名单
+    // 赤鸣能点着的那几件 —— 「换一件」钮跟 addHeartWild 读同一份名单
     heartWildPool,
-    // 【串钩】那份名单（同一颗钮）
+    // 【共鸣】那份名单（同一颗钮）
     rankLinkPool,
     hasTrigger,
     equippedSkills,
@@ -1459,15 +1470,15 @@
     //   所以这儿不能只是「不用它」，必须从 import 里摘掉〕
     SP_FIRMHOOK,
     SP_BEACH,
-    // 【逆涌】（开河工）：对方打出 J 之后，**给持有者堆牌 4**
+    // 【抑王】（镇王卫士）：对方打出 J 之后，**给持有者堆牌 4**
     //〔2026-10-28 从「推牌 2 层」换过来，张数没变、时机和归属变了〕。
     // 跟净滩是同一个问题的两半
     SP_JSURGE,
-    // 零空（2026-11-01 · 布饵人）：0 点牌不占手牌数量
+    // 零空（2026-11-01 · 虚无行者）：0 点牌不占手牌数量
     SP_ZEROFREE,
-    // 安检（2026-11-03）：鱼市验货人的常驻技
+    // 鉴定（2026-11-03）：鉴定师的常驻技
     SP_INSPECT,
-    // 拣色（2026-11-03 · 新【夜钓客】）
+    // 拣色（2026-11-03 · 新【夜行法师】）
     SP_COLORREDRAW,
     SP_REDGIFT,
     SP_ZHANDGIVE,
@@ -1485,11 +1496,11 @@
     HARD_SCORE_GOAL,
     SP_CLUBEIGHT,
     SP_HIGHMUTE,
-    // 【串钩】（串钩手）：命中任一个点数槽 → 所有点数槽一起响（见 skillsOf）
+    // 【共鸣】（共鸣歌者）：命中任一个点数槽 → 所有点数槽一起响（见 skillsOf）
     SP_RANKLINK,
-    // 【红钩】（桃汛客）：打出红桃 → 所有槽一起响（见 skillsOf）
+    // 【赤鸣】（赤红女巫）：打出红桃 → 所有槽一起响（见 skillsOf）
     SP_HEARTWILD,
-    // 【流钥】（流钥客）：触发技能槽 → 1 张手牌带【顺子匹配】
+    // 【衔咏】（衔咏客）：触发技能槽 → 1 张手牌带【顺子匹配】
     SP_SLOTTAG,
     CYCLE_REFILL,
     BAIT_COUNT,
@@ -1520,7 +1531,7 @@
     DIFF_EASY,
     DIFF_NORMAL,
     DIFF_HARD,
-    // 牌组上限。【囤饵】往牌库塞牌之前要兜一道
+    // 牌组上限。【囤符】往牌库塞牌之前要兜一道
     DECK_CAP,
     // 〔DECK_PLAY 2026-10-15 删了 —— 「一局只进场 52 张」那道上限没了，
     //   现在开局只剔 0~1 张凑牌库的奇偶，见 trimDeck〕
@@ -1553,7 +1564,7 @@
     ensureFoeKit,
     ensureFoeOrder,
     foeKitOf,
-    // 【封竿】封的那个点数（庄家特殊技）
+    // 【封数】封的那个点数（庄家特殊技）
     foeSealRank,
     foeNumOf,
     // 没选角色就不开局（见 newGame 闯关分支开头那道闸）
@@ -1571,7 +1582,7 @@
     valueOfRankText
   } from '@/pages/examples/blackjack/draw-save.uts'
 
-  // 摸打钓鱼：一副 52 张。
+  // 魔法匹配：一副 52 张。
   // 每回合先从牌库摸 1 张（牌库空了就不摸），再打出 1 张明牌。
   // 打到堆上的牌如果和堆里某张同点数，就把那张、夹在中间的、连同刚打的这张一起收走。
   // 积分**按收走的张数记**：收几张记几分。
@@ -1624,10 +1635,10 @@
   // 从 3 改到 4：回合末补牌意味着你是**看着满手牌**做决定的，
   // 而 3 张的选择面太窄 —— 常常只有一张打得出去，那就不叫选
   const HAND_SIZE : number = 4
-  // 观潮看牌库顶几张
-  // 〔2026-11-10 观潮换成「查看牌库顶 4 张，自定义排序」：2 → 4〕
+  // 观星看牌库顶几张
+  // 〔2026-11-10 观星换成「查看牌库顶 4 张，自定义排序」：2 → 4〕
   const TIDE_LOOK : number = 4
-  // 择饵看牌库顶几张（挑一张留顶，其余沉底）
+  // 择符看牌库顶几张（挑一张留顶，其余沉底）
   const PICK_LOOK : number = 5
   // 原先这儿有个 NO_VALUE = -1，当「这张牌没有点数」的哨兵值
   //（顺色落堆之后就是它）。点数改成**列表**之后哨兵值不需要了 ——
@@ -1677,8 +1688,8 @@
   const foeHand = ref<PlainCard[]>([])
   // 和 foeHand 下标对齐：这张被你窥视翻开了
   const foeShown = ref<boolean[]>([])
-  // 【安检】（2026-11-03）：你带它时，庄家抽的牌先进这张表、明置；轮到你出牌时逐张确认（见 startMyTurn / onInspect）。
-  // 庄家在这中间不出牌，所以跟「抽的那一刻决定」等价 —— 例外：你自己的技能让他在你的回合里抽牌（比如浑水），
+  // 【鉴定】（2026-11-03）：你带它时，庄家抽的牌先进这张表、明置；轮到你出牌时逐张确认（见 startMyTurn / onInspect）。
+  // 庄家在这中间不出牌，所以跟「抽的那一刻决定」等价 —— 例外：你自己的技能让他在你的回合里抽牌（比如迷雾），
   // 那张要到你下回合开头才确认，而他可能先拿它抢牌（少见，登记在台账第五十五节）
   const inspectPending = ref<PlainCard[]>([] as PlainCard[])
   // 【拣色】（2026-11-03）：你上回合摸到的、跟你花色槽同颜色的牌 —— 轮到你出牌时问一次换不换（每回合一次）
@@ -1686,10 +1697,10 @@
   const colorOpen = ref<boolean>(false)
   // 庄家那一侧这一回合用过没有（startFoeTurn 清）
   let colorUsedFoe : boolean = false
-  // 【送红】（2026-11-04 · 散鱼人）：你摸到的红牌（开局发牌不算）—— 回合开头问送不送（见 startMyTurn / onGiftPick）
+  // 【送红】（2026-11-04 · 赠礼精灵）：你摸到的红牌（开局发牌不算）—— 回合开头问送不送（见 startMyTurn / onGiftPick）
   const redGiftPending = ref<PlainCard[]>([] as PlainCard[])
   const giftOpen = ref<boolean>(false)
-  // 【甩货】（2026-11-03 · 沉船打捞人）：你抽到 0 点牌攒下的次数（开局发牌不算；不限次数，再抽到 0 接着加）。
+  // 【弃厄】（2026-11-03 · 亡灵术士）：你抽到 0 点牌攒下的次数（开局发牌不算；不限次数，再抽到 0 接着加）。
   // 你补完牌、交回合给庄家之前问（passTurnTail）—— 跟模拟器「补牌那一刻送」同一个时点；
   // 别的时候摸到的（庄家回合里的抢牌补牌之类）到你回合开头问（startMyTurn）
   const giveLeft = ref<number>(0)
@@ -1866,7 +1877,7 @@
   // 这一块只记 message 记不下的三样：**谁打的、打的哪张、那张是不是红的**。
   type PlayNote = {
     foe : boolean
-    // 打出的那张牌名。跳过回合、以及出牌之外的播报（冰雷贴冰、观潮沉底…）
+    // 打出的那张牌名。跳过回合、以及出牌之外的播报（冰雷贴冰、观星沉底…）
     // 没有牌，**留空**；留空那几条左边那一列整个不出现（模板按 card != '' 判），
     // 正文自己会说清是谁 —— 编一个「你」出来才是错的
     card : string
@@ -2036,7 +2047,7 @@
   //       全文件 80 多处追加都是 `message.value = message.value + …`，
   //       所以「是不是前缀」就是「是不是同一手的后续」，不用另加标记。
   //   三、**覆盖**（不是前缀）—— 另开一条，没有牌名。
-  //       跳过回合、冰雷贴冰、观潮沉底这些就落在这儿：它们确实是
+  //       跳过回合、冰雷贴冰、观星沉底这些就落在这儿：它们确实是
   //       独立的一件事，而且这样**上一手的播报被保住了**（现行行为是冲掉）
   //
   // ⚠ **「当前这条」是最后一条**（正序，见 playLog 那段的声明）。
@@ -2122,8 +2133,8 @@
   //   特殊技能 —— **常驻**，上场就一直生效。
   //
   // 所以它不进 loadout，而是在各个结算点上现查（见 specialLevel）：
-  //   满篓 / 窄口 → handLimit（补几张手牌）
-  //   清水         → foeOpen（对方几张手牌明着）
+  //   博藏 / 窄口 → handLimit（补几张手牌）
+  //   洞察         → foeOpen（对方几张手牌明着）
   //   稳钩         → playFor（头几张落堆自带护）
   //〔深钩那行 2026-10-23 删了 —— 它当年是**唯一挂在 finishCatch 上的常驻技**〕
   //
@@ -2136,7 +2147,7 @@
   //   那一局双方同一个结构，庄家摇的就是玩家能挑的那几张卡。
   // foeAt   → 这一关的**关号**（1–12），闯关才有，0 = 不是闯关。
   //   庄家角色由关号定死（见 draw-levels 的 foeRoleAt），带的是
-  //   DRAW_FOE_SPECIALS 里那 11 条庄家专属特殊技（添手、淤滩、硬壳……），
+  //   DRAW_FOE_SPECIALS 里那 11 条庄家专属特殊技（添手、泥沼、硬壳……），
   //   跟玩家那 9 件不是一套。
   //
   // 为什么闯关这边存关号而不是表下标：**DrawKit.role 这个字段在两条路上
@@ -2146,7 +2157,7 @@
   const foeRole = ref<number>(-1)
   const foeAt = ref<number>(0)
 
-  // 【封竿】封住的那个点数（空串 = 这一关没封）。
+  // 【封数】封住的那个点数（空串 = 这一关没封）。
   //
   // 开局算一次就存着，不每次现查 —— 它是**这一局的常量**
   // （来自存档里摇定的那一份，见 foeSealRank），而 catchStart
@@ -2180,7 +2191,7 @@
   // 换来的是这一整轮要的东西：**剩堆没有收款人，于是「让牌卡在堆上」
   // 不再偏向任何一方**。实测 D（先手溢价）：死水 +2.87 → +0.08、
   // 净水 +1.35 → +0.08、寒流 +1.37 → +0.11、霜降 +1.37 → +0.12、
-  // 藏凌 +1.10 → +0.06；逆流船夫 +8.42 → +3.95、深海钓手 +5.95 → +3.05
+  // 藏凌 +1.10 → +0.06；逆时术士 +8.42 → +3.95、深海钓手 +5.95 → +3.05
   //（那两张文档挂了「要重新定档」的账，就这么结了）。
   //〔上面这串名字里有四个现在已经删了（寒流 / 霜降 / 藏凌 / 深海钓手）。
   //  **不改成现存的件** —— 这是一次规则变更的证据，换了名字就证明不了
@@ -2221,7 +2232,7 @@
   // 〔2026-11-03 用户定（R8）：**6 → 0，牌库一空就收摊**。各打 3 手是在终局里把抢牌造成的
   //  先手优势找补回来（后手在那 3 手里多抢 1.20 张），可那几手让很多技能失衡。
   //  换成从开局治：翻 1 张到堆上 + 牌组奇数（见 trimDeck / 切牌那段）。
-  //  依据见《摸打钓鱼-实测数据台账.md》第五十八节：抢牌让先手占优（各打 1 手时后手 −0.88），成因是「先有得钓的一方先被抢」；开局翻 1 张到堆上 + 牌组奇数 + 牌库一空就结束，实测后手分差 −0.00（SE 0.10）、胜率 48.7 : 48.5。「双方出牌数要一样多、少的补一手」那条照留（下面 checkOver）〕
+  //  依据见《魔法匹配-实测数据台账.md》第五十八节：抢牌让先手占优（各打 1 手时后手 −0.88），成因是「先有得钓的一方先被抢」；开局翻 1 张到堆上 + 牌组奇数 + 牌库一空就结束，实测后手分差 −0.00（SE 0.10）、胜率 48.7 : 48.5。「双方出牌数要一样多、少的补一手」那条照留（下面 checkOver）〕
   const TAIL_PLAYS : number = 0
   // 牌库刚空那一刻双方合计打了几手。−1 = 牌库还没空过。
   // checkOver 拿它数「还许打几手」，newGame 重置
@@ -2244,7 +2255,7 @@
 
   // 特殊技能的几个定值。不升级，所以每件就一个数 ——
   // 挑定的理由在 draw-skills 的 SPECIAL_SKILLS 表里各自那段
-  // 清水：对方前几张手牌明着。
+  // 洞察：对方前几张手牌明着。
   //
   // ---------- 2 → 3 → **4**，同一天两次〔2026-10-16〕 ----------
   //
@@ -2268,7 +2279,7 @@
   // ---- ⚠ 为什么是「4 张」而不是「全部」----
   //
   // 这儿是**按下标**判的（`foeOpen` 里 `index < CLEAR_OPEN`），而
-  // 【满篓】【添手】会把手牌上限抬高 —— 那时候明的仍然只有前 4 张。
+  // 【博藏】【添手】会把手牌上限抬高 —— 那时候明的仍然只有前 4 张。
   // 所以 `desc` 写的是「对方 4 张手牌一直明着」，不是「全部明着」。
   // 要改成真·全看就得跟着 `handLimit(true)` 走，而那样
   // **+4.09 这个数当场作废**（它是在「按下标明 4 张」下量的）。
@@ -2291,27 +2302,27 @@
 
   // ---------- 庄家那几条特殊技的定值（见 DRAW_FOE_SPECIALS）----------
   //
-  // 淤滩 3 张：**正好够让 J 变值钱、又不至于开局就把堆堆死**。
+  // 泥沼 3 张：**正好够让 J 变值钱、又不至于开局就把堆堆死**。
   //   少于 3 张（比如 1 张）跟没有差不多 —— 一次普通钓牌就连带收走了；
   //   多于 3 张（比如 5 张）会让第 5 关变成「谁先摸到 J 谁赢」，
   //   而那一关的主题是「让你意识到 J 有多值」，不是掷骰子。
-  // 挑潮 2 张：跟【观潮】同一个数 —— 两件做的是同一件事
+  // 择命 2 张：跟【观星】同一个数 —— 两件做的是同一件事
   //   （从库顶几张里挑），数不一样会让人以为规则不同。
   //
-  // 【再钩】没有自己的常量：它直接搭在**连竿**那套上（againPending /
+  // 【连击】没有自己的常量：它直接搭在**连竿**那套上（againPending /
   // againUsed，见 finishCatch），而那套的上限本来就是一回合两张
-  // 〔2026-11-02 3 → **2**（用户定）：淤滩是在 trimDeck（开局把牌库修成偶数张）**之后**垫的，
+  // 〔2026-11-02 3 → **2**（用户定）：泥沼是在 trimDeck（开局把牌库修成偶数张）**之后**垫的，
   //   3 是奇数 → 牌库奇偶翻了 → 牌库空之前一共打奇数手 → 收摊时双方出牌数差 1。
   //   垫偶数张就不动奇偶。上面那段「少于 3 张跟没有差不多」是 3 张那一版的论证，2 张没量过〕
   const SILT_COUNT : number = 2
   const FOE_PICK_TOPS : number = 2
 
-  // 观潮等你选的时候：牌库顶那两张（第 0 张是最顶上那张），
+  // 观星等你选的时候：牌库顶那两张（第 0 张是最顶上那张），
   // 以及每张标没标「沉」。两条数组下标对齐
   const tidePending = ref<boolean>(false)
   const tideCards = ref<PlainCard[]>([] as PlainCard[])
   const tideMarks = ref<boolean[]>([] as boolean[])
-  // 〔2026-11-10 新观潮〕你点的顺序（tideCards 的下标；第 0 个放最上面）
+  // 〔2026-11-10 新观星〕你点的顺序（tideCards 的下标；第 0 个放最上面）
   const tideOrder = ref<number[]>([] as number[])
 
   // 确定那颗钮上写什么 —— 写清楚按下去会发生什么，不用另起一行说明
@@ -2322,24 +2333,24 @@
   const swapPending = ref<boolean>(false)
   // 这一次换水已经塞回去几张了（只用来写提示和结算文案）
   const swapDone = ref<number>(0)
-  // 倒饵等你挑手牌**塞给庄家**（形状跟换水一模一样：任意张、按钮收尾）。
+  // 转嫁等你挑手牌**塞给庄家**（形状跟换水一模一样：任意张、按钮收尾）。
   //
-  // ⚠ **不复用 swapPending**，理由跟滤饵那条一样但更硬：两件的收尾
+  // ⚠ **不复用 swapPending**，理由跟洗练那条一样但更硬：两件的收尾
   // 去向不同（换水进牌库、这件进对方手里），而 `onPlay` 那道岔是按
   // pending 分发的 —— 复用的话同一次点击分不清该走哪条路。
   // 实测这件 X +2.75（R6 · A 槽 · 20000 局 · SE 0.15）
   const baitPending = ref<boolean>(false)
-  // 这一次倒饵已经塞出去几张了（照 swapDone，只用来写提示和结算文案）
+  // 这一次转嫁已经塞出去几张了（照 swapDone，只用来写提示和结算文案）
   const baitDone = ref<number>(0)
-  // 【暗饵】〔2026-11-10〕这一次挑牌是暗饵（封顶 2 张、送出的记成暗牌）还是倒饵 —— 两件共用 baitPending 那块
+  // 【匿赠】〔2026-11-10〕这一次挑牌是匿赠（封顶 2 张、送出的记成暗牌）还是转嫁 —— 两件共用 baitPending 那块
   const baitDark = ref<boolean>(false)
   // 【暗牌】庄家盲打那层的重入闸（foePickCard 里临时只留明牌再调自己一次）
   let foeDarkBusy : boolean = false
-  // 滤饵等你挑手牌退回牌库。
+  // 洗练等你挑手牌退回牌库。
   //
   // ⚠ **不能复用 swapPending** —— 两件技能的 pending 形状不一样：
   // 换水是「任意张、可以不换」（点一张洗一张，按钮收尾），
-  // 滤饵是**强制退满 SIFT_BACK 张**（它已经先白给了你 3 张）。
+  // 洗练是**强制退满 SIFT_BACK 张**（它已经先白给了你 3 张）。
   // 所以这儿要计数、退够了自己关，而且**没有「不退」那颗钮**。
   // `siftLeft` 记还差几张（将来调 N 不用改这儿）。
   // 〔这儿原先写「照 fuelLeft 那条先例」—— `fuelLeft` 2026-10-28 删了
@@ -2351,16 +2362,16 @@
   // 这一次已经退回去几张了（照 swapDone —— 结算文案要报**真退了几张**，
   // 不能报 SIFT_BACK：手里点空了会少退）
   const siftDone = ref<number>(0)
-  // 【三色】挑牌：照滤饵那三个。triKeep = 要留几张（手里花色种数，最多 3）—— 退到手里只剩这么多张就自己关
+  // 【三色】挑牌：照洗练那三个。triKeep = 要留几张（手里花色种数，最多 3）—— 退到手里只剩这么多张就自己关
   const triPending = ref<boolean>(false)
   const triKeep = ref<number>(0)
   const triDrew = ref<number>(0)
   const triDone = ref<number>(0)
   // 冻结等你挑庄家的一张手牌（挑的是位置 —— 那几张多半盖着）
   const freezePending = ref<boolean>(false)
-  // 浑水等你盲选庄家的手牌（挑的是位置 —— 照冻结；**不**走 takeSkill，那条会把整手翻开）
+  // 迷雾等你盲选庄家的手牌（挑的是位置 —— 照冻结；**不**走 takeSkill，那条会把整手翻开）
   const murkPending = ref<boolean>(false)
-  // 浑水还要选几张
+  // 迷雾还要选几张
   const murkLeft = ref<number>(0)
   // 冰雷等你挑一张自己的手牌贴冰
   const bombPending = ref<boolean>(false)
@@ -2368,17 +2379,17 @@
   const lockKeyPending = ref<boolean>(false)
   // 零递等你挑自己的手牌贴【21 匹配】
   const zeroDraftPending = ref<boolean>(false)
-  // 升钩等你挑哪张变成 J（符合的有 2 张以上才停；只有 1 张直接变）
+  // 升格等你挑哪张变成 J（符合的有 2 张以上才停；只有 1 张直接变）
   const nextJackPending = ref<boolean>(false)
   // 褪递等你挑自己的一张手牌贴【收零】
   const fadeTagPending = ref<boolean>(false)
-  // 回水等你盲选庄家一张手牌（照浑水：挑位置、不翻开整手），选完接着等你贴收零
+  // 回蚀等你盲选庄家一张手牌（照迷雾：挑位置、不翻开整手），选完接着等你贴收零
   const backPending = ref<boolean>(false)
-  // 回水等你挑自己的一张手牌贴【收零】（照褪递）
+  // 回蚀等你挑自己的一张手牌贴【收零】（照褪递）
   const backTagPending = ref<boolean>(false)
-  // 贴收零那一下是哪件技能问的（回水 / 策反 共用这一步，〔2026-11-03 策反加收零〕）—— 只管提示文字
-  const backTagName = ref<string>('回水')
-  // 顺递 / 续流等你挑自己的一张手牌贴【顺子匹配】（两件共用这一块挑牌，flowDraftSk 记是哪件）
+  // 贴收零那一下是哪件技能问的（回蚀 / 策反 共用这一步，〔2026-11-03 策反加收零〕）—— 只管提示文字
+  const backTagName = ref<string>('回蚀')
+  // 顺递 / 连咏等你挑自己的一张手牌贴【顺子匹配】（两件共用这一块挑牌，flowDraftSk 记是哪件）
   const flowDraftPending = ref<boolean>(false)
   const flowDraftSk = ref<number>(-1)
   // 石影等你挑自己的一张手牌贴【花色匹配】（石顺走上面 flowDraftPending 那块，flowDraftSk = SK_STONELINE）
@@ -2393,8 +2404,8 @@
   let stoneBottomCard : PlainCard | null = null
   // 〔2026-11-02 由 stoneBottomRed（布尔）改成记花色串 —— 堆底可能是【失去花色】的牌，那时谁都不跟它同颜色〕
   let stoneBottomSuit : string = ''
-  // ---------- 【空钩】〔2026-11-01 · 布饵人专属〕----------
-  // 带空钩的牌落堆就成陷阱（trapPile）。之后**谁把它收走**（普通匹配 / 21 / J / 散收 / 走水都算，
+  // ---------- 【反噬】〔2026-11-01 · 虚无行者专属〕----------
+  // 带反噬的牌落堆就成陷阱（trapPile）。之后**谁把它收走**（普通匹配 / 21 / J / 散收 / 噬底都算，
   // **它自己打出当场钓中也算**），谁的手牌全部明置置 0（J 也算）。触发一次就没了（牌离堆）。
   // 挂点：finishCatch / finishSweep / dropBottomToFoe 三处收牌之后调 springTraps（照模拟器 harvestAt 那个漏斗）
   let trapPile : PlainCard[] = []
@@ -2406,7 +2417,7 @@
     }
     return false
   }
-  // 这一下收走的牌（taken，不含被结冰挡住留下的）里有没有空钩；有的话收牌那一方（byFoe）手牌全部明置置 0
+  // 这一下收走的牌（taken，不含被结冰挡住留下的）里有没有反噬；有的话收牌那一方（byFoe）手牌全部明置置 0
   function springTraps(taken : PlainCard[], byFoe : boolean) {
     if (trapPile.length == 0) {
       return
@@ -2425,7 +2436,7 @@
     if (!hit) {
       return
     }
-    message.value = message.value + (byFoe ? ' 庄家收走了空钩，' : ' 你收走了空钩，') + '手牌全部置 0：'
+    message.value = message.value + (byFoe ? ' 庄家收走了反噬，' : ' 你收走了反噬，') + '手牌全部置 0：'
     // 按触发那一刻的张数走；markDead 的第一个参数是**动手的那一方**，置 0 的是另一方 —— 所以传 !byFoe
     const n = byFoe ? foeHand.value.length : hand.value.length
     for (let i = 0; i < n; i++) {
@@ -2433,7 +2444,7 @@
       if (isDead(c)) {
         continue
       }
-      markDead(!byFoe, i, true, '空钩')
+      markDead(!byFoe, i, true, '反噬')
       // 明置
       if (byFoe) {
         foeShown.value = withFlag(foeShown.value, i)
@@ -2442,13 +2453,13 @@
       }
     }
   }
-  // 庄家估值：打出一张、普通匹配从 at 收到堆顶（落堆底那一支是 0..at）时会不会收到空钩；
+  // 庄家估值：打出一张、普通匹配从 at 收到堆顶（落堆底那一支是 0..at）时会不会收到反噬；
   // 会的话扣掉「它手里会被置 0 的张数」（照模拟器 trapPenalty，TRAP_W = 1）。特殊匹配收哪几张不在估值里（同模拟器）
   function trapPenaltyFoe(at : number, sink : boolean, card : PlainCard, skills : number[]) : number {
     if (at < 0) {
       return 0
     }
-    // 庄家自己打的就是空钩（完整对战模式里庄家也可能抽到布饵人）：一钓中就跟着那一段被自己收走（照模拟器 trapPenalty）
+    // 庄家自己打的就是反噬（完整对战模式里庄家也可能抽到虚无行者）：一钓中就跟着那一段被自己收走（照模拟器 trapPenalty）
     const selfTrap = hasTrigger(skills, SK_TRAPZERO)
     if (trapPile.length == 0 && !selfTrap) {
       return 0
@@ -2542,7 +2553,7 @@
   // ---------- 【凝水】/【净水】：等你点**堆上**一张 ----------
   //
   // 装的是「在等哪件技能挑」的技能下标，-1 = 没在等。
-  // 两件共用一个状态，理由跟压舱 / 摘钩 / 对换共用 takeSkill 一样：
+  // 两件共用一个状态，理由跟置换 / 摄物 / 对换共用 takeSkill 一样：
   // 交互一模一样（点牌堆那一排），区别只在挑完之后干什么。
   //
   // **这是第一个「点堆上的牌」的交互** —— 从前所有挑牌都是挑手牌
@@ -2565,12 +2576,12 @@
   //
   // 不用 ref：它跟 pendingSkills 一样是「这一手之内」的，不进界面
   let pickSkills : number[] = []
-  // 【镜水】第二步：堆上那张挑好了，等你点一张同花色手牌（或不展示）。点完从 afterPlayRest 接着走
-  // 【感电】第二步：等你点一张跟那张负电牌同颜色的手牌贴【正电】（照镜水第二步）
+  // 【镜阵】第二步：堆上那张挑好了，等你点一张同花色手牌（或不展示）。点完从 afterPlayRest 接着走
+  // 【感电】第二步：等你点一张跟那张负电牌同颜色的手牌贴【正电】（照镜阵第二步）
   const inductHandPending = ref<boolean>(false)
   // 【电镜】的映照：等你点一张手牌展示（J 不行，可以不展示）
   const mirrorSelfPending = ref<boolean>(false)
-  // 【拟饵】第二步：等你点一张跟那张堆牌同花色的手牌（它变成跟那张相同、明置）
+  // 【拟形】第二步：等你点一张跟那张堆牌同花色的手牌（它变成跟那张相同、明置）
   const mimicHandPending = ref<boolean>(false)
   let mimicTarget : number = -1
   let mimicSkills : number[] = []
@@ -2586,16 +2597,16 @@
   // 【净水】盖上去了：它**停在那一格**、已经从那里判过匹配，这一手的
   // resolveMatch 不能再把它摘下来当新打出的牌去配（那样它会被挪到堆顶）
   let stayPut : boolean = false
-  // ---------- 【伏流】这一手贴过标签了吗 ----------
+  // ---------- 【百变】这一手贴过标签了吗 ----------
   //
-  // **重入闸。** 伏流挑完标签之后 onPilePick 会重新调一次 straightFor
+  // **重入闸。** 百变挑完标签之后 onPilePick 会重新调一次 straightFor
   //（贴完要当场用那个标签判顺子），而 straightFor 里那个「玩家侧就暂停」
   // 的分支只看 `!byFoe` —— 不挡的话会**再暂停一次,死循环**。
   //
   // 不能靠 `pilePick` 判：那个在 onPilePick 开头就清了。
   // 每手在 playFor 开头清、每局在 newGame 里清
   let flowPicked : boolean = false
-  // 择饵等你从牌库顶五张里挑一张。
+  // 择符等你从牌库顶五张里挑一张。
   //
   // 这儿把**牌面存了一份**（pickTops），而不是现场从 deck 取 ——
   // 等你选的这段时间 deck 一个字都不该动，而摆出来的牌面
@@ -2603,9 +2614,9 @@
   const pickPending = ref<boolean>(false)
   const pickTops = ref<PlainCard[]>([] as PlainCard[])
 
-  // ---------- 【分饵】等你挑**两张**：第一张给自己、第二张给对方 ----------
+  // ---------- 【分赐】等你挑**两张**：第一张给自己、第二张给对方 ----------
   //
-  // 它跟择饵的区别是**要点两下**，而「一个回合只停一次」那条规矩照旧 ——
+  // 它跟择符的区别是**要点两下**，而「一个回合只停一次」那条规矩照旧 ——
   // 停的是一次，只是这一次里要点两下（`giftPicks` 攒到 2 就结算）。
   //
   // 牌面同样存一份（照 pickTops 那条理由：等你选的这段时间 deck 不该动）。
@@ -2615,7 +2626,7 @@
   const giftTops = ref<PlainCard[]>([] as PlainCard[])
   const giftPicks = ref<number[]>([] as number[])
 
-  // ---------- 动对方手牌那三件（压舱、摘钩、对换）等你挑 ----------
+  // ---------- 动对方手牌那三件（置换、摄物、对换）等你挑 ----------
   //
   // 三件共用**一个**状态：存的是「在等哪件技能挑」的技能下标，-1 表示没在等。
   // 不开三个 boolean 是因为它们的交互一模一样 —— 都是「点对方手牌那一排」，
@@ -2637,7 +2648,7 @@
   function pickingPile(skill : number) : boolean {
     return skill >= 0 && pilePick.value == skill
   }
-  // 【死水】这一手还要挑几张。压舱 / 摘钩 / 对换都只挑一张，
+  // 【死水】这一手还要挑几张。置换 / 摄物 / 对换都只挑一张，
   // 所以那三件走到 onTakeFrom 就结束了；死水要挑 DEAD_COUNT 张，
   // 挑够之前 takeSkill 不清
   const deadLeft = ref<number>(0)
@@ -2757,10 +2768,10 @@
   //   洪水 演完 → TAIL_HUE（收色……）
   //   收色 演完 → TAIL_ZERO（收零……）
   //   收零 演完 → TAIL_CAST（撒网……）
-  //   撒网 演完 → TAIL_FLOW（伏流……）
-  //   伏流 演完 → TAIL_WADE（涉水……）
+  //   撒网 演完 → TAIL_FLOW（百变……）
+  //   百变 演完 → TAIL_WADE（涉水……）
   //   涉水 演完 → TAIL_SWAPFLOW（易流……）
-  //   易流 演完 → TAIL_ORDER（插流 / 调序 / 换序……）
+  //   易流 演完 → TAIL_ORDER（插序 / 调序 / 换序……）
   //   顺序匹配族演完 → TAIL_WILD（野火……）
   //   野火 演完 → TAIL_REST（动对方手牌那几件往后）
   // 一色演完从 TAIL_HEAD 接着走（afterPlayHead：窥视、照水……见底）
@@ -2772,14 +2783,14 @@
   // ---- **每件散收技能都得有自己的段号**，这不是风格问题 ----
   //
   // 每一段的进入条件是「**上一件传的那个值**」（撒网传 TAIL_FLOW →
-  // 伏流判 `from <= TAIL_FLOW`）。两件共用一个段号就一定出错，而且
+  // 百变判 `from <= TAIL_FLOW`）。两件共用一个段号就一定出错，而且
   // 两种错都是静默的：
   //
   //   共用且后者在前者**后面** → 前者一收牌，后者**被跳过**（作废）；
   //   共用且后者在前者**前面** → 后者**重复执行**一次。
   //
-  // 加伏流的时候就踩了第一种（它跟野火共用 TAIL_WILD，于是同一张牌
-  // 带撒网 + 伏流时，撒网一收牌伏流就没了）。加新的散收技能记着这条
+  // 加百变的时候就踩了第一种（它跟野火共用 TAIL_WILD，于是同一张牌
+  // 带撒网 + 百变时，撒网一收牌百变就没了）。加新的散收技能记着这条
   const TAIL_HEAD : number = -1
   // 入口段 = 【洪水】那一段〔2026-10-21 它接管了这个号〕。
   // 原先这个号上挂的是收色（`from <= TAIL_EBB`），而洪水排在收色**前面**
@@ -2803,7 +2814,7 @@
   // 条件是 `from <= 它`。所以漏改一个的后果是上面注释里那两种静默错法。
   // 全文只用常量名、没有字面量（grep 确认过），所以改值是安全的
   const TAIL_SWAPFLOW : number = 6
-  // 【顺序匹配】族〔2026-10-29〕—— 插流 / 调序 / 换序，自己一段，排在易流后、野火前
+  // 【顺序匹配】族〔2026-10-29〕—— 插序 / 调序 / 换序，自己一段，排在易流后、野火前
   const TAIL_ORDER : number = 7
   const TAIL_WILD : number = 8
   const TAIL_REST : number = 9
@@ -2813,7 +2824,7 @@
   //（蔓延 + 全堆带火则扫整堆，见 burnStep）。
   //
   // 它要单独一个号，而且 finishSweep 认到它时要**直接走 resolveMatch、
-  // 不回 afterPlayTail** —— 因为尾段后半那几件（死水、摘钩、对换、压舱…）
+  // 不回 afterPlayTail** —— 因为尾段后半那几件（死水、摄物、对换、置换…）
   // **没有 `from <=` 守卫**（它们各自 return，靠的是「一回合只停一次」），
   // 回去就会重跑一遍。那是 TAIL_* 那段注释里警告过的第二种错法
   // 〔2026-10-30 起那几件挂了 askFirst、挑完从 TAIL_ASK 重入（见下面），不会重跑了；
@@ -2822,9 +2833,9 @@
   // ---- 停人那一串的重入段号〔2026-10-30〕----
   //
   // 原先停人的技能「一个回合只停一次」：玩家侧一停就 return，挑完直接 resolveMatch，
-  // 于是**排在它后面的技能全被跳过**（别的停人技能、流钥、满墙、燃烧那一步）。
+  // 于是**排在它后面的技能全被跳过**（别的停人技能、衔咏、满墙、燃烧那一步）。
   // 模拟器那边每件都结算，所以源码一直少算。用户 10-30 定改：
-  //   ① 不停人的（流钥、满墙）挪到停人那一串**前面**（守 `from <= TAIL_REST`）；
+  //   ① 不停人的（衔咏、满墙）挪到停人那一串**前面**（守 `from <= TAIL_REST`）；
   //   ② 停人的每件这一手只问一次（askFirst），挑完 askNext 从这个号重入、接着问下一件；
   //   ③ 全问完才走燃烧 → 匹配。
   // 它比所有散收段号都大，所以重入时前面那些 `from <=` 段一概跳过
@@ -2834,11 +2845,11 @@
   // 这一手的技能表，askNext 重入时要用（玩家侧才会停，所以只有玩家侧写它）
   let askSkills : number[] = []
   // ---- 播报**不用**在这儿拼〔2026-10-30 试过一版又撤了〕----
-  // 好几个挑牌回调收尾时是整句覆盖 message（换水 / 倒饵 / 滤饵 / 观潮 / 冰雷……），看着像会冲掉前一件的结果。
+  // 好几个挑牌回调收尾时是整句覆盖 message（换水 / 转嫁 / 洗练 / 观星 / 冰雷……），看着像会冲掉前一件的结果。
   // 其实不会：message 的每次变动都由 logTake 收进出牌记录，**覆盖 = 另开一条、前一条原样留着**
   //（见 logTake 第三条分支）。曾在 askNext 里把「前一件的结果 + 这一件」拼回 message ——
   // 那句开头对不上最新那条记录，于是又另开一条：记录里出现重复，还把「你打出 X」挤出 3 条的上限。所以撤了
-  // 第一次见到这件就记下并放行，第二次（重入）就挡掉 —— 停之前做过的事（浑水的抽牌、滤饵的摸牌、冰雷挂雷）不会重做
+  // 第一次见到这件就记下并放行，第二次（重入）就挡掉 —— 停之前做过的事（迷雾的抽牌、洗练的摸牌、冰雷挂雷）不会重做
   function askFirst(sk : number) : boolean {
     if (askDone.indexOf(sk) >= 0) {
       return false
@@ -2940,7 +2951,7 @@
   // 你这一手打出的那张（高档角色的困难成就要读它：用 0 点牌收牌 / 用 ♥ 牌收牌）。
   // lastPlayed 庄家出牌也会改，所以单独记一份「你的」
   let myLastCard : PlainCard | null = null
-  // 【桃汛客】的困难成就：这一局用 ♥ 牌收牌几次。同一张牌那一手收两段（匹配 + 扫堆）只算一次
+  // 【赤红女巫】的困难成就：这一局用 ♥ 牌收牌几次。同一张牌那一手收两段（匹配 + 扫堆）只算一次
   let heartCatches : number = 0
   let heartCounted : PlainCard | null = null
 
@@ -3329,7 +3340,7 @@
     afterPlayRest(false, skills)
   }
 
-  // 【正电】的顺位：A 2 … 10 Q K，**跳过 J**，K 接 A（跟【升钩】同一张表）。比的是**点数值**，
+  // 【正电】的顺位：A 2 … 10 Q K，**跳过 J**，K 接 A（跟【升格】同一张表）。比的是**点数值**，
   // 所以被改过的点数照改后的算；0 点 / 无点数 / 大于 13 不在表里，一律不算相邻
   const MAG_ORD : number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13]
   function magAdj(mine : number[], theirs : number[]) : boolean {
@@ -3516,10 +3527,10 @@
   let shrinkDoneCard : PlainCard | null = null
   // 缩水停下来等你挑的时候，记下这一手的技能表（重入 afterPlayTail 要用）
   let shrinkSkills : number[] = []
-  // 缩水等你盲选庄家一张手牌（照浑水：挑位置、不翻开整手 —— 所以不走 takeSkill）
+  // 缩水等你盲选庄家一张手牌（照迷雾：挑位置、不翻开整手 —— 所以不走 takeSkill）
   const shrinkPending = ref<boolean>(false)
 
-  // ---------- 【流钥】：手里带【顺子匹配】的牌〔2026-10-29〕----------
+  // ---------- 【衔咏】：手里带【顺子匹配】的牌〔2026-10-29〕----------
   //
   // 生命周期照 `draftKey`：打出那一手用掉（endPlay 摘）、洗回 / 换主人也摘。
   // 贴法照模拟器 `doFlowTag`：**从前往后取第一张能贴的**（笨挑 = 量出来的下限；
@@ -3554,7 +3565,7 @@
     }
     return -1
   }
-  // 常驻技【流钥】兑现贴标签。返回贴上了没有
+  // 常驻技【衔咏】兑现贴标签。返回贴上了没有
   function doSlotTag(byFoe : boolean) : boolean {
     const at = flowKeyPick(byFoe)
     if (at < 0) {
@@ -3654,7 +3665,7 @@
   //   chainArmed    这一手【连递】该续贴吗（resolveMatch 里判「凑成」之后定）
   const tookThisHand : boolean[] = [false, false]
   const holdArmed : boolean[] = [false, false]
-  //   foeSwapArmed  这一手带着【压舱】吗（打出那一刻立；endPlayTag 里兑现 —— 「这一手结算完之后」）
+  //   foeSwapArmed  这一手带着【置换】吗（打出那一刻立；endPlayTag 里兑现 —— 「这一手结算完之后」）
   const foeSwapArmed : boolean[] = [false, false]
   //   hookArmed     这一手带着【磁钩】吗（打出那一刻定）。被抢走时存档成 false —— 匹配上了只是被抢，不算「匹配失败」
   const hookArmed : boolean[] = [false, false]
@@ -3684,7 +3695,7 @@
 
   // 从手冰表里摘掉。三条来路：
   //   落堆那一下（frostOnLand，接着在堆上贴）；
-  //   **洗回牌库**（shuffleBack）、**换到对方手里**（摘钩 / 对换）—— 〔2026-10-21 补〕
+  //   **洗回牌库**（shuffleBack）、**换到对方手里**（摄物 / 对换）—— 〔2026-10-21 补〕
   //   原先只有落堆那一条，于是带冰的手牌被洗回牌库 / 被对方拿走之后**冰还跟着**：
   //   谁摸到、谁拿到，谁就有一把看不见的钥匙，这一手收牌无视结冰，
   //   堆上的冰牌照样被收走。而**钥匙是私有的**（打出前一直在主人手里）
@@ -4174,9 +4185,9 @@
       //   所以这两项是**真的在挡**，不像上面几项那样只是形式上列一行
       && !chainDraftPending.value && !hueDraftPending.value && !hueKeyPending.value
       && !chainLinkPending.value && !holdTagPending.value
-      // 【倒饵】跟换水同形（任意张 + 收尾钮），所以同样只要没收尾就不许出牌
+      // 【转嫁】跟换水同形（任意张 + 收尾钮），所以同样只要没收尾就不许出牌
       && !baitPending.value
-      // 【滤饵】强制退满，没退够不许出牌（比换水那条更硬 ——
+      // 【洗练】强制退满，没退够不许出牌（比换水那条更硬 ——
       // 换水可以按钮收尾，这件没有「不退」那条路）
       && !siftPending.value
       // 【三色】同理：没退到只剩 triKeep 张不许出牌
@@ -4189,9 +4200,9 @@
       && !polePending.value
       && !hookShowPending.value
       && !mimicHandPending.value
-      // 【分饵】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
+      // 【分赐】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
       && !giftPending.value
-      // 【甩货】交回合前问的那一下 myTurn 还是 true（startFoeTurn 才清）—— 不挡的话弹窗开着还能出牌
+      // 【弃厄】交回合前问的那一下 myTurn 还是 true（startFoeTurn 才清）—— 不挡的话弹窗开着还能出牌
       && !giveOpen.value
       // 〔【薪潮】那一项 2026-10-28 撤了（`fuelPending` 删了，它换成堆牌、
       //   没有决策了）。判据留着：**每个 pending 都要列在这一行**，
@@ -4207,6 +4218,7 @@
       // 列上它是因为「回合里插一手对方的牌」这种形状已经有过先例
       //（模拟器的【对流】），那时候它就不冗余了
       && !stealPending.value
+      && !stealCutPending.value
       && hand.value.length > 0
   })
 
@@ -4223,30 +4235,34 @@
     if (stealPending.value) {
       return '抢牌 · 收得比 ' + stealTarget.value + ' 张多才行'
     }
+    // 【截咒】问你截不截的时候是你的回合里插了庄家的抢牌 —— 报这一条，别报「你的回合」
+    if (stealCutPending.value) {
+      return '截咒 · 庄家要抢你'
+    }
     if (!myTurn.value) {
       return '庄家回合'
     }
     if (tidePending.value) {
-      return '你的回合 · 观潮'
+      return '你的回合 · 观星'
     }
     if (swapPending.value) {
       return '你的回合 · 换水'
     }
     if (baitPending.value) {
-      return baitDark.value ? '你的回合 · 暗饵' : '你的回合 · 倒饵'
+      return baitDark.value ? '你的回合 · 匿赠' : '你的回合 · 转嫁'
     }
     if (triPending.value) {
       return '你的回合 · 三色（还要退 ' + (hand.value.length - triKeep.value) + ' 张）'
     }
-    // 滤饵报**还差几张**（照分饵那条：不报的话点完一张看着像卡住了）
+    // 洗练报**还差几张**（照分赐那条：不报的话点完一张看着像卡住了）
     if (siftPending.value) {
-      return '你的回合 · 滤饵（还要退 ' + siftLeft.value + ' 张）'
+      return '你的回合 · 洗练（还要退 ' + siftLeft.value + ' 张）'
     }
     if (freezePending.value) {
       return '你的回合 · 冻结'
     }
     if (murkPending.value) {
-      return '你的回合 · 浑水'
+      return '你的回合 · 迷雾'
     }
     if (shrinkPending.value) {
       return '你的回合 · 缩水'
@@ -4261,22 +4277,22 @@
       return '你的回合 · 零递'
     }
     if (nextJackPending.value) {
-      return '你的回合 · 升钩'
+      return '你的回合 · 升格'
     }
     if (fadeTagPending.value) {
       return '你的回合 · 褪递'
     }
     if (backPending.value || backTagPending.value) {
-      return '你的回合 · 回水'
+      return '你的回合 · 回蚀'
     }
     if (flowDraftPending.value) {
-      return flowDraftSk.value == SK_FLOWPASS ? '你的回合 · 续流'
-        : flowDraftSk.value == SK_FLOW ? '你的回合 · 伏流' : (flowDraftSk.value == SK_STONELINE ? '你的回合 · 石顺' : flowDraftSk.value == SK_FLOWALL ? '你的回合 · 传顺' : '你的回合 · 顺递')
+      return flowDraftSk.value == SK_FLOWPASS ? '你的回合 · 连咏'
+        : flowDraftSk.value == SK_FLOW ? '你的回合 · 百变' : (flowDraftSk.value == SK_STONELINE ? '你的回合 · 石顺' : flowDraftSk.value == SK_FLOWALL ? '你的回合 · 传顺' : '你的回合 · 顺递')
     }
     if (chainDraftPending.value) {
       return '你的回合 · 连递'
     }
-    // 色递要点两下，所以抬头里说清是哪一下（照分饵那条）
+    // 色递要点两下，所以抬头里说清是哪一下（照分赐那条）
     if (hueDraftPending.value) {
       return '你的回合 · 色递（挑贴 21 匹配的）'
     }
@@ -4299,20 +4315,20 @@
       return '你的回合 · 忍递'
     }
     if (pickPending.value) {
-      return '你的回合 · 择饵'
+      return '你的回合 · 择符'
     }
-    // 分饵要点两下，所以抬头里报**还差几张** —— 不报的话点完第一张
+    // 分赐要点两下，所以抬头里报**还差几张** —— 不报的话点完第一张
     // 看着像卡住了（面板还在、但没说为什么不动）
     if (giftPending.value) {
       return giftPicks.value.length == 0
-        ? '你的回合 · 分饵（挑给自己的）'
-        : '你的回合 · 分饵（挑给庄家的）'
+        ? '你的回合 · 分赐（挑给自己的）'
+        : '你的回合 · 分赐（挑给庄家的）'
     }
     if (pilePick.value >= 0) {
       return '你的回合 · ' + DRAW_SKILLS[pilePick.value].name
     }
     if (reflectHandPending.value) {
-      return '你的回合 · 镜水'
+      return '你的回合 · 镜阵'
     }
     if (inductHandPending.value) {
       return '你的回合 · 感电'
@@ -4324,10 +4340,10 @@
       return '你的回合 · 磁极'
     }
     if (hookShowPending.value) {
-      return '你的回合 · 电钩'
+      return '你的回合 · 引雷'
     }
     if (mimicHandPending.value) {
-      return '你的回合 · 拟饵'
+      return '你的回合 · 拟形'
     }
     if (takeSkill.value >= 0) {
       return '你的回合 · ' + DRAW_SKILLS[takeSkill.value].name
@@ -4346,13 +4362,13 @@
     return againUsed.value ? '你的回合 · 连竿加打' : '你的回合 · 打出一张'
   })
 
-  // 压舱 / 摘钩 / 对换共用一块提示，这儿按技能出话
+  // 置换 / 摄物 / 对换共用一块提示，这儿按技能出话
   const takeText = computed<string>(() : string => {
     if (taking(SK_PRESS)) {
-      return '压舱：点庄家一张手牌（不能是 J、不能是堆上已有的点数），然后点堆上一张跟它交换'
+      return '置换：点庄家一张手牌（不能是 J、不能是堆上已有的点数），然后点堆上一张跟它交换'
     }
     if (taking(SK_UNHOOK)) {
-      return '摘钩：点庄家一张手牌，拿到你手上'
+      return '摄物：点庄家一张手牌，拿到你手上'
     }
     if (taking(SK_SWAPCARD)) {
       return '对换：点庄家一张手牌拿过来，然后挑一张自己的还他'
@@ -4432,7 +4448,7 @@
     const list = equippedSkills(lo)
     for (let i = 0; i < list.length; i++) {
       const k = list[i]
-      // 专属技能（布饵人的空钩）不进技能按钮（用户定 2026-11-02）—— 它印死在角色卡上，堆上那张牌有「钩」角标
+      // 专属技能（虚无行者的反噬）不进技能按钮（用户定 2026-11-02）—— 它印死在角色卡上，堆上那张牌有「钩」角标
       if (isRoleOnlySkill(k)) {
         continue
       }
@@ -4471,7 +4487,7 @@
 
   // 点那个特殊技标签（角色带的常驻技能）：报它的全文。
   //
-  // 标签上只写得下「背篓渔夫·满篓」，整句效果在这儿看 ——
+  // 标签上只写得下「典藏学者·博藏」，整句效果在这儿看 ——
   // 那也是它为什么点得动（从前它是一行不可点的小字）
   function showRole(ofFoe : boolean) {
     const at = ofFoe ? 301 : 300
@@ -4503,7 +4519,7 @@
     chipHead.value = (ofFoe ? '庄家 · ' : '') + DRAW_ROLES[r].name
       + ' · ' + SPECIAL_SKILLS[sp].name + ' 〔常驻〕'
     chipBody.value = SPECIAL_SKILLS[sp].desc
-      + (!ofFoe && hasFoeSpecial('ban') ? '\n〔这一关庄家带【禁渔】：你的角色技能无效〕' : '')
+      + (!ofFoe && hasFoeSpecial('ban') ? '\n〔这一关庄家带【禁咒】：你的角色技能无效〕' : '')
   }
 
   function closeChip() {
@@ -4518,7 +4534,7 @@
 
   // 这两门花色对出牌这一方算不算「同色」。
   //
-  // 【两色】（SP_TWOCOLOR，夜钓客带的）把♠♣ 并成一门、♦♥ 并成一门。
+  // 【两色】（SP_TWOCOLOR，夜行法师带的）把♠♣ 并成一门、♦♥ 并成一门。
   // byFoe 是**出牌方** —— 技能是谁的，就按谁的眼睛算。
   //
   // 四个调用点都是「找出同花色的牌并收走」：顺色（catchStart）、
@@ -4550,7 +4566,7 @@
   //
   // 原先叫 specialLevel，返回等级（带着是 0 档、没带是 -1）。
   // 特殊技能改成**不能升级**之后没有等级这回事了，所以退化成一个 boolean ——
-  // 各处的效果值跟着写死（满篓 +1、稳钩前 4 张…），
+  // 各处的效果值跟着写死（博藏 +1、稳钩前 4 张…），
   // 那几个数挑定的理由在 SPECIAL_SKILLS 表里各自那段
   function hasSpecial(byFoe : boolean, sp : number) : boolean {
     // 〔2026-11-03〕已删的常驻技常量是 −1（specialIndexOf 查不到）—— 而角色的常驻技 key 要是写错 / 被删，
@@ -4558,8 +4574,8 @@
     if (sp < 0) {
       return false
     }
-    // 【禁渔】（庄家规矩，2026-11-04 · 渔政巡查员）：玩家的角色技能无效 —— 玩家那一侧的常驻技一律不算。
-    // 全文件读常驻技都走这一个函数，所以挡在这儿就全挡住了（含满篓 / 窄口改手牌上限、归十改点数）
+    // 【禁咒】（庄家规矩，2026-11-04 · 禁咒审判官）：玩家的角色技能无效 —— 玩家那一侧的常驻技一律不算。
+    // 全文件读常驻技都走这一个函数，所以挡在这儿就全挡住了（含博藏 / 窄口改手牌上限、归十改点数）
     if (!byFoe && hasFoeSpecial('ban')) {
       return false
     }
@@ -4576,11 +4592,11 @@
 
   // 闯关的庄家带的是**它自己那张表**上那几条（见 DRAW_FOE_SPECIALS）。
   //
-  // 按 key 问而不是按下标：每条的落点都不一样（硬壳 / 炙水在 catchStart、
-  // 偏流在 playFor、添手在 handLimit、走水在回合末……），所以调用处写的是
+  // 按 key 问而不是按下标：每条的落点都不一样（硬壳 / 炙焰在 catchStart、
+  // 逆位在 playFor、添手在 handLimit、噬底在回合末……），所以调用处写的是
   // `hasFoeSpecial('shell')` 这种能一眼读懂的东西，而不是一个常量下标。
   //
-  // **一个角色可能带两条**（东海龙王：逆钩 + 浊水），所以这儿转给 foeRoleHas
+  // **一个角色可能带两条**（苍龙王：镇王 + 迷障），所以这儿转给 foeRoleHas
   // 去遍历 specials。调用处一处都不用改 —— 它们问的本来就是「带不带某条」。
   //
   // 终局的庄家走 hasSpecial —— 那一局它摇的是玩家那张表
@@ -4593,9 +4609,9 @@
 
   // 这儿原先有个 specialText（角色名 + 技能名 + 整句效果，摆在技能栏下面
   // 当一行小字）。布局改过之后那一行没了 —— 技能栏上只摆
-  // 「背篓渔夫·满篓」这个标签（roleTag），整句效果点一下看（showRole）
+  // 「典藏学者·博藏」这个标签（roleTag），整句效果点一下看（showRole）
 
-  // ---------- 【囤饵】：开局往牌库塞 BAIT_COUNT 张，再洗 ----------
+  // ---------- 【囤符】：开局往牌库塞 BAIT_COUNT 张，再洗 ----------
   //
   // 塞的是「这个角色第一个数字槽那个点数」（见 baitRankOf）——
   // 那个槽的牌变多，嵌在它上面的技能就更常响。
@@ -4618,7 +4634,7 @@
     }
     let room = DECK_CAP - deck.value.length
     if (room <= 0) {
-      message.value = message.value + (byFoe ? ' 庄家囤饵：' : ' 囤饵：')
+      message.value = message.value + (byFoe ? ' 庄家囤符：' : ' 囤符：')
         + '牌组满了，一张也塞不进去。'
       return
     }
@@ -4645,7 +4661,7 @@
     }
     deck.value = next
     const short = n < BAIT_COUNT ? '（牌组快满了，只塞进 ' + n + ' 张）' : ''
-    message.value = message.value + (byFoe ? ' 庄家囤饵：' : ' 囤饵：')
+    message.value = message.value + (byFoe ? ' 庄家囤符：' : ' 囤符：')
       + '牌库里多了 ' + n + ' 张 ' + rank + short + '。'
   }
 
@@ -4667,7 +4683,7 @@
     return text
   }
 
-  // 技能行上那个标签只写**角色名 + 技能名**（「背篓渔夫·满篓」）——
+  // 技能行上那个标签只写**角色名 + 技能名**（「典藏学者·博藏」）——
   // 一行要塞得下点数技能那几个 chip，所以这儿不能写整句效果。
   // 整句在哪看：点一下它，说明框里有（见 showRole）
   //
@@ -4689,10 +4705,10 @@
     return at < 0 ? '' : DRAW_ROLES[r].name + '·' + SPECIAL_SKILLS[at].name
   }
 
-  // ---------- 【逆流】：角色带的那件，每回合你自己选 ----------
+  // ---------- 【逆行】：角色带的那件，每回合你自己选 ----------
   //
   // 点数槽那件【沉底】是**强制**的（打出覆盖面里的牌就落堆底），
-  // 逆流是**可选**的 —— 那正是它在设计上最值钱的地方：
+  // 逆行是**可选**的 —— 那正是它在设计上最值钱的地方：
   // 它不给数值，给的是每回合多一个决定（落堆顶还是堆底）。
   //
   // 它原先也叫「沉底」，和点数技能同名同效。改名的理由在
@@ -4718,7 +4734,7 @@
     }
     // ---- 庄家自己算：哪头收得多就往哪头落 ----
     //
-    // 钓不到的时候**不沉** —— 沉底空钩是最危险的下饵（那张躺在堆底，
+    // 钓不到的时候**不沉** —— 沉底反噬是最危险的下饵（那张躺在堆底，
     // 谁匹配到它就通吃整堆，见 foePickCard 里那条 +pile.length*0.5）
     const normal = catchStart(card, true, skills, false)
     const sunk = catchStart(card, true, skills, true)
@@ -4818,7 +4834,7 @@
     wildCards.value = wildCards.value.concat([card])
   }
 
-  // 【红钩】你选的那件（技能下标，−1 = 还没选 → 名单第一件）。
+  // 【赤鸣】你选的那件（技能下标，−1 = 还没选 → 名单第一件）。
   //
   // **做成一颗常驻的「换一件」钮，不做成每出一张红桃就弹一次问**：
   // 出牌那条链（playFor → afterPlay）是同步往下走的，中途停下来等你点
@@ -4835,17 +4851,17 @@
   // 花色没变，花色槽照旧触发」。也照模拟器（doDead 把 rank 改成 '0'，2026-10-14 那次有意的改法）。
   // 〔原先这儿是 `if (isDead(card)) return []`（「废牌一件都不触发」）—— 10-14 之前死水「废牌」那一版的遗留，
   //  跟词条和模拟器都对不上：**花色槽也被一起掐了**〕
-  // 串钩 / 红钩也读同一个 rank：置 0 的牌串钩不认（不是点数槽的牌），红钩照旧认（它认花色）
+  // 共鸣 / 赤鸣也读同一个 rank：置 0 的牌共鸣不认（不是点数槽的牌），赤鸣照旧认（它认花色）
   // 这张牌按哪个点数去查槽（skillsOf 和【照花】【照点】的播报共用 —— 两处必须同一个口径）
   function skillRank(byFoe : boolean, card : PlainCard) : string {
     // 【归十】〔2026-11-03 用户定「自己的 Q、K 都算 10 点，能触发 10 槽」〕：带它的一方的 Q、K 按 10 去查槽
     const tensRank = (card.rank == 'Q' || card.rank == 'K') && hasSpecial(byFoe, SP_TENS)
-    // 【归八】〔2026-11-04 · 八爪渔夫〕：带它的一方的 ♣ 牌（J 除外）按 8 去查槽。花色槽照旧按 ♣
+    // 【归八】〔2026-11-04 · 八臂傀儡师〕：带它的一方的 ♣ 牌（J 除外）按 8 去查槽。花色槽照旧按 ♣
     return isDead(card) ? '0' : (tensRank ? '10' : (clubEight(byFoe, card) ? '8' : card.rank))
   }
 
   function skillsOf(byFoe : boolean, card : PlainCard) : number[] {
-    // 【轻装】（双帆客，2026-11-04）：你点数大于 10 的牌不发动技能 —— J 本来就不触发，实际管 Q、K。
+    // 【轻装】（双生术士，2026-11-04）：你点数大于 10 的牌不发动技能 —— J 本来就不触发，实际管 Q、K。
     // 按牌面判，被置 0 的（牌面已是 0）不受它管
     if (!isDead(card) && (card.rank == 'Q' || card.rank == 'K') && hasSpecial(byFoe, SP_HIGHMUTE)) {
       return [] as number[]
@@ -4855,15 +4871,15 @@
     const list = triggersOf(lo, card.suit, rank)
     // 【照花】【照点】（镜魔一族的庄家专属）：换成对方槽里挑中的那件
     copySwap(byFoe, list)
-    // 【串钩】（串钩手）：命中任一个**被占**的点数槽 → **再响 1 件**（你选的那件，见 heartPick）。
+    // 【共鸣】（共鸣歌者）：命中任一个**被占**的点数槽 → **再响 1 件**（你选的那件，见 heartPick）。
     // 闸和追加顺序都在 addRankLink 里，这儿只问「这一侧带没带」——
     // 而那正是它不能写进 triggersOf 的原因（那个函数不知道是谁在出牌）。
     // 庄家传 −1 = 名单第一件，跟模拟器 `LINK_PICK=add1` 同一个判据
     if (hasSpecial(byFoe, SP_RANKLINK)) {
       return addRankLink(lo, rank, list, byFoe ? -1 : heartPick.value)
     }
-    // 【红钩】（桃汛客）：打出红桃 → **额外**响 1 件（你选的那件，见 heartPick）。
-    // 跟串钩**互斥不用写** —— 一个角色只带一件常驻技，两个 if 永远
+    // 【赤鸣】（赤红女巫）：打出红桃 → **额外**响 1 件（你选的那件，见 heartPick）。
+    // 跟共鸣**互斥不用写** —— 一个角色只带一件常驻技，两个 if 永远
     // 只进得去一个。写成两段并列（不是 else if）是为了删掉任一件时
     // 另一段不用动。
     // 庄家传 −1 = 取名单第一件，跟模拟器 `HEART_PICK=one` 同一个判据
@@ -4907,7 +4923,7 @@
     return names
   }
 
-  // 「换一件」那颗钮轮的名单 —— 【红钩】和【串钩】共用一颗钮、一个选择
+  // 「换一件」那颗钮轮的名单 —— 【赤鸣】和【共鸣】共用一颗钮、一个选择
   //（一个角色只带一件常驻技，两件永远不会同时在你这一侧）。
   // 名单跟 addHeartWild / addRankLink 读的是同一份
   function pickPool() : number[] {
@@ -4932,14 +4948,14 @@
     return pool[0]
   }
 
-  // 钮只在**真有得选**时出现：带着红钩 / 串钩，而且槽上至少两件
+  // 钮只在**真有得选**时出现：带着赤鸣 / 共鸣，而且槽上至少两件
   function heartPickShown() : boolean {
     return pickPool().length >= 2
   }
 
   // 钮上那行字的开头：是哪件常驻技在选
   function heartPickLead() : string {
-    return hasSpecial(false, SP_RANKLINK) ? '串钩：命中点数槽时再响【' : '红钩：红桃牌额外响【'
+    return hasSpecial(false, SP_RANKLINK) ? '共鸣：命中点数槽时再响【' : '赤鸣：红桃牌额外响【'
   }
 
   function heartPickName() : string {
@@ -5029,7 +5045,7 @@
   // 得出牌库奇数。原先那道闸漏了这两条，而闯关里它们各占一关、恒偏庄家。
   //
   // **调用点在 baitFor 之后、buildRankTotals 之前**，两头都是硬性的：
-  //   囤饵塞 BAIT_COUNT 张（原先 3 张 = 奇数，排在它前面的话这道闸被它绕过去；
+  //   囤符塞 BAIT_COUNT 张（原先 3 张 = 奇数，排在它前面的话这道闸被它绕过去；
   //   2026-10-30 起 2 张不改奇偶，但张数是常量、哪天改回奇数就又绕过，所以位置不动）；
   //   剔掉的牌这一局不在场，所以要在算 rankTotal 之前剔 ——
   //     不然庄家的记牌（outsideCount）会把剔掉的也算进「外面还剩几张」。
@@ -5067,7 +5083,7 @@
   // 两条特殊技走这儿，而且**只有这一个入口**：
   //
   //   【硬壳】 庄家打出的 ♠（认牌面花色）
-  //   【炙水】 庄家打出的、**现在带着燃烧**的那些
+  //   【炙焰】 庄家打出的、**现在带着燃烧**的那些
   //
   // 原先这个函数叫 `shelled`、只管硬壳。改名是因为它回答的那个问题
   // 从一开始就比「是不是硬壳」一般 —— 而七个调用处写的都是
@@ -5091,7 +5107,7 @@
     }
     if (!pileByFoe.value[index]) {
       // 两条都只管**庄家打出的**那些。你自己的牌带火照旧钓得走 ——
-      // 不然【沸水】×【炙水】就是「堆上所有牌你都碰不到」，
+      // 不然【沸水】×【炙焰】就是「堆上所有牌你都碰不到」，
       // 那不是题目，是墙
       return false
     }
@@ -5101,9 +5117,9 @@
     if (hasFoeSpecial('shell') && pile.value[index].suit == SUITS[0]) {
       return true
     }
-    // ---- 炙水是硬壳的**状态版** ----
+    // ---- 炙焰是硬壳的**状态版** ----
     //
-    // 硬壳认的是印死的花色（♠ 四分之一，定额）；炙水认的是燃烧，
+    // 硬壳认的是印死的花色（♠ 四分之一，定额）；炙焰认的是燃烧，
     // 而燃烧是**庄家自己造出来的**（沸水在场时落堆的牌都带火、
     // 燎原每打一张牌往两边爬一格）。所以它的覆盖面会长，硬壳的不会。
     //
@@ -5112,7 +5128,7 @@
     return hasFoeSpecial('char') && pileBurnAt(index) > 0
   }
 
-  // ---------- 【浊水】：堆厚过 MURK_DEEP 张时，深处那些你看不见是什么 ----------
+  // ---------- 【迷障】：堆厚过 MURK_DEEP 张时，深处那些你看不见是什么 ----------
   //
   // **纯渲染层** —— 规则一个字没改，堆的数据照旧全在（庄家是程序，
   // 它读的是数据不是屏幕，所以「庄家照旧全看得见」自动成立）。
@@ -5126,7 +5142,7 @@
   //     藏那个只会让界面看着像坏了。
   //
   // 它跟记牌那条原则（『信息要给够』）确实是反着的，所以设计稿里
-  // 它只给**终局**那张卡（东海龙王）—— 不是普通关卡的规矩
+  // 它只给**终局**那张卡（苍龙王）—— 不是普通关卡的规矩
   function murked(index : number) : boolean {
     if (!hasFoeSpecial('murk')) {
       return false
@@ -5179,28 +5195,28 @@
       return poleCatch(card, byFoe, skills, sink)
     }
     const size = pile.value.length
-    // 【对钩】还在手里估值时：凑得出一对，它打出去就是 J（真结算时 afterPlayTail 已经把它改成 J 了）
+    // 【合璧】还在手里估值时：凑得出一对，它打出去就是 J（真结算时 afterPlayTail 已经把它改成 J 了）
     if (card.rank == JACK || pairJackAsJ(card, byFoe, skills)) {
       // J 通吃：不管落堆顶还是堆底，整堆都收。
       // 沉底时要的是「最高那张」（收到堆顶），普通时是「最深那张」
       if (size == 0) {
         return -1
       }
-      // ---------- 【逆钩】：你打 J 只收 REV_TOPS 张 ----------
+      // ---------- 【镇王】：你打 J 只收 REV_TOPS 张 ----------
       //
       // 判在这儿而不是收牌那一头：这个函数返回的就是「从第几张开始收」，
       // 所以把起点往上挪就是全部实现 —— 收牌、算分、记牌、特效
       // 四条路一个字都不用改。
       //
       // **只管玩家**（庄家的 J 照旧通吃）—— 它是关卡的题目，不是场地规则，
-      // 跟封竿同一条边界。
+      // 跟封数同一条边界。
       //
       // 两个方向都要收口，不然沉底就成了它的漏洞：
       //   普通（落堆顶）→ 从 size − 3 收到堆顶；
       //   沉底（落堆底）→ 从堆底收到第 2 格。
       // 堆比 3 张还薄的时候退回整堆（那时候「只收 3 张」本来就是整堆）
-      // 〔2026-11-03〕玩家常驻技【逆涌】「对方打出 J 只收走堆顶 3 张」走同一处：J 的对手一方带逆涌就收口。
-      // 你带它（开河工）→ 庄家的 J；庄家带它（只在终局对决）→ 你的 J
+      // 〔2026-11-03〕玩家常驻技【抑王】「对方打出 J 只收走堆顶 3 张」走同一处：J 的对手一方带抑王就收口。
+      // 你带它（镇王卫士）→ 庄家的 J；庄家带它（只在终局对决）→ 你的 J
       if ((!byFoe && hasFoeSpecial('rev')) || hasSpecial(!byFoe, SP_JSURGE)) {
         if (size <= REV_TOPS) {
           return sink ? size - 1 : 0
@@ -5209,10 +5225,10 @@
       }
       return sink ? size - 1 : 0
     }
-    // 【封竿】原先在这儿直接拦（被封的点数什么都钓不到）。改成了「算 0 点」，
+    // 【封数】原先在这儿直接拦（被封的点数什么都钓不到）。改成了「算 0 点」，
     // 在 valuesOf 最前面判 —— 0 点钓不到按点数的牌，按花色的照样能用
-    // 【正电】：导电 / 电钩贴在手牌上，电镜它自己带〔2026-11-05〕
-    // 〔2026-11-17 电钩换效果（展示同颜色手牌贴正电）：它自己不再带正电，`hook` 那一项撤了〕
+    // 【正电】：导电 / 引雷贴在手牌上，电镜它自己带〔2026-11-05〕
+    // 〔2026-11-17 引雷换效果（展示同颜色手牌贴正电）：它自己不再带正电，`hook` 那一项撤了〕
     const mag = magKeyOn(card) || hasTrigger(skills, SK_MAGREFLECT)
     // 【负电】第三句：这张自己带负电 → 堆上的负电对它不起作用
     const negBlocked = negHandOn(card)
@@ -5273,8 +5289,8 @@
     //〔原先这儿写着「**沉底时不判**：你这张落堆底，而它从堆顶往下数 ——
     //  两件撞在同一张牌上是真冲突（插槽时得避开）」。
     //  那个冲突正是**锚钉死在堆顶**造成的，锚跟着牌走之后它自己就没了，
-    //  所以 `!sink` 这道闸去掉。连带：【逆流】从「落点选择」变成
-    //  「**挑这一段从哪头吃**」，而【寒流】【窄口】【满篓】那几件
+    //  所以 `!sink` 这道闸去掉。连带：【逆行】从「落点选择」变成
+    //  「**挑这一段从哪头吃**」，而【寒流】【窄口】【博藏】那几件
     //  「无点数 + 落堆底」第一次能跟这条线配 —— 无点数的牌不占预算，
     //  所以它们一落底就是满预算往上吃。**那个组合要量。**〕
     // 手里带【21 匹配】（零递贴的）的牌也走这条线；【零吃】是它自己带着这条线
@@ -5284,7 +5300,7 @@
       return reach
     }
     // ---------- 【正电】×【负电】：**特殊匹配**，判在普通匹配之前〔2026-11-05 用户定〕----------
-    // 带正电的牌（电钩自带 / 导电贴的）钓堆上带负电的牌：顺位相差 1 或 2 都算。
+    // 带正电的牌（引雷自带 / 导电贴的）钓堆上带负电的牌：顺位相差 1 或 2 都算。
     // 「只有正电 × 负电是特殊匹配」—— 普通牌钓负电、正电钓普通牌都还是普通匹配（下面循环里那两支）。
     // elecHitNow 记「这一次是不是靠它返回的」，resolveMatch 紧跟着读，决定这一手免不免抢（照 21 匹配）
     elecHitNow = false
@@ -5475,20 +5491,20 @@
     if (heldOn(SK_LANTERN, false)) {
       return true
     }
-    // 【清水】（角色的常驻技能）：对方**前 CLEAR_OPEN 张**手牌一直明着
+    // 【洞察】（角色的常驻技能）：对方**前 CLEAR_OPEN 张**手牌一直明着
     //（2026-10-16 起是 4 张 —— 标准手牌就是 4 张，所以通常等于全看）。
     //
     // 按下标算，所以明的永远是最左边那几张。手牌会打出去、会补，
     // 下标一直在动 —— 于是「哪几张明着」是流动的。那正好，
     // 不然对手能靠藏牌位置骗你。
     //
-    // **按下标而不是「全部」是有意的**：手牌上限被【满篓】【添手】抬高时，
+    // **按下标而不是「全部」是有意的**：手牌上限被【博藏】【添手】抬高时，
     // 它只明前 4 张 —— 对手因此藏得住后面那几张。
     // 这一条写进 desc 了（「4 张」不是「全部」），理由见 CLEAR_OPEN 那段
     if (index < CLEAR_OPEN && hasSpecial(false, SP_CLEAR)) {
       return true
     }
-    // 压舱、摘钩、对换正等你挑的时候，它那一手**全明着** ——
+    // 置换、摄物、对换正等你挑的时候，它那一手**全明着** ——
     // 这三件技能的说明都是「看对方手牌，挑 1 张」，
     // 看不见就没法挑。这也是它们跟【冻结】的分界：冻结挑的是位置
     //
@@ -5509,7 +5525,7 @@
       return true
     }
     // 〔【叛变】2026-11-17 去掉明置（用户定）：原先这儿「带它的牌一直明着（庄家看得见）」返回 true —— 撤了〕
-    // 【催钩】（拔钩人系列的庄家规矩）：你手里的 J 一直明置
+    // 【催王】（王牌猎手系列的庄家规矩）：你手里的 J 一直明置
     if (index < hand.value.length && hand.value[index].rank == JACK && hasFoeSpecial('jimpulse')) {
       return true
     }
@@ -5762,9 +5778,9 @@
   // ---- 留四条判据，都跟这个动作无关、下一件同形的技能照抄 ----
   //
   // 一、**「放弃出牌」型的动作走 `passTurn`，不走 `endPlay`。**
-  //     endPlay 里是「打出一张牌之后」的结算（推牌兑现、逆涌那几条），
+  //     endPlay 里是「打出一张牌之后」的结算（推牌兑现、抑王那几条），
   //     而这一手**没打牌**，那些都不该跑。passTurn 该做的都做：
-  //     expireGuards、走水、refill、checkOver、交回合。
+  //     expireGuards、噬底、refill、checkOver、交回合。
   //
   // 二、**「放弃出牌」必须计入出牌数**，这一条是硬性的，它一次挡住两个问题：
   //
@@ -5773,7 +5789,7 @@
   //         **只有「跳过回合」会错位**，而那种局面下 playableCount 会返回 0」。
   //       放弃出牌是 `playableCount > 0` 的跳过 —— **它破坏那个前提**。
   //     **② 翻转牌库奇偶** —— 「从手上垫到堆上」属于『牌不经打出就离场』
-  //       那一类（跟【守滩】同形），量级约 0.8 分（填塘 D=+0.80 实测）。
+  //       那一类（跟【筑壁】同形），量级约 0.8 分（填塘 D=+0.80 实测）。
   //
   //     计入之后它在**所有计数上跟普通一手完全一样**：出牌数 +1、
   //     牌库 −1（passTurn 的 refill 补回来）、堆 +1 —— 只是不判匹配、
@@ -5813,7 +5829,7 @@
   //
   // ---- 它作用在「收牌」，不在「匹配」 ----
   //
-  // 现有让牌难拿走的三件（护饵 / 硬壳 / 炙水）全挡在匹配判定上
+  // 现有让牌难拿走的三件（护饵 / 硬壳 / 炙焰）全挡在匹配判定上
   //（`matchLocked`：它当不了匹配的那一张）。结冰不碰那儿 ——
   // 带结冰的牌照旧能当匹配点、照旧能发起一次收牌，**只是它自己不跟着走**。
   // 所以它的落点是 takeAt，而不是 catchStart
@@ -5935,7 +5951,7 @@
   //
   // 代价是**必须及时清掉**，两处都要（见 playFor 和 finishCatch）：
   //   playFor 开头每次重设 —— 结凌那一手没钓中时也不会漏；
-  //   finishCatch 收完立刻清 —— 不然走水 / 过闸那两条**庄家规矩**
+  //   finishCatch 收完立刻清 —— 不然噬底 / 征收那两条**庄家规矩**
   //     就在它下面几行，会蹭上我的豁免。
   //
   // gone 是出参：离场那几张的 rank 往里推（庄家记牌的依据）。
@@ -6054,7 +6070,7 @@
   // 凝水 / 净水等着的时候那条提示
   const pilePickText = computed<string>(() : string => {
     if (pickingPile(SK_PRESS)) {
-      return '压舱：点堆上一张，跟庄家那张交换（不能点你刚打出的那张、J、叠着的）'
+      return '置换：点堆上一张，跟庄家那张交换（不能点你刚打出的那张、J、叠着的）'
     }
     if (pickingPile(SK_CALM)) {
       return '凝水：点堆上一张给它贴保护 —— 那张被收走时不走一次'
@@ -6069,13 +6085,13 @@
         + ' 点 —— 加完它会判一次匹配'
     }
     if (pickingPile(SK_HANDREFLECT)) {
-      return '拟饵：点堆上一张（你手里要有跟它同花色的牌）—— 下一步点那张手牌，它变成跟这张相同'
+      return '拟形：点堆上一张（你手里要有跟它同花色的牌）—— 下一步点那张手牌，它变成跟这张相同'
     }
     if (pickingPile(SK_PAIRNP)) {
       return '感电：点堆上一张给它贴【负电】（J 不行）—— 下一步点一张跟它同颜色的手牌贴【正电】'
     }
     if (pickingPile(SK_PILEREFLECT)) {
-      return '镜水：点堆上一张给它带上【映照】（你手里要有跟它同花色的牌）—— 下一步点那张手牌展示'
+      return '镜阵：点堆上一张给它带上【映照】（你手里要有跟它同花色的牌）—— 下一步点那张手牌展示'
     }
     // 垫吃：点出那条等价的读法 —— 玩家不用去想「从锚往哪边数」
     if (pickingPile(SK_STACKDRAFT)) {
@@ -6088,10 +6104,10 @@
       return '野火：点堆上一张给它贴【燃烧】—— 点在没烧着那一段的中间，'
         + '火往两边各爬一格，全场烧着就整堆收走'
     }
-    // 伏流：同理点出选法 —— 通配是**填缺口**用的，而「哪儿是缺口」
+    // 百变：同理点出选法 —— 通配是**填缺口**用的，而「哪儿是缺口」
     // 要在堆上心算点数，第一次玩算不出来
     if (pickingPile(SK_FLOW)) {
-      return '伏流：点堆上一张给它贴【通配】—— 你刚打的那张已经带上【通配】，'
+      return '百变：点堆上一张给它贴【通配】—— 你刚打的那张已经带上【通配】，'
         + '所以这一张是**第二个**任意点数，点在能补上缺口的那张；贴完当场判顺子'
     }
     return ''
@@ -6116,7 +6132,7 @@
     if (pickingPile(SK_WILD)) {
       return pileBurnAt(index) == 0 && !wardAt(index) && !frostAt(index)
     }
-    // 拟饵：不能点它自己；那张要有点数，而且你手里有跟它同花色、还没变成它的牌
+    // 拟形：不能点它自己；那张要有点数，而且你手里有跟它同花色、还没变成它的牌
     if (pickingPile(SK_HANDREFLECT)) {
       const self = pickCard.value == null ? -1 : pileIndexOf(pickCard.value!)
       return index != self && mimicHandIndex(false, index) >= 0
@@ -6126,11 +6142,11 @@
       const self = pickCard.value == null ? -1 : pileIndexOf(pickCard.value!)
       return index != self && pile.value[index].rank != JACK
     }
-    // 镜水：不能点它自己；手里要有跟那张同花色的（非 J）牌
+    // 镜阵：不能点它自己；手里要有跟那张同花色的（非 J）牌
     if (pickingPile(SK_PILEREFLECT)) {
       return reflectCanTarget(index, false)
     }
-    // 伏流：已经带通配的那张再贴一次是空操作，所以点不着。
+    // 百变：已经带通配的那张再贴一次是空操作，所以点不着。
     //
     // **打出那一张也点不着** —— 它进 straightFor 时就贴上了标签
     //〔2026-10-19 起是真标签，此前是「自带那一次」〕，再贴一张是白费。
@@ -6174,12 +6190,12 @@
     pilePick.value = -1
     pickStep.value = 0
     pickCard.value = null
-    // ---- 【拟饵】第一步挑完：转去等你点同花色的手牌 ----
+    // ---- 【拟形】第一步挑完：转去等你点同花色的手牌 ----
     if (which == SK_HANDREFLECT) {
       const skills = pickSkills
       pickSkills = []
       if (index < 0) {
-        message.value = message.value + ' 拟饵：没挑。'
+        message.value = message.value + ' 拟形：没挑。'
         afterPlayRest(false, skills)
         return
       }
@@ -6210,12 +6226,12 @@
       inductHandPending.value = true
       return
     }
-    // ---- 【镜水】第一步挑完：转去等你点手牌（不挑 = 不映照，照常往下走） ----
+    // ---- 【镜阵】第一步挑完：转去等你点手牌（不挑 = 不映照，照常往下走） ----
     if (which == SK_PILEREFLECT) {
       const skills = pickSkills
       pickSkills = []
       if (index < 0) {
-        message.value = message.value + ' 镜水：没挑。'
+        message.value = message.value + ' 镜阵：没挑。'
         afterPlayRest(false, skills)
         return
       }
@@ -6246,10 +6262,10 @@
       afterPlayTail(false, skills, TAIL_REST)
       return
     }
-    // ---- 【伏流】：贴完标签**还要回去判顺子** ----
+    // ---- 【百变】：贴完标签**还要回去判顺子** ----
     //
     // 这是跟野火不一样的地方：野火贴完火就完事了（燃尽那一步在后面的
-    // 通路里），而伏流贴完得**当场**用那个标签去凑顺子 ——
+    // 通路里），而百变贴完得**当场**用那个标签去凑顺子 ——
     // 所以它不能像野火那样直接跳到下一段，得重新走一次 straightFor。
     //
     // 重入时 `pilePick` 已经清了（上面那几行），所以那个
@@ -6261,10 +6277,10 @@
       flowPicked = true
       if (index >= 0 && index < pile.value.length) {
         addWild(pile.value[index])
-        message.value = message.value + ' 伏流：给第 ' + (index + 1)
+        message.value = message.value + ' 百变：给第 ' + (index + 1)
           + ' 张贴上【通配】。'
       } else {
-        message.value = message.value + ' 伏流：没挑，这一手没贴标签。'
+        message.value = message.value + ' 百变：没挑，这一手没贴标签。'
       }
       // 开演收牌特效了就别往下走，演完由 finishSweep 接
       if (!straightFor(false, skills)) {
@@ -6840,7 +6856,7 @@
     if (one.skill == HELD_FROST) {
       return frostCount() + '张收不走'
     }
-    // 别的（窄口、满篓……）没有「一句话后果」可写，就留空 ——
+    // 别的（窄口、博藏……）没有「一句话后果」可写，就留空 ——
     // 标签上只剩技能名，点一下看全文
     return ''
   }
@@ -6906,8 +6922,8 @@
     }
     return false
   }
-  // 【催钩】〔2026-11-16 · 拔钩人系列的庄家规矩〕：你手里有 J 时，别的牌打不出（出牌、抢牌都算）—— 必须先打 J。
-  // 只管玩家（庄家规矩的边界照硬壳 / 枯水）。模拟器 rules.js isFrozen 里 jimpulse 那一支同一条
+  // 【催王】〔2026-11-16 · 王牌猎手系列的庄家规矩〕：你手里有 J 时，别的牌打不出（出牌、抢牌都算）—— 必须先打 J。
+  // 只管玩家（庄家规矩的边界照硬壳 / 枯竭）。模拟器 rules.js isFrozen 里 jimpulse 那一支同一条
   function jackLocked(card : PlainCard) : boolean {
     if (card.rank == JACK || !hasFoeSpecial('jimpulse') || hand.value.indexOf(card) < 0) {
       return false
@@ -7166,7 +7182,7 @@
     return left
   }
 
-  // 第 index 格设成 true（换引用，照 withoutFlag）〔2026-10-30 浑水明置要它〕
+  // 第 index 格设成 true（换引用，照 withoutFlag）〔2026-10-30 迷雾明置要它〕
   function withFlag(list : boolean[], index : number) : boolean[] {
     const out : boolean[] = list.slice(0)
     if (index >= 0 && index < out.length) {
@@ -7248,7 +7264,7 @@
     const rest = deck.value.slice(0)
     let card = rest.pop()!
     let seen = false
-    // 【安检】庄家带、你抽（只会在终局对决出现）：庄家 AI 当场判 ——
+    // 【鉴定】庄家带、你抽（只会在终局对决出现）：庄家 AI 当场判 ——
     // 对你有用（点得着你的槽 / 现在打出去钓得中）、不是 J、牌库里还有牌，就置底再抽；留下的那张它看得见。
     // 照模拟器 rules.js 的 drawFor / drawUseful
     if (dealt && !byFoe && hasSpecial(true, SP_INSPECT) && rest.length > 0) {
@@ -7256,7 +7272,7 @@
       if (card.rank != JACK && (sk.length > 0 || catchStart(card, false, sk, false) >= 0)) {
         rest.unshift(card)
         card = rest.pop()!
-        message.value = message.value + ' 庄家安检：你抽到的那张被塞回牌库底，你又抽了一张。'
+        message.value = message.value + ' 庄家鉴定：你抽到的那张被塞回牌库底，你又抽了一张。'
       } else {
         seen = true
       }
@@ -7294,7 +7310,7 @@
       colorPending.value = colorPending.value.concat([card])
     }
     if (byFoe) {
-      // 【安检】你带、庄家抽：先进他手里、明置，记进待确认（轮到你出牌时再决定放行还是置底）
+      // 【鉴定】你带、庄家抽：先进他手里、明置，记进待确认（轮到你出牌时再决定放行还是置底）
       const inspect = dealt && hasSpecial(false, SP_INSPECT)
       foeHand.value = foeHand.value.concat([card])
       // 洗回牌库前明置着的，摸回来照样明置（openCards）
@@ -7302,14 +7318,14 @@
       if (inspect) {
         inspectPending.value = inspectPending.value.concat([card])
       }
-      // 【甩货】庄家带（终局对决）：AI 当场判，照模拟器〈zhandgive〉
+      // 【弃厄】庄家带（终局对决）：AI 当场判，照模拟器〈zhandgive〉
       if (dealt && isDead(card) && hasSpecial(true, SP_ZHANDGIVE) && deck.value.length > 0) {
         foeGive()
       }
     } else {
       hand.value = hand.value.concat([card])
       handSeen.value = handSeen.value.concat([seen || openCardOn(card)])
-      // 【甩货】你带：记一次，交回合前问（见 giveLeft）
+      // 【弃厄】你带：记一次，交回合前问（见 giveLeft）
       if (dealt && isDead(card) && hasSpecial(false, SP_ZHANDGIVE)) {
         giveLeft.value = giveLeft.value + 1
       }
@@ -7318,7 +7334,7 @@
   }
 
   // 这张牌对 byFoe 那一方「有用」吗：J、点得着他的槽（0 点牌响 0 点槽也算）、现在打出去钓得中。
-  // 照模拟器 rules.js 的 drawUseful（【安检】那一支是同一个判法，写在 drawFor 里）
+  // 照模拟器 rules.js 的 drawUseful（【鉴定】那一支是同一个判法，写在 drawFor 里）
   function cardUseful(byFoe : boolean, card : PlainCard) : boolean {
     if (card.rank == JACK) {
       return true
@@ -7327,7 +7343,7 @@
     return sk.length > 0 || catchStart(card, byFoe, sk, false) >= 0
   }
 
-  // 【甩货】庄家那一侧：从后往前找一张「对它没用、对你也没用」的手牌给你（明着 —— 它知道你手里有这张），再摸 1 张。
+  // 【弃厄】庄家那一侧：从后往前找一张「对它没用、对你也没用」的手牌给你（明着 —— 它知道你手里有这张），再摸 1 张。
   // 再摸到 0 点牌会在 drawFor 里接着触发（原文不限次数）。没有合适的就不给
   function foeGive() {
     let at = -1
@@ -7353,11 +7369,11 @@
     foeShown.value = keepS
     hand.value = hand.value.concat([card])
     handSeen.value = handSeen.value.concat([true])
-    message.value = message.value + ' 庄家甩货：把 ' + cardName(card) + ' 塞给了你，它又摸了一张。'
+    message.value = message.value + ' 庄家弃厄：把 ' + cardName(card) + ' 塞给了你，它又摸了一张。'
     drawFor(true)
   }
 
-  // 【甩货】你选一张：index = 你第几张手牌，−1 = 不给（这一串剩下的次数一起作废）。
+  // 【弃厄】你选一张：index = 你第几张手牌，−1 = 不给（这一串剩下的次数一起作废）。
   // 给 = 那张进庄家手里、明置，你再摸 1 张（再摸到 0 点牌 giveLeft 又加 1，接着问）
   function onGive(index : number) {
     if (index >= 0 && index < hand.value.length && deck.value.length > 0) {
@@ -7376,7 +7392,7 @@
       foeHand.value = foeHand.value.concat([card])
       foeShown.value = foeShown.value.concat([true])
       const next = drawFor(false)
-      message.value = '甩货：' + cardName(card) + ' 给了庄家' + (next != null ? '，你又摸了 ' + cardName(next!) + '。' : '。')
+      message.value = '弃厄：' + cardName(card) + ' 给了庄家' + (next != null ? '，你又摸了 ' + cardName(next!) + '。' : '。')
     } else {
       giveLeft.value = 0
     }
@@ -7391,7 +7407,7 @@
     }
   }
 
-  // 【甩货】现在能问吗：有次数、牌库还有牌（给了要再摸）、手里有牌。问不了就把次数清掉
+  // 【弃厄】现在能问吗：有次数、牌库还有牌（给了要再摸）、手里有牌。问不了就把次数清掉
   function giveReady() : boolean {
     if (giveLeft.value > 0 && deck.value.length > 0 && hand.value.length > 0) {
       return true
@@ -7400,11 +7416,11 @@
     return false
   }
 
-  // 【锈锚】置 0 几张。模拟器 rules.js 的 DECKZERO_N 默认值必须一样
+  // 【凋零】置 0 几张。模拟器 rules.js 的 DECKZERO_N 默认值必须一样
   const DECKZERO_N : number = 2
-  // 【暗潮】再摸几张暗牌（2026-11-11 用户定 4）。模拟器 rules.js 的 DARKSWAP_DRAW 默认值必须一样
+  // 【夜幕】再摸几张暗牌（2026-11-11 用户定 4）。模拟器 rules.js 的 DARKSWAP_DRAW 默认值必须一样
   const DARKSWAP_DRAW : number = 4
-  // 【锈锚】将牌库顶 2 张牌置 0（J 也置 0 —— 牌面改成 0，照 markDead）。已经是 0 的照样占名额。
+  // 【凋零】将牌库顶 2 张牌置 0（J 也置 0 —— 牌面改成 0，照 markDead）。已经是 0 的照样占名额。
   // 记进 deadCards：摸进谁手里都带「废」标（明置）、0 点、只响 0 点槽。模拟器〈deckzero〉同一个数
   function deckZero(byFoe : boolean) {
     let n = 0
@@ -7422,11 +7438,11 @@
       n = n + 1
     }
     if (n > 0) {
-      message.value = message.value + (byFoe ? ' 庄家锈锚：' : ' 锈锚：') + '牌库顶 ' + n + ' 张置 0。'
+      message.value = message.value + (byFoe ? ' 庄家凋零：' : ' 凋零：') + '牌库顶 ' + n + ' 张置 0。'
     }
   }
 
-  // 【褪库】（盐田晒网人系列专属）失去花色几张。模拟器 rules.js 的 DECKBLEACH_N 默认值必须一样
+  // 【褪库】（褪色画师系列专属）失去花色几张。模拟器 rules.js 的 DECKBLEACH_N 默认值必须一样
   const DECKBLEACH_N : number = 4
   // 【褪库】将牌库顶 4 张牌失去花色（照【漂白】改牌面：suit 空串）。已经没花色的照样占名额。模拟器〈deckbleach〉同一个数
   function deckBleach(byFoe : boolean) {
@@ -7559,7 +7575,7 @@
     startMyTurn()
   }
 
-  // 【安检】确认一张：keep = 放行（留在庄家手里、一直亮着）；否则置底 ——
+  // 【鉴定】确认一张：keep = 放行（留在庄家手里、一直亮着）；否则置底 ——
   // 不能置底 J、牌库空了也只能放行；置底之后庄家再抽 1 张（不看、不明置）。确认完全部才接着走你的回合
   function onInspect(keep : boolean) {
     if (inspectPending.value.length == 0) {
@@ -7592,9 +7608,9 @@
       deck.value = rest
       foeHand.value = keepH.concat([next])
       foeShown.value = keepS.concat([false])
-      message.value = '安检：' + cardName(card) + ' 塞回牌库底，庄家又抽了一张。'
+      message.value = '鉴定：' + cardName(card) + ' 塞回牌库底，庄家又抽了一张。'
     } else {
-      message.value = '安检：' + cardName(card) + ' 放行（留在庄家手里，一直亮着）。'
+      message.value = '鉴定：' + cardName(card) + ' 放行（留在庄家手里，一直亮着）。'
     }
     if (inspectPending.value.length == 0) {
       inspectOpen.value = false
@@ -7778,7 +7794,7 @@
   }
 
   // 插到堆上第 at 格（0 = 堆底，pile.length = 堆顶之后 = push）。
-  // 【插流】的落点。六条并行数组一起 splice —— 少一条就静默错位
+  // 【插序】的落点。六条并行数组一起 splice —— 少一条就静默错位
   function insertPile(card : PlainCard, byFoe : boolean, guard : number,
     vals : number[], at : number) {
     const i = at < 0 ? 0 : (at > pile.value.length ? pile.value.length : at)
@@ -8088,12 +8104,12 @@
   // 【素映】的开关：landVals 打开它，valuesOf 那一支就不借点数（声明放在两个函数前面 —— 编到 Kotlin 时局部函数只认得前面声明过的变量）
   let blankMirrorOff : boolean = false
   function valuesOf(card : PlainCard, byFoe : boolean, skills : number[]) : number[] {
-    // ---- 【封竿】：被封的那个点数，你打出来算 **0 点** ----
+    // ---- 【封数】：被封的那个点数，你打出来算 **0 点** ----
     //
     // 判在最前面：别的点数技改不回来。0 点钓不到任何牌（0 对 0 不算相等，见 anyEquals），
     // 可它还在点数这条轴上 —— 落堆后见底收得走它，撒网按偶数算它
     //（跟【死水】废掉的牌同一个待遇）。按花色的那些（顺色之类）照样能用。
-    // 只管玩家（封竿是庄家的特殊技）。J 不会被封（封的点数取自庄家的点数槽，没有 J）
+    // 只管玩家（封数是庄家的特殊技）。J 不会被封（封的点数取自庄家的点数槽，没有 J）
     if (!byFoe && sealedRank.value != '' && card.rank == sealedRank.value) {
       return [0]
     }
@@ -8110,7 +8126,7 @@
     if (isDead(card)) {
       return [0]
     }
-    // ---- 【素映】（盐田晒网人系列的庄家规矩）：庄家打出无花色牌时，点数**可以**变成跟堆上 1 张无花色牌相同 ----
+    // ---- 【素映】（褪色画师系列的庄家规矩）：庄家打出无花色牌时，点数**可以**变成跟堆上 1 张无花色牌相同 ----
     //
     // 点数 = 它自己的 ∪ 堆上每张无花色牌的点数；catchStart 取钓得最深的那个 = 「可以变成」挑最好的。
     // 只在判钓牌那一下成立 —— 落堆记的是它自己的点数（landVals 把 blankMirrorOff 打开），不然没钓中的那张会带着借来的点数躺在堆上。
@@ -8223,21 +8239,21 @@
       // ⚠ **只给寒流，不给霜降。** 同样两句加在霜降上是 −2.86 ——
       // 延长一个**对称**效果的寿命等于延长你自己付的税。霜降因此删了
       || hasTrigger(skills, SK_COLDHUE)
-      // ---- 【满篓】【窄口】也加这两句〔2026-10-16〕 ----
+      // ---- 【博藏】【窄口】也加这两句〔2026-10-16〕 ----
       //
       // 跟寒流**同一个身份**：无点数在这儿不是「收一片的代价」，是**延命**。
       // 而这两件正是「挂牌型吃 1/7 折扣」那条判据的两个数据点：
       //
-      //   窄口 槽技能 0.67 对 江口闸官常驻 **5.35**
-      //   满篓 槽技能 0.47 对 背篓渔夫常驻 **4.52**
+      //   窄口 槽技能 0.67 对 封印师常驻 **5.35**
+      //   博藏 槽技能 0.47 对 典藏学者常驻 **4.52**
       //
       // ⚠ 适用条件跟寒流一样 —— **只对私有效果有效**。
-      // 这两件都私有（满篓 = 你的手牌上限、窄口 = 对方少补牌而你受益），
+      // 这两件都私有（博藏 = 你的手牌上限、窄口 = 对方少补牌而你受益），
       // 所以在范围内；霜降那种「落堆的牌都贴冰、双方同被拦」的不在。
       //
       // ---- 实测：**两句必须一起加，单独「落堆底」是负的** ----
       //
-      //   |            | 满篓      | 窄口     |
+      //   |            | 博藏      | 窄口     |
       //   |------------|-----------|----------|
       //   | 现状       | 0.47      | 0.67     |
       //   | 只加无点数 | 0.56      | 0.95     |
@@ -8251,7 +8267,7 @@
       || hasTrigger(skills, SK_CREEL) || hasTrigger(skills, SK_NARROW)
       // ---- 【冻结】也无点数〔2026-10-21〕，但**理由跟上面三件不是一个** ----
       //
-      // 上面三件（寒流 / 满篓 / 窄口）加无点数是为了**延命** —— 所以它们
+      // 上面三件（寒流 / 博藏 / 窄口）加无点数是为了**延命** —— 所以它们
       // 配着「落堆底」成套用，拆开是亏的。**冻结不配落堆底。**
       //
       // 冻结这条是**驻场效果牌不该带点数**：
@@ -8263,14 +8279,14 @@
       // 技能按槽发，点数槽的载体就是同点数那几张，正是你手里最可能
       // 匹配走它的牌；花色槽那头按花色匹配，无点数挡不住。
       // 于是**同一件技能在花色槽和点数槽量出来的数不匹配**。
-      // 判据写进了《摸打钓鱼-技能与关卡设计.md》第三节「③ 挂牌型」。
+      // 判据写进了《魔法匹配-技能与关卡设计.md》第三节「③ 挂牌型」。
       //
       // 同一天撤掉了它的「自带【结冰】」（见 selfFrost 那条墓碑）——
       // 一换一，不是加强
       || hasTrigger(skills, SK_FREEZE)) {
       return [] as number[]
     }
-    // ---- 【伏流】**不在**上面那一族，而那是量出来的 ----
+    // ---- 【百变】**不在**上面那一族，而那是量出来的 ----
     //
     // 它最初也给了「无点数」当代价（顺子是它唯一的钓牌方式，回报是
     // 谁也按点数钓不走它）。**那条代价它撑不起** ——
@@ -8406,7 +8422,7 @@
     //
     //〔原先还有第三条「**它跟【深海钓手】那张角色互相拆台**」。
     //  那张角色 2026-10-23 随深钩删了，拆台关系没了，
-    //  **但「K 没有上家」这条判据没废** —— 开河工的 `K` 槽还踩着它〕
+    //  **但「K 没有上家」这条判据没废** —— 镇王卫士的 `K` 槽还踩着它〕
     const tens = hasSpecial(byFoe, SP_TENS)
       && (card.rank == 'Q' || card.rank == 'K')
     // 【归八】：♣ 牌（J、废牌除外 —— 废牌上面已经返回 [0]）算 8 点，覆盖牌面、点数卡贴的照旧（照归十）
@@ -8451,7 +8467,7 @@
     return out
   }
 
-  // 【归八】（八爪渔夫）：这张牌是不是「带归八那一方的 ♣ 牌」。J 没有点数轴（照归十不收 J）；
+  // 【归八】（八臂傀儡师）：这张牌是不是「带归八那一方的 ♣ 牌」。J 没有点数轴（照归十不收 J）；
   // 失去花色的牌 suit 是 ''，自然不算
   function clubEight(byFoe : boolean, card : PlainCard) : boolean {
     return card.suit == '♣' && card.rank != JACK && hasSpecial(byFoe, SP_CLUBEIGHT)
@@ -8700,7 +8716,7 @@
       message.value = message.value + ' 沉降：堆上所有牌 −'
         + SINK_TAG_STEP + ' 点。'
     }
-    // 【伏流】那个重入闸 —— 它是「这一手之内」的（见它的声明处）
+    // 【百变】那个重入闸 —— 它是「这一手之内」的（见它的声明处）
     flowPicked = false
     // 「往堆底落」有**四条**来路，名字各不相同，而且性质分两类：
     //
@@ -8708,9 +8724,9 @@
     //     【寒流】    —— 自带，整局（2026-10-16 补上，见下）
     //     〔点数槽的【沉底】原先也在这儿 —— 技能 10-15 删了，
     //       `SK_SINK` 现在恒为 −1，所以这一支永不成立。导出还留着〕
-    //     闯关庄家的【偏流】—— 它打出的每一张都落堆底，整关不变
+    //     闯关庄家的【逆位】—— 它打出的每一张都落堆底，整关不变
     //   **可选**
-    //     角色的【逆流】 —— 每回合你自己选（开关见 sinkOn / wantSink）
+    //     角色的【逆行】 —— 每回合你自己选（开关见 sinkOn / wantSink）
     //
     // 四条搭在 sink 这同一个变量上而不是各写一条落堆路径 ——
     // 「这张落哪头」在 playFor 里牵着四处（判定方向、护饵、收牌区间、
@@ -8725,15 +8741,15 @@
     // ~+2 的天花板捅破 —— 两句的交互值 +1.12，而单独量都接近零。
     //
     // **所以它不该做成可选** —— 沉底当年从「强制」改成「可以」值 0.79 分
-    //（空钩沉底是全表最危险的下饵），可那条推理对寒流不成立：
+    //（反噬沉底是全表最危险的下饵），可那条推理对寒流不成立：
     // 它无点数，谁也按点数钓不走它，落堆底根本没有「变成靶子」的风险。
     //
-    // ---- 【满篓】【窄口】2026-10-16 挂上来，成了第五、六条来路 ----
+    // ---- 【博藏】【窄口】2026-10-16 挂上来，成了第五、六条来路 ----
     //
     // **跟寒流同一个身份**（延命，不是效果），所以也是**强制**的。
     // 配上无点数（见 valuesOf 那一支）一起捅破挂牌型那 1/7 的折扣 ——
     // 实测交互 **+1.22 / +1.24**，而**单独加落堆底是负的**
-    //（满篓 −0.55、窄口 −0.47：那张牌远离堆顶、放弃了这一手的匹配邻接，
+    //（博藏 −0.55、窄口 −0.47：那张牌远离堆顶、放弃了这一手的匹配邻接，
     //  可它还是会被按点数钓走）。所以两句是个**成套的模块**，拆开用亏。
     //
     // 播报里**不提技能名**，只说发生了什么（「打到了堆底」）——
@@ -8745,7 +8761,7 @@
     if (sink) {
       firstNote = firstNote + (byFoe ? ' 庄家那张打到了堆底。' : ' 这张打到了堆底。')
     }
-    // 【封竿】挡住的那一下**要说出来**。
+    // 【封数】挡住的那一下**要说出来**。
     //
     // 不说的话它就是「这张莫名其妙钓不到」—— 而封的那个点数
     // 商店预告里没给（只说了有一个点数被封），所以你本来是要试出来的。
@@ -8754,7 +8770,7 @@
     // 判在 catchStart 外面而不是里面：那个函数庄家挑牌时一回合要跑十几次，
     // 在里面写话会把 message 刷成一片
     if (!byFoe && sealedRank.value != '' && card.rank == sealedRank.value) {
-      firstNote = firstNote + ' 封竿：' + sealedRank.value + ' 被封着，这张算 0 点。'
+      firstNote = firstNote + ' 封数：' + sealedRank.value + ' 被封着，这张算 0 点。'
     }
     pendingSkills = skills
     lastPlayed = card
@@ -8776,7 +8792,7 @@
     tookThisHand[armSide] = false
     holdArmed[armSide] = hasTrigger(skills, SK_HOLDTAG)
     foeSwapArmed[armSide] = hasTrigger(skills, SK_PRESS)
-    // 〔2026-11-17 电钩换效果：后半句「匹配失败时抽 1 张牌」撤了，hookArmed 不再上膛（数组和存档那几处留着，恒为 false）〕
+    // 〔2026-11-17 引雷换效果：后半句「匹配失败时抽 1 张牌」撤了，hookArmed 不再上膛（数组和存档那几处留着，恒为 false）〕
     poleFailArmed[armSide] = hasTrigger(skills, SK_POLEFAIL)
     chainArmed[armSide] = false
     // ---- 进场 ----
@@ -8870,8 +8886,8 @@
   // 【净水】「直接打出」也要走完同一串，复制一份的话两边必然分叉
   function landCard(card : PlainCard, byFoe : boolean, skills : number[],
     sink : boolean, worth : number[]) {
-    // 【插流】：穷举落点取含它的最长有序段（见 pickOrderInsertAt）。
-    // 排在 sink 前面 —— 它是这件技能自己的落点选择，不是逆流/延命那条沉底。
+    // 【插序】：穷举落点取含它的最长有序段（见 pickOrderInsertAt）。
+    // 排在 sink 前面 —— 它是这件技能自己的落点选择，不是逆行/延命那条沉底。
     if (hasTrigger(skills, SK_ORDERINS)) {
       insertPile(card, byFoe, GUARD_NONE, worth, pickOrderInsertAt(card, byFoe, skills))
     } else if (sink) {
@@ -9107,7 +9123,7 @@
   // `base = G.pile.length - at + 1`，同一个算法（含【石墙】截断）。
   //
   // ⚠ `catchStart` 的第四参**写死 false（不沉底）**：跟模拟器的 `stealTry`
-  // 和 `ai.js` 挑牌那头一个口径。于是【寒流】【拢水】的沉底档、【逆流】
+  // 和 `ai.js` 挑牌那头一个口径。于是【寒流】【拢水】的沉底档、【逆行】
   // 在这儿估偏 —— 这是一笔**已知的、两边一致的**偏差，别单边「修」它
   function stealGainOf(card : PlainCard, byFoe : boolean) : number {
     if (isFrozen(card)) {
@@ -9258,19 +9274,21 @@
       return false
     }
     if (thief) {
-      // ---- 庄家抢你 ----
-      // 它自己判（取收得最多的那张），当场打出来。
-      // 尾段跟 foeTurn 逐句同构（预约 lead → playFor → afterPlay）
-      pushStealTail(byFoe, played)
-      const card = foeHand.value[best]
-      const lead = '庄家抢牌，打出 ' + cardName(card) + '（收 ' + bestN
-        + ' 张，比你的 ' + caught + ' 张多）。'
-      logPlay(true, card, lead)
-      const handed = playFor(true, best)
-      message.value = message.value + ' ' + lead
-      if (!handed) {
-        afterPlay(true)
+      // 【截咒】〔2026-11-18〕：庄家要抢你、你手里有能触发截咒的牌 → 先停下来问你截不截（onStealCutWith / onStealCutSkip）。
+      //   只在最外层那一次抢牌里问（stealTailSide 空 = 不在互抢的链里），照模拟器「截住之后不能再截、也不能再抢」
+      if (stealTailSide.length == 0 && stealCutIndex(false) >= 0) {
+        stealCutPending.value = true
+        stealCutFrom = from
+        stealCutTo = to
+        stealCutCaught = caught
+        stealCutPlayed = played
+        stealCutThief = best
+        stealCutN = bestN
+        message.value = message.value + ' 庄家要抢牌：打出 ' + cardName(foeHand.value[best]) + '（收 ' + bestN
+          + ' 张，比你的 ' + caught + ' 张多）。你可以打出【截咒】截住（金边那几张），或者不截。'
+        return true
       }
+      foeStealGo(byFoe, played, best, bestN, caught)
       return true
     }
     // ---- 你抢庄家 ----
@@ -9285,6 +9303,22 @@
     message.value = message.value
       + ' 庄家配上了 ' + caught + ' 张 —— 你可以抢牌：打 1 张收得更多的（金边那几张）。'
     return true
+  }
+
+  // 庄家抢你：它自己判（取收得最多的那张），当场打出来。
+  // 〔2026-11-18 从 askSteal 里拆出来 —— 【截咒】问你「不截」之后要从这儿接着走〕
+  function foeStealGo(byFoe : boolean, played : PlainCard, best : number, bestN : number, caught : number) {
+    // 尾段跟 foeTurn 逐句同构（预约 lead → playFor → afterPlay）
+    pushStealTail(byFoe, played)
+    const card = foeHand.value[best]
+    const lead = '庄家抢牌，打出 ' + cardName(card) + '（收 ' + bestN
+      + ' 张，比你的 ' + caught + ' 张多）。'
+    logPlay(true, card, lead)
+    const handed = playFor(true, best)
+    message.value = message.value + ' ' + lead
+    if (!handed) {
+      afterPlay(true)
+    }
   }
 
   // 被抢那一方这一手还欠的事，存一笔。**必须在抢牌方 playFor 之前调** ——
@@ -9318,7 +9352,7 @@
   // **补的是 endPlay / passTurn 里属于被抢方的那几步**，而且只有这几步：
   //   摘钥匙、兑现推牌 / 堆牌、过期护饵、补牌。
   //
-  // ⚠ **【逆涌】故意不补。** 抢牌方的 endPlay 已经点过一次了，
+  // ⚠ **【抑王】故意不补。** 抢牌方的 endPlay 已经点过一次了，
   //   再点一次既多推一层、方向还反（推完轮到的不是他）——
   //   判据和实例全写在模拟器 rules.js:8656-8674 那段 ⚠ 里。
   // ⚠ **不交回合。** 回合已经由抢牌方那一次 passTurn 交到被抢方手上了
@@ -9358,7 +9392,7 @@
         foeSwapArmed[vsi] = stealTailFoeSwap[i]
         chainArmed[vsi] = stealTailChain[i]
         hookArmed[vsi] = stealTailHook[i]
-        // 磁针同电钩：被抢走不算匹配失败（stealTailHook 存的恒是 false，这儿直接清）
+        // 磁针同引雷：被抢走不算匹配失败（stealTailHook 存的恒是 false，这儿直接清）
         poleFailArmed[vsi] = false
         burnPending[vsi] = stealTailBurn[i]
         stealTailDrop[i] = true
@@ -9366,7 +9400,7 @@
       // ---- 被抢那一方的「收牌之后」挂点〔2026-10-28〕----
       //
       // 【连递】续贴和【忍递】都停在收牌之后，而**被抢方的 endPlay 根本
-      // 不会被调到** —— 这个函数就是他那一手的 endPlay（减去逆涌和交回合）。
+      // 不会被调到** —— 这个函数就是他那一手的 endPlay（减去抑王和交回合）。
       // 所以挂点要在这儿再开一个，位置跟 endPlay 里那个一一对应：
       // 摘钥匙之后、兑现推牌 / 堆牌之前。
       //
@@ -9434,7 +9468,7 @@
       return
     }
     if (jackLocked(card)) {
-      uni.showToast({ title: '催钩：手里有 J，只能拿 J 抢', icon: 'none' })
+      uni.showToast({ title: '催王：手里有 J，只能拿 J 抢', icon: 'none' })
       return
     }
     // 【暗牌】看不见它能收几张 —— 不拿它抢（照模拟器）
@@ -9452,6 +9486,20 @@
       uni.showToast({ title: why, icon: 'none' })
       return
     }
+    // 【截咒】〔2026-11-18〕：庄家手里有能触发截咒的牌、这一手要收 2 张以上 → 它截你（照模拟器 CANCEL_MIN = 2）。
+    //   只在最外层那一次抢牌里截（不在互抢的链里）
+    const foeCut = stealTailSide.length == 0 && stealTarget.value >= 2 ? stealCutIndex(true) : -1
+    if (foeCut >= 0) {
+      stealPending.value = false
+      const target = stealTarget.value
+      stealTarget.value = 0
+      stealResumeCard = null
+      newIndex.value = -1
+      const lead = '你抢牌，打出 ' + cardName(card) + ' —— 庄家打出 ' + cardName(foeHand.value[foeCut]) + '【截咒】：'
+        + cardName(card) + ' 置 0，抢牌取消，两张都留在堆上。庄家钓走 ' + target + ' 张。'
+      doStealCut(true, foeCut, index, stealResumeFrom, stealResumeTo, lead)
+      return
+    }
     stealPending.value = false
     stealTarget.value = 0
     // 被抢的是庄家 —— 存他那一手的待办，**必须在 playFor 之前**
@@ -9466,6 +9514,92 @@
       afterPlay(false)
     }
   }
+  // ---------- 【截咒】〔2026-11-18〕：对方抢牌时打出，抢牌取消，抢牌那张置 0 和它一起留在堆上 ----------
+  //
+  // 规则（用户 11-18 逐个场景核过，台账一百九十四 / 一百九十六）：被抢的一方原来那次匹配照常收，**只收原来那一段**
+  //（startCatch 收的是固定区间 [from, to]），两张落在那一段之后、留在堆上。抢牌那张算对方一手、他马上补牌；
+  // 截咒那张用掉被抢方下一手（照抢牌）—— 这两件由现成流程办：被抢方这一手照常收完、照常 passTurn 交回合、回合末照常补满。
+  // 简化（照模拟器）：截住那一下两张只落堆、不触发技能。
+  const stealCutPending = ref<boolean>(false)
+  let stealCutFrom : number = 0
+  let stealCutTo : number = 0
+  let stealCutCaught : number = 0
+  let stealCutPlayed : PlainCard | null = null
+  let stealCutThief : number = -1
+  let stealCutN : number = 0
+  // 这张能拿来打出截咒吗：落在截咒的槽上（J 不触发技能）、没冻住、不是暗牌（拿着的人看不见它）
+  function canStealCut(byFoe : boolean, card : PlainCard) : boolean {
+    if (card.rank == JACK || isFrozen(card) || darkKeyOn(card)) {
+      return false
+    }
+    return hasTrigger(skillsOf(byFoe, card), SK_STEALCUT)
+  }
+  // 手里第一张能打出截咒的牌，没有就 −1（庄家照这个挑；你那边点哪张由你）
+  function stealCutIndex(byFoe : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    for (let i = 0; i < mine.length; i++) {
+      if (canStealCut(byFoe, mine[i])) {
+        return i
+      }
+    }
+    return -1
+  }
+  // 截住：victimFoe = 被抢的那一方（截咒的主人）。cutIdx 是他手里截咒那张、thiefIdx 是抢牌方手里抢牌那张
+  function doStealCut(victimFoe : boolean, cutIdx : number, thiefIdx : number, from : number, to : number, lead : string) {
+    const thiefFoe = !victimFoe
+    const thiefCard = takeFromHand(thiefFoe, thiefIdx)
+    const cutCard = takeFromHand(victimFoe, cutIdx)
+    // 两张都离手：手牌上的钥匙摘掉（照 drainStealTails 摘被抢方那几句）
+    const both : PlainCard[] = [thiefCard, cutCard]
+    for (let k = 0; k < both.length; k++) {
+      dropMatchKey(both[k])
+      dropDraftKey(both[k])
+      dropZeroKey(both[k])
+      dropFadeKey(both[k])
+      dropChainTag(both[k])
+      dropFlowKey(both[k])
+      dropMagKey(both[k])
+    }
+    // 落在被抢方那一段之后（下标 > to），startCatch 收的是 [from, to]，所以不会被收走
+    pushPile(thiefCard, thiefFoe, GUARD_NONE, [0] as number[])
+    pushPile(cutCard, victimFoe, GUARD_NONE, landVals(cutCard, victimFoe, [] as number[], false))
+    logPlay(thiefFoe, thiefCard, lead)
+    logPlay(victimFoe, cutCard, lead)
+    // 抢牌方马上补牌（照抢牌「双方补足手牌」）；被抢方回合末照常补满
+    refill(thiefFoe)
+    message.value = message.value + ' ' + lead
+    startCatch(victimFoe, from, to)
+  }
+  // 庄家要抢你：你点了一张截咒的牌
+  function onStealCutWith(index : number) {
+    if (!stealCutPending.value || index < 0 || index >= hand.value.length) {
+      return
+    }
+    const card = hand.value[index]
+    if (!canStealCut(false, card)) {
+      uni.showToast({ title: '这张打不出截咒（要落在截咒的槽上）', icon: 'none' })
+      return
+    }
+    stealCutPending.value = false
+    newIndex.value = -1
+    const thief = foeHand.value[stealCutThief]
+    const lead = '你打出 ' + cardName(card) + '【截咒】：庄家的 ' + cardName(thief) + ' 置 0，抢牌取消，两张都留在堆上。钓走 '
+      + stealCutCaught + ' 张！'
+    stealCutPlayed = null
+    doStealCut(false, index, stealCutThief, stealCutFrom, stealCutTo, lead)
+  }
+  // 不截：庄家照常抢
+  function onStealCutSkip() {
+    if (!stealCutPending.value || stealCutPlayed == null) {
+      return
+    }
+    stealCutPending.value = false
+    const played = stealCutPlayed!
+    stealCutPlayed = null
+    message.value = message.value + ' 你没截。'
+    foeStealGo(false, played, stealCutThief, stealCutN, stealCutCaught)
+  }
+
   // resolveMatch 把打出那张放回堆上之后，把它拿下来之前的火和花色写回去
   //（理由见 resolveMatch 里 burn / suit 那两行）。点数已经由 vals 带回去了
   function keepMarks(at : number, burn : number, suit : string) {
@@ -9509,12 +9643,12 @@
     pileBurn.value = keepBurn
   }
 
-  // ---------- 【走水】/【过闸】：堆底那张离场，算庄家的分 ----------
+  // ---------- 【噬底】/【征收】：堆底那张离场，算庄家的分 ----------
   //
   // 两条特殊技共用这一下，因为它们**只有触发条件不同**：
   //
-  //   走水 —— 堆超过 LEAK_DEEP 张，每回合末一次（罚你养厚堆）；
-  //   过闸 —— 你每次钓到牌之后一次（罚你频繁小钓）。
+  //   噬底 —— 堆超过 LEAK_DEEP 张，每回合末一次（罚你养厚堆）；
+  //   征收 —— 你每次钓到牌之后一次（罚你频繁小钓）。
   //
   // 写两遍必有一遍忘记推 goneRanks，而那个错是**静默的**
   //（分加了、牌没了，可双方的记牌从此都偏一张）。
@@ -9523,7 +9657,7 @@
   //
   // ⚠ **但它不进档**〔R4，2026-10-23 立〕：底下是 `+ got`，**不是 `+ scoreOf(got)`**。
   //
-  //   走水 / 过闸不是一次匹配 —— 没有赌、没有养堆，是庄家规矩白拿堆底一格。
+  //   噬底 / 征收不是一次匹配 —— 没有赌、没有养堆，是庄家规矩白拿堆底一格。
   //   给它档值就是凭空送分（堆底叠了 4 张的话一下 4 分 = 一次 4/5 档匹配）。
   //   同形的先例有两条：R4 里「n ≤ 1 不进档，那一段不是一次匹配」（保护的垫牌），
   //   和【易流】手牌那条「一张一张记，所以不进档」。
@@ -9538,7 +9672,7 @@
   //   所以这条路**不是** band-neutral 的。哪天觉得「堆底叠厚了该多给」，
   //   改的就是这一行，而改之前先想清楚它会不会变成养堆的另一个出口。
   //
-  //   ⚠ **模拟器不模走水 / 过闸**（庄家七条特殊技没模），所以这一格**没有对照数据**。
+  //   ⚠ **模拟器不模噬底 / 征收**（庄家七条特殊技没模），所以这一格**没有对照数据**。
   //
   // **走 takeAt**，所以保护挡得住：带盾的那一格取走垫着的那张盾、
   // 宿主留下。于是「把凝水垫在堆底那张下面」就是对这两条的解法 ——
@@ -9548,11 +9682,11 @@
       return
     }
     // **先问再取** —— takeAt 会把盾消耗掉（照 finishCatch 那条）
-    // 结冰也挡走水 / 过闸（冰对双方生效）—— 而豁免那时已经清掉了，
+    // 结冰也挡噬底 / 征收（冰对双方生效）—— 而豁免那时已经清掉了，
     // 所以这儿问 blockedAt 拿到的是「有没有被挡住」的完整答案
     const warded = blockedAt(0)
     const gone = goneRanks.value.slice(0)
-    // 【空钩】走水 / 过闸收走的那张也算（庄家收）
+    // 【反噬】噬底 / 征收收走的那张也算（庄家收）
     const bottomCard = pile.value[0]
     const got = takeAt(0, gone)
     goneRanks.value = gone
@@ -9565,7 +9699,7 @@
     expireStacked()
     foeScore.value = foeScore.value + got
     flashFoe.value = true
-    // 这两条可能紧跟在一次收牌后面（过闸就在 finishCatch 里），
+    // 这两条可能紧跟在一次收牌后面（征收就在 finishCatch 里），
     // 那时 flashTimer 已经排着一个了 —— 不清掉就丢了那个 id
     if (flashTimer >= 0) {
       clearTimeout(flashTimer)
@@ -9616,7 +9750,7 @@
     const keepSuit : string[] = []
     const keepBurn : number[] = []
     let caught = 0
-    // 【空钩】这一下真被拿走的牌（被结冰挡住留下的不算）
+    // 【反噬】这一下真被拿走的牌（被结冰挡住留下的不算）
     const trapTaken : PlainCard[] = []
     for (let i = 0; i < pile.value.length; i++) {
       if (i >= from && i <= to) {
@@ -9666,9 +9800,9 @@
     // ---- 【结凌】的豁免到这儿**就结束** ----
     //
     // 这一手的收牌都走完了，所以立刻清掉 ——
-    // 底下几行还有【守滩】【再钩】【过闸】，而**过闸是庄家的规矩**
+    // 底下几行还有【筑壁】【连击】【征收】，而**征收是庄家的规矩**
     //（dropBottomToFoe → takeAt）。不清的话它会蹭上我这一手的豁免，
-    // 无视我自己铺的冰去拿分。passTurn 里的【走水】同理
+    // 无视我自己铺的冰去拿分。passTurn 里的【噬底】同理
     iceBlindNow = false
     // 刚收走的那几张里要是有谁的效果牌，那个效果到此为止 ——
     // 「挂在牌上」的意思就是牌没了效果也没了。
@@ -9716,36 +9850,36 @@
     // 两条都**只在钓到时**发动，所以落在 finishCatch 而不是 afterPlay ——
     // afterPlay 钓到没钓到都走，挂那儿就成了「每回合都发动」。
     //
-    // 【守滩】：往堆上垫一张自己的手牌。它是涡心祭司（第 10 关）那一关的轴 ——
+    // 【筑壁】：往堆上垫一张自己的手牌。它是筑壁祭司（第 10 关）那一关的轴 ——
     // 它染水、它见底，而这条逼它不停给自己堆料。
     if (byFoe && hasFoeSpecial('guard')) {
       guardPushFor()
     }
-    // 【再钩】：钓到了就能再打一张。
+    // 【连击】：钓到了就能再打一张。
     //
     // **直接搭在连竿那套上**（againPending / againUsed）而不是另开一条：
     // 「这个回合再打一张」在 passTurn 的最前面已经实现了，连「加打的那张
-    // 不再给加打」那道闸（againUsed）都现成 —— 而再钩的上限正好也是
+    // 不再给加打」那道闸（againUsed）都现成 —— 而连击的上限正好也是
     // 一回合两张。另写一条就是两套交接逻辑，必有一套漏掉护饵过期
     if (byFoe && hasFoeSpecial('again') && !againUsed.value && foeHand.value.length > 0) {
       againPending = true
     }
-    // ---------- 【过闸】：**你**钓到之后，堆底那张离场算庄家的分 ----------
+    // ---------- 【征收】：**你**钓到之后，堆底那张离场算庄家的分 ----------
     //
     // 落在这儿而不是 afterPlay，理由跟上面两条一样：afterPlay 钓到没钓到
     // 都走，挂那儿就成了「每回合收一张税」。
     //
-    // 它挂的是**你钓到牌**这个事件 —— 守滩和再钩挂的是「庄家钓到牌」，
+    // 它挂的是**你钓到牌**这个事件 —— 筑壁和连击挂的是「庄家钓到牌」，
     // 所以这是个新挂点。收 2 张交 1 张、收 6 张也交 1 张，于是它逼你
     // 从「频繁小钓」转成「攒一段大的」
     if (!byFoe && hasFoeSpecial('toll')) {
-      dropBottomToFoe('过闸')
+      dropBottomToFoe('征收')
     }
     // 技能在匹配之前就结算完了（见 afterPlay → resolveMatch），所以这儿直接交回合
     endPlay(byFoe)
   }
 
-  // 【守滩】垫牌：从庄家手里挑一张最不容易被你钓走的，垫到堆上。
+  // 【筑壁】垫牌：从庄家手里挑一张最不容易被你钓走的，垫到堆上。
   //
   // **它不算「打出」**：不触发技能、不判钓牌、不记进 foePlayed。
   // 那是对的 —— 特殊技说的是「垫一张」，而「打出一张」是一整套流程
@@ -9777,14 +9911,14 @@
     }
     const card = takeFromHand(true, at)
     // 点数照它自己算（valuesOf 传空技能列表 = 没有技能改它）——
-    // 垫上来的是一张普通牌，不是淤滩那种死牌
+    // 垫上来的是一张普通牌，不是泥沼那种死牌
     pushPile(card, true, GUARD_NONE, valuesOf(card, true, [] as number[]))
-    message.value = message.value + ' 守滩：庄家往堆上垫了 ' + cardName(card) + '。'
+    message.value = message.value + ' 筑壁：庄家往堆上垫了 ' + cardName(card) + '。'
   }
 
   // ---------- 打出之后的技能 ----------
   //
-  // 窥视、搅水立刻结算；观潮要看人：你打出的停下来等你选，庄家打出的自己判断。
+  // 窥视、搅水立刻结算；观星要看人：你打出的停下来等你选，庄家打出的自己判断。
   // 都结算完才交回合
 
   function afterPlay(byFoe : boolean) {
@@ -9814,10 +9948,10 @@
         message.value = message.value + ' 它带着负电 —— 全堆带上了负电。'
       }
     }
-    // 【空钩】它落堆就成陷阱（这一手后面的收牌、包括它自己当场钓中，都会收到它）
+    // 【反噬】它落堆就成陷阱（这一手后面的收牌、包括它自己当场钓中，都会收到它）
     if (hasTrigger(skills, SK_TRAPZERO) && lastPlayed != null && inPile(lastPlayed!) && !trapOn(lastPlayed!)) {
       trapPile = trapPile.concat([lastPlayed!])
-      message.value = message.value + (byFoe ? ' 庄家空钩：' : ' 空钩：') + '它成了陷阱 —— 谁收走它，谁的手牌全部置 0。'
+      message.value = message.value + (byFoe ? ' 庄家反噬：' : ' 反噬：') + '它成了陷阱 —— 谁收走它，谁的手牌全部置 0。'
     }
     // 【照花】【照点】的播报：照这张牌原本的触发（skillsOf 已经换过了，读不出借的是哪件）重算一遍
     if (lastPlayed != null) {
@@ -9829,11 +9963,11 @@
           : (byFoe ? ' 庄家照镜：你那种槽空着，没借到。' : ' 照镜：庄家那种槽空着，没借到。'))
       }
     }
-    // 【锈锚】（沉船打捞人专属）：牌库顶 2 张置 0
+    // 【凋零】（亡灵术士专属）：牌库顶 2 张置 0
     if (hasTrigger(skills, SK_DECKZERO)) {
       deckZero(byFoe)
     }
-    // 【褪库】（盐田晒网人系列专属）：牌库顶 4 张失去花色
+    // 【褪库】（褪色画师系列专属）：牌库顶 4 张失去花色
     if (hasTrigger(skills, SK_DECKBLEACH)) {
       deckBleach(byFoe)
     }
@@ -9855,7 +9989,7 @@
     //
     // ⚠ **这一支恒为 false**〔2026-10-16 查明〕：连竿 2026-10-14 删了，
     //   `SK_AGAIN` 是 −1。于是 `againPending` **只剩庄家那一个来源**
-    //  （finishCatch 里的【再钩】，那儿带着 `byFoe &&`）——
+    //  （finishCatch 里的【连击】，那儿带着 `byFoe &&`）——
     //   **玩家侧那整套界面因此不可达**：那颗「收手」钮、`onAgainSkip`、
     //   回合标题里的「连竿加打」，一个玩家都看不到。
     //
@@ -9865,16 +9999,16 @@
     if (hasTrigger(skills, SK_AGAIN) && !againUsed.value) {
       againPending = true
     }
-    // 【镜水】排在最前面：它改的是堆上一张牌的点数，得在任何匹配 / 整堆收之前（模拟器 afterPlay 第一行同一个位置）。
+    // 【镜阵】排在最前面：它改的是堆上一张牌的点数，得在任何匹配 / 整堆收之前（模拟器 afterPlay 第一行同一个位置）。
     // 玩家侧要停下来挑（先点堆、再点手牌），挑完从 afterPlayRest 接着走
     if (mirrorWaterFor(byFoe, skills)) {
       return
     }
     afterPlayRest(byFoe, skills)
   }
-  // afterPlay 在【镜水】之后的那一段（冰雷 → 一色 → afterPlayHead）。拆出来是为了【镜水】挑完能接回来
+  // afterPlay 在【镜阵】之后的那一段（冰雷 → 一色 → afterPlayHead）。拆出来是为了【镜阵】挑完能接回来
   function afterPlayRest(byFoe : boolean, skills : number[]) {
-    // 【感电】〔2026-11-05〕：排在镜水之后、匹配之前。玩家侧停下来挑（先点堆、再点手牌），挑完回到这儿 ——
+    // 【感电】〔2026-11-05〕：排在镜阵之后、匹配之前。玩家侧停下来挑（先点堆、再点手牌），挑完回到这儿 ——
     // askFirst 保证这一手只问一次（重入时直接往下走）
     if (hasTrigger(skills, SK_PAIRNP) && askFirst(SK_PAIRNP) && inductFor(byFoe, skills)) {
       return
@@ -9900,7 +10034,7 @@
     if (hasTrigger(skills, SK_MAGREFLECT) && askFirst(SK_MAGREFLECT) && mirrorSelfFor(byFoe, skills)) {
       return
     }
-    // 【拟饵】〔2026-11-06〕：先点堆上一张、再点一张同花色的手牌（照感电的两步）；askFirst 防重入
+    // 【拟形】〔2026-11-06〕：先点堆上一张、再点一张同花色的手牌（照感电的两步）；askFirst 防重入
     if (hasTrigger(skills, SK_HANDREFLECT) && askFirst(SK_HANDREFLECT) && mimicFor(byFoe, skills)) {
       return
     }
@@ -9919,7 +10053,7 @@
     afterPlayHead(byFoe, skills)
   }
 
-  // ---------- 【镜水】：堆上 1 张牌带上【映照】〔2026-10-30〕----------
+  // ---------- 【镜阵】：堆上 1 张牌带上【映照】〔2026-10-30〕----------
   //
   // 【映照】（词条）：可以展示 1 张跟它**同花色**的手牌，它的点数变成跟那张相同；展示的牌留在手里，不能展示 J。
   // 只改 pileVals 那一格（花色本来就一样）—— 牌面读 pileValsAt，所以界面上点数自动变、还会描色（pileShifted）。
@@ -9946,7 +10080,7 @@
     const next = pileVals.value.slice(0)
     next[target] = [card.value]
     pileVals.value = next
-    message.value = message.value + (byFoe ? ' 庄家镜水：' : ' 镜水：')
+    message.value = message.value + (byFoe ? ' 庄家镜阵：' : ' 镜阵：')
       + '展示 ' + cardName(card) + '，堆上第 ' + (target + 1) + ' 张的点数变成 ' + faceOfValue(card.value) + '。'
   }
   function mirrorWaterFor(byFoe : boolean, skills : number[]) : boolean {
@@ -9961,7 +10095,7 @@
       }
     }
     if (!any) {
-      message.value = message.value + (byFoe ? ' 庄家镜水：' : ' 镜水：') + '手里没有跟堆上牌同花色的牌，没映照。'
+      message.value = message.value + (byFoe ? ' 庄家镜阵：' : ' 镜阵：') + '手里没有跟堆上牌同花色的牌，没映照。'
       return false
     }
     if (!byFoe) {
@@ -9996,7 +10130,7 @@
     return false
   }
   // 你点了一张手牌（-1 = 不展示）
-  // 【拟饵】手牌 y 能不能变成堆上第 at 张：非 J、同花色、那张有点数、而且 y 现在的点数跟它不一样
+  // 【拟形】手牌 y 能不能变成堆上第 at 张：非 J、同花色、那张有点数、而且 y 现在的点数跟它不一样
   function mimicOk(y : PlainCard, at : number) : boolean {
     if (at < 0 || at >= pile.value.length || y.rank == JACK || pile.value[at].rank == JACK) {
       return false
@@ -10028,7 +10162,7 @@
     } else {
       handSeen.value = withFlag(handSeen.value, hi)
     }
-    message.value = message.value + (byFoe ? ' 庄家拟饵：他手里的 ' : ' 拟饵：你的 ') + was
+    message.value = message.value + (byFoe ? ' 庄家拟形：他手里的 ' : ' 拟形：你的 ') + was
       + ' 明置，变成了跟堆上第 ' + (at + 1) + ' 张一样的 ' + cardName(y) + '。'
   }
   // 返回 true = 停下来等你挑了（onPilePick → onMimicHand 接着走 afterPlayRest）
@@ -10042,7 +10176,7 @@
       }
     }
     if (!any) {
-      message.value = message.value + (byFoe ? ' 庄家拟饵：' : ' 拟饵：') + '手里没有跟堆上牌同花色的牌可变。'
+      message.value = message.value + (byFoe ? ' 庄家拟形：' : ' 拟形：') + '手里没有跟堆上牌同花色的牌可变。'
       return false
     }
     if (!byFoe) {
@@ -10076,7 +10210,7 @@
     }
     return false
   }
-  // 拟饵第二步：你挑中了自己第 index 张（−1 = 不变）
+  // 拟形第二步：你挑中了自己第 index 张（−1 = 不变）
   function onMimicHand(index : number) {
     if (!mimicHandPending.value) {
       return
@@ -10088,7 +10222,7 @@
       }
       applyMimic(false, index, mimicTarget)
     } else {
-      message.value = message.value + ' 拟饵：没变。'
+      message.value = message.value + ' 拟形：没变。'
     }
     const skills = mimicSkills
     mimicHandPending.value = false
@@ -10290,7 +10424,7 @@
     if (index >= 0) {
       applyReflect(false, reflectTarget, hand.value[index])
     } else {
-      message.value = message.value + ' 镜水：没展示，那张牌不变。'
+      message.value = message.value + ' 镜阵：没展示，那张牌不变。'
     }
     const skills = reflectSkills
     reflectHandPending.value = false
@@ -10727,7 +10861,7 @@
         ? ' 庄家窄口：你每回合只补到 ' + (HAND_SIZE - 1) + ' 张了。'
         : ' 窄口：庄家每回合只补到 ' + (HAND_SIZE - 1) + ' 张了。')
     }
-    // 满篓：自己每回合补到 5 张。跟窄口一对，一个削他一个补自己
+    // 博藏：自己每回合补到 5 张。跟窄口一对，一个削他一个补自己
     if (hasTrigger(skills, SK_CREEL) && lastPlayed != null && inPile(lastPlayed!)) {
       addHeld({
         source: lastPlayed!,
@@ -10736,8 +10870,8 @@
         byFoe: byFoe
       } as HeldEffect)
       message.value = message.value + (byFoe
-        ? ' 庄家满篓：它每回合补到 ' + (HAND_SIZE + 1) + ' 张了。'
-        : ' 满篓：你每回合补到 ' + (HAND_SIZE + 1) + ' 张了。')
+        ? ' 庄家博藏：它每回合补到 ' + (HAND_SIZE + 1) + ' 张了。'
+        : ' 博藏：你每回合补到 ' + (HAND_SIZE + 1) + ' 张了。')
     }
     // ---------- 〔删了〕组合技【干塘】：退潮 × 见底 ----------
     //
@@ -10767,7 +10901,7 @@
     // 哪天做第二件组合技，照这条来。
     //
     // 另外那个前提**没有随它死**：「一张牌同时触发两件技能」照旧存在
-    //（角色卡的槽会交叠，镜湖占卜师 ♥ + '3 4' 在 ♥3 / ♥4 上双触发）。
+    //（角色卡的槽会交叠，水晶占卜师 ♥ + '3 4' 在 ♥3 / ♥4 上双触发）。
     // 词表里那条现在叫【双触发】—— 原先叫「组合技」，而那个名字
     // 在唯一的实例死掉之后就名不副实了。
     //
@@ -10805,7 +10939,7 @@
     // 因为【收零】（TAIL_ZERO）要在减完之后的堆上判。你出它时停下来挑，挑完从这儿重入（shrinkDoneCard 挡重复）
     if (lastPlayed != null && hasTrigger(skills, SK_ZERODROP) && shrinkDoneCard != lastPlayed) {
       shrinkDoneCard = lastPlayed
-      // 〔2026-10-30 改成盲选（照浑水）：池子 = 他还没置 0 的牌，J 也在里面〕
+      // 〔2026-10-30 改成盲选（照迷雾）：池子 = 他还没置 0 的牌，J 也在里面〕
       // 〔2026-11-16 desc 改成【腐蚀】：他整手都已置 0 就先让他抽 1 张（corrodeReady）〕
       if (!byFoe && corrodeReady(false)) {
         shrinkPending.value = true
@@ -10828,7 +10962,7 @@
     //   `TAIL_EBB` 这个段号**留着** —— 它是 `afterPlayTail` 的入口段号
     //   （`afterPlay` 传的就是它），不是退潮专用的。名字里的 EBB 是历史，
     //   改名要动六个 TAIL_* 的全套顺序，而那套顺序「共用一个段号必出错」
-    //   的坑踩过一次（伏流跟野火共用 TAIL_WILD，撒网一收牌伏流就没了）。
+    //   的坑踩过一次（百变跟野火共用 TAIL_WILD，撒网一收牌百变就没了）。
     //
     //   退潮留下一条还管事的判据，记在这儿免得丢：**「减点数」那一族里
     //   谁先跑有意义** —— 见底会收走 0 点的牌、堆跟着短一截，所以
@@ -10845,7 +10979,7 @@
     //   于是又进来接着翻剩下的。`floodLeft` 是那个续点。
     //
     // **排在收色、撒网、顺子族全部前面**，照模拟器 `rules.js` 的次序
-    //（见底 → 洪水 → 收色 → 撒网 → 伏流…）。两边次序必须一致，
+    //（见底 → 洪水 → 收色 → 撒网 → 百变…）。两边次序必须一致，
     // 不然同一张牌带两件时的结果就对不上，而模拟器的数是定价依据。
     //
     // 理由本身也成立：它**往堆上加牌**，而后面那几件都是「按某条线
@@ -10862,7 +10996,7 @@
     // 〔2026-10-29 用户定：「跟它同颜色」→「跟堆底同颜色」。原先在 ♥ 槽里贴的多半是本来就会响的 ♥，
     //   ♥ / A 只有 ×1.50；改完 ×2.97、点数槽不变。堆底取的是**匹配之前**那张 ——
     //   正因为贴在匹配之前，这一句不用拆特效流程，而且玩家出牌时看得见它照的是哪张。
-    //   它自己落在堆底时（堆原先是空的 / 逆流沉底）就照它自己的颜色，跟旧版一样〕
+    //   它自己落在堆底时（堆原先是空的 / 逆行沉底）就照它自己的颜色，跟旧版一样〕
     if (from <= TAIL_HUE && hasTrigger(skills, SK_SUITCOLOR) && lastPlayed != null && pile.value.length > 0) {
       const mine = byFoe ? foeHand.value : hand.value
       const bottomSuit = pileSuitAt(0)
@@ -10907,27 +11041,27 @@
         return
       }
     }
-    // 伏流：它当通配凑最长的顺子，凑成就收走那几张。
+    // 百变：它当通配凑最长的顺子，凑成就收走那几张。
     //
     // **排在收色、撒网后面，野火前面** —— 跟那两件同组（都是「换一条
     // 判定线」的收牌技能），而排在野火前面照的是野火那条注释的同一个理由：
     // 收牌的先收完，点火的最后来
     // 〔这儿原先给传顺 / 石顺打出那张贴【通配】（2026-11-09）。石顺同日去掉了通配，传顺 2026-11-10 换成「堆上 1 张牌带上【通配】」
     //   （贴在停人那一串里，flowDraftWild）—— 这一段没有住户了，删了〕
-    // 〔2026-11-09 用户定续流换成「手牌都带上【顺子匹配】」：它自己不再走顺子（原「它带上【通配】；【顺子匹配】；…」这儿有一支 straightCore(…, '续流', …, true)，删了）〕
-    // 〔2026-11-10 用户定伏流换成「1 张手牌带上【通配】和【顺子匹配】」：它自己不再走顺子（原先这儿 straightFor(byFoe, skills)，删了）〕
+    // 〔2026-11-09 用户定连咏换成「手牌都带上【顺子匹配】」：它自己不再走顺子（原「它带上【通配】；【顺子匹配】；…」这儿有一支 straightCore(…, '连咏', …, true)，删了）〕
+    // 〔2026-11-10 用户定百变换成「1 张手牌带上【通配】和【顺子匹配】」：它自己不再走顺子（原先这儿 straightFor(byFoe, skills)，删了）〕
     // 【传顺】〔2026-11-10〕「变成手里最大的点数；【顺子匹配】；这个点数的手牌视为【通配】」—— 见 flowAllFor
     if (from <= TAIL_FLOW && lastPlayed != null && hasTrigger(skills, SK_FLOWALL)) {
       if (flowAllFor(byFoe, skills)) {
         return
       }
     } else if (from <= TAIL_FLOW && lastPlayed != null && flowKeyOn(lastPlayed!)) {
-      // 【流钥】/【顺递】贴过的牌：只走【顺子匹配】—— `tagPick=false` = 不另贴伏流那张通配，
+      // 【衔咏】/【顺递】贴过的牌：只走【顺子匹配】—— `tagPick=false` = 不另贴百变那张通配，
       // `selfWild=false` = **它自己也不当通配**，按自己的点数参与（desc 只有「带上【顺子匹配】」那半句）。
       // 〔2026-10-30 改：原先 straightCore 一律给它自己贴通配 = desc↔实现不一致（用户指出）。
       //   跟模拟器 `FLOW_KEY_SELF=own`（现行默认）同一条路〕
-      // 〔2026-11-10〕钥匙牌自己带着【通配】（新伏流贴的）→ 它当通配（selfWild=true）；不带的照旧按自己的点数
-      if (straightCore(byFoe, skills, '流钥', false, false, isWild(lastPlayed!))) {
+      // 〔2026-11-10〕钥匙牌自己带着【通配】（新百变贴的）→ 它当通配（selfWild=true）；不带的照旧按自己的点数
+      if (straightCore(byFoe, skills, '衔咏', false, false, isWild(lastPlayed!))) {
         return
       }
     }
@@ -10941,7 +11075,7 @@
     // 易流：先换 1 张，再判顺子。**自己一段**（TAIL_SWAPFLOW）——
     // 每件散收技能都得有，理由见 TAIL_* 那段。
     //
-    // 排在伏流、涉水**后面**：三件都收牌，而一张牌同时带两件时
+    // 排在百变、涉水**后面**：三件都收牌，而一张牌同时带两件时
     //（花色槽一件、点数槽一件）先跑的那件可能把堆收空。
     //
     // 〔这一段原先是【漫流】的（`hasTrigger(skills, SK_BRIM)` → `brimFor`）。
@@ -10953,7 +11087,7 @@
         return
       }
     }
-    // 插流 / 调序 / 换序：【顺序匹配】—— 连续 ≥ ORDER_MIN 张有序则收走那一段。
+    // 插序 / 调序 / 换序：【顺序匹配】—— 连续 ≥ ORDER_MIN 张有序则收走那一段。
     // **自己一段**（TAIL_ORDER），排在易流后、野火前（同组特殊匹配线）。
     // 换序 / 调序先改局面再判（跟易流「先换再判顺子」同一条顺序硬规则）。
     if (from <= TAIL_ORDER && (hasTrigger(skills, SK_ORDERINS)
@@ -10997,14 +11131,14 @@
         + (fired > 0 ? '手里 ' + fired + ' 张跟堆底同颜色的牌带上了燃烧。' : '手里没有跟堆底同颜色的牌。')
     }
     // ---- 不停人的两件：排在停人那一串**前面**〔2026-10-30 挪过来，见 TAIL_ASK〕----
-    // 【流钥】：打出的牌触发了技能槽 → 1 张手牌带上【顺子匹配】
+    // 【衔咏】：打出的牌触发了技能槽 → 1 张手牌带上【顺子匹配】
     //
-    // 「触发技能槽」= `skills.length > 0`（`skillsOf` 已把串钩 / 红钩扩进去）。
+    // 「触发技能槽」= `skills.length > 0`（`skillsOf` 已把共鸣 / 赤鸣扩进去）。
     // 原先排在零递旁边；2026-10-30 挪到停人那一串前面（见 TAIL_ASK）—— 它不停人。
     // 自动贴、不停人 —— 一局约触发 7 次，停下来挑会烦
     if (from <= TAIL_REST && hasSpecial(byFoe, SP_SLOTTAG) && skills.length > 0) {
       if (doSlotTag(byFoe)) {
-        message.value = message.value + (byFoe ? ' 庄家流钥：' : ' 流钥：')
+        message.value = message.value + (byFoe ? ' 庄家衔咏：' : ' 衔咏：')
           + '手里 1 张带上了顺子匹配。'
       }
     }
@@ -11059,24 +11193,24 @@
     //   挨个问，一件都不作废（见 TAIL_ASK）。下面这张表现在只管**先问谁**。
     //   原文：「停人的技能一个回合只停一次（下面每一件玩家侧都 return），所以
     //   同一张牌触发两件停人技能时，**只走前面那件**，后面那件作废。」〕
-    // 排序照「贵的赢」—— 跟择饵赢过观潮是同一条规矩：
+    // 排序照「贵的赢」—— 跟择符赢过观星是同一条规矩：
     //
-    //   对换 160 > 摘钩 150 = 死水 150 > 压舱 80 > 冻结 70 > 换水 60
-    //   > 择饵 100 > 同号 100 > 观潮 60
+    //   对换 160 > 摄物 150 = 死水 150 > 置换 80 > 冻结 70 > 换水 60
+    //   > 择符 100 > 同号 100 > 观星 60
     //
-    //（择饵和换水那两档是原有顺序，没动 —— 它们之间的闸见各自那段注释）
+    //（择符和换水那两档是原有顺序，没动 —— 它们之间的闸见各自那段注释）
     //
     // ⚠ **上面这张价目表是旧快照，已经跟 draw-skills 的 unlock 对不上了**
-    //   （现行：压舱 55、冻结 35、择饵 80、观潮 50，而**换水 2026-10-20
+    //   （现行：置换 55、冻结 35、择符 80、观星 50，而**换水 2026-10-20
     //   从 40 提到 65**）。它现在只当「谁排谁前面」的备忘录读，
     //   别拿它当价钱的依据 —— 真价在 `draw-skills.uts` 那张表里。
-    //   换水仍排在择饵前面，那是原有顺序，不是按价推出来的
+    //   换水仍排在择符前面，那是原有顺序，不是按价推出来的
     //
     // 这几件跟冻结的要紧区别：**它们让你看得见**。一发动就把对方全部手牌
     // 翻开给你挑（见 foeOpen 里认 takeSkill 那一条），所以它们是精准打击，
     // 冻结是一次下注。
     //
-    // 死水排在摘钩**后面**（同价 150，但摘钩是原有的，不动它的位置）
+    // 死水排在摄物**后面**（同价 150，但摄物是原有的，不动它的位置）
     if (hasTrigger(skills, SK_DEAD) && askFirst(SK_DEAD)) {
       // 挑得动的那几张（排掉 J 和已经废过的，见 deadPool）
       if (deadPool(byFoe).length > 0) {
@@ -11098,7 +11232,7 @@
         }
       }
     }
-    // 【浑水】〔2026-11-16 用户定换效果：原「对方抽 1 张牌，之后盲选对方 2 张手牌明置置 0」〕
+    // 【迷雾】〔2026-11-16 用户定换效果：原「对方抽 1 张牌，之后盲选对方 2 张手牌明置置 0」〕
     // 「【腐蚀】，展示跟堆底同颜色的手牌：每展示 1 张，此牌的效果再发动 1 次」—— 一共腐蚀 1 + 同颜色张数 次，每次先过 corrodeReady。
     // 展示 = 自动全亮（没有不亮的理由），只在消息里报，不明置。堆底 = 它落堆之后的第 0 张（堆空过就是它自己，照满墙）；失去花色的没有颜色。
     // 照模拟器 rules.js 的〈zerorepeat〉ZR_REF=color ZR_DRAW=1（台账一百七十三·丙）
@@ -11114,7 +11248,7 @@
         }
       }
       if (rep > 0) {
-        message.value = message.value + (byFoe ? ' 庄家浑水：展示 ' : ' 浑水：展示 ') + shown + '，腐蚀多发动 ' + rep + ' 次。'
+        message.value = message.value + (byFoe ? ' 庄家迷雾：展示 ' : ' 迷雾：展示 ') + shown + '，腐蚀多发动 ' + rep + ' 次。'
       }
       if (!byFoe) {
         if (corrodeReady(false)) {
@@ -11130,7 +11264,7 @@
           }
           const pool = murkPool(true)
           const at = pool[Math.floor(Math.random() * pool.length)]
-          markDead(true, at, true, '浑水')
+          markDead(true, at, true, '迷雾')
           handSeen.value = withFlag(handSeen.value, at)
         }
       }
@@ -11153,7 +11287,7 @@
           : ' 策反：庄家 1 张手牌带上了【叛变】。')
       }
       // 〔2026-11-03 用户定：策反加上「1 张手牌带上【收零】」（叛变 + 收零）。原型〈traitorzero〉（台账第五十二节 R7、第五十八·戊 R8）：R8 A 槽 +2.46（对手先清 0 点牌）/ 照常出牌 +3.18，♥ +10.38 / +11.26。
-      //   贴收零走回水那一套：你点一张（backTagPending → onBackTag），庄家照 foeZeroKeyPick〕
+      //   贴收零走回蚀那一套：你点一张（backTagPending → onBackTag），庄家照 foeZeroKeyPick〕
       if (!byFoe) {
         if (backTagRoom(false)) {
           backTagName.value = '策反'
@@ -11228,7 +11362,7 @@
       }
     }
     // 【封点】（庄家专属，2026-11-04）：对方手里跟对方点数槽同点数的牌都置 0。本来就是 0 点的不动
-    //（布饵人的 0 点槽：置 0 等于没变化 —— 而走 markDead 会让它不再触发 0 点槽，那就不是「没变化」了）
+    //（虚无行者的 0 点槽：置 0 等于没变化 —— 而走 markDead 会让它不再触发 0 点槽，那就不是「没变化」了）
     if (hasTrigger(skills, SK_PINRANK) && askFirst(SK_PINRANK)) {
       const hits = slotRankHits(byFoe)
       const theirs = byFoe ? hand.value : foeHand.value
@@ -11260,7 +11394,7 @@
           : ' 褪点：庄家手里的 ' + n + ' 张牌失去花色。')
       }
     }
-    // 〔2026-11-10 压舱换成「查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）」—— 从这一块拿出去了，挂在 endPlayTag（这一手结算完之后）〕
+    // 〔2026-11-10 置换换成「查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）」—— 从这一块拿出去了，挂在 endPlayTag（这一手结算完之后）〕
     if ((hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_UNHOOK)) && askFirst(SK_UNHOOK)) {
       const which = hasTrigger(skills, SK_SWAPCARD) ? SK_SWAPCARD : SK_UNHOOK
       const theirs = byFoe ? hand.value : foeHand.value
@@ -11276,8 +11410,8 @@
     }
     // ---- 【引潮】：翻开对方手牌，挑 1 张贴 SURGE_LAYERS 层【推牌】 ----
     //
-    // 排在这儿是**按价插的**（上面那张表：对换 160 > 摘钩/死水 150 >
-    // 压舱 80 > **引潮 75** > 冻结 70 > 换水 60）。
+    // 排在这儿是**按价插的**（上面那张表：对换 160 > 摄物/死水 150 >
+    // 置换 80 > **引潮 75** > 冻结 70 > 换水 60）。
     //
     // 它跟上面那几件同族（都「翻开对方手牌让你挑」），但**它不立刻生效** ——
     // 贴的是个标签，等对方打出那张牌才兑现。所以它是全表唯一一件
@@ -11368,7 +11502,7 @@
       }
     }
     // 【顺递】「堆上 1 张牌带上【通配】；1 张手牌带上【顺子匹配】」〔2026-10-30 用户定采用方案丙〕
-    // 钥匙：你用的时候要挑（照零递），庄家照流钥那条笨挑（flowKeyPick —— 跟模拟器 doFlowTag 同一个挑法）。
+    // 钥匙：你用的时候要挑（照零递），庄家照衔咏那条笨挑（flowKeyPick —— 跟模拟器 doFlowTag 同一个挑法）。
     // 通配：**程序挑**（flowDraftWild），钥匙定了之后才挑得出（要按那把钥匙估顺子）。
     // 手里一张都贴不上时照样贴通配（模拟器同：钥匙为空就贴堆顶那张）
     if (hasTrigger(skills, SK_FLOWDRAFT) && askFirst(SK_FLOWDRAFT)) {
@@ -11391,7 +11525,7 @@
       }
       flowDraftWild(byFoe, key, '顺递')
     }
-    // 【续流】〔2026-11-09 用户定换效果：「手牌都带上【顺子匹配】」〕—— 照【传顺】那段自动贴、不停人（传顺另多「它带上【通配】」）。
+    // 【连咏】〔2026-11-09 用户定换效果：「手牌都带上【顺子匹配】」〕—— 照【传顺】那段自动贴、不停人（传顺另多「它带上【通配】」）。
     //   原「它带上【通配】；【顺子匹配】；1 张手牌带上【顺子匹配】」的挑牌（flowDraftSk = SK_FLOWPASS 那一路）不再进；模板里那几句提示留着、走不到。
     //   askFirst 留着：停人链回头重进 afterPlayTail 时别再贴一遍。模拟器：FLOWPASS_MODE=all（默认）
     if (hasTrigger(skills, SK_FLOWPASS) && askFirst(SK_FLOWPASS)) {
@@ -11404,7 +11538,7 @@
         }
       }
       if (n > 0) {
-        message.value = message.value + (byFoe ? ' 庄家续流：' : ' 续流：')
+        message.value = message.value + (byFoe ? ' 庄家连咏：' : ' 连咏：')
           + '手里 ' + n + ' 张带上了顺子匹配。'
       }
     }
@@ -11459,7 +11593,7 @@
         }
       }
     }
-    // 【电钩】〔2026-11-17 用户定换效果〕：展示至少 2 张同颜色手牌，带上【正电】。
+    // 【引雷】〔2026-11-17 用户定换效果〕：展示至少 2 张同颜色手牌，带上【正电】。
     //   你：点手牌一张张亮（第一张定颜色，之后只认同颜色；J、已带正电的也能亮来凑数），按钮收尾（hookShowPending）；
     //   庄家：照模拟器 magShowColor 挑颜色、那个颜色全亮（hookShowFoe）。哪个颜色都凑不出 2 张就不发动
     if (hasTrigger(skills, SK_HOOK) && askFirst(SK_HOOK)) {
@@ -11470,12 +11604,12 @@
           hookShown = [] as number[]
           return
         }
-        message.value = message.value + ' 电钩：手里凑不出 2 张同颜色的牌。'
+        message.value = message.value + ' 引雷：手里凑不出 2 张同颜色的牌。'
       } else {
         hookShowFoe()
       }
     }
-    // 【伏流】〔2026-11-10 用户定换效果：「1 张手牌带上【通配】和【顺子匹配】」〕—— 同一张手牌贴两个标签：顺子钥匙（flowKey）+ 通配（addWild，按牌对象存，落堆自动带着）。
+    // 【百变】〔2026-11-10 用户定换效果：「1 张手牌带上【通配】和【顺子匹配】」〕—— 同一张手牌贴两个标签：顺子钥匙（flowKey）+ 通配（addWild，按牌对象存，落堆自动带着）。
     //   挑法照石顺（你挑：flowDraftPending，onFlowDraft 里给 SK_FLOW 补通配；庄家：stoneLinePick）。模拟器 FLOW_MODE=tag（默认）
     if (hasTrigger(skills, SK_FLOW) && askFirst(SK_FLOW)) {
       if (!byFoe) {
@@ -11489,7 +11623,7 @@
         if (at >= 0) {
           flowKey.value = flowKey.value.concat([foeHand.value[at]])
           addWild(foeHand.value[at])
-          message.value = message.value + ' 庄家伏流：手里 1 张带上了通配和顺子匹配。'
+          message.value = message.value + ' 庄家百变：手里 1 张带上了通配和顺子匹配。'
         }
       }
     }
@@ -11529,7 +11663,7 @@
         message.value = message.value + (byFoe ? ' 庄家零递：' : ' 零递：') + '手里没有能贴 21 匹配的牌。'
       }
     }
-    // 【升钩】〔2026-11-04〕：比它大 1 个顺位的 1 张手牌明置变成 J。符合的只有 1 张就直接变；
+    // 【升格】〔2026-11-04〕：比它大 1 个顺位的 1 张手牌明置变成 J。符合的只有 1 张就直接变；
     // 你有 2 张以上要挑，停下来等（照零递）；庄家挑现在钓不到东西的那张（照模拟器 nextjack）
     if (hasTrigger(skills, SK_NEXTJACK) && lastPlayed != null && askFirst(SK_NEXTJACK)) {
       const hits = nextJackHits(byFoe, lastPlayed!)
@@ -11541,7 +11675,7 @@
         return
       }
     }
-    // 【对钩】〔2026-11-12，同日改成「它变成 J」〕：展示手里 1 对，它变成 J。没有对子不发动；不用挑，不停人。
+    // 【合璧】〔2026-11-12，同日改成「它变成 J」〕：展示手里 1 对，它变成 J。没有对子不发动；不用挑，不停人。
     // 排在匹配之前（这一段都在匹配之前），所以变完这一手就按 J 通吃；堆是空的就照 J 的规矩只勾走它自己。
     // 估值那一头（出牌 / 抢牌挑哪张）在 catchStart 的 J 那一支认它（pairJackAsJ）
     if (hasTrigger(skills, SK_PAIRJACK) && lastPlayed != null && lastPlayed!.rank != JACK && askFirst(SK_PAIRJACK)) {
@@ -11552,7 +11686,7 @@
         lastPlayed!.rank = JACK
         lastPlayed!.value = 11
         lastPlayed!.extra = [] as number[]
-        message.value = message.value + (byFoe ? ' 庄家对钩：' : ' 对钩：') + '展示了 ' + cardName(mine[pair[0]]) + ' 和 ' + cardName(mine[pair[1]]) + '，' + was + ' 变成了 J。'
+        message.value = message.value + (byFoe ? ' 庄家合璧：' : ' 合璧：') + '展示了 ' + cardName(mine[pair[0]]) + ' 和 ' + cardName(mine[pair[1]]) + '，' + was + ' 变成了 J。'
       }
     }
     // 【褪递】〔2026-10-29 深夜，同晚换效果〕：对方 1 张手牌带上【褪色】，自己 1 张手牌带上【收零】。
@@ -11590,7 +11724,7 @@
         }
       }
     }
-    // 【回水】〔2026-10-30〕：盲选对方 1 张手牌明置置 0（J 也算，照浑水），再给自己 1 张手牌贴【收零】（照褪递）。
+    // 【回蚀】〔2026-10-30〕：盲选对方 1 张手牌明置置 0（J 也算，照迷雾），再给自己 1 张手牌贴【收零】（照褪递）。
     // 它自己照常匹配、不置 0。你出它时停两下：先点庄家那排，再点自己的手牌（onBackwater → onBackTag → resolveMatch）
     // 〔2026-11-16 desc 改成【腐蚀】：他整手都已置 0 就先让他抽 1 张（corrodeReady）〕
     if (hasTrigger(skills, SK_BACKWATER) && lastPlayed != null && askFirst(SK_BACKWATER)) {
@@ -11604,17 +11738,17 @@
           return
         }
       } else {
-        // 庄家是真的盲选 —— 随机（照浑水）
+        // 庄家是真的盲选 —— 随机（照迷雾）
         const pool = corrodeReady(true) ? murkPool(true) : ([] as number[])
         if (pool.length > 0) {
           const at = pool[Math.floor(Math.random() * pool.length)]
-          markDead(true, at, true, '回水')
+          markDead(true, at, true, '回蚀')
           handSeen.value = withFlag(handSeen.value, at)
         }
         const mine = foeZeroKeyPick()
         if (mine >= 0) {
           zeroKey.value = zeroKey.value.concat([foeHand.value[mine]])
-          message.value = message.value + ' 庄家回水：手里 1 张带上了收零。'
+          message.value = message.value + ' 庄家回蚀：手里 1 张带上了收零。'
         }
       }
     }
@@ -11691,7 +11825,7 @@
     }
     // 换水：挑**任意张**自己的手牌塞回牌库洗掉。
     //
-    // 排在观潮**前面**：两件都可能停下来等你选，而一个回合里只停一次说得清。
+    // 排在观星**前面**：两件都可能停下来等你选，而一个回合里只停一次说得清。
     // 〔2026-10-30 起停人技能挨个问（见 TAIL_ASK），排序只管先问谁〕
     // 手里没牌了就跳过 —— 没得挑
     if (hasTrigger(skills, SK_SWAP) && askFirst(SK_SWAP)) {
@@ -11727,11 +11861,11 @@
         }
       }
     }
-    // 倒饵：挑**任意张**自己的手牌塞给对方。
+    // 转嫁：挑**任意张**自己的手牌塞给对方。
     //
     // 排在换水后面：两件都只动自己手牌、都不碰堆，位置在这一串之内就行；
     // 而两件撞在同一张牌上时走换水（它先 return），这一次作废 ——
-    // **一个回合只停一次**，跟换水/滤饵那一对一个规矩。
+    // **一个回合只停一次**，跟换水/洗练那一对一个规矩。
     // 〔2026-10-30 起不再作废：两件挨个问（见 TAIL_ASK）〕
     //
     // ⚠ 它给对方塞牌，可局长是中性的（按一整个回合算）：我少一张 →
@@ -11769,11 +11903,11 @@
           out = out + 1
         }
         if (out > 0) {
-          message.value = message.value + ' 庄家倒饵，塞给你 ' + out + ' 张。'
+          message.value = message.value + ' 庄家转嫁，塞给你 ' + out + ' 张。'
         }
       }
     }
-    // 【暗饵】〔2026-11-10〕将手牌最多 2 张以【暗牌】交给对方 —— 照倒饵（同一块挑牌、同一把庄家尺子），封顶 2 张，送出的记成暗牌
+    // 【匿赠】〔2026-11-10〕将手牌最多 2 张以【暗牌】交给对方 —— 照转嫁（同一块挑牌、同一把庄家尺子），封顶 2 张，送出的记成暗牌
     if (hasTrigger(skills, SK_DARKBAIT) && askFirst(SK_DARKBAIT)) {
       const mine = byFoe ? foeHand.value : hand.value
       if (mine.length > 0) {
@@ -11800,11 +11934,11 @@
           out = out + 1
         }
         if (out > 0) {
-          message.value = message.value + ' 庄家暗饵，以暗牌交给你 ' + out + ' 张（你看不见它们，打出落堆才翻开）。'
+          message.value = message.value + ' 庄家匿赠，以暗牌交给你 ' + out + ' 张（你看不见它们，打出落堆才翻开）。'
         }
       }
     }
-    // 【暗潮】〔2026-11-11 用户定换效果：原「将对方全部手牌洗回牌库，摸入等量暗牌」〕将对方非暗牌手牌洗回牌库，再摸 DARKSWAP_DRAW 张暗牌 ——
+    // 【夜幕】〔2026-11-11 用户定换效果：原「将对方全部手牌洗回牌库，摸入等量暗牌」〕将对方非暗牌手牌洗回牌库，再摸 DARKSWAP_DRAW 张暗牌 ——
     // 不用挑，双方同一段。照模拟器 rules.js 〈darkswap〉DARKSWAP_KEEP：暗着的留在手里（darkKeyOn —— 明置着的不算暗，照样洗回），
     // 其余一张张洗回（shuffleBack 摘掉身上的手牌标签），然后**固定**摸 4 张（不按洗回的张数），摸到的记进 darkKey；牌库不够有几张摸几张
     if (hasTrigger(skills, SK_DARKSWAP)) {
@@ -11828,14 +11962,14 @@
         got = got + 1
       }
       message.value = message.value + (byFoe
-        ? (' 庄家暗潮：你的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌（你看不见它们，打出落堆才翻开）。')
-        : (' 暗潮：庄家的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌。'))
+        ? (' 庄家夜幕：你的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌（你看不见它们，打出落堆才翻开）。')
+        : (' 夜幕：庄家的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌。'))
     }
-    // 滤饵：先摸 SIFT_DRAW 张，**然后**从手里（含刚摸的）挑 SIFT_BACK 张退回牌库。
+    // 洗练：先摸 SIFT_DRAW 张，**然后**从手里（含刚摸的）挑 SIFT_BACK 张退回牌库。
     //
     // 排在换水后面：两件都只动自己手牌、都不碰堆，所以位置只要在这一串之内就行。
-    // 两件撞在同一张牌上时走换水（它先 return），滤饵那次作废 ——
-    // 跟择饵/观潮那对一个规矩：**一个回合只停一次**。
+    // 两件撞在同一张牌上时走换水（它先 return），洗练那次作废 ——
+    // 跟择符/观星那对一个规矩：**一个回合只停一次**。
     // 〔2026-10-30 起不再作废：两件挨个问（见 TAIL_ASK）〕
     //
     // ⚠ **摸牌要全部摸完再挑，不能「摸一张挑一张」** ——
@@ -11863,13 +11997,13 @@
         // 所以提前取一份引用会拿到摸牌前那一份）
         siftLeft.value = SIFT_BACK < hand.value.length ? SIFT_BACK : hand.value.length
         if (siftLeft.value > 0) {
-          message.value = message.value + ' 滤饵：摸了 ' + drew + ' 张。'
+          message.value = message.value + ' 洗练：摸了 ' + drew + ' 张。'
           siftPending.value = true
           return
         }
       } else {
         // 庄家自己挑。**跟换水那段的分别在这儿：没有「见好就收」那道闸** ——
-        // 滤饵是强制退满的（牌先白给了，退牌就是它的代价）。
+        // 洗练是强制退满的（牌先白给了，退牌就是它的代价）。
         // 实测这个代价很小：退掉的里误伤「当场钓得着」的只有 0.13%，
         // 因为池子 5.8 张里只有 0.9 张钓得着，退 2 张永远躲得开
         let back = 0
@@ -11886,12 +12020,12 @@
           back = back + 1
         }
         if (drew > 0 || back > 0) {
-          message.value = message.value + ' 庄家滤饵，摸 ' + drew + ' 张、退 ' + back + ' 张重洗。'
+          message.value = message.value + ' 庄家洗练，摸 ' + drew + ' 张、退 ' + back + ' 张重洗。'
         }
       }
     }
     // 【三色】〔2026-11-17〕：抽牌直到手牌有 3 种花色（牌库空了就停），选 3 种花色各 1 张带上【花色匹配】，其余手牌洗回牌库。
-    // 玩家侧照滤饵：摸完停下来，点手牌退回牌库，退到只剩 triKeep 张（不同花色）自己关（onTri）。
+    // 玩家侧照洗练：摸完停下来，点手牌退回牌库，退到只剩 triKeep 张（不同花色）自己关（onTri）。
     // 庄家侧照模拟器 trisuitFor（foeTriPick）。抽上来的又洗回去、回合末照常补满 —— 手牌张数不变
     if (hasTrigger(skills, SK_TRISUIT) && askFirst(SK_TRISUIT)) {
       let drew = 0
@@ -11920,11 +12054,11 @@
         message.value = message.value + ' 庄家三色，摸 ' + drew + ' 张、退 ' + back + ' 张重洗，' + n + ' 张手牌带上【花色匹配】。'
       }
     }
-    // 择饵：摊开牌库顶**五张**，挑一张**进手牌**，剩下的洗回牌库〔2026-11-03 用户定新版；原先是「挑一张留顶，其余沉底」〕。
+    // 择符：摊开牌库顶**五张**，挑一张**进手牌**，剩下的洗回牌库〔2026-11-03 用户定新版；原先是「挑一张留顶，其余沉底」〕。
     //
-    // 排在观潮**前面**，而且两件都停人 —— 一个回合只停一次（见换水那段），
-    // 所以同一张牌上两件都触发的时候，走的是择饵、观潮那次作废。
-    // 这是有意的取舍：择饵看得多、挑得准、还贵（100 对 60），
+    // 排在观星**前面**，而且两件都停人 —— 一个回合只停一次（见换水那段），
+    // 所以同一张牌上两件都触发的时候，走的是择符、观星那次作废。
+    // 这是有意的取舍：择符看得多、挑得准、还贵（100 对 60），
     // 那它就该是赢的那一件。两件撞在同一个点数上本身就是一次失算
     if (hasTrigger(skills, SK_PICK) && deck.value.length > 1 && askFirst(SK_PICK)) {
       const tops = topCards(PICK_LOOK)
@@ -11940,14 +12074,14 @@
     //   它原先排在这儿、**不停人** —— 没什么可挑的。
     //   那条排序判据还在用：**停人的技能要排在不停人的后面**，
     //   不然后面那几件会被 `return` 截住、这一手白发动〕
-    // 分饵：看牌库顶 6 张，给自己和对手各 1 张。**停人**（玩家点两下）。
+    // 分赐：看牌库顶 6 张，给自己和对手各 1 张。**停人**（玩家点两下）。
     //
-    // 排在择饵**后面**：两件都停人，而「一个回合只停一次」——
-    // 所以同一张牌上两件都触发时走的是择饵，这一次作废。
+    // 排在择符**后面**：两件都停人，而「一个回合只停一次」——
+    // 所以同一张牌上两件都触发时走的是择符，这一次作废。
     // 〔2026-10-30 起不再作废：两件挨个问（见 TAIL_ASK）〕
-    // 那是照择饵赢过观潮的同一条规矩（**贵的赢**）：择饵 100 > 分饵 85。
+    // 那是照择符赢过观星的同一条规矩（**贵的赢**）：择符 100 > 分赐 85。
     //
-    // ⚠ 它必须排在**所有停人技能之后**吗？不 —— 它跟择饵、同号是同一组
+    // ⚠ 它必须排在**所有停人技能之后**吗？不 —— 它跟择符、同号是同一组
     //（都是「看牌库」那一类），而动对方手牌那几件在更后面、各自 return。
     // 关键只有一条：**停人的技能之间的先后 = 谁赢**，而那按价排
     if (hasTrigger(skills, SK_GIFT) && deck.value.length > 0 && askFirst(SK_GIFT)) {
@@ -11963,7 +12097,7 @@
       }
     }
     // 同号：牌库里同点数的那几张（最多 3 张）摊开让你挑。停人，
-    // 排在择饵后面 —— 两件同价（100），但择饵是原有的，不改它的位置。
+    // 排在择符后面 —— 两件同价（100），但择符是原有的，不改它的位置。
     // 牌库里一张同点数的都没有就跳过
     if (hasTrigger(skills, SK_TWIN) && lastPlayed != null && askFirst(SK_TWIN)) {
       const pool = twinPool(lastPlayed!)
@@ -11976,12 +12110,12 @@
         doTwin(true, pool[foeTwinPick(pool)])
       }
     }
-    // 观潮：看牌库顶**两张**，可以把它俩一起沉到底。
+    // 观星：看牌库顶**两张**，可以把它俩一起沉到底。
     //
     // ---- 回合末补牌把这件技能的朝向翻了过来 ----
     //
     // 从前是「每回合开始摸一张」，所以你打完之后，牌库顶那张是
-    // **对方**马上要摸的 —— 观潮是在偷看对手的下一张。
+    // **对方**马上要摸的 —— 观星是在偷看对手的下一张。
     //
     // 改成回合末补牌（见 passTurn）之后，补的是**刚打完那一方**，
     // 也就是你自己。于是顶上那两张变成了**你自己**要补的牌：
@@ -11991,7 +12125,7 @@
     // 连带后果，说明和庄家的判断都跟着改了
     //
     // 带 `!hasTrigger(SK_PICK)` 这个闸是为了**让庄家和你受同一条规矩**：
-    // 你那边两件都触发时只走择饵（停人的那一刻就 return 了），
+    // 你那边两件都触发时只走择符（停人的那一刻就 return 了），
     // 〔2026-10-30 起停人技能挨个问（TAIL_ASK），这道闸就成了规则本身 —— 模拟器 rules.js 同一道闸，照留〕
     // 庄家不停人、不加闸就会两件都吃，同一套配装它比你强 —— 那不行
     if (hasTrigger(skills, SK_TIDE) && !hasTrigger(skills, SK_PICK)
@@ -12003,11 +12137,11 @@
         tidePending.value = true
         return
       }
-      // 〔2026-11-10 新观潮〕庄家：照模拟器 deckOrderApply —— 按择饵那把尺子排好坏（J > 堆上有同点数的 > 点数大），
+      // 〔2026-11-10 新观星〕庄家：照模拟器 deckOrderApply —— 按择符那把尺子排好坏（J > 堆上有同点数的 > 点数大），
       // 好的放它自己会摸的位置（它打完先补牌 → 第 1、3 张），差的放你会摸的（第 2、4 张）。
-      // 〔原先这儿「一张一张判、用不上的沉」（旧观潮），换掉了〕
+      // 〔原先这儿「一张一张判、用不上的沉」（旧观星），换掉了〕
       tideReorder(tideFoeOrder(tops))
-      message.value = message.value + ' 庄家观潮，把牌库顶 ' + tops.length + ' 张重新排了顺序。'
+      message.value = message.value + ' 庄家观星，把牌库顶 ' + tops.length + ' 张重新排了顺序。'
     }
     // ---- 【燃烧】那一步：蔓延 + 燃尽判定，**排在匹配之前** ----
     //
@@ -12028,7 +12162,7 @@
 
   // 牌库顶往下数 n 张（不够就有几张算几张）。
   // 牌库是数组末尾当顶，所以倒着取 —— 第 0 个是最顶上那张。
-  // 观潮（2 张）和择饵（5 张）共用它
+  // 观星（2 张）和择符（5 张）共用它
   function topCards(n : number) : PlainCard[] {
     const out : PlainCard[] = []
     for (let i = 0; i < n; i++) {
@@ -12069,7 +12203,7 @@
     deck.value = bottom.concat(rest)
   }
 
-  // 观潮：牌库顶那几张里，标了「沉」的沉到库底，没标的留在顶上。
+  // 观星：牌库顶那几张里，标了「沉」的沉到库底，没标的留在顶上。
   // marks 跟 topCards 对齐（第 0 个是最顶上那张）。
   //
   // 两头都**保持原来的先后**（理由同 sinkTops：你看过它们了，这层信息不该白送掉）：
@@ -12112,7 +12246,7 @@
     }
     tideOrder.value = next
   }
-  // 〔2026-11-10 新观潮〕把牌库顶那几张换成 order 的顺序（order[0] 放最上面）
+  // 〔2026-11-10 新观星〕把牌库顶那几张换成 order 的顺序（order[0] 放最上面）
   function tideReorder(order : PlainCard[]) {
     const keep = deck.value.slice(0, deck.value.length - order.length)
     for (let i = order.length - 1; i >= 0; i--) {
@@ -12182,12 +12316,12 @@
         }
       }
       tideReorder(order)
-      message.value = '观潮：牌库顶从上往下是 ' + tideNames(order) + '。'
+      message.value = '观星：牌库顶从上往下是 ' + tideNames(order) + '。'
     }
     askNext()
   }
 
-  // 择饵落地：顶上那 n 张里留第 keep 张，其余沉到底。
+  // 择符落地：顶上那 n 张里留第 keep 张，其余沉到底。
   //
   // 做法是「全沉下去，再把挑中那张单独放回顶上」—— 比在数组中间挪位置好写，
   // 也更难错。沉下去那几张**保持原来的先后**（见 sinkTops 那段的理由）
@@ -12206,8 +12340,8 @@
       return
     }
     const note = byFoe
-      ? ' 庄家择饵，' + tops.length + ' 张里挑了 1 张进手牌，其余洗回牌库。'
-      : ' 择饵：' + cardName(card) + ' 到你手上了，其余 ' + (tops.length - 1) + ' 张洗回牌库。'
+      ? ' 庄家择符，' + tops.length + ' 张里挑了 1 张进手牌，其余洗回牌库。'
+      : ' 择符：' + cardName(card) + ' 到你手上了，其余 ' + (tops.length - 1) + ' 张洗回牌库。'
     message.value = message.value + note
   }
 
@@ -12222,10 +12356,10 @@
     askNext()
   }
 
-  // ---------- 【分饵】点牌：**第一下给自己、第二下给对方** ----------
+  // ---------- 【分赐】点牌：**第一下给自己、第二下给对方** ----------
   //
   // 两下点完才结算，所以这一件停人一次、点两下。
-  // 点**已选中的那张**取消它（照观潮「点一张标记沉，再点取消」那条交互）——
+  // 点**已选中的那张**取消它（照观星「点一张标记沉，再点取消」那条交互）——
   // 不给取消的话点错第一张就只能认了，而这件技能的全部内容就是那两次选择。
   //
   // 牌库只剩 1 张时 `tops` 只有 1 张，那就点一下结算（第二张传 −1）——
@@ -12268,7 +12402,7 @@
 
   // 庄家从那几张里挑哪一张。
   //
-  // 它挑的是**自己回合末要补的牌**，所以标准跟观潮那边一致：
+  // 它挑的是**自己回合末要补的牌**，所以标准跟观星那边一致：
   //   J 最好（通吃，什么都钓得上）；
   //   其次是钓得着堆上某张的（当场就能收）；
   //   都没有就挑点数最大的（压在堆上最难被钓走）。
@@ -12296,9 +12430,9 @@
     return best
   }
 
-  // ---------- 【分饵】：看牌库顶 6 张，给自己和对手各 1 张 ----------
+  // ---------- 【分赐】：看牌库顶 6 张，给自己和对手各 1 张 ----------
   //
-  // 挑法照【择饵】的 `foePickDeck`（同点数在堆上 = 能钓到 → 加分，J 最高），
+  // 挑法照【择符】的 `foePickDeck`（同点数在堆上 = 能钓到 → 加分，J 最高），
   // 只是**对手那张取最低分** —— 塞给他最没用的。
   //
   // ---- 玩家挑**两张**：第一张给自己、第二张给对方（庄家自动挑）----
@@ -12388,7 +12522,7 @@
         foeShown.value = foeShown.value.concat([false])
       }
     }
-    const who = byFoe ? ' 庄家分饵：' : ' 分饵：'
+    const who = byFoe ? ' 庄家分赐：' : ' 分赐：'
     message.value = message.value + who + '看了 ' + tops.length + ' 张，'
       + (byFoe ? '给自己留 1 张、塞给你 1 张' : '留下 ' + cardName(mineCard)
         + '、塞给庄家 1 张')
@@ -12478,15 +12612,15 @@
     }
     flowDraftPending.value = false
     const sk = flowDraftSk.value
-    // 顺递 / 传顺挑完还要给堆上贴通配（传顺 2026-11-10 换成顺递的效果）；续流 / 石顺不贴
+    // 顺递 / 传顺挑完还要给堆上贴通配（传顺 2026-11-10 换成顺递的效果）；连咏 / 石顺不贴
     const pass = sk != SK_FLOWDRAFT && sk != SK_FLOWALL
-    const name = sk == SK_FLOW ? '伏流' : (sk == SK_FLOWPASS ? '续流' : (sk == SK_STONELINE ? '石顺' : sk == SK_FLOWALL ? '传顺' : '顺递'))
+    const name = sk == SK_FLOW ? '百变' : (sk == SK_FLOWPASS ? '连咏' : (sk == SK_STONELINE ? '石顺' : sk == SK_FLOWALL ? '传顺' : '顺递'))
     flowDraftSk.value = -1
     let key : PlainCard | null = null
     if (index >= 0) {
       key = hand.value[index]
       flowKey.value = flowKey.value.concat([key!])
-      // 新伏流：同一张再带上【通配】
+      // 新百变：同一张再带上【通配】
       if (sk == SK_FLOW) {
         addWild(key!)
       }
@@ -12571,7 +12705,7 @@
     askNext()
   }
 
-  // 升钩：你挑中了自己第 index 张变成 J。没有「不变」那条路（desc 是强制的），点错了接着等
+  // 升格：你挑中了自己第 index 张变成 J。没有「不变」那条路（desc 是强制的），点错了接着等
   function onNextJack(index : number) {
     if (!nextJackPending.value) {
       return
@@ -12698,7 +12832,7 @@
     }
     const taken = harvestIndices(wanted)
     message.value = message.value + who + '收走 ' + taken.length + ' 张 0 点牌。'
-    // 〔这儿原先是布饵人的解锁成就（闯关里你打出【收零】并收到牌）。2026-11-04 解锁改成星星 + 三档，布饵人走银星，成就撤了〕
+    // 〔这儿原先是虚无行者的解锁成就（闯关里你打出【收零】并收到牌）。2026-11-04 解锁改成星星 + 三档，虚无行者走银星，成就撤了〕
     return startSweep(byFoe, taken, skills, TAIL_CAST)
   }
 
@@ -12840,7 +12974,7 @@
     askNext()
   }
 
-  // ---------- 【电钩】展示同颜色手牌贴正电〔2026-11-17〕 ----------
+  // ---------- 【引雷】展示同颜色手牌贴正电〔2026-11-17〕 ----------
   const hookShowPending = ref<boolean>(false)
   const hookShownN = ref<number>(0)
   let hookShown : number[] = [] as number[]
@@ -12891,7 +13025,7 @@
       }
     }
     if (pick < 0) {
-      message.value = message.value + ' 庄家电钩：凑不出 2 张同颜色的牌。'
+      message.value = message.value + ' 庄家引雷：凑不出 2 张同颜色的牌。'
       return
     }
     const red = pick == 0
@@ -12908,7 +13042,7 @@
       }
     }
     magKey.value = magKey.value.concat(add)
-    message.value = message.value + ' 庄家电钩：亮了 ' + shown + ' 张' + (red ? '红' : '黑') + '牌，' + add.length + ' 张带上了正电。'
+    message.value = message.value + ' 庄家引雷：亮了 ' + shown + ' 张' + (red ? '红' : '黑') + '牌，' + add.length + ' 张带上了正电。'
   }
   // 你点了第 index 张手牌：亮它。第一张定颜色，之后不同颜色的、亮过的、失去花色的点了不算
   function onHookShowHand(index : number) {
@@ -12939,9 +13073,9 @@
         }
       }
       magKey.value = magKey.value.concat(add)
-      message.value = message.value + ' 电钩：亮了 ' + hookShown.length + ' 张，' + add.length + ' 张带上了正电。'
+      message.value = message.value + ' 引雷：亮了 ' + hookShown.length + ' 张，' + add.length + ' 张带上了正电。'
     } else {
-      message.value = message.value + ' 电钩：' + (hookShown.length > 0 ? '只亮了 1 张，不够 2 张，' : '没展示，') + '不发动。'
+      message.value = message.value + ' 引雷：' + (hookShown.length > 0 ? '只亮了 1 张，不够 2 张，' : '没展示，') + '不发动。'
     }
     hookShowPending.value = false
     hookShownN.value = 0
@@ -13073,7 +13207,7 @@
   // 一个入口而不是在模板里写两个 @click —— 同一排牌同时只会在等一件事，
   // 分路放在这儿，模板那边就只有一个 onFoeCard
   function onFoeCard(index : number) {
-    // 浑水排最前：它不走 takeSkill（那条会翻开整手），挑的是位置
+    // 迷雾排最前：它不走 takeSkill（那条会翻开整手），挑的是位置
     if (murkPending.value) {
       onMurk(index)
       return
@@ -13121,7 +13255,7 @@
     if (freezePending.value) {
       return true
     }
-    // 浑水：盖着的都点得中，只有已经置 0（明置着）的点不动
+    // 迷雾：盖着的都点得中，只有已经置 0（明置着）的点不动
     if (murkPending.value || shrinkPending.value || backPending.value) {
       return index >= 0 && index < foeHand.value.length && !isDead(foeHand.value[index])
     }
@@ -13161,7 +13295,7 @@
     return card.rank != JACK && !isDead(card)
   }
 
-  // ---------- 压舱 / 摘钩 / 对换：你点了庄家第 index 张（-1 = 不要） ----------
+  // ---------- 置换 / 摄物 / 对换：你点了庄家第 index 张（-1 = 不要） ----------
   //
   // 点的动作借庄家手牌那一排（跟冻结同一个入口，见模板里 onFoeCard）。
   // 对换还要再挑一张自己的，所以它不在这儿交回合 —— 交回合在 onGiveBack
@@ -13227,7 +13361,7 @@
     }
     // ---- 【引潮】只挑一张，所以走最简那条（挑完就清、就交匹配）----
     //
-    // 它**不复用下面 doTakeFrom 那条路**：那三件（压舱 / 摘钩 / 对换）
+    // 它**不复用下面 doTakeFrom 那条路**：那三件（置换 / 摄物 / 对换）
     // 当场把牌拿走或换掉，而引潮只贴个标签、牌还在他手里。
     // 硬塞进 doTakeFrom 就得在那个函数里加一个「什么都不搬」的分支
     if (which == SK_SURGE) {
@@ -13325,7 +13459,7 @@
     return best
   }
 
-  // ---------- 【升钩】〔2026-11-04〕----------
+  // ---------- 【升格】〔2026-11-04〕----------
   // 顺位 A 2 … 10 Q K A：J 跳过，K 接 A，0 不算（0 点 / 无点数 / J 打出不发动，也不能被变）。
   // 跟模拟器 rules.js 的 nextJackWants 同一张表（NJ_ORD）
   const NEXTJACK_ORD : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
@@ -13376,7 +13510,7 @@
     } else {
       handSeen.value = withFlag(handSeen.value, index)
     }
-    message.value = message.value + (byFoe ? ' 庄家升钩：' : ' 升钩：') + '手里的 ' + was + ' 明置变成了 J。'
+    message.value = message.value + (byFoe ? ' 庄家升格：' : ' 升格：') + '手里的 ' + was + ' 明置变成了 J。'
   }
   // 庄家挑哪张：现在钓不到东西的优先（照模拟器 nextjack 的 canCatch ? 1 : 2）
   function foeNextJackPick(hits : number[]) : number {
@@ -13388,7 +13522,7 @@
     return hits[0]
   }
 
-  // ---------- 【对钩】〔2026-11-12，同日改成「它变成 J」〕----------
+  // ---------- 【合璧】〔2026-11-12，同日改成「它变成 J」〕----------
   // 「1 对」= 手里（不含 card 自己）牌面点数相同的 2 张；J、0 点、无点数、废牌凑不成对（照 nextJackOk）。
   // 跟模拟器 pairjack 同一个判法（tojPairReady）。返回那一对的两个下标，没有就是空
   function pairJackPair(byFoe : boolean, card : PlainCard) : number[] {
@@ -13521,7 +13655,7 @@
   // 于是被自己收走。那是这条规则直写下来的后果，不是漏洞：
   //
   //   好处是它**保底 +1 分**，而且不会在堆上留下一张饵
-  //     （普通的空钩牌会留在堆上给对手当钩点）；
+  //     （普通的反噬牌会留在堆上给对手当钩点）；
   //   代价是它放弃了这一手的钓牌（0 点谁也钓不上）。
   //
   // 这儿**没有加**收色 / 撒网那条「只有它自己就什么都不收」的闸 ——
@@ -13605,7 +13739,7 @@
     const gone = goneRanks.value.slice(0)
     let taken = 0
     let saved = 0
-    // 【空钩】这一下真被拿走的牌
+    // 【反噬】这一下真被拿走的牌
     const trapTaken : PlainCard[] = []
     for (let i = 0; i < pile.value.length; i++) {
       if (set.indexOf(i) >= 0) {
@@ -13696,7 +13830,7 @@
     } else if (sweepNext == TAIL_BURN) {
       // 【燃尽】扫完 → **直接走匹配**，不回 afterPlayTail。
       // 燃烧排在停人那一串**后面**，走到这儿时它们都已经问完了（见 TAIL_ASK）。
-      // 〔原注释：回去的话尾段后半那几件（死水、摘钩、对换、压舱…）会重跑 ——
+      // 〔原注释：回去的话尾段后半那几件（死水、摄物、对换、置换…）会重跑 ——
       //   它们没有 `from <=` 守卫。2026-10-30 起它们有 askFirst 挡着了，可直接走匹配仍是对的〕
       //
       // 而匹配这时候基本是空走：燃尽扫走了整堆，刚打那张也在里面，
@@ -13758,7 +13892,7 @@
   //   磁钩、钩顶、顺色一个都不生效，也不会误触对方的。
   //   可**场上挂着的抹点数照样管它**（它抹的是「落到堆上的牌」，
   //   不问这张是怎么上来的）。这两半要一起记，少一半就错一边。
-  //   现在还有「硬塞牌」动作的只剩【囤饵】（开局塞牌库），
+  //   现在还有「硬塞牌」动作的只剩【囤符】（开局塞牌库），
   //   再做这类动作照这条走。
   //
   // **二、判撞在落堆之前。** `catchStart` 遍历的是 `pile`，这张还没进去 ——
@@ -13980,7 +14114,7 @@
   }
 
   // 【收色】的前半句：它在堆上的花色变成跟堆底那张相同，返回改完的花色。
-  // 它自己就是堆底（堆原先是空的 / 逆流沉底）时不变。
+  // 它自己就是堆底（堆原先是空的 / 逆行沉底）时不变。
   // 改的是 pileSuit（「现在」算什么花色），不是牌面 —— 照染水 / 一色的写法
   function suitToBottom(byFoe : boolean, card : PlainCard) : string {
     const at = pileIndexOf(card)
@@ -14068,7 +14202,7 @@
     return startSweep(byFoe, taken, skills, TAIL_FLOW)
   }
 
-  // ---------- 【伏流】：它当通配，凑最长的顺子 ----------
+  // ---------- 【百变】：它当通配，凑最长的顺子 ----------
   //
   // 第四条匹配线（点数 / 花色 / 累加不超 21 / **顺子**）。
   // 设计论证在 draw-skills 那条，这儿只记实现上的四个决定。
@@ -14113,13 +14247,13 @@
   // skipAt 传它自己那一格（它是通配、不占点数格）；AI 预估时堆里还没有它，
   // 传 −1。无点数的牌（不在点数轴上）和护着的牌（钓不走）一概跳过。
   //
-  // ---- skipAt **不是**冗余的，哪怕伏流本来就无点数 ----
+  // ---- skipAt **不是**冗余的，哪怕百变本来就无点数 ----
   //
   // 看着像冗余：它在 valuesOf 里是无点数那一族，所以 pileValsAt 该是空的。
   // 可这儿读的是 **pileVals**（落堆那一刻 `landVals` 算出来的），而 landVals
   // 末尾有一支 `parityBlocked` → **return [0]**。
   //
-  // 于是场上挂着【分水】、而伏流的奇偶跟它不同时，伏流落堆时是 `[0]`
+  // 于是场上挂着【分水】、而百变的奇偶跟它不同时，百变落堆时是 `[0]`
   // 不是空的 —— 没有 skipAt 它就会**自己占掉 0 这一格**，然后
   // 「堆上缺哪个点数」算错一格。那种错很难看出来（只在有分水时发生）
   function deepestByVal(skipAt : number, byFoe : boolean) : number[] {
@@ -14181,20 +14315,20 @@
   //（步长 2、不含自己）两个函数**删了** —— 合成了下面那个 bestChainAt。
   //
   // 合并的理由不是去重：两件新效果各需要**两种填格手段的组合**
-  //（伏流 = 堆上的通配 + 严格连续；涉水 = 自带通配 + 差 2），
+  //（百变 = 堆上的通配 + 严格连续；涉水 = 自带通配 + 差 2），
   // 而那在两个各自写死判据的专用函数里表达不出来。
 
   // ---------- 【涉水】：顺子的**步长**放宽到 2 ----------
   //
   // 「相邻差 1 或 2」的等价表述是**区间里不能有两个连续的空位** ——
-  // 差 2 = 跳过一个空位，差 3 = 跳过两个。所以它跟伏流**共用区间枚举**，
-  // 只换判据（伏流：恰好缺一个、由通配填；涉水：不能连续缺两个）。
+  // 差 2 = 跳过一个空位，差 3 = 跳过两个。所以它跟百变**共用区间枚举**，
+  // 只换判据（百变：恰好缺一个、由通配填；涉水：不能连续缺两个）。
   //
   // 另外两处不同：
   //   它**不是通配**，所以它自己那一格要算在链里（deepest 不跳过它）；
   //   两端**必须有牌** —— 不然 `[a,b]` 两头悬空，区间就不是链。
   //
-  // 判据照伏流那条：**先比数量，数量相同取最深**。
+  // 判据照百变那条：**先比数量，数量相同取最深**。
   // 「数量」这儿是**区间里有牌的点数个数**（不是区间长度 —— 区间里有空位）
   // 涉水挑顺子：相邻差 1 或 2 都算（= 区间里不能有两个连续的空位），至少 STRAIGHT_MIN 张。
   // **这张牌一定参与**（它当通配，是链上的一员）——
@@ -14225,7 +14359,7 @@
   // 这一个函数替掉了原来的 bestStraight / bestGapped 两个 ——
   // 两件新效果各需要**两种填格手段的组合**，分成两个专用函数写不下：
   //
-  //   伏流 = 堆上的通配（wildRoom 张）+ 严格连续（step 1），不自带通配
+  //   百变 = 堆上的通配（wildRoom 张）+ 严格连续（step 1），不自带通配
   //   涉水 = 自带通配（一次）+ 差 2 也算（step 2）
   //
   // 填空位的优先级是定死的：**先用堆上的通配，再用自带的那一次**。
@@ -14247,7 +14381,7 @@
   // 【传顺】〔2026-11-10〕「这个点数的手牌视为【通配】」：这一手手里当通配的张数（补任意一格，留在手里、不收走、不算堆上张数）。
   // 跟 chainHand 同一套：调用方判顺子前设、判完清成 0；bestChainCore / markChain 同序读（堆上通配之后、它自己当通配之前，跟模拟器 bestChain 的 handWild 同序）
   let chainHandWild : number = 0
-  // 【龙鳞】〔2026-11-10 · 东海龙王〕庄家顺子匹配时跟打出那张同颜色的手牌当通配：chainHandFor 顺手算好（同花色张数 + 手牌总张数上限），
+  // 【龙鳞】〔2026-11-10 · 苍龙王〕庄家顺子匹配时跟打出那张同颜色的手牌当通配：chainHandFor 顺手算好（同花色张数 + 手牌总张数上限），
   // clearChainHand 一起清。上限 −1 = 不限（照旧）。跟模拟器 bestChain 的 scalewild 同口径：按自己点数补的不受限，当通配那几格要
   // 「已用手牌（补格 + 通配）< 上限」
   let chainSuitWild : number = 0
@@ -14382,7 +14516,7 @@
     return bestChainCore(deepest, wildRoom, selfWild, step, -1)
   }
 
-  // `mustAt` ≥ 0：链上**必须有** deepest 里等于它的那一格 —— 不当通配的顺子标签（顺递 / 流钥）用：
+  // `mustAt` ≥ 0：链上**必须有** deepest 里等于它的那一格 —— 不当通配的顺子标签（顺递 / 衔咏）用：
   // 词条「你刚打的这张必须是【顺子】里的一员」，它按自己的点数参与。−1 = 不要求（当通配那几件，
   // 它本来就占着 selfWild 那一格）〔2026-10-30〕
   function bestChainCore(deepest : number[], wildRoom : number,
@@ -14500,7 +14634,7 @@
   //
   // 带通配的牌不进 deepest（它能当任意点数），所以**只按 deepest 标**
   // 会漏掉它们 —— 它们算进了链长、却收不走。
-  // 那个缺陷量过：伏流 +4.02 掉到 +2.65，而且「贴得越多越差」
+  // 那个缺陷量过：百变 +4.02 掉到 +2.65，而且「贴得越多越差」
   //（+2.65 / +1.40 / +0.58），因为每贴一张就从表里拿掉一个真点数。
   //
   // > **「某张牌不按它的点数参与判定」和「它照样要被收走」是两件事。**
@@ -14641,9 +14775,9 @@
     return startSweep(byFoe, taken, skills, TAIL_WILD)
   }
 
-  // 【伏流】它当任意点数去凑顺子（它是那唯一的空位），凑成就收走**它自己 + 组成顺子的那几张**
+  // 【百变】它当任意点数去凑顺子（它是那唯一的空位），凑成就收走**它自己 + 组成顺子的那几张**
   //（每个点数取最深那张）。夹在中间的牌不收。凑不成就按普通点数匹配
-  // 伏流贴哪一格：**试一遍，挑凑出最长顺子的那个**。
+  // 百变贴哪一格：**试一遍，挑凑出最长顺子的那个**。
   //
   // 按最优实现是有意的（照野火那条）：这件技能跟涉水的唯一分别就是
   //「标签贴哪 + 标签会攒」，按启发式实现量出来是「AI 挑得多好」、
@@ -14755,22 +14889,22 @@
       + ' 跟堆上第 ' + (bestAt + 1) + ' 张（' + cardName(pc) + '）换了。'
   }
 
-  // 【伏流】走这条，而【易流】**复用同一条**（见下面那个转发）。
+  // 【百变】走这条，而【易流】**复用同一条**（见下面那个转发）。
   //
   // ⚠ 加这两个参数而不是复制一份，是因为我在模拟器那边先复制了一次，
   // 而**两份当场分叉**：同一个替换逻辑，在原路径上把凑成率从 53.4%
   // 推到 62.5%，在复制的那份里却推到 48.2%（比不换还低），X 差 1.09 分。
   // 那正是 CLAUDE.md 那节的原话 —— **接现成入口，别自己手写等效实现**。
   //
-  //   tagPick  要不要**暂停让玩家挑一张通配**（伏流的「另选 1 张」）。
+  //   tagPick  要不要**暂停让玩家挑一张通配**（百变的「另选 1 张」）。
   //            易流只有它自己那一张通配，所以传 false、不暂停
   //   doSwap   要不要**换 1 张**（易流）
-  // 〔2026-10-29 伏流去掉「另选 1 张」（用户定）：tagPick true → **false**，
-  //   跟易流 / 流钥同一条「只有它自己带通配」的路。
+  // 〔2026-10-29 百变去掉「另选 1 张」（用户定）：tagPick true → **false**，
+  //   跟易流 / 衔咏同一条「只有它自己带通配」的路。
   //   tagPick 那一支（玩家挑一张 / 庄家 pickWildAt）和 pilePick == SK_FLOW 那几处
   //   **留着当死代码** —— 现在没有任何调用传 true〕
   function straightFor(byFoe : boolean, skills : number[]) : boolean {
-    return straightCore(byFoe, skills, '伏流', false, false, true)
+    return straightCore(byFoe, skills, '百变', false, false, true)
   }
 
   // 【易流】：它带上【通配】；换 1 张；【顺子匹配】〔2026-10-20〕
@@ -14778,8 +14912,8 @@
     return straightCore(byFoe, skills, '易流', false, true, true)
   }
 
-  //   selfWild 它自己**当不当通配**〔2026-10-30 加〕。伏流 / 易流 = true（desc 写着「它带上【通配】」）；
-  //            顺子标签（流钥 / 顺递）= false —— 只按自己的点数参与，链上必须有它那一格（bestChainCore 的 mustAt）
+  //   selfWild 它自己**当不当通配**〔2026-10-30 加〕。百变 / 易流 = true（desc 写着「它带上【通配】」）；
+  //            顺子标签（衔咏 / 顺递）= false —— 只按自己的点数参与，链上必须有它那一格（bestChainCore 的 mustAt）
   function straightCore(byFoe : boolean, skills : number[], name : string,
     tagPick : boolean, doSwap : boolean, selfWild : boolean) : boolean {
     const who = (byFoe ? ' 庄家' : ' ') + name + '：'
@@ -14796,7 +14930,7 @@
     // 反过来的话这一手的标签白贴，只对**下一手**有用。
     //
     // **它自己那一张也贴**〔2026-10-19〕—— 关键词不再自带通配，
-    // 伏流的 desc 是「它和另选 1 张牌带上【通配】」。贴在暂停挑牌**之前**，
+    // 百变的 desc 是「它和另选 1 张牌带上【通配】」。贴在暂停挑牌**之前**，
     // 这样玩家挑那一张时界面上已经看得见自己这张带了通配
     //（而 canPickAt 的 `!isWildAt` 顺手就把它挡掉了，不用再比 at0）。
     // 重入时会再走一遍这儿，`addWild` 自带去重
@@ -14805,13 +14939,13 @@
     }
     // 玩家侧要**暂停挑牌**，而暂停点跟凝水那三件不一样：
     // 那三件在落堆**之前**丢弃牌、挑完直接 afterPlay；
-    // 伏流**已经落堆了**，挑完还得判顺子、走燃烧那一步、再匹配。
-    // 所以它记下技能表，挑完从 TAIL_WADE（伏流之后那一段）接着走
+    // 百变**已经落堆了**，挑完还得判顺子、走燃烧那一步、再匹配。
+    // 所以它记下技能表，挑完从 TAIL_WADE（百变之后那一段）接着走
     // `flowPicked` 是**重入闸**，不是可选的优化：
     // 挑完之后 onPilePick 会**重新调一次 straightFor**（贴完要当场判顺子），
     // 而这个分支只看 `!byFoe` 的话会**再暂停一次 → 死循环**。
     // `pilePick` 那时已经清了，所以不能靠它判
-    // `tagPick` —— **只有伏流走这一支**（它的 desc 是「它和另选 1 张」）。
+    // `tagPick` —— **只有百变走这一支**（它的 desc 是「它和另选 1 张」）。
     // 易流只有它自己那一张通配，所以不暂停、不挑
     if (tagPick && !byFoe && !flowPicked && pile.value.length > 0) {
       pilePick.value = SK_FLOW
@@ -14820,7 +14954,7 @@
       pickSkills = skills
       return true
     }
-    // 庄家侧的「另选 1 张」—— 同样只有伏流有（`tagPick`）
+    // 庄家侧的「另选 1 张」—— 同样只有百变有（`tagPick`）
     if (tagPick && byFoe) {
       const at = pickWildAt(true, at0)
       if (at >= 0) {
@@ -14835,7 +14969,7 @@
     //     所以排在 addWild **之后**；
     //   换完那张要参与**这一次**判定，所以排在 deepestByVal **之前**。
     //
-    // **换哪两张由程序算，不让玩家手选** —— 照抬水 / 伏流那条先例
+    // **换哪两张由程序算，不让玩家手选** —— 照抬水 / 百变那条先例
     //（「它算得准，所以它不猜」：堆是明的、手牌是自己的，玩家能做的
     //  判断和程序一样，手选只是多一步点击，不是决策）。
     // 所以这件技能的决策落在**什么时候打它**上
@@ -14850,14 +14984,14 @@
     //   新增的只有「凑不成那张带着标签留在堆上」。
     //
     // 〔2026-10-16 改回来的。原先是 −1（「它不当通配了，那一档归涉水」），
-    //   而这一次改的**不是伏流，是【顺子匹配】这个关键词本身** ——
-    //   自带通配进了规则，所以涉水和伏流都从关键词拿到它，
+    //   而这一次改的**不是百变，是【顺子匹配】这个关键词本身** ——
+    //   自带通配进了规则，所以涉水和百变都从关键词拿到它，
     //   涉水 desc 里那半句「它带【通配】」跟着删了（规则不在各件里重复写）。
     //   **那一条 2026-10-19 又反转了**：通配回到各件的 desc，
     //   而且升级成持久标签。
     //
     //   实测（`vs flow flow -n 20000`）：**1.81 → 3.85**，凑成率 40.3% → 62.6%。
-    //   而伏流现价 105 对应 X=3.81 —— **这个价本来就是按自带通配定的**，
+    //   而百变现价 105 对应 X=3.81 —— **这个价本来就是按自带通配定的**，
     //   是 desc 和旋钮默认值在某一刻分叉了，不是它超价。详见实测数据台账〕
     const deepest = withHighAce(free ? deepestByVal(at0, byFoe)
       : pinVals(deepestByVal(-1, byFoe), pileValsAt(at0), at0))
@@ -14896,11 +15030,11 @@
     message.value = message.value + who + '凑成 '
       + valueFace(span[0]) + '–' + valueFace(span[1]) + ' 的顺子，收走 '
       + taken.length + ' 张。'
-    // 易流演完接顺序匹配族那一段（TAIL_ORDER）；伏流接涉水
+    // 易流演完接顺序匹配族那一段（TAIL_ORDER）；百变接涉水
     return startSweep(byFoe, taken, skills, doSwap ? TAIL_ORDER : TAIL_WADE)
   }
 
-  // ---------- 【顺序匹配】族：插流 / 调序 / 换序〔2026-10-29〕 ----------
+  // ---------- 【顺序匹配】族：插序 / 调序 / 换序〔2026-10-29〕 ----------
   //
   // 含打出那张的一段连续牌，按大小顺序排列（升降都算、相等也算）且
   // 至少 ORDER_MIN 张 → 收走这一段。凑不成退回普通匹配。
@@ -15032,7 +15166,7 @@
     return len > 0 ? len : 1
   }
 
-  // 【插流】穷举落点〔2026-10-30 改〕：先找「插进去整堆有序」的那一格（够 ORDER_FULL_MIN 张，靠堆顶优先）；
+  // 【插序】穷举落点〔2026-10-30 改〕：先找「插进去整堆有序」的那一格（够 ORDER_FULL_MIN 张，靠堆顶优先）；
   // 找不到再照旧挑「含它的最长单调段最长」那一格（给下一手铺料），平手取更靠堆顶的。
   // 跟模拟器 rules.js 的 pickOrderFullAt 同一个挑法
   function pickOrderInsertAt(card : PlainCard, byFoe : boolean, skills : number[]) : number {
@@ -15201,7 +15335,7 @@
 
   function orderLineName(skills : number[]) : string {
     if (hasTrigger(skills, SK_ORDERINS)) {
-      return '插流'
+      return '插序'
     }
     if (hasTrigger(skills, SK_ORDERPILE)) {
       return '调序'
@@ -15391,13 +15525,13 @@
   // **被收走**」，而现在野火只点火、不收牌，所以保护只是**挡掉点火**、
   // 盾留着。那让凝水从「被野火吃掉一层」变成「**一张牌锁死整条线**」
   //（堆上有一张带保护的就永远烧不尽）。
-  // ---------- 压舱 / 摘钩 / 对换：动对方一张手牌 ----------
+  // ---------- 置换 / 摄物 / 对换：动对方一张手牌 ----------
   //
   // 三件的交互一模一样（点对方手牌那一排），区别只在挑完之后干什么。
   // 所以共用 takeSkill 这一个状态，这儿按技能分三路。
   //
   // 对换要挑两次（先拿他的，再给自己的），第二步落在 doGiveBack
-  // ---------- 【压舱】〔2026-11-10 上架；模拟器原型〈foeswap〉〕----------
+  // ---------- 【置换】〔2026-11-10 上架；模拟器原型〈foeswap〉〕----------
   // 第一步挑中的那张（对方手牌下标）；-1 = 还没挑
   let foeSwapFoeAt = -1
   // 对方那张能不能换上去：不是 J、点数不是堆上已有的（换完堆上不会有对子）
@@ -15435,7 +15569,7 @@
     }
     return true
   }
-  // 有没有至少一组合法的（对方那张 × 堆上那张）。byFoe = 打出压舱的是不是庄家
+  // 有没有至少一组合法的（对方那张 × 堆上那张）。byFoe = 打出置换的是不是庄家
   function foeSwapHasPair(byFoe : boolean) : boolean {
     const theirs = byFoe ? hand.value : foeHand.value
     let anyCard = false
@@ -15457,7 +15591,7 @@
   // 真换：victimIsFoe = 被换的是庄家的手牌
   function doFoeSwap(victimIsFoe : boolean, h : number, k : number) {
     const card = takeFromHand(victimIsFoe, h)
-    // 手牌标签跟着换了地方就作废（照摘钩那一串）；堆上那一格的火 / 保护归零
+    // 手牌标签跟着换了地方就作废（照摄物那一串）；堆上那一格的火 / 保护归零
     dropFrostHand(card)
     dropStoneHand(card)
     dropMatchKey(card)
@@ -15496,8 +15630,8 @@
       handSeen.value = handSeen.value.concat([true])
     }
     message.value = message.value + (victimIsFoe
-      ? ' 压舱：庄家的 ' + cardName(card) + ' 换到堆上，' + cardName(old) + ' 到了它手里。'
-      : ' 庄家压舱：你的 ' + cardName(card) + ' 换到堆上，' + cardName(old) + ' 到了你手里。')
+      ? ' 置换：庄家的 ' + cardName(card) + ' 换到堆上，' + cardName(old) + ' 到了它手里。'
+      : ' 庄家置换：你的 ' + cardName(card) + ' 换到堆上，' + cardName(old) + ' 到了你手里。')
   }
   // 某一方手里最好的一张现在能收几张（普通匹配 / 21，跟庄家估值同一对函数）
   function bestHandCatchOf(byFoe : boolean) : number {
@@ -15513,7 +15647,7 @@
     }
     return best
   }
-  // 庄家打出压舱：所有合法组合都试（真换、量、整条数组换回原来那几个对象），挑「它 − 你」最大的；都不比不换好就不换
+  // 庄家打出置换：所有合法组合都试（真换、量、整条数组换回原来那几个对象），挑「它 − 你」最大的；都不比不换好就不换
   function foeSwapAuto() {
     const p0 = pile.value
     const v0 = pileVals.value
@@ -15565,7 +15699,7 @@
     }
     takeSkill.value = -1
     if (index < 0) {
-      message.value = message.value + ' 压舱：你放过了。'
+      message.value = message.value + ' 置换：你放过了。'
       tagResumeGo()
       return
     }
@@ -15583,7 +15717,7 @@
     if (index >= 0 && h >= 0 && h < foeHand.value.length) {
       doFoeSwap(true, h, index)
     } else {
-      message.value = message.value + ' 压舱：你没换。'
+      message.value = message.value + ' 置换：你没换。'
     }
     tagResumeGo()
   }
@@ -15599,8 +15733,8 @@
       const card = takeFromHand(victimIsFoe, index)
       shuffleBack(card)
       message.value = message.value + (byFoe
-        ? ' 庄家压舱：你的一张手牌被塞回牌库洗掉了。'
-        : ' 压舱：庄家的 ' + name + ' 塞回牌库洗掉了。')
+        ? ' 庄家置换：你的一张手牌被塞回牌库洗掉了。'
+        : ' 置换：庄家的 ' + name + ' 塞回牌库洗掉了。')
       return
     }
     if (skill == SK_UNHOOK) {
@@ -15614,7 +15748,7 @@
       dropFadeKey(card)
       dropFlowKey(card)
       dropTraitorKey(card)
-      // 摘钩拿过来的牌进自己手里。**手牌可能因此超过上限** ——
+      // 摄物拿过来的牌进自己手里。**手牌可能因此超过上限** ——
       // 那没关系，回合末 refill 只负责「补到」上限，不负责弃牌
       if (byFoe) {
         foeHand.value = foeHand.value.concat([card])
@@ -15625,8 +15759,8 @@
         handSeen.value = handSeen.value.concat([true])
       }
       message.value = message.value + (byFoe
-        ? ' 庄家摘钩：你的一张手牌被它拿走了。'
-        : ' 摘钩：庄家的 ' + name + ' 到你手上了。')
+        ? ' 庄家摄物：你的一张手牌被它拿走了。'
+        : ' 摄物：庄家的 ' + name + ' 到你手上了。')
       return
     }
     // 对换：先把他那张拿过来，再挑一张自己的还给他。
@@ -15653,7 +15787,7 @@
     if (byFoe) {
       doGiveBack(true, foeGivePick())
       // 〔文案 2026-10-27 从 `doGiveBack` 里挪到这儿 —— 那个函数现在
-      //   跟【倒饵】共用，而倒饵一次送好几张，每张报一句会刷满结算栏〕
+      //   跟【转嫁】共用，而转嫁一次送好几张，每张报一句会刷满结算栏〕
       message.value = message.value + ' 它还给你一张。'
       return
     }
@@ -15663,12 +15797,12 @@
 
   // 把自己第 index 张手牌交到对方手上 —— **「给对手一张牌」这个动作的唯一入口**。
   //
-  // 〔2026-10-27 从「对换第二步」变成共用件：对换删了，而【倒饵】
+  // 〔2026-10-27 从「对换第二步」变成共用件：对换删了，而【转嫁】
   //   （任意张地送牌）做的是同一件事 × N 次。两边共用一份，不复制 ——
   //   三条 `drop*`（钥匙是私有的，换了主人就不带冰 / 不带匹配钥匙）
   //   漏一条就是一个静默的规则分叉〕
   //
-  // ⚠ **它不报文案**，由调用方报：倒饵一次可能送好几张，
+  // ⚠ **它不报文案**，由调用方报：转嫁一次可能送好几张，
   //   每张报一句会把结算栏刷满（这正是把文案挪出去的理由）。
   function doGiveBack(byFoe : boolean, index : number) {
     const mine = byFoe ? foeHand.value : hand.value
@@ -15699,7 +15833,7 @@
     return foeSwapPick()
   }
 
-  // 庄家从你手里挑哪张（压舱、摘钩、对换都用它）。
+  // 庄家从你手里挑哪张（置换、摄物、对换都用它）。
   //
   // 这三件技能本身就「看对方全部手牌」，所以它**看得见你所有的牌** ——
   // 不像冻结那样要猜位置。挑的尺子：
@@ -15733,8 +15867,8 @@
     markDead(byFoe, index, false, '死水')
   }
 
-  // 置 0 的唯一入口（死水 / 浑水两条来路共用）〔2026-10-30 从 doDead 抽出来〕。
-  // `jackOk`：浑水要「J 也算」。**不用默认参数**（uts 各端编译器表现不一致，见 playFor 那条）
+  // 置 0 的唯一入口（死水 / 迷雾两条来路共用）〔2026-10-30 从 doDead 抽出来〕。
+  // `jackOk`：迷雾要「J 也算」。**不用默认参数**（uts 各端编译器表现不一致，见 playFor 那条）
   // 【封点】/【褪点】挑的那几张：对方手里「点数 = 对方角色卡上印着的点数槽」的牌（0 点槽也算）。
   // byFoe = 发动的是庄家，「对方」就是玩家（myRole）。对方没选角色（或是闯关庄家，不在 DRAW_ROLES 里）→ 一张没有
   function slotRankHits(byFoe : boolean) : number[] {
@@ -15806,7 +15940,7 @@
       + (byFoe ? '你' : '庄家') + '手里 ' + z + ' 张 0 点牌，全堆 −' + (3 * z) + '。'
   }
 
-  // 浑水能选的位置：对方还没置 0 的那几张（置 0 的明置着，看得见，不选 —— 不漏信息）
+  // 迷雾能选的位置：对方还没置 0 的那几张（置 0 的明置着，看得见，不选 —— 不漏信息）
   function murkPool(byFoe : boolean) : number[] {
     const theirs = byFoe ? hand.value : foeHand.value
     const out : number[] = []
@@ -15819,7 +15953,7 @@
   }
 
   // 【腐蚀】〔2026-11-16 用户定关键词〕要置 0 之前先看一眼：对方手牌都已经是 0 点 → 对方先抽 1 张（这张就是这一次置 0 的目标）。
-  // 返回这一次有没有能置 0 的牌（牌库空、抽不到 → false，这一次不发动）。浑水 / 缩水 / 回水三处共用 —— 复制一份逻辑，两份必然分叉
+  // 返回这一次有没有能置 0 的牌（牌库空、抽不到 → false，这一次不发动）。迷雾 / 缩水 / 回蚀三处共用 —— 复制一份逻辑，两份必然分叉
   function corrodeReady(byFoe : boolean) : boolean {
     if (murkPool(byFoe).length > 0) {
       return true
@@ -15849,7 +15983,7 @@
     afterPlayTail(false, skills, TAIL_EBB)
   }
 
-  // 浑水：你盲选了庄家第 index 张
+  // 迷雾：你盲选了庄家第 index 张
   function onMurk(index : number) {
     if (!murkPending.value) {
       return
@@ -15857,7 +15991,7 @@
     if (index < 0 || index >= foeHand.value.length || isDead(foeHand.value[index])) {
       return
     }
-    markDead(false, index, true, '浑水')
+    markDead(false, index, true, '迷雾')
     // 明置：翻开这一张（foeOpen 读 foeShown）
     foeShown.value = withFlag(foeShown.value, index)
     murkLeft.value = murkLeft.value - 1
@@ -15870,7 +16004,7 @@
     askNext()
   }
 
-  // 回水：手里还有能贴收零的牌吗（J / 无点数 / 贴过的不算）
+  // 回蚀：手里还有能贴收零的牌吗（J / 无点数 / 贴过的不算）
   function backTagRoom(byFoe : boolean) : boolean {
     const mine = byFoe ? foeHand.value : hand.value
     for (let i = 0; i < mine.length; i++) {
@@ -15881,7 +16015,7 @@
     return false
   }
 
-  // 回水第一下：你盲选了庄家第 index 张 → 置 0（明置）→ 接着等你贴收零
+  // 回蚀第一下：你盲选了庄家第 index 张 → 置 0（明置）→ 接着等你贴收零
   function onBackwater(index : number) {
     if (!backPending.value) {
       return
@@ -15890,7 +16024,7 @@
       return
     }
     backPending.value = false
-    markDead(false, index, true, '回水')
+    markDead(false, index, true, '回蚀')
     foeShown.value = withFlag(foeShown.value, index)
     if (backTagRoom(false)) {
       backTagPending.value = true
@@ -15899,7 +16033,7 @@
     askNext()
   }
 
-  // 回水第二下：你挑中了自己第 index 张贴【收零】（-1 表示不贴）
+  // 回蚀第二下：你挑中了自己第 index 张贴【收零】（-1 表示不贴）
   function onBackTag(index : number) {
     if (!backTagPending.value) {
       return
@@ -15914,7 +16048,7 @@
       message.value = message.value + ' ' + backTagName.value + '：收零没贴。'
     }
     backTagPending.value = false
-    backTagName.value = '回水'
+    backTagName.value = '回蚀'
     askNext()
   }
 
@@ -16192,11 +16326,11 @@
     // ---- 搜过牌库就**洗一遍**（【获取下一张】词条写明的）----
     //
     // 洗这一下是**有意的限制**，不是整洁癖：不洗的话「从顶往下第一张」
-    // 是确定的，于是观潮 / 择饵 / 活水 一看牌库顶就能把整条连锁**排好**
+    // 是确定的，于是观星 / 择符 / 活水 一看牌库顶就能把整条连锁**排好**
     //（野火一局要取好几张）—— 那不是给信息类技能开兑现口子，
     // 那是把随机性整段删掉。洗了之后它退回「一张随机的符合牌」。
     //
-    // 副作用要记住：**它会毁掉你自己攒的情报**。刚用观潮看完牌库顶
+    // 副作用要记住：**它会毁掉你自己攒的情报**。刚用观星看完牌库顶
     // 再打一张野火，那两张就白看了 —— 于是「信息类 + 检索类」变成
     // 一个要排顺序的组合，而不是无脑叠加。
     //
@@ -16293,7 +16427,7 @@
   //
   // **它是任意张的**，所以点一张只洗一张、`swapPending` 不关，
   // 要靠那颗钮（index < 0）或者手牌点空了才收尾 ——
-  // 这跟冻结 / 择饵那种「挑完就走」的 pending 不一样，别照抄它们
+  // 这跟冻结 / 择符那种「挑完就走」的 pending 不一样，别照抄它们
   function onSwap(index : number) {
     if (!swapPending.value) {
       return
@@ -16317,14 +16451,14 @@
     askNext()
   }
 
-  // 倒饵：你挑中了第 index 张要塞给庄家（-1 表示「给完了 / 不给」）。
+  // 转嫁：你挑中了第 index 张要塞给庄家（-1 表示「给完了 / 不给」）。
   //
   // **跟 `onSwap` 逐句同构**，只有两处不同：
   //   牌的去向走 `doGiveBack`（进对方手里）而不是 `shuffleBack`（进牌库）；
   //   文案换了一套。
   // 两件同是「任意张」，所以收尾的形状也一样：点一张送一张、`baitPending`
   // 不关，靠那颗钮（index < 0）或者手牌点空了收尾 ——
-  // 别照冻结/择饵那种「挑完就走」的 pending 抄。
+  // 别照冻结/择符那种「挑完就走」的 pending 抄。
   //
   // ⚠ **这儿不设张数上限是有意的**：`desc` 写的就是「任意张」。
   //   模拟器那边 `BAIT_N=9` 跟 `=3` 逐位相同（打出 1 张后手里只剩 3 张，
@@ -16339,7 +16473,7 @@
       doGiveBack(false, index)
       baitDone.value = baitDone.value + 1
       if (baitDark.value) {
-        // 【暗饵】送过去的牌在庄家手里是暗牌（doGiveBack 先摘了它身上的手牌标签，这儿再贴上）；
+        // 【匿赠】送过去的牌在庄家手里是暗牌（doGiveBack 先摘了它身上的手牌标签，这儿再贴上）；
         // 不明置（doGiveBack 默认给的是明置的，而明置的暗牌会失效）—— 你自己记得给了什么，但牌面不翻开
         foeShown.value = withoutFlag(foeShown.value, foeShown.value.length - 1).concat([false])
         darkKey.value = darkKey.value.concat([card])
@@ -16347,7 +16481,7 @@
       } else {
         message.value = '你把 ' + name + ' 塞给了庄家。'
       }
-      // 还有牌就接着挑；点空了没得挑，自己收尾。暗饵封顶 2 张
+      // 还有牌就接着挑；点空了没得挑，自己收尾。匿赠封顶 2 张
       if (hand.value.length > 0 && !(baitDark.value && baitDone.value >= 2)) {
         return
       }
@@ -16358,12 +16492,12 @@
     baitDone.value = 0
     baitDark.value = false
     message.value = n > 0
-      ? (dark ? ('暗饵：你以暗牌交给庄家 ' + n + ' 张，回合末你会补新的。') : ('倒饵：你塞给庄家 ' + n + ' 张，回合末你会补新的。'))
+      ? (dark ? ('匿赠：你以暗牌交给庄家 ' + n + ' 张，回合末你会补新的。') : ('转嫁：你塞给庄家 ' + n + ' 张，回合末你会补新的。'))
       : '你没给牌。'
     askNext()
   }
 
-  // 滤饵：你挑中了第 index 张要退回牌库。
+  // 洗练：你挑中了第 index 张要退回牌库。
   //
   // 挑的动作同样借手牌那一排（见 onPlay 开头那道岔）。
   //
@@ -16398,7 +16532,7 @@
     const back = siftDone.value
     siftDrew.value = 0
     siftDone.value = 0
-    message.value = '滤饵：你摸了 ' + drew + ' 张、退回 ' + back + ' 张重洗。'
+    message.value = '洗练：你摸了 ' + drew + ' 张、退回 ' + back + ' 张重洗。'
     askNext()
   }
 
@@ -16437,7 +16571,7 @@
     return n
   }
   // 玩家点了第 index 张手牌：退回牌库。退掉它会凑不齐 triKeep 种花色就不让退
-  // 退牌那一行照滤饵 / 换水（takeFromHand + shuffleBack），不另写一份
+  // 退牌那一行照洗练 / 换水（takeFromHand + shuffleBack），不另写一份
   function onTri(index : number) {
     if (!triPending.value) {
       return
@@ -16526,7 +16660,7 @@
   //
   // 不是插在底下 —— 插底的话你数得出它什么时候回来，那就不叫「换掉」了。
   // 整副重洗而不是只洗一部分：洗一半的话剩下那半的顺序还是知道的，
-  // 而观潮刚看过的那两张正好在那一半里
+  // 而观星刚看过的那两张正好在那一半里
   function shuffleBack(card : PlainCard) {
     // 回了牌库就不再是谁的钥匙（见 dropFrostHand）
     dropFrostHand(card)
@@ -16669,7 +16803,7 @@
   function refill(byFoe : boolean) {
     // ---- 「什么时候补」有两条规则会拦它 ----
     //
-    // 【涨落】（角色，自己带）和【枯水】（庄家规矩，削玩家）是同一条机制
+    // 【涨落】（角色，自己带）和【枯竭】（庄家规矩，削玩家）是同一条机制
     // 的两头：**只有一张牌都打不出的时候才补**。
     //
     // 「一张牌都打不出」在这个玩法里约等于「手牌打空了」——
@@ -16683,7 +16817,7 @@
       return
     }
     let before = byFoe ? foeHand.value.length : hand.value.length
-    // 【零空】（布饵人）：点数为 0 的牌（被置 0 的牌）不占手牌数量 —— 只数不是 0 点的
+    // 【零空】（虚无行者）：点数为 0 的牌（被置 0 的牌）不占手牌数量 —— 只数不是 0 点的
     if (hasSpecial(byFoe, SP_ZEROFREE)) {
       const mine = byFoe ? foeHand.value : hand.value
       before = 0
@@ -16695,10 +16829,10 @@
     }
     let now = before
     const want = handLimit(byFoe)
-    // ---------- 【挑潮】：庄家补牌时从库顶两张挑一张 ----------
+    // ---------- 【择命】：庄家补牌时从库顶两张挑一张 ----------
     //
-    // 它是玩家【观潮】的庄家版，可**落点不一样**：观潮是「打出覆盖面里的
-    // 牌时触发一次」，挑潮是「每次补牌都挑」—— 所以它藏在 refill 里，
+    // 它是玩家【观星】的庄家版，可**落点不一样**：观星是「打出覆盖面里的
+    // 牌时触发一次」，择命是「每次补牌都挑」—— 所以它藏在 refill 里，
     // 而不是在技能触发那条路上。
     //
     // 另一张沉到库底，不是丢掉：牌是双方共用的那一副（见 baitFor 那段），
@@ -16725,7 +16859,7 @@
     }
   }
 
-  // 【挑潮】真正挑那一下：库顶 FOE_PICK_TOPS 张里挑一张进手，
+  // 【择命】真正挑那一下：库顶 FOE_PICK_TOPS 张里挑一张进手，
   // 剩下的沉到**库底**。
   //
   // 挑的标准是「这张现在打出去能钓几张」—— 跟 foePickCard 判断手牌
@@ -16790,7 +16924,7 @@
   // 这一方这回合补到几张。
   //
   // 底数 HAND_SIZE，被挂在牌上的两件技能一上一下地改：
-  //   **满篓**（自己打的）—— 自己 +1；
+  //   **博藏**（自己打的）—— 自己 +1；
   //   **窄口**（对方打的）—— 自己 −1。
   //
   // 两件都在场就互相抵掉，正好是底数 —— 那是对的，一个补一个削。
@@ -16798,7 +16932,7 @@
   // 而是把人出局，哪件技能都不该做到这个程度
   function handLimit(byFoe : boolean) : number {
     let want = HAND_SIZE
-    // 挂效果记的 byFoe 是**发动方**，所以「我的满篓」= heldOn(CREEL, 我)
+    // 挂效果记的 byFoe 是**发动方**，所以「我的博藏」= heldOn(CREEL, 我)
     if (heldOn(SK_CREEL, byFoe)) {
       want = want + 1
     }
@@ -16809,7 +16943,7 @@
     // ---- 角色那件常驻的，跟挂牌版叠加 ----
     //
     // 同名但是两件东西：挂牌版要「那张牌还在堆上」，角色版一直生效。
-    // 【满篓】手牌上限 5 张（+1）、【窄口】对方 3 张（−1）
+    // 【博藏】手牌上限 5 张（+1）、【窄口】对方 3 张（−1）
     if (hasSpecial(byFoe, SP_CREEL)) {
       want = want + 1
     }
@@ -16818,7 +16952,7 @@
     }
     // ---- 闯关庄家那两条（添手 / 掐口），跟上面两件同构 ----
     //
-    // 它们就是满篓和窄口的庄家版，所以**走同一个加减**而不是另开一条路：
+    // 它们就是博藏和窄口的庄家版，所以**走同一个加减**而不是另开一条路：
     // 「手牌上限」这件事在整个玩法里只该有一个算的地方，
     // 不然四条规则两两组合的时候一定有一组算错。
     //
@@ -16834,7 +16968,7 @@
     //
     // 它不是「±1」那一类，而是「这一方补牌补到几张」这件事本身改了
     //（6 张而不是 4 张）。上面那几件照旧叠加在它身上 ——
-    // 带涨落又挂着满篓就是峰值 7 张。
+    // 带涨落又挂着博藏就是峰值 7 张。
     //
     // **什么时候补**不在这儿，在 refill：涨落要「一张牌都打不出才补」
     if (hasSpecial(byFoe, SP_CYCLE)) {
@@ -16860,7 +16994,7 @@
   // 这一方还有牌打得出去吗（被冻住的不算）
   //
   // ⚠ **这个函数只数手牌**〔2026-10-26〕。
-  //   `refill`（往上找 `playableCount`）拿它判【涨落】/【枯水】那道闸 ——
+  //   `refill`（往上找 `playableCount`）拿它判【涨落】/【枯竭】那道闸 ——
   //   往里塞别的区就等于顺手改了那两件技能的行为。
   //   要「这一方动不动得了」问下面的 `canAct`。
   //   模拟器那边是同一个决定（`rules.js` 的 `playableCount` 同样不碰）。
@@ -16957,7 +17091,7 @@
       //
       // 一局里双方该打一样多的牌。平常自然成立（交替出牌），
       // 歪掉的来路是**牌不经「打出」就离场**那一类：
-      // 洪水（从牌库翻上堆）、填塘、守滩（从手上垫到堆上）、冻结（卡在手里）。
+      // 洪水（从牌库翻上堆）、填塘、筑壁（从手上垫到堆上）、冻结（卡在手里）。
       // 开局那道奇偶闸管不了它们 —— 它们是局内发生的。
       //
       // 实测这条能把奇数牌库那 1.21 分的摆动补回 43%（−0.90 → −0.38）。
@@ -16971,7 +17105,7 @@
       // ---- 只补一手，**必须限幅** ----
       //
       // 奇数牌库下差额正好是 1，补一手就齐了。可差额**能大于 1**：
-      // 庄家规矩【再钩】（钓到牌可以再打一张）让它一个回合打两张，
+      // 庄家规矩【连击】（钓到牌可以再打一张）让它一个回合打两张，
       // 而那时轮次和「谁少打」会错开 —— 不限幅的话这儿会一路放行，
       // 把「各打 3 手」变成「把手牌全打完」，终局那个阶段就又长回去了。
       //〔⚠ TAIL_PLAYS=6 之下这道闸**更要紧**：6 已经离「打完手牌」
@@ -17013,7 +17147,7 @@
   // 它带来的病，也是真的：**剩堆有了收款人，「让牌卡在堆上」就开始偏向
   // 那个人**。而偶数牌组下剩堆每一局都归先手，于是「让堆变厚」整整一族
   // 全飘了（死水 D +2.87 / 寒流 +1.37 / 霜降 +1.37 / 藏凌 +1.10 /
-  // 净水 +1.35 / 逆流船夫 +8.42 / 深海钓手 +5.95）。
+  // 净水 +1.35 / 逆时术士 +8.42 / 深海钓手 +5.95）。
   //
   // **换掉它的是 TAIL_PLAYS**（见那段）：不去配平最后一手的价值，而是
   // 把产生那个价值的阶段删掉。那样剩堆就不需要收款人 —— 上面那一族的 D
@@ -17044,8 +17178,8 @@
   }
 
   // 你收到牌的那一下（匹配线、扫堆线两个计分点都调）：
-  //   沉船打捞人「用 0 点牌收到牌」—— 你这一手打出的是被置 0 的牌；
-  //   桃汛客「一局用 ♥ 牌收牌 HARD_HEART_GOAL 次」—— 你这一手打出的是 ♥（失去花色的不算），同一张只数一次
+  //   亡灵术士「用 0 点牌收到牌」—— 你这一手打出的是被置 0 的牌；
+  //   赤红女巫「一局用 ♥ 牌收牌 HARD_HEART_GOAL 次」—— 你这一手打出的是 ♥（失去花色的不算），同一张只数一次
   function noteHardCatch(n : number) {
     if (n <= 0 || myLastCard == null) {
       return
@@ -17140,7 +17274,7 @@
     rewardText.value = (myScore.value == foeScore.value ? '平局算过关 · ' : '')
       + '获得 ' + gain + ' 金币（胜分 +' + margin
       + (interest > 0 ? '，利息 +' + interest : '') + '）'
-    // 赌船荷官的困难成就：一局收牌正好 HARD_SCORE_GOAL 张**并赢下**（平局不算）
+    // 幸运赌徒的困难成就：一局收牌正好 HARD_SCORE_GOAL 张**并赢下**（平局不算）
     if (myScore.value == HARD_SCORE_GOAL && myScore.value > foeScore.value) {
       const name = hardGoal('reckon')
       if (name != '') {
@@ -17270,7 +17404,7 @@
         }
       }
     }
-    // ---- 【磁针】后半句〔2026-11-09〕：匹配失败 → 抽 1 张，那张带上【磁极】（照下面电钩那段，同一个读法）----
+    // ---- 【磁针】后半句〔2026-11-09〕：匹配失败 → 抽 1 张，那张带上【磁极】（照下面引雷那段，同一个读法）----
     if (poleFailArmed[si]) {
       poleFailArmed[si] = false
       if (!tookThisHand[si]) {
@@ -17282,11 +17416,11 @@
           + (got != null ? '没钓上，摸了 1 张，它带上了磁极。' : '没钓上，牌库空了没摸到。')
       }
     }
-    // 〔【磁钩 / 电钩】后半句「匹配失败 → 抽 1 张，那张带上【正电】」原先在这儿兑现（2026-11-05 加）。
-    //   2026-11-17 电钩换成「展示至少 2 张同颜色手牌，带上【正电】」，这一段删了 —— hookArmed 不再上膛。
+    // 〔【磁钩 / 引雷】后半句「匹配失败 → 抽 1 张，那张带上【正电】」原先在这儿兑现（2026-11-05 加）。
+    //   2026-11-17 引雷换成「展示至少 2 张同颜色手牌，带上【正电】」，这一段删了 —— hookArmed 不再上膛。
     //   「匹配失败」的读法（被抢走不算失败）留给照它写的【磁针】后半句（poleFailArmed，上面那一段）〕
-    // ---- 【压舱】〔2026-11-10〕：查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）----
-    // 你：先点他一张（借摘钩那块 takeSkill = SK_PRESS），再点堆上一张（借镜水那块 pilePick = SK_PRESS），点完 tagResumeGo 接回来；
+    // ---- 【置换】〔2026-11-10〕：查看对方手牌，选 1 张跟堆上 1 张交换（不能选堆上已有点数的牌）----
+    // 你：先点他一张（借摄物那块 takeSkill = SK_PRESS），再点堆上一张（借镜阵那块 pilePick = SK_PRESS），点完 tagResumeGo 接回来；
     // 庄家：所有合法组合都试一遍，挑「它下一手最多收几张 − 你下一手最多收几张」最大的（照模拟器 foeSwapFor）。没有合法组合就不发动
     if (foeSwapArmed[si]) {
       foeSwapArmed[si] = false
@@ -17321,7 +17455,7 @@
     return false
   }
 
-  // 一张牌打完的后半段：推牌 / 逆涌 / 堆牌 / 交回合
+  // 一张牌打完的后半段：推牌 / 抑王 / 堆牌 / 交回合
   function endPlayRest(byFoe : boolean) {
     // 【燃烧】那一步**不在这儿了**（2026-10-14）—— 它挪到了匹配**之前**
     // （afterPlayTail 的末尾，见 burnStep）。
@@ -17339,10 +17473,10 @@
       surgeFor(byFoe, surgePending)
       surgePending = 0
     }
-    // ---- 【逆涌】（常驻技）：对方打出 J 之后，**堆牌 4** ----
+    // ---- 【抑王】（常驻技）：对方打出 J 之后，**堆牌 4** ----
     //
     // 〔2026-10-28 从「推牌 2 层」换过来，用户原话「用堆牌 取代 推牌」/
-    //  「逆涌：对方打出 J 之后，堆牌4」。张数没变（2 层 × 2 张 = 4 张），
+    //  「抑王：对方打出 J 之后，堆牌4」。张数没变（2 层 × 2 张 = 4 张），
     //   变的是时机和归属〕
     //
     // **持有者是 `!byFoe`，触发者是 `byFoe`** —— 效果是「**对方**打出 J」。
@@ -17358,14 +17492,14 @@
     //
     // 判 J 用 `lastPlayed`：这会儿牌早离手了（可能还被收走了），
     // 所以不能查手牌，而 `lastPlayed` 是这一手打出那张的唯一记录
-    // 〔2026-11-03【逆涌】改成「对方打出 J 只收走堆顶 3 张」（判在 catchStart 的 J 那一支），
+    // 〔2026-11-03【抑王】改成「对方打出 J 只收走堆顶 3 张」（判在 catchStart 的 J 那一支），
     //   这儿原先那句「对方打出 J 之后堆牌4」（heapStage(!byFoe, JSURGE_HEAP)）删了。上面那段注释讲的是堆牌版，过去时读〕
     // ---- 【堆牌】兑现〔2026-10-26〕：取牌盖进**指定方**的堆牌区 ----
     // 〔⚠ 2026-10-28 用户把它定成两个关键词：【堆牌 N】盖进自己的、
     //   【对方堆牌 N】盖进对方的。`byFoe` 就是那个「谁」——
     //   现有这一处调用传出牌方 = 【堆牌 N】那一半〕
     //
-    // 排在推牌 / 逆涌**后面**是有意的：三件都从牌库取牌，而推牌取的那几张
+    // 排在推牌 / 抑王**后面**是有意的：三件都从牌库取牌，而推牌取的那几张
     // 当场落堆、会改变堆的形状 —— 堆牌下回合才落，所以它读不到也不在乎
     // 谁先取。真正要紧的是三件都在 `passTurn` **前面**（牌库张数）。
     //
@@ -17374,9 +17508,9 @@
     // 〔旧叫法是「够不够一整层」—— 2026-10-28 层级删了，闸判的是张数〕。
     // 那是对的 —— 先发生的先拿。
     //
-    // ⚠ 2026-10-28 起**逆涌也走 heapStage 了**，所以这个挂点上可能有
-    //   **两次堆牌、盖给不同的人**（逆涌盖给 `!byFoe`、这一处盖给 `byFoe`）。
-    //   两次各自判一遍牌库那道闸，**顺序决定谁卡住** —— 逆涌在前，
+    // ⚠ 2026-10-28 起**抑王也走 heapStage 了**，所以这个挂点上可能有
+    //   **两次堆牌、盖给不同的人**（抑王盖给 `!byFoe`、这一处盖给 `byFoe`）。
+    //   两次各自判一遍牌库那道闸，**顺序决定谁卡住** —— 抑王在前，
     //   所以牌库见底时它先拿到。那是对的（先发生的先拿），
     //   但别把两次合成一次调用：盖给的人不一样
     if (heapPending > 0) {
@@ -17424,7 +17558,7 @@
   //
   // 四种处理里只有「置 0」和「洗回再翻」保得住**恰好 2 张/层**，
   // 而「恰好偶数张」是奇偶那道闸的全部依据（撞上就停会让张数变成不定）。
-  // 两档都量过（口径 `all`、江口闸官 A 槽、20000 局、受害方躲 2 档）：
+  // 两档都量过（口径 `all`、封印师 A 槽、20000 局、受害方躲 2 档）：
   //
   //   洗回再翻  X **+2.42**
   //   **置 0**  X **+2.19**   ← 定稿
@@ -17434,7 +17568,7 @@
   //   **零新规则** —— 「置 0」是词表里定死的词，而且跟现有三条线自动咬合
   //     （见底收走「点数为 0」的牌、撒网把 0 当偶数、磁钩的 0+1 钩得到 A）。
   //     洗回那档要给玩家多讲一句「翻上来又塞回去」。
-  //   **不碰牌库顺序** —— 洗回就是洗牌，而洗牌会冲掉观潮 / 择饵 / 活水
+  //   **不碰牌库顺序** —— 洗回就是洗牌，而洗牌会冲掉观星 / 择符 / 活水
   //     刚看到的牌序。那一项**反噬下饵的人**（对手踩了我的标签、顺手清掉
   //     我攒的情报），玩家还算不出来；**而模拟器量不到它**
   //     （那套 AI 不经营牌序）—— 所以 +2.42 里有一部分是虚的。
@@ -17451,7 +17585,7 @@
   //
   // ---- 这个函数是抽出来共用的，别把它内联回去〔2026-10-26〕 ----
   //
-  // 两个调用方：`surgeFor`（推牌 / 逆涌）和 `heapFlush`（堆牌区落堆）。
+  // 两个调用方：`surgeFor`（推牌 / 抑王）和 `heapFlush`（堆牌区落堆）。
   // 【堆牌】的词条写的是「按【推牌】的规矩落到堆上」—— 那句**引用**
   // 在代码这边就该是一次真正的共用，不是复制一份看起来一样的。
   //
@@ -17508,7 +17642,7 @@
 
   // ---------- 【堆牌】兑现（上）：从牌库取牌，盖进指定方的堆牌区 ----------
   //
-  // 挂点在 `endPlay`，紧跟推牌 / 逆涌后面 —— 跟推牌**同一个位置、同样的两条理由**：
+  // 挂点在 `endPlay`，紧跟推牌 / 抑王后面 —— 跟推牌**同一个位置、同样的两条理由**：
   //
   //   在 endPlay = 这一手全部结算完了（词条写的是「这一手结算完之后」），
   //     而「没牌可打、跳过回合」那几条路直接调 passTurn、不经这儿，
@@ -17554,7 +17688,7 @@
       }
     }
     // ⚠ 这个前缀里的 `byFoe` 是**区的主人**，不是动手的人
-    //〔2026-10-28 改的措辞〕—— 【对方堆牌 N】和【逆涌】都会盖进
+    //〔2026-10-28 改的措辞〕—— 【对方堆牌 N】和【抑王】都会盖进
     // 「不是出牌方」的那个区，所以原来那个 '庄家堆牌：' 会读成
     // 「庄家堆的牌」。写成「（庄家那边）」就只说区在谁那儿，不认领动作
     const whose = byFoe ? ' 堆牌（庄家那边）：' : ' 堆牌（你这边）：'
@@ -17746,7 +17880,7 @@
   // 连竿：**收手**。
   //
   // againPending 已经在 passTurn 里清掉、againUsed 已经立起来了，所以
-  // 再调一次 passTurn 会直接走后半段（过期护饵、走水、补牌、交回合）——
+  // 再调一次 passTurn 会直接走后半段（过期护饵、噬底、补牌、交回合）——
   // 不用把那一段抄一遍，也就不会漏掉其中某一步
   function onAgainSkip() {
     if (!againWaiting.value) {
@@ -17805,7 +17939,7 @@
         } else {
           // 你自己决定：点手牌就是加打，点「收手」走 onAgainSkip。
           // **不在这儿 return 掉交接**也不行 —— 回合还没结束，
-          // 得等你做完那个决定（跟观潮 / 换水那几块 pending 一个结构）
+          // 得等你做完那个决定（跟观星 / 换水那几块 pending 一个结构）
           message.value = message.value + ' 连竿：可以再打一张，也可以收手。'
           againWaiting.value = true
           return
@@ -17820,7 +17954,7 @@
     expireGuards(byFoe)
     // 【燎原】原先在这儿蔓延（每回合末一次）。改成了**每打一张牌蔓延一次**，
     // 挪到 endPlay —— 这儿还会被「没牌可打、跳过回合」那几条路调到，那不算打牌
-    // ---------- 【走水】：堆养过 LEAK_DEEP 张就从底下漏 ----------
+    // ---------- 【噬底】：堆养过 LEAK_DEEP 张就从底下漏 ----------
     //
     // 摆在「回合末」：连竿那条路在上面 return 了，
     // 所以加打的那一张**不额外漏一次**（一个回合漏一格，那是它的速度）。
@@ -17829,7 +17963,7 @@
     // 而它**自限**：漏一张就回到阈值上，所以它实际是把堆钉在 LEAK_DEEP 张，
     // 不是无底洞。不用再写一条限幅
     if (hasFoeSpecial('leak') && pile.value.length > LEAK_DEEP) {
-      dropBottomToFoe('走水')
+      dropBottomToFoe('噬底')
     }
     // 【抢牌】「第一个打出匹配的一方先补牌」〔2026-11-03 用户定〕：还有被抢方的尾巴要接（stealTailSide 不空）时，
     // 这一手是**抢牌方**的 —— 先不补，记下来，等 drainStealTails 把被抢方补完再补。
@@ -17866,7 +18000,7 @@
   // 交回合的最后两步。单独拎出来是因为 `drainStealTails` 可能停在半路，
   // 而回来那一下要从这儿接着走（见 onChainLink / onHoldTag）
   function passTurnTail(byFoe : boolean) {
-    // 【甩货】：你这回合补牌摸到 0 点牌 —— 交回合之前问（问完 onGive 再调回这儿）
+    // 【弃厄】：你这回合补牌摸到 0 点牌 —— 交回合之前问（问完 onGive 再调回这儿）
     if (!byFoe && hasSpecial(false, SP_ZHANDGIVE) && giveReady()) {
       giveResumeTail = true
       giveOpen.value = true
@@ -17884,7 +18018,7 @@
 
   // 回合开始**不摸牌** —— 牌是上一回合结束时补好的（见 passTurn 的 refill）
   function startMyTurn() {
-    // 【安检】：庄家上回合抽的牌先过你的手（见 drawFor / onInspect）。逐张确认完再接着走这个回合
+    // 【鉴定】：庄家上回合抽的牌先过你的手（见 drawFor / onInspect）。逐张确认完再接着走这个回合
     if (inspectPending.value.length > 0) {
       inspectOpen.value = true
       return
@@ -17905,7 +18039,7 @@
       }
       redGiftPending.value = [] as PlainCard[]
     }
-    // 【甩货】：庄家回合里你摸到的 0 点牌（抢牌补牌之类），回合开头问
+    // 【弃厄】：庄家回合里你摸到的 0 点牌（抢牌补牌之类），回合开头问
     if (hasSpecial(false, SP_ZHANDGIVE) && giveReady()) {
       giveResumeTail = false
       giveOpen.value = true
@@ -17929,9 +18063,9 @@
     // 手里有牌、可全被冻住了：**当场补牌**，补到能打的就接着打（跟庄家那边 foeTurn 里那条是一对）。
     //
     // 补牌原本只在回合末（passTurn → refill）。全冻住的话这个回合打不出牌、结束不了，
-    // 就永远走不到那一步 —— 碰上【枯水】（打不出牌时才补）整局卡死：
+    // 就永远走不到那一步 —— 碰上【枯竭】（打不出牌时才补）整局卡死：
     // 剩一张冻着的牌，它在等「打不出牌」，而那正是现在。
-    // refill 只数能打的牌（见 playableCount），所以枯水下这儿也补得上。
+    // refill 只数能打的牌（见 playableCount），所以枯竭下这儿也补得上。
     // 牌库空了补不上，才跳过这回合（双方都动不了由 checkOver 收摊）。
     if (playableCount(false) == 0) {
       const before = hand.value.length
@@ -17985,12 +18119,17 @@
       onStealWith(index)
       return
     }
+    // 【截咒】问你截不截：点手牌是「拿这张截」
+    if (stealCutPending.value) {
+      onStealCutWith(index)
+      return
+    }
     // 换水等着你挑的时候，点手牌是「挑这张塞回去」，不是「打出去」
     if (swapPending.value) {
       onSwap(index)
       return
     }
-    // 倒饵同理：点手牌是「挑这张塞给庄家」
+    // 转嫁同理：点手牌是「挑这张塞给庄家」
     if (baitPending.value) {
       onBait(index)
       return
@@ -18000,7 +18139,7 @@
       onTri(index)
       return
     }
-    // 滤饵同理：点手牌是「挑这张退回牌库」（刚摸上来的那几张也在这一排里，
+    // 洗练同理：点手牌是「挑这张退回牌库」（刚摸上来的那几张也在这一排里，
     // 一样能退 —— 「从摸的和原有的里一起挑」是这件技能的全部机制）
     if (siftPending.value) {
       onSift(index)
@@ -18015,12 +18154,12 @@
       onLockKey(index)
       return
     }
-    // 镜水第二步：点手牌是「展示这张」
+    // 镜阵第二步：点手牌是「展示这张」
     if (reflectHandPending.value) {
       onReflectHand(index)
       return
     }
-    // 拟饵第二步：点手牌是「让这张变成那张堆牌」
+    // 拟形第二步：点手牌是「让这张变成那张堆牌」
     if (mimicHandPending.value) {
       onMimicHand(index)
       return
@@ -18035,7 +18174,7 @@
       onPoleHand(index)
       return
     }
-    // 电钩：点手牌是「亮这张」
+    // 引雷：点手牌是「亮这张」
     if (hookShowPending.value) {
       onHookShowHand(index)
       return
@@ -18050,7 +18189,7 @@
       onZeroDraft(index)
       return
     }
-    // 升钩同理：点手牌是「把这张变成 J」
+    // 升格同理：点手牌是「把这张变成 J」
     if (nextJackPending.value) {
       onNextJack(index)
       return
@@ -18060,7 +18199,7 @@
       onFadeTag(index)
       return
     }
-    // 回水同理（第二下）
+    // 回蚀同理（第二下）
     if (backTagPending.value) {
       onBackTag(index)
       return
@@ -18137,9 +18276,9 @@
       uni.showToast({ title: '这张被冻住了，打不出去', icon: 'none' })
       return
     }
-    // 【催钩】手里有 J 就得先打 J
+    // 【催王】手里有 J 就得先打 J
     if (jackLocked(hand.value[index])) {
-      uni.showToast({ title: '催钩：手里有 J，必须先打 J', icon: 'none' })
+      uni.showToast({ title: '催王：手里有 J，必须先打 J', icon: 'none' })
       return
     }
     const card = hand.value[index]
@@ -18476,15 +18615,15 @@
     }
     const hue = hasTrigger(skills, SK_HUE)
     const cast = !specialOnly && hasTrigger(skills, SK_CAST)
-    // ---- 【伏流】也要在这儿估，否则庄家永远不会主动打它 ----
+    // ---- 【百变】也要在这儿估，否则庄家永远不会主动打它 ----
     //
     // 这个函数是庄家挑牌时唯一能看见「不走点数判定的收牌技能」的地方
     //（注释在 foePickCard 那边：不单独估一次，AI 就会把一张能扫掉半个堆的
-    // 牌当普通饵打出去）。伏流是第四条匹配线，`catchStart` 对它一概返回 −1，
+    // 牌当普通饵打出去）。百变是第四条匹配线，`catchStart` 对它一概返回 −1，
     // 所以漏在这儿的后果不是「庄家打得笨一点」，是**这件技能在庄家手里
     // 整件作废** —— 而那会让模拟器量出来的两侧严重失衡
-    // 〔2026-11-10 伏流换效果后它自己不走顺子 —— 原来这儿 straightCount，删了〕
-    // 新伏流贴的钥匙带着【通配】→ 按「自己当通配」估（跟原来伏流同一个估法）
+    // 〔2026-11-10 百变换效果后它自己不走顺子 —— 原来这儿 straightCount，删了〕
+    // 新百变贴的钥匙带着【通配】→ 按「自己当通配」估（跟原来百变同一个估法）
     // 【传顺】〔2026-11-10〕变成手里最大的点数 + 手牌通配 —— 见 flowAllCount
     if (hasTrigger(skills, SK_FLOWALL)) {
       return flowAllCount(card, byFoe)
@@ -18492,16 +18631,16 @@
     if (flowKeyOn(card) && isWild(card)) {
       return straightCount(card, byFoe)
     }
-    // 【流钥】/【顺递】贴过的牌 —— 漏这一行 = AI 看不见这条线 = 整件作废（照 flowTagOn）。
-    // 它不当通配（见 straightCore 的 selfWild），所以估法跟伏流不同：flowKeyCount
+    // 【衔咏】/【顺递】贴过的牌 —— 漏这一行 = AI 看不见这条线 = 整件作废（照 flowTagOn）。
+    // 它不当通配（见 straightCore 的 selfWild），所以估法跟百变不同：flowKeyCount
     if (flowKeyOn(card)) {
       return flowKeyCount(card, byFoe)
     }
-    // 〔2026-11-09 续流换成「手牌都带上【顺子匹配】」，它自己不走顺子 —— 原来这儿按顺子标签估它，删了〕
+    // 〔2026-11-09 连咏换成「手牌都带上【顺子匹配】」，它自己不走顺子 —— 原来这儿按顺子标签估它，删了〕
     // 【易流】走的是 straightCore 同一条路，所以预估也共用 straightCount。
     //
     // ⚠ **模拟器那边漏这一行栽过一次，而症状完全是另一回事**：
-    // 量出来易流 1.42 而同参数的伏流 2.53，差 1.11 —— 我先后怀疑了
+    // 量出来易流 1.42 而同参数的百变 2.53，差 1.11 —— 我先后怀疑了
     // opt、chainHarvest 的第六参、执行顺序、局面长度，最后才查到预估这儿。
     // 症状跟上面那句注释一致：**这件技能在 AI 手里几近作废**
     //（它不知道打这张能收几张，于是从不主动打，只在当饵时顺手发动）。
@@ -18513,7 +18652,7 @@
     if (hasTrigger(skills, SK_WADE)) {
       return wadeCount(card, byFoe)
     }
-    // 插流 / 调序 / 换序同理 —— catchStart 对顺序匹配一概返回 −1
+    // 插序 / 调序 / 换序同理 —— catchStart 对顺序匹配一概返回 −1
     // （换序 / 调序的 count **不含**换牌试算，是下限 —— 照易流）
     if (hasTrigger(skills, SK_ORDERINS) || hasTrigger(skills, SK_ORDERPILE)
       || hasTrigger(skills, SK_ORDERSWAP)) {
@@ -18544,7 +18683,7 @@
     // 收色是**散收**（整堆所有同花色），撒网改成了**连续段**
     // （从一头往左连着收同奇偶）。原先两件都是散收，一个循环就够。
     //
-    // 一张牌可能同时触发两件（带花色槽的角色，比如镜湖占卜师的 ♥3 ——
+    // 一张牌可能同时触发两件（带花色槽的角色，比如水晶占卜师的 ♥3 ——
     // 花色槽一件、点数槽一件），所以标记叠加，最后数一遍
     const marked : boolean[] = []
     for (let i = 0; i < size; i++) {
@@ -18598,7 +18737,7 @@
     return n > 0 ? n + 1 : 0
   }
 
-  // ---------- 【伏流】能凑出几张（庄家挑牌的预估） ----------
+  // ---------- 【百变】能凑出几张（庄家挑牌的预估） ----------
   //
   // 跟 straightFor 算的是同一件事，差别只有一处：**这儿是落堆之前估的**，
   // 所以堆里还没有它自己 —— 不用跳过 at0，整堆都是候选。
@@ -18610,10 +18749,10 @@
   //
   // ---- 这儿**没有**模拟「贴标签」那一步，所以它是个下限 ----
   //
-  // 伏流实际会先贴一张通配再判，而贴哪张要试一遍（pickWildAt）。
+  // 百变实际会先贴一张通配再判，而贴哪张要试一遍（pickWildAt）。
   // 在挑牌阶段把那一层也模拟一遍的代价是「堆上每格 × 每张手牌」，
   // 而挑牌一回合要跑十几次。所以这儿按**不贴标签**估 ——
-  // 于是庄家会**低估**伏流，那跟源码里逆流那个已知缺口同一性质
+  // 于是庄家会**低估**百变，那跟源码里逆行那个已知缺口同一性质
   //（挑牌阶段不知道「这张沉底能钓到」）。
   //
   // 它只影响庄家打得多好，不影响规则
@@ -18644,7 +18783,7 @@
   }
 
 
-  // 顺子标签那张（流钥 / 顺递）能凑出几张 —— **不当通配**，按自己的点数参与。
+  // 顺子标签那张（衔咏 / 顺递）能凑出几张 —— **不当通配**，按自己的点数参与。
   // 落堆之前估的：它还不在堆上，所以把它的点数钉到「它将落的那一格」（堆顶外一格），
   // 链上必须有那一格（跟 straightCore 的 mustAt 同口径；模拟器 bestChain 的 'own' 钉法同一条）
   function flowKeyCount(card : PlainCard, byFoe : boolean) : number {
@@ -18718,7 +18857,7 @@
 
   // ---------- 【顺序匹配】能收几张（庄家挑牌的预估） ----------
   //
-  // 落堆之前估。插流穷举每一格；其余假设落在堆顶（换序 / 调序不含换牌试算）。
+  // 落堆之前估。插序穷举每一格；其余假设落在堆顶（换序 / 调序不含换牌试算）。
   function orderCount(card : PlainCard, byFoe : boolean, skills : number[]) : number {
     const size = pile.value.length
     const baseKeys : number[] = []
@@ -18726,7 +18865,7 @@
       baseKeys.push(orderKeyAt(i))
     }
     const myKey = orderCardKey(card, byFoe, skills)
-    // 〔2026-10-30 整堆档〕整堆有序才收、收就是整堆。插流能挑落点，其余只落堆顶
+    // 〔2026-10-30 整堆档〕整堆有序才收、收就是整堆。插序能挑落点，其余只落堆顶
     if (size + 1 < ORDER_FULL_MIN) {
       return 0
     }
@@ -19065,14 +19204,14 @@
 
   // 庄家要打的那张。能钓就挑钓得最多的（J、磁钩、钩顶都算在里面；J 堆上有牌就用，不攒着）。
   // 钓不到时：会记牌的挑外面剩得最少的点数当饵，不拿 J 当饵；
-  // 挑饵时触发护饵 / 窥视 / 搅水 / 观潮的牌，只要不比最安全的那张差 1 张以上就优先。
+  // 挑饵时触发护饵 / 窥视 / 搅水 / 观星的牌，只要不比最安全的那张差 1 张以上就优先。
   // 不会记牌的（浅滩前两关）钓不到就随手打
   function foePickCard() : number {
     // 新手关：完全随机，钓得到也不挑
     if (level.value.random) {
       return randomFree()
     }
-    // 【暗牌】〔2026-11-10〕庄家手里有暗牌（你的暗饵交过去的）：照模拟器 ai.js pickCard 那层 ——
+    // 【暗牌】〔2026-11-10〕庄家手里有暗牌（你的匿赠交过去的）：照模拟器 ai.js pickCard 那层 ——
     // 先只看明牌挑（临时把暗牌拿开、再走一遍下面的老逻辑）；挑出的那张能钓到（J / 配得上 / 特殊匹配有收成）就打它，
     // 钓不到就随机盲打一张暗牌（不打已知钓不到的明牌当饵）；全是暗牌就随机打
     if (!foeDarkBusy) {
@@ -19164,7 +19303,7 @@
       if (burnTake > 0) {
         caught = burnTake
       }
-      // 【空钩】这一段压着陷阱 → 折成负收成（照模拟器 trapPenalty）
+      // 【反噬】这一段压着陷阱 → 折成负收成（照模拟器 trapPenalty）
       caught = caught - trapPenaltyFoe(at, sink, card, skills)
       // ---- ⚠ 这条贪心**比的是张数，不是分**〔R4，2026-10-23 登记〕 ----
       //
@@ -19270,7 +19409,7 @@
       //   负的（`wants` −1.5），所以任何固定罚分都可能被某张牌的折扣翻过去。
       //   也不能写成 `continue` 过滤 —— 手里全是钓得到的牌时会一张都不剩
       const pen = heldOnce && catchStart(card, true, skills, false) >= 0
-      // 想当饵顺手发动的那几件。挂效果的几件（冻结、见底、窄口、满篓）
+      // 想当饵顺手发动的那几件。挂效果的几件（冻结、见底、窄口、博藏）
       // 也算 —— 它们正好要求「这张别钓到牌」，跟当饵是一回事
       //
       //〔窥视、照水 2026-10-16 删了，这儿跟着去掉两项。
@@ -19281,14 +19420,14 @@
         || hasTrigger(skills, SK_FREEZE)
         || hasTrigger(skills, SK_LOWTIDE) || hasTrigger(skills, SK_SWAP)
         || hasTrigger(skills, SK_PICK)
-        // 挂在牌上的两件（窄口、满篓）得让这张留在堆上 ——
+        // 挂在牌上的两件（窄口、博藏）得让这张留在堆上 ——
         // 所以「被钓走」对它们是真损失，不像下面那几件钓不钓到都发动
         || hasTrigger(skills, SK_NARROW) || hasTrigger(skills, SK_CREEL)
         // 动对方手牌、从牌库检索这几件，钓不钓到都照样发动 ——
         // 所以拿它们当饵是白赚一次效果
         || hasTrigger(skills, SK_PRESS) || hasTrigger(skills, SK_UNHOOK)
         || hasTrigger(skills, SK_SWAPCARD) || hasTrigger(skills, SK_TWIN)
-        // ⚠ **【倒饵】有意**不在这个列表里〔2026-10-27〕—— 跟下面滤饵
+        // ⚠ **【转嫁】有意**不在这个列表里〔2026-10-27〕—— 跟下面洗练
         //   那一条一模一样的处境：它结构上该在（塞牌给对方那一下跟
         //  「这张有没有钓中」完全无关，当饵白赚一次），而它上架时的
         //   X **+2.75** 和据此定的价 **85** 就是在「不在列表里」的 AI 下量的。
@@ -19304,7 +19443,7 @@
         // 〔2026-11-09 用户定「两件都要放 wants」〕引火「手牌都带上【燃烧】」、野火「【燃烧】，抽 1 张牌，跟堆底同颜色的手牌全部带上【燃烧】」
         //   贴火 / 抽牌都是钓不钓到都发动，当饵白赚一次。⚠ 引火模拟器 `ai.js` 那边早就在表里、这份一直没有（两份漂移），这次一起补
         || hasTrigger(skills, SK_KINDLE) || hasTrigger(skills, SK_WILD)
-        // ⚠ **【滤饵】有意**不在这个列表里〔2026-10-22〕。
+        // ⚠ **【洗练】有意**不在这个列表里〔2026-10-22〕。
         //
         // 它结构上该在（跟换水一样「钓不钓到都照样发动」），而且模拟器那边
         // 也不在 —— 它定稿那个 X=1.59 就是在「不在列表里」的 AI 下量的。
@@ -19318,7 +19457,7 @@
         //
         //   它们留下一条还管事的判据：**「钓不钓到都照样发动」的技能，
         //   拿来当饵是白赚一次效果** —— 所以 AI 该优先拿它们下饵。
-        //   那条现在由上面活着的几件撑着（压舱 / 摘钩动对方手牌，
+        //   那条现在由上面活着的几件撑着（置换 / 摄物动对方手牌，
         //   凝水那三件不落堆）。
         //   ⚠ 这一句里原先还列着**对换**和**同号** —— 两件都删了
         //  （对换 2026-10-27、同号 2026-10-26），常量现在是 −1、
@@ -19345,12 +19484,12 @@
       //   能从当前局面直接算出来，就在这儿按那个量加减分，别去估概率。
       //   权重取「几张起它该压过风险项」倒推（抄底当年取 0.8，
       //   正好是三张起压过下面沉底那条 +0.5×堆长）〕
-      // **沉底空钩是最危险的下饵**：那张躺在堆底，
+      // **沉底反噬是最危险的下饵**：那张躺在堆底，
       // 谁匹配到它就通吃整堆。所以当饵的时候要躲开它
       if (hasTrigger(skills, SK_SINK)) {
         score = score + pile.value.length * 0.5
       }
-      // 【空钩】垫牌对得上也会自动收 —— 打出去会收到陷阱的往后排（照模拟器挑饵循环那一条）
+      // 【反噬】垫牌对得上也会自动收 —— 打出去会收到陷阱的往后排（照模拟器挑饵循环那一条）
       const trapAt = catchStart(card, true, skills, false)
       if (trapAt >= 0 && trapPenaltyFoe(trapAt, false, card, skills) > 0) {
         score = score + 50
@@ -19489,11 +19628,11 @@
       return 'hold'
     }
     const skills = skillsOf(true, card)
-    // 【升钩】手里有比它大 1 个顺位的牌才打（模拟器 nextJackReady）
+    // 【升格】手里有比它大 1 个顺位的牌才打（模拟器 nextJackReady）
     if (hasTrigger(skills, SK_NEXTJACK)) {
       return nextJackHits(true, card).length > 0 ? 'ready' : 'hold'
     }
-    // 【对钩】手里另有一对、堆上有牌才打（模拟器 pairjack 的 hold）
+    // 【合璧】手里另有一对、堆上有牌才打（模拟器 pairjack 的 hold）
     if (hasTrigger(skills, SK_PAIRJACK)) {
       return pile.value.length > 0 && pairJackPair(true, card).length == 2 ? 'ready' : 'hold'
     }
@@ -19538,11 +19677,11 @@
     tideOrder.value = [] as number[]
     swapPending.value = false
     swapDone.value = 0
-    // 倒饵那两个同理（它跟换水同形，清法也同形）
+    // 转嫁那两个同理（它跟换水同形，清法也同形）
     baitPending.value = false
     baitDark.value = false
     baitDone.value = 0
-    // 滤饵那三个一起清（照上面那条判据：**每个 pending 都要在这儿清**，
+    // 洗练那三个一起清（照上面那条判据：**每个 pending 都要在这儿清**，
     // 漏了的话重开一局时 canPlay 被它按着 → 整局点不动手牌）
     siftPending.value = false
     siftLeft.value = 0
@@ -19568,7 +19707,7 @@
     pickStep.value = 0
     pickPending.value = false
     pickTops.value = [] as PlainCard[]
-    // 分饵那三个一起清 —— 漏了的话重开一局时面板还挂着，
+    // 分赐那三个一起清 —— 漏了的话重开一局时面板还挂着，
     // 而 canPlay 被 giftPending 挡住 → **整局动不了**（那是最坏的一类漏）
     giftPending.value = false
     giftTops.value = [] as PlainCard[]
@@ -19697,6 +19836,9 @@
     // 而且这一件连提示条都还挂着）；五条并行栈漏了更糟 ——
     // 新一局第一次 passTurn 就会拿**上一局的牌对象**去摘钥匙、去补牌
     stealPending.value = false
+    stealCutPending.value = false
+    stealCutPlayed = null
+    stealCutThief = -1
     stealTarget.value = 0
     stealResumeFrom = 0
     stealResumeTo = 0
@@ -19739,7 +19881,7 @@
     // 跨局留着就成了「永久废牌」）。
     // 顺带把挑牌那两个状态也归零，免得上一局停在挑牌中途退出
     deadCards.value = [] as PlainCard[]
-    // 【通配】贴过的那几张、以及伏流那个重入闸
+    // 【通配】贴过的那几张、以及百变那个重入闸
     wildCards.value = [] as PlainCard[]
     flowPicked = false
     deadLeft.value = 0
@@ -19764,7 +19906,7 @@
         myLevels.value = mine.levels
         myLoadout.value = mine.loadout
         // **角色得记下来** —— 那件常驻特殊技能靠它现查（见 specialLevel）。
-        // 漏了这一步的话配装是对的，可满篓、稳钩那些一个都不生效
+        // 漏了这一步的话配装是对的，可博藏、稳钩那些一个都不生效
         myRole.value = mine.role
         // 庄家：配过就照配的，没配就按难度摇（困难只摇覆盖面最大的角色、简单只嵌一半的槽）
         const foe = finalFoeKit()
@@ -19839,7 +19981,7 @@
       // 拿去查 DRAW_ROLES 会读到一张完全无关的玩家角色卡（见 foeAt 那段）
       // 这一关抽到的庄家卡号（按章节洗过的，见 draw-save 的 foeNumOf）
       foeAt.value = foeNumOf(data, base.id)
-      // 【封竿】封的那个点数：从存档里摇定的那份标签上取（见 foeSealRank）。
+      // 【封数】封的那个点数：从存档里摇定的那份标签上取（见 foeSealRank）。
       // 要在 foeAt 设好之后 —— 没带这件的关号一律返回空串
       sealedRank.value = foeSealRank(data, base.id)
       // ---- 玩家：角色 + 每个槽嵌了什么 ----
@@ -19853,14 +19995,14 @@
       myRole.value = mine.role
     }
     deck.value = buildPlainDeck()
-    // ---- 【囤饵】：开局往牌库塞牌，**在算 rankTotal 之前** ----
+    // ---- 【囤符】：开局往牌库塞牌，**在算 rankTotal 之前** ----
     //
     // 顺序要紧：rankTotal 是「这一轮每个点数几张」，庄家的记牌
     //（outsideCount）全靠它。塞完再算，双方的账才对得上 ——
     // 先算的话庄家会一直以为 7 只有四张，而牌桌上有七张
     baitFor(false)
     baitFor(true)
-    // ---- 凑成「发完牌之后牌库是偶数」，**在囤饵之后、算 rankTotal 之前** ----
+    // ---- 凑成「发完牌之后牌库是偶数」，**在囤符之后、算 rankTotal 之前** ----
     //
     // 两头都是硬性的，理由见 trimDeck 那段。最多剔 1 张。
     //
@@ -19937,7 +20079,7 @@
     //
     // 原先它进先手的手牌（明着）。改成翻到堆上：先手第一手就有得钓，
     // 不再是「先手开在空堆上、后手先有得钓 → 抢牌之下先手先抢」那条链的起点。
-    // 依据见《摸打钓鱼-实测数据台账.md》第五十八节：抢牌让先手占优（各打 1 手时后手 −0.88），成因是「先有得钓的一方先被抢」；开局翻 1 张到堆上 + 牌组奇数 + 牌库一空就结束，实测后手分差 −0.00（SE 0.10）、胜率 48.7 : 48.5。
+    // 依据见《魔法匹配-实测数据台账.md》第五十八节：抢牌让先手占优（各打 1 手时后手 −0.88），成因是「先有得钓的一方先被抢」；开局翻 1 张到堆上 + 牌组奇数 + 牌库一空就结束，实测后手分差 −0.00（SE 0.10）、胜率 48.7 : 48.5。
     //
     // 走 pushPile + landVals（照洪水从牌库翻上堆那条）。挂在**你**名下（byFoe = false）：
     // 它不是谁打的，而挂庄家名下会让【硬壳】这类「庄家打出的牌」规矩误认它
@@ -19954,9 +20096,9 @@
         drawFor(false)
       }
     }
-    // 开局发牌到此为止 —— 【安检】只管这之后的抽牌
+    // 开局发牌到此为止 —— 【鉴定】只管这之后的抽牌
     dealt = true
-    // ---------- 【淤滩】：开局堆上就压着三张死牌 ----------
+    // ---------- 【泥沼】：开局堆上就压着三张死牌 ----------
     //
     // 从牌库顶垫 3 张，**点数一律算 0**（见 pushPile 的 vals 参数）——
     // 而 0 点牌互相也不匹配（设计文档『点数的全局规则』），所以这三张是真正的死牌：
@@ -20583,7 +20725,7 @@
     background-color: #f3ecff;
   }
 
-  /* 【浊水】藏住的那几格：压暗 + 虚边。
+  /* 【迷障】藏住的那几格：压暗 + 虚边。
      摆在 .card-burning 后面是有意的 —— 藏住的牌不该还亮着火的颜色
      （烧标已经被 v-if 关掉了，背景色也得跟着让位） */
   .card-murked {
@@ -20620,7 +20762,7 @@
   }
 
   /* 【石墙】：堆上障碍 / 手里预约同一个字。石色，跟冰蓝、火橙、通配紫都分得开 */
-  /* 【空钩】：深红，警示色 */
+  /* 【反噬】：深红，警示色 */
   .card-trap-tag {
     color: #b71c1c;
     font-size: 9px;
@@ -20698,7 +20840,7 @@
     margin-right: 1px;
   }
 
-  /* 手里带【顺子匹配】（流钥贴的）：靛蓝，跟 21 的绿、花的玫红分得开 */
+  /* 手里带【顺子匹配】（衔咏贴的）：靛蓝，跟 21 的绿、花的玫红分得开 */
   .hand-flow-tag {
     color: #1565c0;
     font-size: 9px;
@@ -20977,7 +21119,7 @@
     padding-left: 2px;
   }
 
-  /* 【逆流】的开关 */
+  /* 【逆行】的开关 */
   .sink-row {
     flex-direction: row;
     align-items: center;
@@ -21038,7 +21180,7 @@
     font-size: 13px;
   }
 
-  /* 择饵那块。沿用观潮那块的底色（都是「停下来等你选」的提示条），
+  /* 择符那块。沿用观星那块的底色（都是「停下来等你选」的提示条），
      但底下多一排牌 —— 它要你点牌面，不是点钮 */
   .pick-deck {
     margin-top: 8px;
@@ -21071,7 +21213,7 @@
     font-weight: bold;
   }
 
-  /* 分饵选中那张的角标：「给自己」/「给庄家」。
+  /* 分赐选中那张的角标：「给自己」/「给庄家」。
      两张的区别只靠**点的先后**，所以必须把它写在牌上 ——
      不写的话玩家点完两张就分不清哪张是给谁的了（而那正是这件技能的决策） */
   .gift-tag {
@@ -21081,7 +21223,7 @@
     margin-top: 2px;
   }
 
-  /* 观潮标了「沉」的那张：压暗、换成冷色框，角上挂个「沉」字。
+  /* 观星标了「沉」的那张：压暗、换成冷色框，角上挂个「沉」字。
      要排在 .pick-deck-card 后面 —— 同权重后来居上 */
   .tide-card-sunk {
     /* 角标伸出卡外一点，view 默认 overflow: hidden 会把它裁掉 */
@@ -21360,7 +21502,7 @@
      同权重后来居上」）。`.card-red` 在 11871，这一块在它后面 ——
      挂 .card-red 的话会被上面那条 `color: #f3f7f2` 盖掉，一点红也看不见。
 
-     ⚠ 同一个坑**择饵 / 分饵 / 观潮 / 同号那四块正踩着**：
+     ⚠ 同一个坑**择符 / 分赐 / 观星 / 同号那四块正踩着**：
      它们挂的是 `pick-deck-text` + `card-red`，而 `.pick-deck-text`
      （12036）也排在 `.card-red` 后面 —— 那四块的 `isRed(one)` 等于没接。
      〔2026-10-22 查出，没动它：改法是把那四处的红改成各自的类，

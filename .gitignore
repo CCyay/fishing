@@ -5,7 +5,7 @@ unpackage/
 
 # ---- 量测输出：`tools/md-sim` 跑出来的，不进仓库 ----
 # 两种命名都在用（`out-<什么>.txt` 和 `<什么>-out.txt`），根目录也落过几个。
-# 一百多个文件，全是某一次跑的 stdout —— 结论该进《摸打钓鱼-实测数据台账.md》，
+# 一百多个文件，全是某一次跑的 stdout —— 结论该进《魔法匹配-实测数据台账.md》，
 # 原始输出留在本地就行。⚠ **量测脚本（`run-*.sh`）照旧要提交** ——
 # 台账和归档里直接给出「`bash tools/md-sim/run-xxx.sh`」当跑法，脚本丢了命令就指空。
 out-*.txt
@@ -20,3 +20,4 @@ tools/md-sim/out-*/
 # 模拟器的私用副本：另一个会话同时改 tools/md-sim 时，量数改在这儿跑（不进仓库）
 tools/md-sim-b/
 tools/md-sim-c/
+tools/md-sim-e/

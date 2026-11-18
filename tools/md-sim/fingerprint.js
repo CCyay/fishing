@@ -61,7 +61,7 @@ const WATCH = [
     //   **endPlay** —— 一手牌的唯一收尾（交回合、补牌、判终局都在它后面）
     // 〔2026-10-20 补 `skillsOf`：**「这张牌响哪几件技能」的唯一出口**。
     //   它原先只是 `triggersOf` 的一层薄包装（死水那道闸），所以没盯 ——
-    //   而【串钩】上架之后它里头多了一条真规则（命中任一点数槽 → 全响）。
+    //   而【共鸣】上架之后它里头多了一条真规则（命中任一点数槽 → 全响）。
     //   模拟器那边对应的是 `skillsOf` + `addRankLink`，两边分叉了没人会发现〕
     names: ['catchStart', 'canCatch', 'playFor', 'resolveMatch', 'removePileAt',
       'skillsOf',
@@ -151,7 +151,7 @@ const WATCH = [
   {
     file: 'ap-fishing.uvue',
     group: '角色与特殊技能',
-    // refill 也在这儿：【涨落】和庄家的【枯水】都拦在它开头
+    // refill 也在这儿：【涨落】和庄家的【枯竭】都拦在它开头
     //（「只有一张牌都打不出时才补」）
     names: ['hasSpecial', 'sameSuit', 'wantSink', 'baitFor', 'handLimit',
       'refill', 'playableCount']
@@ -225,7 +225,7 @@ const CONSTS = [
   // 引潮贴几层 = 它的强度旋钮（2 层 → X +2.27）。它跟 SURGE_PUSH 不同级：
   // 这个可以调，调了只是这一件重定价
   { file: 'draw-skills.uts', name: 'SURGE_LAYERS' },
-  // 逆涌（开河工）一次【堆牌】几张〔2026-10-28 从 JSURGE_LAYERS 改名而来 ——
+  // 抑王（镇王卫士）一次【堆牌】几张〔2026-10-28 从 JSURGE_LAYERS 改名而来 ——
   // 推牌换成堆牌，层级概念没了，4 是**张数**〕。
   // ⚠ 这个数**玩家看得见**（desc 原文「对方打出 J 之后，堆牌4」），
   //   所以它跟 SURGE_LAYERS 不同级：改它等于改技能文案。
@@ -356,7 +356,7 @@ function constOf(text, name) {
 //
 // 顺带解释一个对不上的数：`refs.js` 同时印「活着 54 件」—— 它扫的是同样
 // 三张表，但它的 `LIVE` 是**字典**（`LIVE[k] = …`），所以重复的 key 塌掉了。
-// **差的那 2 个是 `creel` 和 `narrow`**：满篓 / 窄口各自既是一件技能、
+// **差的那 2 个是 `creel` 和 `narrow`**：博藏 / 窄口各自既是一件技能、
 // 又是一件常驻特殊技，两张表里都有。56 − 2 = 54，两边都没错，只是口径不同。
 //
 // 前两次栽在**扫错了表**（把 `DEAD_SKILLS` 当活的），这次栽在**标签**上 ——

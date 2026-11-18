@@ -7,7 +7,7 @@
 //   node anchors.js --save   把当前结果存成新基准（规则 / 默认值真改了、核过之后再存 —— 跟 fingerprint.js --save 同一个用法）
 //
 // 为什么要它：另一个会话同时在改 rules.js 时，旧数还能不能接着用，原先只能靠手动重跑几格锚点去碰
-// （2026-11-09 那天抢牌估算、伏流、续流都被改过，三次都是锚点没对上才发现）。
+// （2026-11-09 那天抢牌估算、百变、连咏都被改过，三次都是锚点没对上才发现）。
 // 锚点挑的是各机制族的代表 + 基线没技能那一格，红了先看是哪一族。
 const { spawn } = require('child_process')
 const fs = require('fs')
@@ -16,21 +16,21 @@ const path = require('path')
 const N = 2000
 // 名字 · 技能 key · 角色 · 槽 · 额外旋钮
 const LIST = [
-  ['无关键词 · 观潮', 'tide', 'lockold', 0, {}],
-  ['顺子 · 伏流', 'flow', 'lockold', 0, {}],
+  ['无关键词 · 观星', 'tide', 'lockold', 0, {}],
+  ['顺子 · 百变', 'flow', 'lockold', 0, {}],
   ['顺子 · 石顺', 'stoneline', 'lockold', 0, {}],
   ['顺子 · 传顺', 'flowall', 'lockold', 0, {}],
   ['磁极 · 磁针', 'polefail', 'lockold', 0, {}],
   ['磁极 · 磁石', 'poledraw', 'lockold', 0, {}],
-  ['正电 · 电钩', 'hook', 'lockold', 0, {}],
+  ['正电 · 引雷', 'hook', 'lockold', 0, {}],
   ['21 匹配 · 零递', 'zerodraft', 'lockold', 0, {}],
   ['燃烧 · 野火', 'wild', 'lockold', 0, {}],
   ['结冰 · 封凌', 'lockdraw', 'lockold', 0, {}],
   ['花色 · 收色', 'hue', 'lockold', 0, {}],
-  ['顺序 · 插流', 'orderins', 'lockold', 0, {}],
-  // 〔2026-11-17 缩水 11-16 下架、这一格跑崩了 —— 收零族换回水（「【腐蚀】；1 张手牌带上【收零】」）当代表〕
-  ['收零 · 回水', 'backwater', 'lockold', 0, {}],
-  ['♥ 槽 · 伏流', 'flow', 'mirror', 0, {}],
+  ['顺序 · 插序', 'orderins', 'lockold', 0, {}],
+  // 〔2026-11-17 缩水 11-16 下架、这一格跑崩了 —— 收零族换回蚀（「【腐蚀】；1 张手牌带上【收零】」）当代表〕
+  ['收零 · 回蚀', 'backwater', 'lockold', 0, {}],
+  ['♥ 槽 · 百变', 'flow', 'mirror', 0, {}],
 ]
 const FILE = path.join(__dirname, 'anchors.json')
 

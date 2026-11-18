@@ -6,7 +6,7 @@ const TABLE_PATH = '/pages/examples/blackjack/ap-fishing'
 // 庄家停 0.6 秒一口气摸牌出牌，钓到牌再放 0.7 秒特效：3 秒足够轮到你
 const FOE_TURN_MS = 3000
 
-// 摸打钓鱼：首页 → 关卡页 → 对局；照排竿一轮连胜 12 关，开局没有技能。
+// 魔法匹配：首页 → 关卡页 → 对局；照排竿一轮连胜 12 关，开局没有技能。
 // 摸牌是随机的，断言只看张数和相对变化，不看牌面。
 describe('/pages/examples/blackjack/ap-fishing', () => {
   let page
@@ -25,7 +25,7 @@ describe('/pages/examples/blackjack/ap-fishing', () => {
     }
   })
 
-  it('首页进摸打钓鱼的关卡页，新档从第 1 关开始', async () => {
+  it('首页进魔法匹配的关卡页，新档从第 1 关开始', async () => {
     page = await program.reLaunch(MENU_PATH)
     await page.waitFor('view')
     const entry = await page.$('#bj-pick-action')

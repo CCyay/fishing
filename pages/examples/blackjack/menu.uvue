@@ -3,26 +3,17 @@
     <!-- 状态栏占位：原生导航栏去掉了，见 App.uvue 的 .bj-status-bar -->
     <view class="bj-status-bar"></view>
     <view class="hero">
-      <text class="hero-title">钓鱼</text>
-      <text class="hero-sub">三种玩法，各有各的存档</text>
+      <text class="hero-title">魔法匹配</text>
     </view>
 
-    <!-- 每个游戏一颗按钮，按钮下面一行小字报进度。
-         报进度是为了不用点进去就知道各自到哪儿了 ——
-         这一页唯一的作用就是分流，分流之前总得让人看清要去哪边。
-         摸打钓鱼的档在它自己的关卡页里切 -->
+    <!-- 按钮下面一行小字报进度：不用点进去就知道打到哪儿了。
+         魔法匹配的档在它自己的关卡页里切。
+         〔2026-11-18 用户定「保留摸打钓鱼，去掉钓鱼游戏和排竿对局」：那两颗按钮撤了，
+           两个游戏的页面（home / relay-levels）和存档代码都还在，只是这一页不再给入口〕 -->
     <view class="menu">
-      <view id="bj-pick-fish" class="menu-btn menu-btn-primary" @click="pickFish">
-        <text class="menu-btn-text menu-btn-text-dark">钓鱼游戏</text>
-        <text class="menu-btn-sub menu-btn-sub-dark">{{ fishText }}</text>
-      </view>
-      <view id="bj-pick-relay" class="menu-btn" @click="pickRelay">
-        <text class="menu-btn-text">排竿对局</text>
-        <text class="menu-btn-sub">{{ relayText }}</text>
-      </view>
-      <view id="bj-pick-action" class="menu-btn" @click="pickAction">
-        <text class="menu-btn-text">摸打钓鱼</text>
-        <text class="menu-btn-sub">{{ drawText }}</text>
+      <view id="bj-pick-action" class="menu-btn menu-btn-primary" @click="pickAction">
+        <text class="menu-btn-text menu-btn-text-dark">魔法匹配</text>
+        <text class="menu-btn-sub menu-btn-sub-dark">{{ drawText }}</text>
       </view>
     </view>
 
@@ -34,16 +25,6 @@
 
 <script setup lang="uts">
   import {
-    SaveData,
-    emptySave,
-    fishSaveSlot,
-    relaySaveSlot,
-    loadFishAt,
-    loadRelayAt
-  } from '@/pages/examples/blackjack/save.uts'
-  import { LEVEL_COUNT } from '@/pages/examples/blackjack/levels.uts'
-  import { RELAY_COUNT } from '@/pages/examples/blackjack/relay-levels.uts'
-  import {
     DrawSave,
     emptyDrawSave,
     loadDrawAt,
@@ -51,49 +32,8 @@
     DRAW_RUN_LENGTH
   } from '@/pages/examples/blackjack/draw-save.uts'
 
-  // 两份档各读一份。这一页是唯一同时看得见两个游戏的地方 ——
-  // 别的页面各自只认自己那一套 API，互相不知道对方存在。
-  //
-  // 用 loadFishAt(fishSaveSlot()) 而不是 loadFishSave()：后者「读不到就建一份」，
-  // 而这一页只是给人看一眼的路牌，**看一眼不该产生存档**。
-  // 建档留给真正进去的那两页（home / relay-levels 的 onShow）——
-  // 这样「新游戏」这行字才真的有机会出现一次
-  const fish = ref<SaveData>(emptySave())
-  const relay = ref<SaveData>(emptySave())
-  const fishAt = ref<number>(1)
-  const relayAt = ref<number>(1)
-
-  const fishText = computed<string>(() : string => {
-    const one = fish.value
-    const head = slotName(one, fishAt.value)
-    if (!one.exists) {
-      return head + ' · 新游戏'
-    }
-    return head + ' · 通关 ' + one.cleared.length + '/' + LEVEL_COUNT
-      + ' · 胜 ' + one.win
-  })
-
-  const relayText = computed<string>(() : string => {
-    const one = relay.value
-    const head = slotName(one, relayAt.value)
-    if (!one.exists) {
-      return head + ' · 新游戏'
-    }
-    // 最远战绩和本轮进度是两件事：一个跨轮留着，一个输了就清。
-    // 一次都没打过就直说，比摆两个 0 清楚
-    if (one.relayBest <= 0 && one.runLevel <= 0) {
-      return head + ' · 还没开始'
-    }
-    const best = one.relayBest > 0
-      ? '最远 ' + one.relayBest + '/' + RELAY_COUNT
-      : '一关未通'
-    const now = one.runLevel > 0 && one.runLevel <= RELAY_COUNT
-      ? ' · 打到第 ' + one.runLevel + ' 关'
-      : ''
-    return head + ' · ' + best + now
-  })
-
-  // 摸打钓鱼同样只读不建：loadDrawAt 读不到就是空档
+  // 只读不建：loadDrawAt 读不到就是空档 —— 这一页只是给人看一眼的路牌，
+  // **看一眼不该产生存档**，建档留给真正进去的关卡页
   const draw = ref<DrawSave>(emptyDrawSave())
   const drawAt = ref<number>(1)
 
@@ -103,35 +43,14 @@
     if (!one.exists) {
       return head + ' · 新游戏'
     }
-    // 和排竿一样：最远战绩跨轮留着，本轮进度输了就清
+    // 最远战绩跨轮留着，本轮进度输了就清
     const now = one.runLevel > DRAW_RUN_LENGTH ? '本轮通关' : '打到第 ' + one.runLevel + ' 关'
     return head + ' · 最远 ' + one.best + '/' + DRAW_RUN_LENGTH + ' · ' + now
   })
 
-  // 槽名：建过档就用它自己的名字，没建过就报槽号
-  function slotName(one : SaveData, index : number) : string {
-    return one.label == '' ? '存档 ' + index : one.label
-  }
-
   function refresh() {
-    fishAt.value = fishSaveSlot()
-    relayAt.value = relaySaveSlot()
-    fish.value = loadFishAt(fishAt.value)
-    relay.value = loadRelayAt(relayAt.value)
     drawAt.value = drawSaveSlot()
     draw.value = loadDrawAt(drawAt.value)
-  }
-
-  function pickFish() {
-    uni.navigateTo({
-      url: '/pages/examples/blackjack/home'
-    })
-  }
-
-  function pickRelay() {
-    uni.navigateTo({
-      url: '/pages/examples/blackjack/relay-levels'
-    })
   }
 
   function pickAction() {
@@ -149,7 +68,7 @@
     })
   }
 
-  // 从任一游戏返回都要刷新 —— 那边可能换了槽、也可能打完了一关
+  // 从游戏返回都要刷新 —— 那边可能换了槽、也可能打完了一关
   onShow(() => {
     refresh()
   })
@@ -175,14 +94,8 @@
     font-weight: bold;
   }
 
-  .hero-sub {
-    color: #9fd9bd;
-    font-size: 13px;
-    margin-top: 2px;
-  }
-
-  /* 两颗按钮竖排居中。样式照 home.uvue 那套主菜单按钮，
-     只是高一些 —— 这两颗要装两行字 */
+  /* 按钮竖排居中。样式照 home.uvue 那套主菜单按钮，
+     只是高一些 —— 要装两行字 */
   .menu {
     flex: 1;
     justify-content: center;

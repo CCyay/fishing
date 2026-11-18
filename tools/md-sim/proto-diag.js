@@ -7,7 +7,7 @@
 //
 //   node tools/md-sim/proto-diag.js lowdraft 4000
 //
-// 口径跟 `sim.js vs` 那一套对齐：**江口闸官第 1 槽（A）**、双方同角色、
+// 口径跟 `sim.js vs` 那一套对齐：**封印师第 1 槽（A）**、双方同角色、
 // 庄家先手写死（fixFirst）。只统计**我方**带这件时它做了什么 ——
 // 对手不带，所以 PROTO_STAT 里的数全是我这一侧的。
 const R = require('./rules.js')
@@ -15,17 +15,17 @@ const AI = require('./ai.js')
 
 // 第 4~6 个参数〔2026-10-19 加，为了量【21 匹配】沉底那一支〕：
 //   slot      插第几个槽（从 0 数）
-//   roleKey   借哪个角色的槽（默认 lock = 江口闸官，四个等大小槽）
+//   roleKey   借哪个角色的槽（默认 lock = 封印师，四个等大小槽）
 //   special   传 'special' 就**把那个角色的常驻技也带上**
 //
 // 第三个参数是补上来的，而它是一次实打实的损失：`sim.js` 的 `--role`
-// **只借槽形状、默认不带常驻技**，而【逆流】（可选落堆底）正是常驻技 ——
+// **只借槽形状、默认不带常驻技**，而【逆行】（可选落堆底）正是常驻技 ——
 // 不带它，沉底那一支一次都不会发动，于是 A/B 两档逐位相同、
 // 看起来像「改动无害」。
 const key = process.argv[2]
 const n = parseInt(process.argv[3] || '4000', 10)
 const slotAt = parseInt(process.argv[4] || '0', 10)
-const roleKey = process.argv[5] || 'lockold' // 江口闸官旧形状 A/2/3/4（2026-11-02 起）
+const roleKey = process.argv[5] || 'lockold' // 封印师旧形状 A/2/3/4（2026-11-02 起）
 const withSpecial = process.argv[6] === 'special'
 
 // `none` = **基线档**（槽空着）〔2026-10-26 加〕。

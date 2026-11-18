@@ -7,12 +7,10 @@
          除了让人惦记没别的用 -->
     <view class="head">
       <view>
-        <text class="title">摸打钓鱼</text>
+        <text class="title">魔法匹配</text>
         <text id="md-slot-name" class="sub">{{ save.label }} · 最远 {{ save.best }}/{{ DRAW_RUN_LENGTH }}{{ starText() }}</text>
       </view>
-      <!-- 原生导航栏去掉了（pages.json 的 navigationStyle: custom），
-           这一页本来全靠它左上角那颗返回，所以自己补一颗 -->
-      <text id="md-back" class="head-back" @click="goBack">返回</text>
+      <!-- 〔2026-11-18 这一页成了首页（用户定），右上角那颗「返回」（回玩法菜单）撤了 —— 菜单页不再给入口〕 -->
     </view>
 
     <!-- 本轮进度。原先底下还有一行规则提示（输一次从头来、这关掉技能的
@@ -414,7 +412,7 @@
       全表都列，只读。
 
       原先这儿只有第一段（DRAW_ROLES）—— 于是**整套庄家角色在游戏里
-      压根看不见**：你只有打到第 8 关才知道湾口税吏带硬壳，而那时候
+      压根看不见**：你只有打到第 8 关才知道铁甲骑士带硬壳，而那时候
       「留着 J」这个准备已经来不及做了。而角色化的全部意义就是**可学**
       （「它是谁查得到」），所以查得到的地方必须有一个。
 
@@ -606,7 +604,7 @@
     <!-- 存档：三个槽，切换 / 新建 / 删除 -->
     <view v-if="showSaves" class="mask">
       <view class="save-box">
-        <text class="save-title">摸打钓鱼存档</text>
+        <text class="save-title">魔法匹配存档</text>
         <view v-for="slot in slots" :key="'sv-' + slot.index" class="save-slot" :class="{ 'save-slot-current': slot.index == slotIndex }">
           <view class="save-info">
             <text class="save-name">{{ slot.data.exists ? slot.data.label : '空存档' }}</text>
@@ -678,7 +676,7 @@
     roleHardGoal,
     // 实战对决摇技能池用（48 件里取 8 件不重复）
     rollSpots,
-    // 角色专属技能（布饵人的空钩）：挑技能列表 / 实战技能池排掉它；固定槽不许换
+    // 角色专属技能（虚无行者的反噬）：挑技能列表 / 实战技能池排掉它；固定槽不许换
     isRoleOnlySkill,
     // 庄家专属 / 专属总判断〔2026-11-05〕：插槽不列；技能图鉴把专属的单列一栏
     isFoeOnlySkill,
@@ -748,16 +746,6 @@
   // 开 / 关技能图鉴。**两头都清查询词** ——
   // 留着的话下次开出来是一张筛过的表，而那看着就是「技能怎么少了」。
   // 开的时候也清一遍：进这个弹层的意图是「看我带着什么」，不是接着上次查
-  // 返回上一页。栈里只有这一页（直接打开、或者从对局页 redirectTo 过来的）
-  // 就回玩法菜单 —— navigateBack 在栈底什么也不做，按了没反应比没有这颗还糟
-  function goBack() {
-    if (getCurrentPages().length > 1) {
-      uni.navigateBack({})
-      return
-    }
-    uni.reLaunch({ url: '/pages/examples/blackjack/menu' })
-  }
-
   function openSkills() {
     query.value = ''
     showSkills.value = true
@@ -937,7 +925,7 @@
     return out
   })
 
-  // 专属技能在图鉴里那行小字：「布饵人专属 · 不出售」。角色名从固定槽反查，不写死
+  // 专属技能在图鉴里那行小字：「虚无行者专属 · 不出售」。角色名从固定槽反查，不写死
   function roleOnlyTag(k : number) : string {
     for (let r = 0; r < DRAW_ROLES.length; r++) {
       for (let i = 0; i < DRAW_ROLES[r].slots.length; i++) {
@@ -1510,7 +1498,7 @@
 
   // 空槽上那行说明：这个槽嵌进来的技能会管什么
   function slotHint(slot : string) : string {
-    // 0 点槽（布饵人）：没有固定的牌，管的是局里被置 0 的那些
+    // 0 点槽（虚无行者）：没有固定的牌，管的是局里被置 0 的那些
     if (slot == '0') {
       return '被置 0 的牌打出时触发嵌进来的技能'
     }
@@ -1999,15 +1987,6 @@
     font-size: 26px;
     font-weight: bold;
     letter-spacing: 2px;
-  }
-
-  .head-back {
-    color: #f2c14e;
-    font-size: 14px;
-    font-weight: bold;
-    padding: 6px 14px;
-    border-radius: 16px;
-    background-color: rgba(0, 0, 0, 0.22);
   }
 
   .sub {

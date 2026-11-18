@@ -48,11 +48,11 @@
 // **能信的是「新旧规则之差」，不是绝对数。** 下面三样都是假设，
 // 但新旧两边用的是同一套假设，相减时大部分抵掉：
 //
-//   玩家配装 —— 江口闸官（四个单点数槽），装的技能数按关号涨（见 kitSize），
+//   玩家配装 —— 封印师（四个单点数槽），装的技能数按关号涨（见 kitSize），
 //     技能从「实测 X ≥ 1.5 的那些」里每局随机抽。真人会挑、会配，这边不会；
 //   庄家配装 —— 照 draw-levels 的 DRAW_FOE_ROLES，标签每局现摇（照 rollFoeSlots）；
 //   庄家规矩 —— **只做了两条**：【添手】（庄家手牌 +1）和【掐口】（你只补到 3 张）。
-//     其余（淤滩 / 偏流 / 硬壳 / 枯水 / 守滩 / 再钩 / 封竿）改的是规则本身，
+//     其余（泥沼 / 逆位 / 硬壳 / 枯竭 / 筑壁 / 连击 / 封数）改的是规则本身，
 //     模拟器的规则层没有它们（README「有意的差异」那张表里的硬壳是同一类）。
 //     所以 5 关往后的胜率**偏高**，而且偏多少新旧两边一样。
 //
@@ -67,30 +67,30 @@ const AI = require('./ai.js')
 // slots 里是 [技能 key, 几个标签, 是不是花色]。specials 只认 hand / pinch，
 // 其余写着是为了让人看得见「这一关少模了什么」
 const FOE_ROLES = [
-  { name: '试竿学徒', specials: [], slots: [] },
-  { name: '游荡钓客', specials: [], slots: [] },
-  { name: '守河老汉', specials: [], slots: [] },
-  { name: '滩头老翁', specials: ['hand'], slots: [] },
-  { name: '回漩摆渡人', specials: ['silt'], slots: [['hook', 1, false]] },
-  // 冻结 → 压舱（2026-10-20，冻结升级成自带结冰之后这一关太陡）
+  { name: '见习法师', specials: [], slots: [] },
+  { name: '流浪术士', specials: [], slots: [] },
+  { name: '守塔老人', specials: [], slots: [] },
+  { name: '千手长老', specials: ['hand'], slots: [] },
+  { name: '渡魂者', specials: ['silt'], slots: [['hook', 1, false]] },
+  // 冻结 → 置换（2026-10-20，冻结升级成自带结冰之后这一关太陡）
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  { name: '礁石海女', specials: ['pinch'], slots: [['press', 1, false]] },
-  // 〔2026-11-03 R8 调难度：观潮 / 顺色 / 一色 2 → 1 个标签，照 draw-levels〕
-  { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 1, false], ['hook', 1, false]] },
+  { name: '缄口女巫', specials: ['pinch'], slots: [['press', 1, false]] },
+  // 〔2026-11-03 R8 调难度：观星 / 顺色 / 一色 2 → 1 个标签，照 draw-levels〕
+  { name: '逆位占星师', specials: ['drift'], slots: [['tide', 1, false], ['hook', 1, false]] },
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 1, false]] },
+  { name: '铁甲骑士', specials: ['shell'], slots: [['suited', 1, false]] },
   // 〔2026-10-16 照水 ×2 → **死水 ×1**（照水删了）。理由见 draw-levels 那一关的注释。
-  //   对这个报表的意义：这一关**第一次有了模拟器量得到的槽技能**（枯水仍然没模），
+  //   对这个报表的意义：这一关**第一次有了模拟器量得到的槽技能**（枯竭仍然没模），
   //   所以它的数字从「两件白板」变成「一件白板」—— 还是下限，但下限抬高了〕
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  // 〔2026-10-30 死水下架，槽 1 换成浑水（照 draw-levels.uts）〕
-  // 〔2026-11-02 冻结下架，第二格换压舱（照 draw-levels.uts）〕
-  { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['press', 1, false]] },
+  // 〔2026-10-30 死水下架，槽 1 换成迷雾（照 draw-levels.uts）〕
+  // 〔2026-11-02 冻结下架，第二格换置换（照 draw-levels.uts）〕
+  { name: '饥荒术士', specials: ['dryup'], slots: [['murk', 1, false], ['press', 1, false]] },
   // 〔见底 2026-10-19 删了，那一格**空出来没补**（用户定「其他不用」）——
-  //   所以这一关从三条腿（守滩 / 见底 / 染水）变两条腿，跟着变简单。
-  //   它养厚堆的手段（守滩）还在，**把厚堆变现的手段没了**〕
+  //   所以这一关从三条腿（筑壁 / 见底 / 染水）变两条腿，跟着变简单。
+  //   它养厚堆的手段（筑壁）还在，**把厚堆变现的手段没了**〕
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  { name: '涡心祭司', specials: ['guard'], slots: [['suitify', 1, false]] },
+  { name: '筑壁祭司', specials: ['guard'], slots: [['suitify', 1, false]] },
   // ---- 11 / 12 关 2026-10-15 改过两轮（曲线倒挂：11 关比关底难 21 个点）----
   //
   // **第一轮改错了**：把关底的结冰两件换成吃水 + 撒网（理由是「各自独立兑现」），
@@ -108,33 +108,33 @@ const FOE_ROLES = [
   //   所以「标称 X 之和」在庄家侧不是强度。判据改成
   //   **「它需不需要 AI 主动决策」**，详见 draw-levels 那张卡的注释。
   //
-  // 特殊技那一处（再钩 ↔ 封竿）**两条都没模**，所以它不改变任何数 ——
+  // 特殊技那一处（连击 ↔ 封数）**两条都没模**，所以它不改变任何数 ——
   // 同步只为别让副本跟源码分叉
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
-  // 〔撒网 2026-11-17 下架，从这一行拿掉。⚠ 这一行本来就跟源码对不上：源码 11-16 起鲸落拾骨人是系列（回水 / 策反 / 零递），没同步〕
-  { name: '鲸落拾骨人', specials: ['seal'], slots: [['zerodraft', 1, false]] },
+  // 〔撒网 2026-11-17 下架，从这一行拿掉。⚠ 这一行本来就跟源码对不上：源码 11-16 起封数巫师是系列（回蚀 / 策反 / 零递），没同步〕
+  { name: '封数巫师', specials: ['seal'], slots: [['zerodraft', 1, false]] },
   // 〔2026-10-29 调难度，跟 draw-levels 的 DRAW_FOE_ROLES 同步〕
   // 〔2026-10-30 关底野火改进花色槽（照 draw-levels.uts）〕
-  // 2026-11-02 再钩 → 逆钩（照源码）。两条都不在 MODELED_SP 里，所以这一关的模拟数不变
-  { name: '深渊君主', specials: ['rev'], slots: [['wild', 1, true], ['hook', 1, false], ['suited', 1, false]] }
+  // 2026-11-02 连击 → 镇王（照源码）。两条都不在 MODELED_SP 里，所以这一关的模拟数不变
+  { name: '深渊魔王', specials: ['rev'], slots: [['wild', 1, true], ['hook', 1, false], ['suited', 1, false]] }
 ]
 // 〔2026-11-03 用户：「庄家角色尽量不要用到相同技能」「要有特色，比如用顺子匹配、结冰」〕
 // 每张卡一族机制、24 个槽不重复（素材池那 6 张 campaign 不模）。同日用户定上游戏 → **默认就是这一套**（= draw-levels.uts 现行）；FOE_SET=old 复现之前那套
 const FOE_ROLES_THEMED = [
-  { name: '试竿学徒', specials: [], slots: [] },
-  { name: '游荡钓客', specials: [], slots: [] },
-  { name: '守河老汉', specials: [], slots: [['unhook', 2, false]] },
+  { name: '见习法师', specials: [], slots: [] },
+  { name: '流浪术士', specials: [], slots: [] },
+  { name: '守塔老人', specials: [], slots: [['unhook', 2, false]] },
   // 〔2026-11-04 照 draw-levels：太弱的三位加强（台账第六十八节）〕
-  { name: '滩头老翁', specials: ['hand'], slots: [['gift', 1, false]] },
-  { name: '回漩摆渡人', specials: ['silt'], slots: [['backwater', 1, false], ['traitor', 1, false]] },
-  { name: '礁石海女', specials: ['pinch'], slots: [['press', 1, false]] },
-  { name: '潮眼引水人', specials: ['drift'], slots: [['tide', 1, false], ['pick', 1, false]] },
-  { name: '湾口税吏', specials: ['shell'], slots: [['suited', 2, false]] },
-  { name: '雾港守灯人', specials: ['dryup'], slots: [['murk', 1, false], ['bleach', 1, false]] },
-  { name: '涡心祭司', specials: ['guard'], slots: [['orderpile', 1, false]] },
-  // 〔2026-11-16 缩水下架、鲸落拾骨人改成系列（技能池回水 / 策反），这一格 = S 那张：回水（花色）· 策反（点数）· 零递（点数）〕
-  { name: '鲸落拾骨人S', specials: ['seal'], slots: [['backwater', 1, true], ['traitor', 1, false], ['zerodraft', 1, false]] },
-  { name: '深渊君主', specials: ['rev'], slots: [['lockcolor', 1, true], ['lockdraw', 1, false], ['icebomb', 1, false]] }
+  { name: '千手长老', specials: ['hand'], slots: [['gift', 1, false]] },
+  { name: '渡魂者', specials: ['silt'], slots: [['backwater', 1, false], ['traitor', 1, false]] },
+  { name: '缄口女巫', specials: ['pinch'], slots: [['press', 1, false]] },
+  { name: '逆位占星师', specials: ['drift'], slots: [['tide', 1, false], ['pick', 1, false]] },
+  { name: '铁甲骑士', specials: ['shell'], slots: [['suited', 2, false]] },
+  { name: '饥荒术士', specials: ['dryup'], slots: [['murk', 1, false], ['bleach', 1, false]] },
+  { name: '筑壁祭司', specials: ['guard'], slots: [['orderpile', 1, false]] },
+  // 〔2026-11-16 缩水下架、封数巫师改成系列（技能池回蚀 / 策反），这一格 = S 那张：回蚀（花色）· 策反（点数）· 零递（点数）〕
+  { name: '封数巫师S', specials: ['seal'], slots: [['backwater', 1, true], ['traitor', 1, false], ['zerodraft', 1, false]] },
+  { name: '深渊魔王', specials: ['rev'], slots: [['lockcolor', 1, true], ['lockdraw', 1, false], ['icebomb', 1, false]] }
 ]
 if (process.env.FOE_SET !== 'old') FOE_ROLES.splice(0, FOE_ROLES.length, ...FOE_ROLES_THEMED)
 const MODELED_SP = ['hand', 'pinch']
@@ -151,9 +151,9 @@ if (process.env.FOE_OVERRIDE) {
 const FOE_SP_EXTRA = process.env.FOE_SP_EXTRA ? JSON.parse(process.env.FOE_SP_EXTRA) : {}
 // 〔2026-11-04 · 量测开关〕`FOE_PROBE`：把一张试样庄家**整张**换到 `FOE_PROBE_LEVELS`（默认 3,7,10 = 浅滩 / 河湾 / 深海各一关）上 ——
 //   槽换掉、原来那位的规矩（含模了的添手 / 掐口）一律去掉、只挂试样的规矩（rules = rules.js 认的 key：
-//   jsurge = 逆钩、toll = 过闸、char = 炙水、ban = 禁渔）。量「这张卡放在哪一章合适」用：跟那一章原来几位的胜率比。
+//   jsurge = 镇王、toll = 征收、char = 炙焰、ban = 禁咒）。量「这张卡放在哪一章合适」用：跟那一章原来几位的胜率比。
 //   槽里的技能可以写成数组 = 技能池：每局从池里随机挑一件（同一张卡上不重复），照 draw-save 的 rollFoeKit。
-//   例：FOE_PROBE='{"name":"深渊君主HD","rules":["jsurge"],"slots":[[["lockcolor","lockdraw","icebomb"],1,true],[["lockcolor","lockdraw","icebomb"],1,false]]}'
+//   例：FOE_PROBE='{"name":"深渊魔王HD","rules":["jsurge"],"slots":[[["lockcolor","lockdraw","icebomb"],1,true],[["lockcolor","lockdraw","icebomb"],1,false]]}'
 if (process.env.FOE_PROBE) {
   const probe = JSON.parse(process.env.FOE_PROBE)
   for (const lv of (process.env.FOE_PROBE_LEVELS || '3,7,10').split(',')) {
@@ -269,19 +269,19 @@ function foeMode(diff, level, ease) {
 //   〔划掉的那件 2026-10-27 删了，见下面池子里那条一删一补 ——
 //     **论证不受影响**：surge(115) 对 sift(70) 这一对还在池子里〕
 //   三条路（都没定）：①照 X 更新、接受偏强；②按价加权抽；③真加商店模型。
-//   详见《摸打钓鱼-实测数据台账.md》第五节 campaign 那一段。
+//   详见《魔法匹配-实测数据台账.md》第五节 campaign 那一段。
 const PLAYER_POOL = [
   // 〔洪水 2026-10-29 再删，从池子里拿掉〕
   // 〔传火 2026-10-30 下架，从池子里拿掉〕
   'flow', 'kindle', 'wild',
   // 〔2026-10-27 一删一补，**两件都走上面那条口径**（「在卖 + X ≥ 1.5」）：
   //   删 `swapcard`（对换，技能删了 —— 留着就是洪水栽过的那个静默空槽）；
-  //   补 `dumpbait`（倒饵，同日上架、价 85、R6 X **+2.75**）。
+  //   补 `dumpbait`（转嫁，同日上架、价 85、R6 X **+2.75**）。
   //   ⚠ 这是「上架也要过一遍这个池子」那一条的正用 —— 漏了它，
   //     模拟出来的玩家永远买不到一件 +2.75 的货，通关率虚低。
   //   ⚠ **池子一动，通关率的绝对数就不可比了**（23.7% 那一批）〕
   'dumpbait',
-  // 〔2026-10-29 上架顺序匹配族开枝三件（插流 / 调序 / 换序，各 105），
+  // 〔2026-10-29 上架顺序匹配族开枝三件（插序 / 调序 / 换序，各 105），
   //   同日撤【顺流】—— 别把 `order` 留在池子里（查不到 → 静默空槽）〕
   'orderins', 'orderpile', 'orderswap',
   // 〔2026-10-29 上架【满墙】，价 115、R6 taken X +4.99 —— 漏了池子通关率虚低。
@@ -293,7 +293,7 @@ const PLAYER_POOL = [
   // 〔一色 2026-11-17 下架、换上【三色】trisuit（价 100、屯着打 A +3.73）—— 池子一动，通关率绝对数不可比〕
   // 〔撒网 2026-11-17 下架 —— 从池子里拿掉〕
   'zerodraft', 'peak', 'unhook', 'trisuit', 'suited',
-  // 〔2026-11-04 上架【升钩】，价 90、R8 X +3.03（屯着打，ai.js NJ_HOLD 默认开）—— 池子一动，通关率绝对数不可比〕
+  // 〔2026-11-04 上架【升格】，价 90、R8 X +3.03（屯着打，ai.js NJ_HOLD 默认开）—— 池子一动，通关率绝对数不可比〕
   'nextjack',
   // 〔见底（key 见 DEAD_SKILLS）2026-10-19 从这个池子去掉 —— 技能删了。
   //   **留着的后果是静默的**：
@@ -304,7 +304,7 @@ const PLAYER_POOL = [
   //   玩家配装随机少一件，通关率跟着虚低 —— 洪水栽过的正是这一处〕
   // 〔【死水】2026-10-30 下架 —— 从池子里拿掉〕
   'hue', 'press',
-  // 2026-10-29 ~ 30 上架的四件：垫吃 / 顺递 / 浑水 / 缩水〔顺递 2026-10-30 下架，从池子里拿掉〕
+  // 2026-10-29 ~ 30 上架的四件：垫吃 / 顺递 / 迷雾 / 缩水〔顺递 2026-10-30 下架，从池子里拿掉〕
   /* 垫吃 2026-11-06 删 */ 'pilereflect', 'traitor', 'flowall', 'flowpass', 'murk', /* 缩水 2026-11-16 删 */ 'backwater', 'stonehue', 'stoneline',
   // 2026-10-20 上架的两件，同一天藏凌 / 寒流删了
   'lockdraw', 'lockcolor'
@@ -320,7 +320,7 @@ const PLAYER_POOL = [
 //
 // ⚠ **`PLAYER_SP` 之前，campaign 一件常驻技都没模。** `playGame` 那边
 // 原先没传 `myRole`/`foeRole`，于是两侧都是 −1、`hasSpecial` 恒 false ——
-// 连玩家自己那张江口闸官的【窄口】都不在里头。所以 `PLAYER_SP=1` 这一档
+// 连玩家自己那张封印师的【窄口】都不在里头。所以 `PLAYER_SP=1` 这一档
 // **不是「加了互通」，是「常驻技这一整类从无到有」**，要先跑它当对照。
 //
 // ⚠ 它只开**玩家这一侧**。庄家那边走的是 `FOE_ROLES`（draw-levels 的表，
@@ -328,7 +328,7 @@ const PLAYER_POOL = [
 // 于是 `PLAYER_SP=1` 是**单边加强**，绝对数会虚高 —— 能读的还是两档之差。
 //
 // ⚠ 第三个坑：**槽数不同的卡，配装件数跟着不同。** 下面 `kitSize` 原先
-// 写死封顶 4（= 江口闸官的槽数），现在跟着这张卡的槽数走。通号人 3 个槽
+// 写死封顶 4（= 封印师的槽数），现在跟着这张卡的槽数走。通号人 3 个槽
 // → 第 7~9 关只装 3 件，比基线少一件。所以 `lock` vs `linkman` 那个差里
 // **混着「少插一件」那一份**，不是常驻技的净值（净值在 `--duel` 那边量）。
 const PLAYER_ROLE = process.env.PLAYER_ROLE || 'lock'
@@ -341,7 +341,7 @@ if (PLAYER_ROLE_AT < 0) {
 const PLAYER_SLOTS = R.DRAW_ROLES[PLAYER_ROLE_AT].slots.length
 
 // 第 level 关（0 起）开打时装着几件。经济目标照 draw-levels 那段注释：
-// 「打到第 9 关攒下的技能数正好对上技能库上限」，而江口闸官只有 4 个槽，
+// 「打到第 9 关攒下的技能数正好对上技能库上限」，而封印师只有 4 个槽，
 // 所以装着的件数在第 7~9 关封顶 4。简单的钱多（×2）、困难的钱少（×0.75）
 // 〔封顶那个 4 2026-10-20 换成 `PLAYER_SLOTS` —— 默认（lock，4 槽）不变〕
 // 〔2026-10-29〕三档每关攒几件改成旋钮 `KIT_RATE=简单,普通,困难`（默认 0.75,0.5,0.4 = 原值）。
@@ -359,7 +359,7 @@ function kitSize(diff, level, kshift) {
 }
 
 // `PLAYER_FIXED=key,key`〔2026-10-30 量测开关〕：玩家**每一关都固定带这几件**（依次插第 1、2… 格），不随机抽、
-// 不看 kitSize。量「同一套配装对上每一位庄家」用（用户问浑水 + 缩水会不会对谁都一样强）。默认不设 = 原样
+// 不看 kitSize。量「同一套配装对上每一位庄家」用（用户问迷雾 + 缩水会不会对谁都一样强）。默认不设 = 原样
 const POOL_DROP = process.env.POOL_DROP ? process.env.POOL_DROP.split(',') : []
 const PLAYER_FIXED = process.env.PLAYER_FIXED ? process.env.PLAYER_FIXED.split(',').filter(function (k) { return k !== '' }) : null
 function playerKit(rng, size) {
@@ -394,11 +394,11 @@ function playerKit(rng, size) {
 // 〔2026-10-29 · 量测开关〕`FOE_BARE=1`：庄家技能全清空、模了的两条特殊技也关 ——
 //   量「只靠削庄家配装」最多能把通关率推到哪（天花板），不是任何一档游戏里的样子
 const FOE_BARE = process.env.FOE_BARE === '1'
-// 庄家规矩 key → rules.js 认的 key（逆钩跟玩家侧【逆涌】同一个效果）。添手 / 掐口走 handAdj，不在这儿
+// 庄家规矩 key → rules.js 认的 key（镇王跟玩家侧【抑王】同一个效果）。添手 / 掐口走 handAdj，不在这儿
 function foeRulesOf(specials) {
   return specials.filter(function (k) { return k !== 'hand' && k !== 'pinch' }).map(function (k) { return k === 'rev' ? 'jsurge' : k })
 }
-// 【封竿】封的点数 = 庄家第一个点数槽摇到的那个标签（照 draw-save 的 foeSealRank）；foeKit 顺手记下
+// 【封数】封的点数 = 庄家第一个点数槽摇到的那个标签（照 draw-save 的 foeSealRank）；foeKit 顺手记下
 let foeKitSeal = ''
 function foeKit(rng, level) {
   const lo = R.emptyLoadout()
@@ -477,8 +477,8 @@ function levelOdds(diff, level, opt) {
       // 那是 2026-10-20 之前的样子，也是默认档（PLAYER_SP 关着）
       myRole: PLAYER_SP ? PLAYER_ROLE_AT : -1,
       handAdj: adj,
-      // 〔2026-11-04〕庄家自己那张卡上的规矩也挂上（rules.js 补齐了淤滩 / 偏流 / 硬壳 / 枯水 / 守滩 / 封竿 / 走水 / 挑潮 / 再钩 / 炙水 / 过闸；
-      //   逆钩 = jsurge）。FOE_RULES=off 退回旧口径（只模添手 / 掐口）
+      // 〔2026-11-04〕庄家自己那张卡上的规矩也挂上（rules.js 补齐了泥沼 / 逆位 / 硬壳 / 枯竭 / 筑壁 / 封数 / 噬底 / 择命 / 连击 / 炙焰 / 征收；
+      //   镇王 = jsurge）。FOE_RULES=off 退回旧口径（只模添手 / 掐口）
       foeRules: (process.env.FOE_RULES === 'off' || FOE_BARE ? [] : foeRulesOf(FOE_ROLES[level].specials)).concat(FOE_SP_EXTRA[String(level + 1)] || []),
       sealRank: foeKitSeal
     }, AI)
@@ -606,11 +606,11 @@ function main() {
 
 main()
 
-// 〔2026-11-04〕渔政巡查员那两件的诊断口（CLAUDE.md 第四节：新机制配「它做了几次」）—— 只有挂上了才打
+// 〔2026-11-04〕禁咒审判官那两件的诊断口（CLAUDE.md 第四节：新机制配「它做了几次」）—— 只有挂上了才打
 process.on('exit', function () {
   const p = R.PROTO_STAT.patrol
   const fr = R.PROTO_STAT.foeRule
-  if (fr) console.log('诊断（庄家规矩，三档合计）：炙水挡 ' + fr.charLocked + ' · 硬壳挡 ' + fr.shellLocked + '（都含 AI 试算）· 过闸 ' + fr.toll + ' 张 · 走水 ' + fr.leak + ' 张 · 守滩垫 ' + fr.guard + ' · 再钩 ' + fr.again + ' · 挑潮 ' + fr.pick + ' · 枯水不补 ' + fr.dryup)
+  if (fr) console.log('诊断（庄家规矩，三档合计）：炙焰挡 ' + fr.charLocked + ' · 硬壳挡 ' + fr.shellLocked + '（都含 AI 试算）· 征收 ' + fr.toll + ' 张 · 噬底 ' + fr.leak + ' 张 · 筑壁垫 ' + fr.guard + ' · 连击 ' + fr.again + ' · 择命 ' + fr.pick + ' · 枯竭不补 ' + fr.dryup)
   // 〔2026-11-11〕失去花色系列（〈blankmirror〉规矩 /〈deckbleach〉/ 漂白）
   const bm = R.PROTO_STAT.blankmirror, db = R.PROTO_STAT.deckbleach, ns = R.PROTO_STAT.nosuit
   if (bm || db) console.log('诊断（失去花色系列，三档合计）：庄家打无花色牌 ' + (bm ? bm.plays : 0) + ' 次，靠借点数才钓到 ' + (bm ? bm.needed : 0) + ' · 钓得更深 ' + (bm ? bm.deeper : 0) + ' · 牌库顶失去花色 发动 ' + (db ? db.fires : 0) + ' 次 / ' + (db ? db.stripped : 0) + ' 张 · 漂白发动 ' + (ns ? ns.fires : 0) + ' 次（剥对方 ' + (ns ? ns.strippedFoe : 0) + ' 张）')

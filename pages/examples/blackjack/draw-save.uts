@@ -1,4 +1,4 @@
-// 摸打钓鱼的存档。三个槽，和钓鱼、排竿各走各的键。
+// 魔法匹配的存档。三个槽，和钓鱼、排竿各走各的键。
 //
 // 玩法照排竿：一轮要从第 1 关连胜到第 12 关，输一次（平局也算）整轮作废，从头再来。
 // 所以存档里分两层：
@@ -69,7 +69,7 @@ import {
   //（见下面 ownerToText / textToOwner 那一段）
   skillIndexOf,
   skillKeyAt,
-  // 角色专属技能（布饵人的空钩）：商店不上；固定槽不许换（见 equipSkill / embedSkill）
+  // 角色专属技能（虚无行者的反噬）：商店不上；固定槽不许换（见 equipSkill / embedSkill）
   isRoleOnlySkill,
   // 专属 = 角色专属 + 庄家专属〔2026-11-05〕：商店不上、不许嵌
   isExclusiveSkill,
@@ -81,7 +81,8 @@ import {
 } from '@/pages/examples/blackjack/draw-skills.uts'
 
 export const DRAW_SLOT_COUNT : number = 3
-export const DRAW_SAVE_NAME : string = '摸打'
+// 〔2026-11-18 游戏正式命名「魔法匹配」（用户定）：原 '摸打'。只是新存档的显示名，老存档存着的名字不变〕
+export const DRAW_SAVE_NAME : string = '魔法匹配'
 // 一轮一共几关。和 draw-levels.uts 的关卡表对上
 export const DRAW_RUN_LENGTH : number = 12
 
@@ -243,7 +244,7 @@ export type DrawSave = {
   // 平局重打同一关不重摇 —— 那一关的题目没变。
   //
   // 格式：一个槽一段，段内用空格分隔标签（跟角色卡的 slots 同一个写法）。
-  // 比如鲸落拾骨人摇出来可能是 ['♦', '3 9']
+  // 比如封数巫师摇出来可能是 ['♦', '3 9']
   foeSlots : string[]
   // 本轮：手里还没开奖的彩票张数。**下一次进商店**时开（见 drawLottery）。
   // lotto 是小彩票（原来那一张），lottoMid / lottoBig 是 2026-11-03 加的中、大彩票。
@@ -445,7 +446,7 @@ export function foeKitOf(data : DrawSave, level : number) : DrawKit {
   return kitFromSlots(slots, foeNumOf(data, level) - 1)
 }
 
-// 【封竿】封住的那个点数（庄家特殊技，见 draw-levels 的 DRAW_FOE_SPECIALS）。
+// 【封数】封住的那个点数（庄家特殊技，见 draw-levels 的 DRAW_FOE_SPECIALS）。
 // 没带这件、或者它的槽上没有点数标签就返回空串。
 //
 // **它封的是庄家自己技能占着的那个点数** —— 不另摇一个数，理由有两条：
@@ -459,7 +460,7 @@ export function foeKitOf(data : DrawSave, level : number) : DrawKit {
 export function foeSealRank(data : DrawSave, level : number) : string {
   const role = foeRoleAt(foeNumOf(data, level))
   // 走 foeRoleHas 而不是比 `specials[0]` —— 一个角色可能带两条
-  //（东海龙王：逆钩 + 浊水），比第一条就会漏掉第二条
+  //（苍龙王：镇王 + 迷障），比第一条就会漏掉第二条
   if (!foeRoleHas(role, 'seal')) {
     return ''
   }
@@ -472,7 +473,7 @@ export function foeSealRank(data : DrawSave, level : number) : string {
       return labels[0]
     }
   }
-  // 〔2026-11-16 用户定：没有点数槽（系列的基础 / H 那几张）就从 A ~ K 里随机封一个，跳过 J —— 原先返回空串，封竿什么都不封，
+  // 〔2026-11-16 用户定：没有点数槽（系列的基础 / H 那几张）就从 A ~ K 里随机封一个，跳过 J —— 原先返回空串，封数什么都不封，
   //   跟 desc「每一关随机封一个点数」对不上（台账一百七十七）。开局调一次（ap-fishing 的 sealedRank），所以每局摇一次。模拟器 campaign.js 的 foeKit 同口径〕
   const ranks : string[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Q', 'K']
   return ranks[Math.floor(Math.random() * ranks.length)]
@@ -566,7 +567,7 @@ function textToFixed(text : string, count : number, fallback : number) : number[
 //
 // 下面四个函数是那道闸门。为什么非得这样，见 draw-skills 文件头
 // 「技能的身份是 key」那一段，一句话版：**存下标的话，删一件技能
-// 就让老档整个错位**（你的磁钩会变成别人家的观潮）。
+// 就让老档整个错位**（你的磁钩会变成别人家的观星）。
 //
 // 存 key 之后删增技能谁也不影响谁 —— 老档里读到一个已经删掉的 key，
 // skillIndexOf 返回 -1，就当没有这件技能。
@@ -800,8 +801,8 @@ export function setShopGuided(index : number) {
   uni.setStorageSync(KEY_GUIDE + index, '1')
 }
 
-// ---------- 〔撤了〕布饵人的成就解锁（闯关里打出【收零】并成功收牌）----------
-// 2026-11-04 角色解锁改成按强度三档（用户定「布饵人按档走银星」），这个成就键不再读写。
+// ---------- 〔撤了〕虚无行者的成就解锁（闯关里打出【收零】并成功收牌）----------
+// 2026-11-04 角色解锁改成按强度三档（用户定「虚无行者按档走银星」），这个成就键不再读写。
 // 键名留着只为删档时顺手清掉老数据（见 clearDrawAt）
 const KEY_ZERO : string = 'md_zero_'
 
@@ -1246,7 +1247,7 @@ export function rollShelf(data : DrawSave, keepFix : boolean) {
 //
 // **从你现在的牌组里抽**：牌组里每一张都是一个候选，所以一张牌被摆出来的
 // 权重就是它在牌组里有几张（♠7 有两张，它就比只有一张的 ♥7 常见一倍）。
-// 牌组里没有的牌不卖 —— 弃饵把某个点数清空了，那个点数从此也买不回来，
+// 牌组里没有的牌不卖 —— 弃符把某个点数清空了，那个点数从此也买不回来，
 // 「清空」是真的清空。
 //
 // 卖出来的是**牌面本身**（花色 + 点数），点数卡不跟着卖：
@@ -1587,9 +1588,9 @@ export function markSold(data : DrawSave, index : number) {
 // 原先这儿有 MAX_OWNED_SKILLS = 4（最多同时拥有几个技能）和 ownedSkillCount。
 //
 // **槽数本身就是上限了** —— 角色卡上有几个槽就带几件技能（2 到 4 个），
-// 而且上限随角色变，那比一个全局常数有意思：选江口闸官（4 个窄槽）
-// 还是镜湖占卜师（2 个宽槽），是「泛用 vs 专精」那道题。
-//〔原文举的是深海钓手，那张 2026-10-23 删了；镜湖占卜师是现存同形的那张〕
+// 而且上限随角色变，那比一个全局常数有意思：选封印师（4 个窄槽）
+// 还是水晶占卜师（2 个宽槽），是「泛用 vs 专精」那道题。
+//〔原文举的是深海钓手，那张 2026-10-23 删了；水晶占卜师是现存同形的那张〕
 //
 // 「名额满了买不动」那条规矩也换了形状：槽满了照样买得动，
 // 只是得**换掉**里头那件（见 embedSkill）—— 于是决策从
