@@ -108,12 +108,14 @@
           </view>
           <!-- 冻 / 废**盖着的牌也印**（冻结挑的是位置，你锁的那张多半盖着） -->
           <view class="card-tags">
-            <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
+            <text v-if="isFrozen(card) && !lockOn(card)" class="card-frozen-tag">冻</text>
             <!-- 【死水】废掉的标出来。不标的话那张牌看着跟别的一样，
                  而它打出来什么也不发生 —— 那就是规则坏了的感觉 -->
             <text v-else-if="isDead(card)" class="card-dead-tag">废</text>
             <!-- 【叛变】：你的策反贴的。牌背上印「叛」，牌面照旧盖着（2026-11-17 去掉明置） -->
             <text v-if="traitorOn(card)" class="card-dead-tag">叛</text>
+            <!-- 【禁锢】：你的锢咒贴的。牌背上印「锢」 -->
+            <text v-if="lockOn(card)" class="card-frozen-tag">锢</text>
           </view>
         </view>
       </view>
@@ -535,6 +537,16 @@
       <view class="tide-actions">
         <view id="ap-hook-done" class="tide-btn tide-btn-plain" @click="onHookShowDone()">
           <text class="tide-btn-text tide-btn-text-plain">{{ hookShownN >= 2 ? '就这样' : (hookShownN == 0 ? '不展示' : '不够 2 张，不发动') }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 【复刻】〔2026-11-18〕：先点模板那张，再点要变成它的那张 -->
+    <view v-if="handCopyPending" class="tide-box">
+      <text class="tide-text">{{ handCopyFirst < 0 ? '复刻：先点一张手牌当模板（J 也行）' : ('复刻：模板是 ' + cardName(hand[handCopyFirst]) + '，再点要变成它的那张') }}</text>
+      <view class="tide-actions">
+        <view id="ap-handcopy-skip" class="tide-btn tide-btn-plain" @click="onHandCopySkip()">
+          <text class="tide-btn-text tide-btn-text-plain">不发动</text>
         </view>
       </view>
     </view>
@@ -1055,7 +1067,9 @@
             <!-- 【沉降】：报**压几点**（照上面那条，报后果不报标签名）。
                  跟推牌并排 —— 同一手牌可能两个标签都带着（两件技能各贴过） -->
             <text v-if="sinkTagText(card) != ''" class="hand-sink-tag">{{ sinkTagText(card) }}</text>
-            <text v-if="isFrozen(card)" class="card-frozen-tag">冻</text>
+            <!-- 【禁锢】（庄家的锢咒贴的）：打不出、不能抢；轮到你时点它一下、再点一下 = 推牌解开它（这一回合不再出牌） -->
+            <text v-if="lockOn(card)" class="card-frozen-tag">锢</text>
+            <text v-if="isFrozen(card) && !lockOn(card)" class="card-frozen-tag">冻</text>
             <text v-else-if="jackLocked(card)" class="card-frozen-tag">锁</text>
             <text v-else-if="foeKnows(index)" class="card-seen">被看</text>
             </view>
@@ -1411,6 +1425,9 @@
     // 策连〔2026-11-17 上架〕
     SK_TRAITORHUE,
     SK_STEALCUT,
+    SK_HANDCOPY,
+    // 锢咒〔2026-11-19 上架〕
+    SK_LOCKHUE,
     // 三色〔2026-11-17 上架〕
     SK_TRISUIT,
     ORDER_MIN,
@@ -1495,6 +1512,8 @@
     HARD_HEART_GOAL,
     HARD_SCORE_GOAL,
     SP_CLUBEIGHT,
+    SP_HALFALSO,
+    SP_REDBLACK,
     SP_HIGHMUTE,
     // 【共鸣】（共鸣歌者）：命中任一个点数槽 → 所有点数槽一起响（见 skillsOf）
     SP_RANKLINK,
@@ -3495,6 +3514,26 @@
     }
     return false
   }
+  // 【禁锢】（锢咒贴的，2026-11-19）：带它的手牌打不出、不能拿去抢（接 isFrozen 那条现成的路）；轮到自己时可以推牌解 1 张（lockPushFor）。
+  // 双方都看得见哪张带着它（牌上 / 牌背印「锢」）。离手就摘（照别的手牌标签）。模拟器那边是 `G.lock`
+  const lockKey = ref<PlainCard[]>([] as PlainCard[])
+  function lockOn(card : PlainCard) : boolean {
+    for (let i = 0; i < lockKey.value.length; i++) {
+      if (lockKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropLockKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < lockKey.value.length; i++) {
+      if (lockKey.value[i] != card) {
+        keep.push(lockKey.value[i])
+      }
+    }
+    lockKey.value = keep
+  }
   function dropTraitorKey(card : PlainCard) {
     const keep : PlainCard[] = []
     for (let i = 0; i < traitorKey.value.length; i++) {
@@ -4199,6 +4238,7 @@
       && !mirrorSelfPending.value
       && !polePending.value
       && !hookShowPending.value
+      && !handCopyPending.value
       && !mimicHandPending.value
       // 【分赐】要点两下才算完，没点完不许出牌（跟别的 pending 同理）
       && !giftPending.value
@@ -4341,6 +4381,9 @@
     }
     if (hookShowPending.value) {
       return '你的回合 · 引雷'
+    }
+    if (handCopyPending.value) {
+      return '你的回合 · 复刻'
     }
     if (mimicHandPending.value) {
       return '你的回合 · 拟形'
@@ -4869,6 +4912,16 @@
     const rank = skillRank(byFoe, card)
     const lo = loadoutOf(byFoe)
     const list = triggersOf(lo, card.suit, rank)
+    // 【半月】：一半那个点数也查一次槽（牌面 2 触发 2 槽、按一半 1 又触发 A 槽 = 双触发）
+    if (halfAlso(byFoe, card)) {
+      const h = halfOf(card.value)
+      const more = triggersOf(lo, card.suit, h == 1 ? 'A' : '' + h)
+      for (let i = 0; i < more.length; i++) {
+        if (list.indexOf(more[i]) < 0) {
+          list.push(more[i])
+        }
+      }
+    }
     // 【照花】【照点】（镜魔一族的庄家专属）：换成对方槽里挑中的那件
     copySwap(byFoe, list)
     // 【共鸣】（共鸣歌者）：命中任一个**被占**的点数槽 → **再响 1 件**（你选的那件，见 heartPick）。
@@ -6915,6 +6968,10 @@
 
   // 这张手牌被冻住了吗（打不出去）
   function isFrozen(card : PlainCard) : boolean {
+    // 【禁锢】打不出、不能抢 —— 出牌 / 抢牌 / playableCount / 庄家挑牌都读这一口（照模拟器 rules.js isFrozen 开头那一支）
+    if (lockOn(card)) {
+      return true
+    }
     for (let i = 0; i < held.value.length; i++) {
       if (held.value[i].skill == SK_FREEZE && held.value[i].target == card) {
         return true
@@ -8426,7 +8483,19 @@
     const tens = hasSpecial(byFoe, SP_TENS)
       && (card.rank == 'Q' || card.rank == 'K')
     // 【归八】：♣ 牌（J、废牌除外 —— 废牌上面已经返回 [0]）算 8 点，覆盖牌面、点数卡贴的照旧（照归十）
-    const out = tens ? tenVals(card) : (clubEight(byFoe, card) ? eightVals(card) : cardVals(card))
+    // 【阴阳】（阴阳师，2026-11-19）：红牌算 1、黑牌算 0（照归八：换掉牌面那个数，点数卡贴的照旧追加）
+    const out = redBlack(byFoe, card) ? redBlackVals(card) : (tens ? tenVals(card) : (clubEight(byFoe, card) ? eightVals(card) : cardVals(card)))
+    // 【半月】（半月术士，2026-11-19）：原来那几个点数照算，**再追加**各自的一半（向上取整，K 算 6）——
+    //   照点数卡「一张牌同时算几个点数」的路，落堆后照存。J 没有点数轴，被置 0 的上面已经返回 [0]
+    if (halfAlso(byFoe, card)) {
+      const base = out.slice(0)
+      for (let i = 0; i < base.length; i++) {
+        const h = halfOf(base[i])
+        if (!hasValue(out, h)) {
+          out.push(h)
+        }
+      }
+    }
     // 归深：**追加** 11 这个候选（不覆盖原来的）。
     //
     // 11 是 J 的数，而 J 打出就通吃走了、从不落堆 —— 所以堆里天生
@@ -8471,6 +8540,30 @@
   // 失去花色的牌 suit 是 ''，自然不算
   function clubEight(byFoe : boolean, card : PlainCard) : boolean {
     return card.suit == '♣' && card.rank != JACK && hasSpecial(byFoe, SP_CLUBEIGHT)
+  }
+
+  // 【阴阳】（阴阳师）：这张牌是不是「带阴阳那一方的、有花色的非 J 牌」。失去花色的牌没有颜色（suit 是 ''），不改；被置 0 的不算
+  function redBlack(byFoe : boolean, card : PlainCard) : boolean {
+    return card.rank != JACK && card.suit != '' && !isDead(card) && hasSpecial(byFoe, SP_REDBLACK)
+  }
+  // 红算 1、黑算 0。照 eightVals：换掉牌面那个数，点数卡贴的照旧
+  function redBlackVals(card : PlainCard) : number[] {
+    const out : number[] = [isRedSuit(card.suit) ? 1 : 0]
+    for (let i = 0; i < card.extra.length; i++) {
+      if (!hasValue(out, card.extra[i])) {
+        out.push(card.extra[i])
+      }
+    }
+    return out
+  }
+
+  // 【半月】（半月术士）：这张牌是不是「带半月那一方的、有点数的牌」。J 没有点数轴，被置 0 的不算
+  function halfAlso(byFoe : boolean, card : PlainCard) : boolean {
+    return card.rank != JACK && !isDead(card) && hasSpecial(byFoe, SP_HALFALSO)
+  }
+  // 一半（向上取整），K 算 6（用户定，不是 7）：A/2 → 1 · 3/4 → 2 · … · 9/10 → 5 · Q/K → 6
+  function halfOf(v : number) : number {
+    return v >= 13 ? 6 : Math.ceil(v / 2)
   }
 
   // ♣ 算 8 点（【归八】走这条）。照 tenVals：换掉牌面那个数，点数卡贴的照旧
@@ -9464,7 +9557,7 @@
     }
     const card = hand.value[index]
     if (isFrozen(card)) {
-      uni.showToast({ title: '这张被冻住了，抢不了', icon: 'none' })
+      uni.showToast({ title: lockOn(card) ? '这张被禁锢了，抢不了' : '这张被冻住了，抢不了', icon: 'none' })
       return
     }
     if (jackLocked(card)) {
@@ -11338,6 +11431,10 @@
           + (byFoe ? '你的 ' + taggedText + ' 带上了【叛变】（打出后你剩下的手牌全部置 0）。' : '庄家 ' + tagged + ' 张手牌带上了【叛变】。')
       }
     }
+    // 【锢咒】〔2026-11-19〕：抽 1 张；展示跟堆底同颜色的手牌，盲选对方同样张数的手牌带上【禁锢】
+    if (hasTrigger(skills, SK_LOCKHUE) && askFirst(SK_LOCKHUE)) {
+      lockHueFor(byFoe)
+    }
     // 【漂白】：对方**此刻**手里的牌都失去花色（永久，落堆后也没有；之后新摸的不受影响）。
     // 照模拟器 rules.js 的 stripSuits。改牌面（这副牌是每局从存档重新造的副本，照 markDead 改 J 那条），
     // 再换一次数组引用让界面刷新。askFirst 挡重入（这一段在停人技能问完后会再跑一遍）
@@ -11607,6 +11704,19 @@
         message.value = message.value + ' 引雷：手里凑不出 2 张同颜色的牌。'
       } else {
         hookShowFoe()
+      }
+    }
+    // 【复刻】〔2026-11-18 用户定上架〕：选择 2 张手牌，后 1 张变成与前 1 张牌面相同（前一张可以是 J）。
+    //   你：先点模板那张、再点要变的那张（handCopyPending，两步）；庄家：照模拟器 handcopy 的挑法（handCopyFoe）。手里不到 2 张就不发动
+    if (hasTrigger(skills, SK_HANDCOPY) && askFirst(SK_HANDCOPY)) {
+      const mine = byFoe ? foeHand.value : hand.value
+      if (mine.length >= 2) {
+        if (!byFoe) {
+          handCopyPending.value = true
+          handCopyFirst.value = -1
+          return
+        }
+        handCopyFoe()
       }
     }
     // 【百变】〔2026-11-10 用户定换效果：「1 张手牌带上【通配】和【顺子匹配】」〕—— 同一张手牌贴两个标签：顺子钥匙（flowKey）+ 通配（addWild，按牌对象存，落堆自动带着）。
@@ -13083,6 +13193,116 @@
     askNext()
   }
 
+  // ---------- 【复刻】〔2026-11-18〕：选择 2 张手牌，后 1 张变成与前 1 张牌面相同 ----------
+  //
+  // 后一张换成前一张的复制品（新对象：花色 / 点数 / 贴上的点数照抄）。手牌上挂在旧那张上的钥匙跟着摘掉（照离手那几句）。
+  // 明置标记按下标留着（那一格原来明着就还明着）。前一张可以是 J（用户定）。
+  const handCopyPending = ref<boolean>(false)
+  const handCopyFirst = ref<number>(-1)
+  function handCopyApply(byFoe : boolean, from : number, to : number) {
+    const mine = byFoe ? foeHand.value : hand.value
+    const src = mine[from]
+    const old = mine[to]
+    dropMatchKey(old)
+    dropDraftKey(old)
+    dropZeroKey(old)
+    dropFadeKey(old)
+    dropChainTag(old)
+    dropFlowKey(old)
+    dropMagKey(old)
+    const copy = { suit: src.suit, rank: src.rank, value: src.value, extra: src.extra.slice(0) } as PlainCard
+    const next : PlainCard[] = []
+    for (let i = 0; i < mine.length; i++) {
+      next.push(i == to ? copy : mine[i])
+    }
+    if (byFoe) {
+      foeHand.value = next
+    } else {
+      hand.value = next
+    }
+  }
+  // 庄家：照模拟器 handcopy —— 前一张 = J > 落在自己槽上的 > 现在钓得最深的；后一张 = 手里最没用的（非 J、不触发技能、钓不中的里点数最小）
+  function handCopyFoe() {
+    const mine = foeHand.value
+    let a = -1
+    let aS = -1
+    for (let i = 0; i < mine.length; i++) {
+      const c = mine[i]
+      const sk = skillsOf(true, c)
+      const at = catchStart(c, true, sk, false)
+      let sc = c.value
+      if (c.rank == JACK) {
+        sc = sc + 100000
+      } else {
+        if (sk.length > 0) {
+          sc = sc + 10000
+        }
+        if (at >= 0) {
+          sc = sc + (pile.value.length - at) * 100
+        }
+      }
+      if (sc > aS) {
+        aS = sc
+        a = i
+      }
+    }
+    let b = -1
+    let bS = 1000000000
+    for (let i = 0; i < mine.length; i++) {
+      const c = mine[i]
+      if (i == a || c.rank == JACK) {
+        continue
+      }
+      const sk = skillsOf(true, c)
+      let sc = c.value
+      if (sk.length > 0) {
+        sc = sc + 1000
+      }
+      if (catchStart(c, true, sk, false) >= 0) {
+        sc = sc + 500
+      }
+      if (sc < bS) {
+        bS = sc
+        b = i
+      }
+    }
+    if (a < 0 || b < 0) {
+      return
+    }
+    handCopyApply(true, a, b)
+    message.value = message.value + ' 庄家复刻：手里 1 张牌变成了另 1 张的样子。'
+  }
+  // 你点了第 index 张手牌：第一下定模板，第二下定要变的那张（不能是同一张）
+  function onHandCopyHand(index : number) {
+    if (!handCopyPending.value || index < 0 || index >= hand.value.length) {
+      return
+    }
+    if (handCopyFirst.value < 0) {
+      handCopyFirst.value = index
+      return
+    }
+    if (index == handCopyFirst.value) {
+      uni.showToast({ title: '要选另一张', icon: 'none' })
+      return
+    }
+    const src = hand.value[handCopyFirst.value]
+    const name = cardName(hand.value[index])
+    handCopyApply(false, handCopyFirst.value, index)
+    message.value = message.value + ' 复刻：' + name + ' 变成了 ' + cardName(src) + '。'
+    handCopyPending.value = false
+    handCopyFirst.value = -1
+    askNext()
+  }
+  function onHandCopySkip() {
+    if (!handCopyPending.value) {
+      return
+    }
+    handCopyPending.value = false
+    handCopyFirst.value = -1
+    message.value = message.value + ' 复刻：没发动。'
+    askNext()
+  }
+
   // 石影：你挑中了自己第 index 张贴【花色匹配】（-1 表示不贴）
   function onStoneKey(index : number) {
     if (!stoneKeyPending.value) {
@@ -13727,7 +13947,14 @@
 
   function finishSweep() {
     catchTimer = -1
-    const set = catchSet.value
+    sweepTake(catchSet.value, catchByFoe.value)
+    finishSweepTail()
+  }
+
+  // 散收的结算本体：按格拿掉（takeAt + blockedAt）、六条并行数组重建、记分、积分跳。返回原始张数。
+  // 〔2026-11-19 从 finishSweep 抽出来 —— 【禁锢】的推牌（lockPushFor）对上了要当场收、不演飞牌，
+  //   走同一段结算，不另写一份（「复制一份逻辑，两份必然分叉」）〕
+  function sweepTake(set : number[], byFoe : boolean) : number {
     // 要移除牌，所以**六条并行数组一起重建** —— 漏一条就错位
     //（pile / pileByFoe / pileGuard / pileVals / pileSuit / pileBurn，见 pushPile）
     const keepCards : PlainCard[] = []
@@ -13793,7 +14020,6 @@
     // 收走的那几张里可能有谁的效果牌
     expireHeld()
     expireStacked()
-    const byFoe = catchByFoe.value
     springTraps(trapTaken, byFoe)
     // ---------- 扫堆线的计分点〔R4，2026-10-23〕----------
     //
@@ -13820,6 +14046,10 @@
       tookThisHand[byFoe ? 1 : 0] = true
     }
     flashTimer = setTimeout(flashOff, SCORE_FLASH_MS)
+    return taken
+  }
+
+  function finishSweepTail() {
     catching.value = false
     flyOn.value = false
     catchSet.value = [] as number[]
@@ -14035,6 +14265,151 @@
         + '一张都没撞上。'
     }
     return false
+  }
+
+  // ---------- 【禁锢】（2026-11-19，随【锢咒】上架；原名【抵押】）----------
+  // 词条见 draw-terms 的 TERMS。模拟器 rules.js 的 lockPush / lockTag / lockHueFor / lockVoluntary / lockAllStuck 一一对应。
+  const LOCK_HOLD : number = 2
+  // 玩家点了一下的那张禁锢牌（再点一次才推）。回合开始清掉
+  let lockArmed : PlainCard | null = null
+  function allLocked(byFoe : boolean) : boolean {
+    const mine = byFoe ? foeHand.value : hand.value
+    if (mine.length == 0) {
+      return false
+    }
+    for (let i = 0; i < mine.length; i++) {
+      if (!lockOn(mine[i])) {
+        return false
+      }
+    }
+    return true
+  }
+  // 推牌时去掉哪张：J 优先，其次现在打出去收得最多的（照模拟器 lockUnlockPick 的 betrayGain）。没有禁锢牌返回 −1
+  function lockUnlockPick(byFoe : boolean) : number {
+    const mine = byFoe ? foeHand.value : hand.value
+    let best = -1
+    let high = -1
+    for (let i = 0; i < mine.length; i++) {
+      if (!lockOn(mine[i])) {
+        continue
+      }
+      let n = 0
+      if (mine[i].rank == JACK) {
+        n = 999
+      } else {
+        const sk = skillsOf(byFoe, mine[i])
+        const at = catchStart(mine[i], byFoe, sk, false)
+        n = at < 0 ? 0 : pile.value.length - at + 1
+        const sp = harvestCount(mine[i], sk, byFoe, true)
+        if (sp > n) {
+          n = sp
+        }
+      }
+      if (n > high) {
+        high = n
+        best = i
+      }
+    }
+    return best
+  }
+  // 推牌：牌库顶翻 1 张落堆顶 —— 照洪水那两条：判撞在落堆之前、不算打出（空 skills，场上抹点数照管 landVals）。
+  // 对上了 → 当场把「撞中那张 → 堆顶」那一段收给**对方**（sweepTake，不演飞牌）；对不上留在堆上。
+  // unlock 非空 = 主动推 / 全禁锢推：去掉那张的禁锢；强制推传 null（禁锢不去掉）。
+  // 返回播报（「推牌翻出 …」开头）；空串 = 牌库空了推不了
+  function lockPushFor(byFoe : boolean, unlock : PlainCard | null) : string {
+    if (deck.value.length == 0) {
+      return ''
+    }
+    const rest = deck.value.slice(0)
+    const card = rest.pop()!
+    deck.value = rest
+    const at = catchStart(card, byFoe, [] as number[], false)
+    pushPile(card, byFoe, GUARD_NONE, landVals(card, byFoe, [] as number[], false))
+    let note = '推牌翻出 ' + cardName(card)
+    if (at >= 0) {
+      const taken : number[] = []
+      for (let i = at; i < pile.value.length; i++) {
+        taken.push(i)
+      }
+      const got = sweepTake(taken, !byFoe)
+      note = note + '，匹配上了 —— 收走的 ' + got + ' 张归' + (byFoe ? '你' : '庄家')
+    } else {
+      note = note + '，没匹配上，留在堆上'
+    }
+    if (unlock != null) {
+      dropLockKey(unlock!)
+      note = note + (byFoe ? '；庄家 1 张手牌去掉了【禁锢】' : '；你的 ' + cardName(unlock!) + ' 去掉了【禁锢】')
+    }
+    return note
+  }
+  // 给对方贴 n 张（盲选没带禁锢的）；对方手牌全带禁锢了还要贴 → 每多 1 张改成他强制推 1 张（禁锢不去掉）。返回播报
+  function lockTagFor(byFoe : boolean, n : number) : string {
+    const theirs = byFoe ? hand.value : foeHand.value
+    let tagged = 0
+    let taggedText = ''
+    let forced = ''
+    for (let t = 0; t < n; t++) {
+      const pool : number[] = []
+      for (let i = 0; i < theirs.length; i++) {
+        if (!lockOn(theirs[i])) {
+          pool.push(i)
+        }
+      }
+      if (pool.length > 0) {
+        const at = pool[Math.floor(Math.random() * pool.length)]
+        lockKey.value = lockKey.value.concat([theirs[at]])
+        taggedText = taggedText + (taggedText == '' ? '' : '、') + cardName(theirs[at])
+        tagged = tagged + 1
+      } else if (theirs.length > 0) {
+        const note = lockPushFor(!byFoe, null)
+        if (note != '') {
+          forced = forced + (byFoe ? ' 你的手牌全被禁锢，强制' : ' 庄家手牌全被禁锢，强制') + note + '。'
+        }
+      }
+    }
+    let out = ''
+    if (tagged > 0) {
+      out = byFoe ? '你的 ' + taggedText + ' 带上了【禁锢】（打不出去，轮到你时可以推牌解开）。' : '庄家 ' + tagged + ' 张手牌带上了【禁锢】。'
+    }
+    return out + forced
+  }
+  // 【锢咒】：先抽 1 张；再数手里跟堆底同颜色的（堆底 = 落堆之后最下面那张，堆上没牌就按它自己；失去花色的不算 —— sameColor 认空串），
+  // 全部展示，贴对方同样张数。模拟器 rules.js 的 lockHueFor
+  function lockHueFor(byFoe : boolean) {
+    const drew = drawFor(byFoe) != null
+    const mine = byFoe ? foeHand.value : hand.value
+    const bottomSuit = pile.value.length > 0 ? pileSuitAt(0) : (lastPlayed != null ? lastPlayed!.suit : '')
+    let n = 0
+    let shownText = ''
+    for (let i = 0; i < mine.length; i++) {
+      if (sameColor(mine[i].suit, bottomSuit)) {
+        n = n + 1
+        shownText = shownText + (shownText == '' ? '' : '、') + cardName(mine[i])
+      }
+    }
+    const head = (byFoe ? ' 庄家锢咒：' : ' 锢咒：') + (drew ? '抽了 1 张，' : '牌库空了没抽到，')
+    if (n == 0) {
+      message.value = message.value + head + '手里没有跟堆底同颜色的牌，没贴上【禁锢】。'
+      return
+    }
+    message.value = message.value + head + '展示了 ' + shownText + ' —— ' + lockTagFor(byFoe, n)
+  }
+  // 玩家点禁锢牌：第一次选中，第二次推牌（推 1 张、解开这张，这一回合不出牌）
+  function onLockTap(index : number) {
+    const card = hand.value[index]
+    if (deck.value.length == 0) {
+      uni.showToast({ title: '这张被禁锢了；牌库空了，推不了牌', icon: 'none' })
+      return
+    }
+    if (lockArmed != card) {
+      lockArmed = card
+      uni.showToast({ title: '被禁锢：再点一次 = 推牌解开它（这一回合不再出牌）', icon: 'none' })
+      return
+    }
+    lockArmed = null
+    newIndex.value = -1
+    message.value = '你' + lockPushFor(false, card) + '，这一回合不出牌。'
+    passTurn(false)
   }
 
   // ---------- 收色 / 撒网：散着收一批 ----------
@@ -15600,6 +15975,7 @@
     dropFadeKey(card)
     dropFlowKey(card)
     dropTraitorKey(card)
+    dropLockKey(card)
     dropBurnHand(card)
     const old = pile.value[k]
     cleanAt0(old)
@@ -15748,6 +16124,7 @@
       dropFadeKey(card)
       dropFlowKey(card)
       dropTraitorKey(card)
+      dropLockKey(card)
       // 摄物拿过来的牌进自己手里。**手牌可能因此超过上限** ——
       // 那没关系，回合末 refill 只负责「补到」上限，不负责弃牌
       if (byFoe) {
@@ -15774,6 +16151,7 @@
     dropFadeKey(card)
     dropFlowKey(card)
     dropTraitorKey(card)
+    dropLockKey(card)
     if (byFoe) {
       foeHand.value = foeHand.value.concat([card])
       foeShown.value = foeShown.value.concat([false])
@@ -15818,6 +16196,7 @@
     dropFadeKey(card)
     dropFlowKey(card)
     dropTraitorKey(card)
+    dropLockKey(card)
     if (byFoe) {
       hand.value = hand.value.concat([card])
       // 庄家还过来的牌，它自己当然知道是什么
@@ -16671,6 +17050,7 @@
     dropFadeKey(card)
     dropFlowKey(card)
     dropTraitorKey(card)
+    dropLockKey(card)
     const next = deck.value.concat([card])
     for (let i = next.length - 1; i > 0; i--) {
       const k = Math.floor(Math.random() * (i + 1))
@@ -18067,6 +18447,17 @@
     // 剩一张冻着的牌，它在等「打不出牌」，而那正是现在。
     // refill 只数能打的牌（见 playableCount），所以枯竭下这儿也补得上。
     // 牌库空了补不上，才跳过这回合（双方都动不了由 checkOver 收摊）。
+    // 【禁锢】手牌全带禁锢：得推牌（点一张、再点一次）才过得去；牌库空了推不了 → 跳过这回合
+    lockArmed = null
+    if (allLocked(false)) {
+      if (deck.value.length == 0) {
+        message.value = '你的牌全被禁锢了，牌库也空了推不了牌，跳过这回合。'
+        passTurn(false)
+        return
+      }
+      message.value = '你的牌全被禁锢了：点一张、再点一次 = 推牌解开它（这一回合不再出牌）。'
+      return
+    }
     if (playableCount(false) == 0) {
       const before = hand.value.length
       refill(false)
@@ -18179,6 +18570,11 @@
       onHookShowHand(index)
       return
     }
+    // 复刻：点手牌是「选模板 / 选要变的那张」
+    if (handCopyPending.value) {
+      onHandCopyHand(index)
+      return
+    }
     // 感电第二步：点手牌是「给这张贴正电」
     if (inductHandPending.value) {
       onInductHand(index)
@@ -18271,6 +18667,11 @@
     if (!canPlay.value || index >= hand.value.length) {
       return
     }
+    // 【禁锢】点一下选中、再点一下 = 推牌解开它（这一回合不再出牌）
+    if (lockOn(hand.value[index])) {
+      onLockTap(index)
+      return
+    }
     // 被冻住的打不出去
     if (isFrozen(hand.value[index])) {
       uni.showToast({ title: '这张被冻住了，打不出去', icon: 'none' })
@@ -18313,6 +18714,16 @@
       message.value = '庄家没牌可打，跳过。'
       passTurn(true)
       return
+    }
+    // 【禁锢】庄家手里有禁锢牌就推牌（模拟器 LOCK_AI 默认 eager —— 台账二百二十八：只在全禁锢时才推是最差的打法）：
+    // 推 1 张、解 1 张，这一回合不出牌。牌库空了推不了 → 往下走（全禁锢的话 foePickCard 给 −1，照冻结那条跳过）
+    if (deck.value.length > 0) {
+      const lk = lockUnlockPick(true)
+      if (lk >= 0) {
+        message.value = '庄家' + lockPushFor(true, foeHand.value[lk]) + '，这一回合不出牌。'
+        passTurn(true)
+        return
+      }
     }
     let index = foePickCard()
     // **手里有牌也可能打不出** —— 全被【冻结】锁着的时候 foePickCard
@@ -19646,6 +20057,17 @@
       }
       return 'hold'
     }
+    // 【锢咒】手里（不含它）有 ≥ 2 张跟堆底同颜色才打（模拟器 trHueReady(…, LOCK_HOLD = 2)）
+    if (hasTrigger(skills, SK_LOCKHUE)) {
+      const bottom = pile.value.length > 0 ? pileSuitAt(0) : card.suit
+      let same = 0
+      for (let i = 0; i < foeHand.value.length; i++) {
+        if (foeHand.value[i] != card && sameColor(foeHand.value[i].suit, bottom)) {
+          same = same + 1
+        }
+      }
+      return same >= LOCK_HOLD ? 'ready' : 'hold'
+    }
     if (frostOnHand(card) && foeHasIce()) {
       return unfrozenCount() >= FOE_HOLD_N ? 'ready' : 'hold'
     }
@@ -19747,6 +20169,8 @@
     hookShowPending.value = false
     hookShownN.value = 0
     hookShown = [] as number[]
+    handCopyPending.value = false
+    handCopyFirst.value = -1
     negHand.value = [] as PlainCard[]
     negPile.value = [] as PlainCard[]
     draftKey.value = [] as PlainCard[]
@@ -19761,6 +20185,7 @@
     nextJackPending.value = false
     nextJackRank.value = ''
     traitorKey.value = [] as PlainCard[]
+    lockKey.value = [] as PlainCard[]
     reflectHandPending.value = false
     reflectTarget = -1
     reflectTargetShown.value = -1

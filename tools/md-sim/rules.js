@@ -1743,7 +1743,15 @@ const SKILLS = [
   //   收完两张才落堆（stealCutLand）。抢牌那张算对方一手、他马上补牌；截咒用掉我下一手（照抢牌，交回合走现成的 passTurn）。
   //   J 来抢也截得住。简化（源码同）：截住那一下两张只落堆、不触发技能。AI：我这一手要收 ≥ 2 张就截（STEALCUT_MIN）
   { key: 'stealcut', name: '截咒' },
+  // 【复刻】〔2026-11-18 用户定上架；名字代起；原型〈handcopy〉，台账二百一十七 / 二百一十八〕「选择 2 张手牌，后 1 张变成与前 1 张牌面相同」
+  //   手里（打出它之后剩下的）挑 2 张，后一张换成前一张的复制品（花色 / 点数 / 贴上的点数；换成新对象，不原地改）。前一张可以是 J（HC_J=0 是对照：不能选 J）。
+  //   AI：前一张 = J > 落在自己槽上的 > 现在钓得最深的；后一张 = 手里最没用的（非 J、不触发技能、钓不中的里点数最小）。源码庄家同一个挑法
+  { key: 'handcopy', name: '复刻' },
   { key: 'traitorhue', name: '策连', hold: function (G, side, idx) { return trHueReady(G, side, idx, 1) } },
+  // 【锢咒】〔2026-11-19 用户定上架；名字代起；原型 md-sim-f2 的 MORT_MODE=hue0d，台账二百二十五 / 二百二十八 / 二百三十五〕
+  //   「抽 1 张牌，展示跟堆底同颜色的手牌，使相同数量的对方手牌带上【禁锢】」。机制【禁锢】见 lockFor / lockPush 那一段。
+  //   打法：要屯 —— 手里（不含它）有 ≥ LOCK_HOLD（默认 2）张跟堆底同颜色才打（照策连 trHueReady）
+  { key: 'lockhue', name: '锢咒', hold: function (G, side, idx) { return trHueReady(G, side, idx, LOCK_HOLD) } },
   // 〈traitorzero〉〔2026-11-02 · 用户要评价〕对方 1 张手牌带上【叛变】（照策反 traitorFor），自己 1 张手牌带上【收零】（照回蚀 zeroKeyTag）
   // 〔2026-11-03 并进【策反】（用户定）—— 这个原型留着当对照，跟现行策反逐位同一件事〕
   { key: 'traitorzero', name: '〈traitorzero〉' },
@@ -2561,7 +2569,7 @@ const SK = {
   RANGETAG: skAt('rangetag'),
   BETRAY: skAt('betray'),
   TURNCOAT: skAt('turncoat'),
-  TRAITOR: skAt('traitor'), TRAITORHUE: skAt('traitorhue'), STEALCUT: skAt('stealcut'),
+  TRAITOR: skAt('traitor'), TRAITORHUE: skAt('traitorhue'), STEALCUT: skAt('stealcut'), HANDCOPY: skAt('handcopy'), LOCKHUE: skAt('lockhue'),
   TRAITORZERO: skAt('traitorzero'),
   FETCHJ: skAt('fetchj'),
   JSUB: skAt('jsub'),
@@ -4482,7 +4490,12 @@ const SP = {
   // 【轻装】〔2026-11-04 上架 · 双生术士〕：你点数大于 10 的牌不发动技能（skillsOf 开头那一支）
   HIGHMUTE: 'highmute',
   // 【零空】〔2026-11-01 上架 · 虚无行者〕：点数为 0 的牌不占手牌数量（refill 那一支）
-  ZEROFREE: 'zerofree'
+  ZEROFREE: 'zerofree',
+  // 【半月】〔2026-11-19 上架 · 半月术士〕：你的牌还算作原点数的一半（向上取整，K 算 6），也能按它触发槽（J 不算）
+  //   —— skillsOf 打 HALF2_MARK、valuesOf 追加一半（halfAlsoVals）、skillsOfCore 按一半再查一次槽（双触发）。原型在 md-sim-g（HV_SP=halfalso、HALVE_SLOT=both）
+  HALFALSO: 'halfalso',
+  // 【阴阳】〔2026-11-19 上架 · 阴阳师〕：你的红色牌都算 1 点，黑色牌都算 0 点（J 不算）—— 实现就是原型〈redblack〉那条路（rbRank / rbVals）
+  REDBLACK: 'redblack'
 }
 const TWINVAL = process.env.TWINVAL || 'on'
 
@@ -5259,6 +5272,10 @@ const DRAW_ROLES = [
   { key: 'octopus', name: '八臂傀儡师', special: SP.CLUBEIGHT, slots: ['4', '8', 'Q'] },
   // 【双生术士】〔2026-11-04 上架 · 原型〈twosuit〉〕常驻【轻装】「你点数大于 10 的牌不发动技能」+ ♣ / ♦ 两个花色槽。
   //   TS_SLOTS 换槽（逗号分隔，默认 ♣,♦ = 游戏里的样子）、TS_SP='' 不带常驻技（对照旋钮）
+  // 【半月术士】〔2026-11-19 用户定上架；名字代起；台账二百二十七 / 二百三十〕：A / 7，常驻【半月】。HM_SLOTS 可换槽（量其他方案用）
+  // 【阴阳师】〔2026-11-19 用户定上架；名字代起；台账二百三十三 / 二百三十四〕：♠ / ♣，常驻【阴阳】（= 原型〈redblack〉：红算 1、黑算 0）
+  { key: 'yinyang', name: '阴阳师', special: SP.REDBLACK, slots: ['♠', '♣'] },
+  { key: 'halfmoon', name: '半月术士', special: SP.HALFALSO, slots: (process.env.HM_SLOTS || 'A,7').split(',') },
   { key: 'twinsail', name: '双生术士', special: process.env.TS_SP !== undefined ? process.env.TS_SP : SP.HIGHMUTE, slots: (process.env.TS_SLOTS || '♣,♦').split(',') },
   // 〔2026-11-04 上架（用户定「固定红牌，按 3 点数槽」）〕= 原型〈giver256〉+ REDRAW_FATE=give REDRAW_COLOR=red，不限次数
   { key: 'giver', name: '赠礼精灵', special: SP.REDGIFT, slots: ['2', '5', '6'] },
@@ -5957,6 +5974,8 @@ const RB_MODE = process.env.RB_MODE || 'both'
 function rbRank(G, side, card) {
   if (card.rank === JACK || card.rank === ZERO_RANK || !hasSpecial(G, side, 'redblack')) return null
   const red = isRedSuit(card.suit)
+  // 失去花色的牌没有颜色（isRedSuit 返回 NaN）→ 不改〔2026-11-19 跟源码 redBlack 对齐：原先它落进「黑」那一支变 0〕
+  if (red !== true && red !== false) return null
   if (red && (RB_MODE === 'both' || RB_MODE === 'red')) return 'A'
   if (!red && (RB_MODE === 'both' || RB_MODE === 'black')) return ZERO_RANK
   return null
@@ -5965,6 +5984,20 @@ function rbVals(card, rk) {
   const out = [rk === 'A' ? 1 : 0]
   const extra = card.extra || []
   for (let i = 0; i < extra.length; i++) if (out.indexOf(extra[i]) < 0) out.push(extra[i])
+  return out
+}
+// 【半月】：一半（向上取整），K 算 6（用户定，不是 7）
+const HALF2_MARK = -1301
+function halfOf(v) { return v >= 13 ? 6 : Math.ceil(v / 2) }
+function halfAlsoRank(G, side, card) {
+  if (card.rank === JACK || card.rank === ZERO_RANK || isZero(card) || !hasSpecial(G, side, SP.HALFALSO)) return ''
+  const h = halfOf(card.value)
+  return h === 1 ? 'A' : String(h)
+}
+// 原来那几个点数 + 各自的一半（点数卡那条「一张牌同时算几个点数」的路，落堆后照存）
+function halfAlsoVals(card) {
+  const out = cardVals(card).slice()
+  for (const v of cardVals(card)) { const h = halfOf(v); if (out.indexOf(h) < 0) out.push(h) }
   return out
 }
 // 【封数】（庄家规矩，照源码 valuesOf）：玩家打出被封的那个点数（G.sealRank = 庄家第一个点数槽的标签，campaign 传）算 0 点
@@ -5979,6 +6012,7 @@ function skillsOf(G, side, card) {
   if (rb !== null) { PROTO_STAT.redblack[rb === 'A' ? 'red' : 'black']++; return list.concat([rb === 'A' ? RB_MARK : RB_MARK - 1]) }
   if ((card.rank === 'Q' || card.rank === 'K') && hasSpecial(G, side, SP.TENS)) return list.concat([TENS_MARK])
   if (club3On(G, side, card)) return list.concat([hasSpecial(G, side, SP.CLUBEIGHT) ? CLUB8_MARK : CLUB3_MARK])
+  if (halfAlsoRank(G, side, card) !== '') return list.concat([HALF2_MARK])
   return list
 }
 
@@ -6026,6 +6060,9 @@ function skillsOfCore(G, side, card) {
   const rbk = rbRank(G, side, card)
   const view = rbk !== null && process.env.RB_VIEW !== 'off' ? { suit: view2.suit, rank: rbk } : view2
   const out = triggersOf(lo, view)
+  // 【半月】：一半那个点数也查一次槽（两个都命中 = 双触发）
+  const hr = halfAlsoRank(G, side, card)
+  if (hr !== '') { for (const x of triggersOf(lo, { suit: view.suit, rank: hr })) if (out.indexOf(x) < 0) out.push(x) }
   if (SK.COPYFOE >= 0 && out.indexOf(SK.COPYFOE) >= 0) copyFoeSwap(G, side, out)
   if (SK.COPYSUIT >= 0 && out.indexOf(SK.COPYSUIT) >= 0) copyFoeSwap(G, side, out, SK.COPYSUIT, 'suit')
   if (SK.COPYRANK >= 0 && out.indexOf(SK.COPYRANK) >= 0) copyFoeSwap(G, side, out, SK.COPYRANK, 'rank')
@@ -10509,7 +10546,7 @@ function valuesOfCore(G, card, skills) {
   }
   // 【归十】：Q、K 算 10（照源码 tenVals：[10] + 点数卡贴上来的那几个）
   if (has(skills, SEAL_MARK)) return [0]
-  const out = has(skills, RB_MARK) ? rbVals(card, 'A') : has(skills, RB_MARK - 1) ? rbVals(card, ZERO_RANK) : has(skills, TENS_MARK) ? tenValsSim(card) : (has(skills, CLUB8_MARK) ? club3Vals(card, '8') : has(skills, CLUB3_MARK) ? club3Vals(card, CLUB3_RANK) : cardVals(card))
+  const out = has(skills, HALF2_MARK) ? halfAlsoVals(card) : has(skills, RB_MARK) ? rbVals(card, 'A') : has(skills, RB_MARK - 1) ? rbVals(card, ZERO_RANK) : has(skills, TENS_MARK) ? tenValsSim(card) : (has(skills, CLUB8_MARK) ? club3Vals(card, '8') : has(skills, CLUB3_MARK) ? club3Vals(card, CLUB3_RANK) : cardVals(card))
   // 归深：**追加** 11 这个候选。11 是 J 的数，而 J 从不落堆 ——
   // 所以那是一个只有归深牌够得到的私有钓点
   if (has(skills, SK.DEEP) && out.indexOf(11) < 0) {
@@ -11182,6 +11219,8 @@ function freezePayTry(G, side, ai, forced) {
   st.gainSum += frozenEst - bestFree
 }
 function isFrozen(G, card) {
+  // 【禁锢】：带它的手牌打不出、不能拿去抢（出牌 / 抢牌 / playableCount 都读这一口）
+  if (G.lock && G.lock.has(card)) return true
   // 〈impulse〉【冲动】：手里有带【冲动】的牌时，不带的那些这一手打不出（接冻结那条现成的路 —— 出牌 / 抢牌 / playableCount 都读它）
   // 〈jimpulse〉庄家规矩〔2026-11-16 · 「玩家手里的 J 带上【冲动】」的规矩版〕：玩家手里有 J 时只能先打 J
   if (G.foeRules && G.foeRules.indexOf('jimpulse') >= 0 && card.rank !== JACK && G.hands[ME].indexOf(card) >= 0 && G.hands[ME].some(function (c) { return c.rank === JACK })) {
@@ -13904,6 +13943,7 @@ function suitKeyAnchor(G, card, at, side) {
 // 顺子匹配（flowHand）不摘** —— 于是零递 / 回蚀 / 传顺 / 连咏贴的标签跟着牌换了主人还能用
 //（`flowTagOn` / `draftTagOn` / `zeroKey` 都不查归属）。重复摘没有副作用，所以调用处原有的几行留着
 function dropLeaveTags(G, card) {
+  if (G.lock) G.lock.delete(card)
   if (G.nest) G.nest.delete(card)
   dropKeys(G, card)
   dropFrostHandSim(G, card)
@@ -16321,6 +16361,105 @@ const TR_PHASE = process.env.TR_PHASE || 'all'
 // 〔上架后默认改 0：游戏里的【策反】没有「对方抽 1」。TR_DRAW=1 复现第五十节那一版〕
 const TR_DRAW = process.env.TR_DRAW === '1'
 const TR_ZERO = process.env.TR_ZERO !== '0'
+// ---------- 【禁锢】〔2026-11-19 用户定，原名【抵押】；随【锢咒】上架〕----------
+// 词条：带它的手牌打不出（也不能拿去抢）。轮到自己时可以**推牌**：牌库顶翻 1 张落堆顶（不算打出、不触发技能），
+//   按普通匹配 / J 通吃判 —— 对上了那一段**归对方**收走，对不上留在堆上；然后去掉 1 张手牌的禁锢，**这一回合不出牌**。
+//   手牌全带禁锢时再被贴 → 那一张改成强制推 1 张（禁锢不去掉）。牌库空了推不了 → 全带禁锢就跳过这一手。
+// 持有人 AI（LOCK_AI）：eager（默认 = 手里有禁锢牌就推，一回合解 1 张）| wait（全带禁锢才推）| gain（被禁锢的最好那张比能打的最好那张多收 ≥ 2 张才推）
+//   默认 eager：台账二百二十八 / 二百三十五 —— wait 是持有人最差的打法，eager / gain 里对带技能一方更不利的是 eager（锢咒屯 2：A +3.98 vs gain +4.11）
+// 去掉哪张：J 优先，其次现在打出去收得最多的（betrayGain）。G.lock = Set（按牌认，牌离手就摘 —— dropLeaveTags）
+const LOCK_AI = process.env.LOCK_AI || 'eager'
+if (['eager', 'wait', 'gain'].indexOf(LOCK_AI) < 0) throw new Error('LOCK_AI 只能是 eager / wait / gain，收到：' + LOCK_AI)
+const LOCK_HOLD = parseInt(process.env.LOCK_HOLD || '2', 10)
+function lockStat() { return PROTO_STAT.lock = PROTO_STAT.lock || { fires: 0, drawn: 0, shown: 0, tagged: 0, tagJ: 0, forced: 0, pushes: 0, pushHit: 0, pushGave: 0, vol: 0, stuck: 0, stuckNoDeck: 0 } }
+function lockPush(G, pusher) {
+  if (G.deck.length === 0) return false
+  const st = lockStat()
+  const opp = pusher === ME ? FOE : ME
+  const card = G.deck.pop()
+  const at = catchStart(G, card, pusher, [], false)
+  pushPile(G, card, pusher, GUARD_NONE, landVals(G, card, [], false))
+  st.pushes++
+  if (at >= 0) {
+    const wanted = []
+    for (let i = 0; i < G.pile.length; i++) wanted.push(i >= at)
+    st.pushHit++
+    st.pushGave += harvestPile(G, opp, wanted)
+  }
+  return true
+}
+// 给对方贴 n 张（盲选没带禁锢的）；贴满之后每多 1 张改成强制推 1 张
+function lockTag(G, side, n) {
+  const foe = side === ME ? FOE : ME
+  if (!G.lock) G.lock = new Set()
+  const st = lockStat()
+  for (let t = 0; t < n; t++) {
+    const hand = G.hands[foe]
+    const free = []
+    for (let k = 0; k < hand.length; k++) if (!G.lock.has(hand[k])) free.push(k)
+    if (free.length > 0) {
+      const c = hand[free[randInt(G.rng, free.length)]]
+      if (c.rank === JACK) st.tagJ++
+      G.lock.add(c)
+      st.tagged++
+    } else if (hand.length > 0) {
+      if (lockPush(G, foe)) st.forced++
+    }
+  }
+}
+// 【锢咒】：先抽 1 张，再数手里跟堆底同颜色的（堆底 = 落堆之后最下面那张，堆上没牌就按它自己；失去花色的不算；AI 全展示）
+function lockHueFor(G, side, played) {
+  const st = lockStat()
+  st.fires++
+  if (drawFor(G, side) !== null) st.drawn++
+  const bc = G.pile.length > 0 ? isRedSuit(pileSuitAt(G, 0)) : isRedSuit(played.suit)
+  let n = 0
+  for (const c of G.hands[side]) { const r = isRedSuit(c.suit); if ((r === true || r === false) && r === bc) n++ }
+  st.shown += n
+  if (n > 0) lockTag(G, side, n)
+}
+function lockUnlockPick(G, side) {
+  const hand = G.hands[side]
+  let best = -1, high = -1
+  for (let k = 0; k < hand.length; k++) {
+    if (!G.lock.has(hand[k])) continue
+    const nn = hand[k].rank === JACK ? 999 : betrayGain(G, hand[k], side)
+    if (nn > high) { high = nn; best = k }
+  }
+  return best
+}
+// 回合开始（出牌前）：按 LOCK_AI 主动推。返回 true = 推了（调用方跳过这一手）
+function lockVoluntary(G, side) {
+  if (LOCK_AI === 'wait' || !G.lock || G.lock.size === 0 || G.deck.length === 0) return false
+  const hand = G.hands[side]
+  if (!hand.some(function (c) { return G.lock.has(c) })) return false
+  if (hand.every(function (c) { return G.lock.has(c) })) return false
+  const k = lockUnlockPick(G, side)
+  if (k < 0) return false
+  if (LOCK_AI === 'gain') {
+    let free = 0
+    for (const c of hand) if (!G.lock.has(c)) free = Math.max(free, c.rank === JACK ? 999 : betrayGain(G, c, side))
+    const mv = hand[k].rank === JACK ? 999 : betrayGain(G, hand[k], side)
+    if (mv < free + 2) return false
+  }
+  const card = hand[k]
+  if (!lockPush(G, side)) return false
+  G.lock.delete(card)
+  lockStat().vol++
+  return true
+}
+// 全带禁锢：推 1 张、解 1 张；牌库空了推不了 → 跳过。返回 true = 处理了（调用方跳过这一手）
+function lockAllStuck(G, side) {
+  if (!G.lock || G.lock.size === 0) return false
+  const hand = G.hands[side]
+  if (hand.length === 0 || !hand.every(function (c) { return G.lock.has(c) })) return false
+  const st = lockStat()
+  if (!lockPush(G, side)) { st.stuckNoDeck++; return true }
+  const k = lockUnlockPick(G, side)
+  if (k >= 0) G.lock.delete(hand[k])
+  st.stuck++
+  return true
+}
 function trHueReady(G, side, idx, need) {
   const hand = G.hands[side]
   const bc = G.pile.length > 0 ? isRedSuit(pileSuitAt(G, 0)) : isRedSuit(hand[idx].suit)
@@ -16826,6 +16965,7 @@ function pileSwapFor(G, side, played, skills) {
   st.defendCut += base - best
 }
 function afterPlay(G, side, skills, played, ai) {
+  if (has(skills, SK.LOCKHUE)) lockHueFor(G, side, played)
   if (played && played.rank !== JACK && has(skills, SK.PILESWAP)) pileSwapFor(G, side, played, skills)
   if (has(skills, SK.RANGEMATCH)) rangeMatchFor(G, side, played, skills)
   rangeKeyCash(G, side, played, skills)
@@ -19566,6 +19706,7 @@ const PROTO_STAT = {
   kwtag: { fires: 0, tagged: 0 },
   magtag: { fires: 0, tagged: 0, played: 0, needed: 0, deeper: 0, none: 0, minFail: 0, minLost: 0 },
   stealcut: { used: 0, jack: 0, saved: 0 },
+  handcopy: { fires: 0, none: 0, jack: 0, covered: 0, made: 0 },
   magself: { played: 0, needed: 0, deeper: 0 },
   hookfail: { fires: 0, failed: 0, stolen: 0, tagged: 0 },
   neg: { tagged: 0, charges: 0, chargedCards: 0, needOwn: 0, needOld: 0 },
@@ -19896,6 +20037,37 @@ function atagLand(G, side, card) {
 
 function protoOnLand(G, side, skills, card, ai) {
   layerOnLand(G, side, skills, card)
+  // 【复刻】：后一张变成前一张的复制品（换成新对象：模拟器里牌对象可能复用，原地改会带进下一局）
+  if (has(skills, SK.HANDCOPY) && G.hands[side].length >= 2) {
+    const st = PROTO_STAT.handcopy
+    st.fires++
+    const hand = G.hands[side]
+    let a = -1, aS = -1
+    for (let i = 0; i < hand.length; i++) {
+      const c = hand[i]
+      if (c.rank === JACK && process.env.HC_J === '0') continue
+      const at = catchStart(G, c, side, skillsOf(G, side, c), false)
+      const sc = c.rank === JACK ? 100000 : (skillsOf(G, side, c).length > 0 ? 10000 : 0) + (at >= 0 ? (G.pile.length - at) * 100 : 0) + (c.value || 0)
+      if (sc > aS) { aS = sc; a = i }
+    }
+    let b = -1, bS = 1e9
+    for (let i = 0; i < hand.length; i++) {
+      if (i === a) continue
+      const c = hand[i]
+      if (c.rank === JACK) continue
+      const sc = (skillsOf(G, side, c).length > 0 ? 1000 : 0) + (catchStart(G, c, side, skillsOf(G, side, c), false) >= 0 ? 500 : 0) + (c.value || 0)
+      if (sc < bS) { bS = sc; b = i }
+    }
+    if (a < 0 || b < 0) st.none++
+    else {
+      const src = hand[a], old = hand[b]
+      if (src.rank === JACK) st.jack++
+      else if (skillsOf(G, side, src).length > 0) st.covered++
+      dropLeaveTags(G, old)
+      hand[b] = { suit: src.suit, rank: src.rank, value: src.value, extra: (src.extra || []).slice() }
+      st.made++
+    }
+  }
   const at0 = pileIndexOf(G, card)
   vaultOnLand(G, side, skills, card)
   // ---- 〈bignum〉新【大数】：带大数的牌打出 → 整堆带上大数；它的技能再给手里剩下的牌都贴上 ----
@@ -24010,6 +24182,8 @@ function playGame(opts, ai) {
     // 【冻结】解冻代价（FREEZE_PAY，默认关）：出牌前先决定要不要让对方挑走 1 张换解冻
     for (let fi = 0; fi < G.hands[side].length; fi++) if (isFrozen(G, G.hands[side][fi])) PROTO_STAT.freeze.frozenTurns++
     freezePayTry(G, side, ai, false)
+    // 【禁锢】持有人出牌前先决定要不要推牌（LOCK_AI）
+    if (lockVoluntary(G, side)) { passTurn(G, side); continue }
     let index = ai.pickCard(G, side)
     // 手牌全被冻住：开了解法就强制付一次（不付 = 放弃这一回合），付完再挑
     if (index < 0 && FREEZE_PAY !== null) {
@@ -24077,6 +24251,8 @@ function playGame(opts, ai) {
       index = best
       PROTO_STAT.turncoat.forced++
     }
+    // 【禁锢】全带禁锢：推牌解 1 张（牌库空就跳过），放弃这一手
+    if (index < 0 && lockAllStuck(G, side)) { passTurn(G, side); continue }
     if (index < 0) {
       // 全被冻住了，打不出牌。记一笔（冻结上限那条要量「锁满跳过」有多常见）
       G.stat.lockSkips = G.stat.lockSkips || [0, 0]
