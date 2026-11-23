@@ -801,9 +801,9 @@
       <text class="tide-text">缩水：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 之后他手里每有 1 张 0 点牌，全堆 −3</text>
     </view>
 
-    <!-- 回蚀：先盲选庄家一张手牌明置置 0（照迷雾那块），再贴自己一张收零（下面 backTagPending 那块） -->
+    <!-- 回蚀：庄家整手翻开给你看，挑一张明置置 0，再贴自己一张收零（下面 backTagPending 那块）〔2026-11-23 换效果：原先是盲选〕 -->
     <view v-if="backPending" class="tide-box">
-      <text class="tide-text">回蚀：点庄家一张盖着的手牌（盲选），翻开并置 0 —— J 也算 · 之后你挑一张手牌贴上收零</text>
+      <text class="tide-text">回蚀：庄家的手牌翻开给你看了，点一张置 0（明置）—— J 也算 · 之后你挑一张手牌贴上收零</text>
     </view>
 
     <view v-if="murkPending" class="tide-box">
@@ -5567,6 +5567,10 @@
     if (takeSkill.value >= 0) {
       return true
     }
+    // 【回蚀】〔2026-11-23 换成「查看对方手牌，选 1 张明置置 0」〕挑的时候整手明着（它不走 takeSkill，那条的点击分路不是它）
+    if (backPending.value) {
+      return true
+    }
     // 〔【叛变】2026-11-17 去掉明置（用户定）：原先这儿「带它的牌一直明着」直接返回 true。
     //   现在只在牌背上印「叛」（见模板 card-tags，盖着的牌也印），牌面照旧盖着〕
     return index < foeShown.value.length && foeShown.value[index]
@@ -7475,8 +7479,9 @@
 
   // 【凋零】置 0 几张。模拟器 rules.js 的 DECKZERO_N 默认值必须一样
   const DECKZERO_N : number = 2
-  // 【夜幕】再摸几张暗牌（2026-11-11 用户定 4）。模拟器 rules.js 的 DARKSWAP_DRAW 默认值必须一样
-  const DARKSWAP_DRAW : number = 4
+  // 【夜幕】对方手里暗牌多于几张时先摸 1 张暗牌（2026-11-19 第三版：desc「3 张以上」= 多于 2）。模拟器 rules.js 的 DARKSWAP_MIN 默认值必须一样
+  // 〔11-11 那一版的 DARKSWAP_DRAW（再摸 4 张）随换效果撤了〕
+  const DARKSWAP_MIN : number = 2
   // 【凋零】将牌库顶 2 张牌置 0（J 也置 0 —— 牌面改成 0，照 markDead）。已经是 0 的照样占名额。
   // 记进 deadCards：摸进谁手里都带「废」标（明置）、0 点、只响 0 点槽。模拟器〈deckzero〉同一个数
   function deckZero(byFoe : boolean) {
@@ -11834,12 +11839,14 @@
         }
       }
     }
-    // 【回蚀】〔2026-10-30〕：盲选对方 1 张手牌明置置 0（J 也算，照迷雾），再给自己 1 张手牌贴【收零】（照褪递）。
+    // 【回蚀】〔2026-10-30〕：对方 1 张手牌明置置 0，再给自己 1 张手牌贴【收零】（照褪递）。
     // 它自己照常匹配、不置 0。你出它时停两下：先点庄家那排，再点自己的手牌（onBackwater → onBackTag → resolveMatch）
-    // 〔2026-11-16 desc 改成【腐蚀】：他整手都已置 0 就先让他抽 1 张（corrodeReady）〕
+    // 〔2026-11-23 用户定换效果：「查看对方手牌，选 1 张明置置 0；1 张手牌带上【收零】」—— 不再盲选（挑的时候 foeOpen 整手明着）；
+    //   也不再走【腐蚀】的「整手都已置 0 就先让他抽 1 张」（desc 没有那一句）：他手里没有还没置 0 的牌就只贴收零。
+    //   原 desc「【腐蚀】；1 张手牌带上【收零】」A +2.28；台账二百四十七 / 二百四十八〕
     if (hasTrigger(skills, SK_BACKWATER) && lastPlayed != null && askFirst(SK_BACKWATER)) {
       if (!byFoe) {
-        if (corrodeReady(false)) {
+        if (murkPool(false).length > 0) {
           backPending.value = true
           return
         }
@@ -11848,10 +11855,10 @@
           return
         }
       } else {
-        // 庄家是真的盲选 —— 随机（照迷雾）
-        const pool = corrodeReady(true) ? murkPool(true) : ([] as number[])
+        // 庄家看过你的手牌再挑（照模拟器 viewcorrode）：J > 你现在钓得着的 > 点数最大
+        const pool = murkPool(true)
         if (pool.length > 0) {
-          const at = pool[Math.floor(Math.random() * pool.length)]
+          const at = foeBackPick(pool)
           markDead(true, at, true, '回蚀')
           handSeen.value = withFlag(handSeen.value, at)
         }
@@ -12048,32 +12055,64 @@
         }
       }
     }
-    // 【夜幕】〔2026-11-11 用户定换效果：原「将对方全部手牌洗回牌库，摸入等量暗牌」〕将对方非暗牌手牌洗回牌库，再摸 DARKSWAP_DRAW 张暗牌 ——
-    // 不用挑，双方同一段。照模拟器 rules.js 〈darkswap〉DARKSWAP_KEEP：暗着的留在手里（darkKeyOn —— 明置着的不算暗，照样洗回），
-    // 其余一张张洗回（shuffleBack 摘掉身上的手牌标签），然后**固定**摸 4 张（不按洗回的张数），摸到的记进 darkKey；牌库不够有几张摸几张
+    // 【夜幕】〔2026-11-19 用户定换效果（第三版）〕「对方手里有 3 张以上【暗牌】时，对方先摸 1 张【暗牌】；然后对方的手牌都带上【暗牌】并打乱顺序」
+    //   〔前两版：11-11「将对方非暗牌手牌洗回牌库，再摸 4 张暗牌」；11-10「将对方全部手牌洗回牌库，摸入等量暗牌」〕
+    // 不用挑，双方同一段。先数他手里的暗牌（darkKeyOn —— 明置着的不算暗）：> DARKSWAP_MIN 张 → 他摸 1 张记进 darkKey；
+    // 然后没明置的都记进 darkKey（明置的暗牌失效，所以明置着的跳过），再把**没明置的那几格之间**打乱 ——
+    // 明置那几格原地不动，于是按下标记的 handSeen / foeShown 不用跟着挪。
+    // 打乱是为了让「变暗」对真人也成立：那几张他变暗之前看过，原位不动的话他记得哪张是哪张（台账二百四十二）。
+    // 模拟器 rules.js 的 darkswap（DARKSWAP_OLD=1 复现 11-11 那一版）；模拟器不打乱（AI 本来就按看不见盲打）
     if (hasTrigger(skills, SK_DARKSWAP)) {
       const victim = !byFoe
-      const n = victim ? foeHand.value.length : hand.value.length
-      let back = 0
-      for (let i = n - 1; i >= 0; i--) {
-        const one = victim ? foeHand.value[i] : hand.value[i]
-        if (!darkKeyOn(one)) {
-          shuffleBack(takeFromHand(victim, i))
-          back = back + 1
+      const before = victim ? foeHand.value : hand.value
+      let darkN = 0
+      for (let i = 0; i < before.length; i++) {
+        if (darkKeyOn(before[i])) {
+          darkN = darkN + 1
         }
       }
-      let got = 0
-      for (let k = 0; k < DARKSWAP_DRAW; k++) {
+      let drew = false
+      if (darkN > DARKSWAP_MIN) {
         const card = drawFor(victim)
-        if (card == null) {
-          break
+        if (card != null) {
+          darkKey.value = darkKey.value.concat([card!])
+          drew = true
         }
-        darkKey.value = darkKey.value.concat([card!])
-        got = got + 1
+      }
+      // drawFor 是整个数组重新赋值 —— 摸完再取一次
+      const mine = victim ? foeHand.value : hand.value
+      const slots : number[] = []
+      const picked : PlainCard[] = []
+      for (let i = 0; i < mine.length; i++) {
+        const c = mine[i]
+        if (shownInHand(c)) {
+          continue
+        }
+        if (!darkKeyOn(c)) {
+          darkKey.value = darkKey.value.concat([c])
+        }
+        slots.push(i)
+        picked.push(c)
+      }
+      for (let i = picked.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        const t = picked[i]
+        picked[i] = picked[j]
+        picked[j] = t
+      }
+      const order = mine.slice(0)
+      for (let k = 0; k < slots.length; k++) {
+        order[slots[k]] = picked[k]
+      }
+      if (victim) {
+        foeHand.value = order
+      } else {
+        hand.value = order
+        newIndex.value = -1
       }
       message.value = message.value + (byFoe
-        ? (' 庄家夜幕：你的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌（你看不见它们，打出落堆才翻开）。')
-        : (' 夜幕：庄家的 ' + back + ' 张非暗牌洗回牌库，再摸了 ' + got + ' 张暗牌。'))
+        ? (' 庄家夜幕：' + (drew ? '你摸了 1 张暗牌，' : '') + '你的手牌都变成了暗牌、打乱了顺序（你看不见它们，打出落堆才翻开）。')
+        : (' 夜幕：' + (drew ? '庄家摸了 1 张暗牌，' : '') + '庄家的手牌都变成了暗牌、打乱了顺序。'))
     }
     // 洗练：先摸 SIFT_DRAW 张，**然后**从手里（含刚摸的）挑 SIFT_BACK 张退回牌库。
     //
@@ -16383,6 +16422,27 @@
     askNext()
   }
 
+  // 回蚀（庄家出）：从你还没置 0 的手牌里挑一张 —— J 优先，其次你现在钓得着的（canCatch 按你的装备判），其次点数最大
+  function foeBackPick(pool : number[]) : number {
+    for (let k = 0; k < pool.length; k++) {
+      if (hand.value[pool[k]].rank == JACK) {
+        return pool[k]
+      }
+    }
+    for (let k = 0; k < pool.length; k++) {
+      if (canCatch(hand.value[pool[k]], false)) {
+        return pool[k]
+      }
+    }
+    let best = pool[0]
+    for (let k = 1; k < pool.length; k++) {
+      if (hand.value[pool[k]].value > hand.value[best].value) {
+        best = pool[k]
+      }
+    }
+    return best
+  }
+
   // 回蚀：手里还有能贴收零的牌吗（J / 无点数 / 贴过的不算）
   function backTagRoom(byFoe : boolean) : boolean {
     const mine = byFoe ? foeHand.value : hand.value
@@ -16394,7 +16454,7 @@
     return false
   }
 
-  // 回蚀第一下：你盲选了庄家第 index 张 → 置 0（明置）→ 接着等你贴收零
+  // 回蚀第一下：你挑了庄家第 index 张 → 置 0（明置）→ 接着等你贴收零
   function onBackwater(index : number) {
     if (!backPending.value) {
       return

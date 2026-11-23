@@ -18376,9 +18376,23 @@ function afterPlay(G, side, skills, played, ai) {
     const other = side === ME ? FOE : ME
     st.fires++
     // 〔2026-11-16 desc 改成【腐蚀】：池子走 corrodePool〕
-    const pool = ZS_HALF !== 'tag' ? corrodePool(G, side) : []
+    // 〔2026-11-23 用户定换效果「查看对方手牌，选 1 张明置置 0；1 张手牌带上【收零】」（原型〈viewcorrode〉VC_ZTAG=1，台账二百四十七 / 二百四十八）：
+    //   看过再挑（J > 他现在钓得中的 > 点数最大），不再走腐蚀的「整手都 0 先抽 1 张」。BACKWATER_OLD=1 复现 11-16 版（盲选的腐蚀）〕
+    const bwOld = process.env.BACKWATER_OLD === '1'
+    let pool = []
+    if (ZS_HALF !== 'tag') {
+      if (bwOld) pool = corrodePool(G, side)
+      else for (let i = 0; i < G.hands[other].length; i++) if (!isZero(G.hands[other][i])) pool.push(i)
+    }
     if (pool.length > 0 && ZS_HALF !== 'tag') {
-      const at = pool[randInt(G.rng, pool.length)]
+      let at = -1
+      if (bwOld) at = pool[randInt(G.rng, pool.length)]
+      else {
+        const oh = G.hands[other]
+        for (const i of pool) if (oh[i].rank === JACK) { at = i; break }
+        if (at < 0) for (const i of pool) if (canCatch(G, oh[i], other)) { at = i; break }
+        if (at < 0) { let hv = -1; for (const i of pool) { const v = Math.max.apply(null, cardVals(oh[i]).concat([0])); if (v > hv) { hv = v; at = i } } }
+      }
       const c = G.hands[other][at]
       const wasJack = c.rank === JACK
       doDead(G, side, at, true)
@@ -18957,8 +18971,29 @@ function afterPlay(G, side, skills, played, ai) {
       pullFromDeck(G, side, pool[ai.twinPick(G, side, pool)])
     }
   }
-  // 〈darkswap〉：对方 N 张手牌洗回牌库（shuffleBack 那条现成路），再摸等量（drawFor），摸到的记成暗牌
-  if (has(skills, SK.DARKSWAP)) {
+  // 【夜幕】第三版〔2026-11-19 用户定换效果；原型〈darkall〉读法二，台账二百四十二 / 二百四十三〕：
+  //   「对方手里有 3 张以上【暗牌】时，对方先摸 1 张【暗牌】；然后对方的手牌都带上【暗牌】并打乱顺序」。
+  //   DARKSWAP_MIN（默认 2）= 「多于几张」；明置着的不带（明置的暗牌失效）。**不打乱**：AI 本来就按看不见盲打，打乱不改任何决策（源码那边打乱）。
+  //   DARKSWAP_OLD=1 复现 11-11 那一版（下面那一段：洗回非暗牌、再摸 4 张暗牌）
+  if (has(skills, SK.DARKSWAP) && process.env.DARKSWAP_OLD !== '1') {
+    const opp = side === ME ? FOE : ME
+    const st = PROTO_STAT.darkswap = PROTO_STAT.darkswap || { fires: 0, back: 0, drawn: 0, backCatch: 0, drawnCatch: 0 }
+    st.fires++
+    const K = parseInt(process.env.DARKSWAP_MIN || '2', 10)
+    let cnt = 0
+    for (const c of G.hands[opp]) if (isDark(G, opp, c)) cnt++
+    if (!G.dark) G.dark = new Set()
+    if (cnt > K) {
+      const got = G.deck.length > 0 ? drawFor(G, opp) : null
+      if (got !== null) { G.dark.add(got); st.drawn++ }
+    }
+    for (let i = 0; i < G.hands[opp].length; i++) {
+      const c = G.hands[opp][i]
+      if (!isDark(G, opp, c) && !G.seen[opp][i]) { G.dark.add(c); st.back++ }
+    }
+  }
+  // 〈darkswap〉旧版（DARKSWAP_OLD=1）：对方 N 张手牌洗回牌库（shuffleBack 那条现成路），再摸等量（drawFor），摸到的记成暗牌
+  if (has(skills, SK.DARKSWAP) && process.env.DARKSWAP_OLD === '1') {
     const n = process.env.DARKSWAP_N ? parseInt(process.env.DARKSWAP_N, 10) : 99
     const pick = process.env.DARKSWAP_PICK || 'rand'
     const opp = side === ME ? FOE : ME
