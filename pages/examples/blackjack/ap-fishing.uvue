@@ -118,6 +118,7 @@
             <text v-if="traitorOn(card)" class="card-dead-tag">叛变</text>
             <!-- 【禁锢】：你的锢咒贴的。牌背上印「锢」 -->
             <text v-if="lockOn(card)" class="card-frozen-tag">禁锢</text>
+            <text v-if="bindOn(card)" class="card-frozen-tag">拘束</text>
           </view>
         </view>
       </view>
@@ -287,6 +288,7 @@
       （「没收成。」一句 vs 带三件技能的一长串），而牌堆那块是 flex: 1 ——
       这儿一高一低，整个牌桌就跟着上下跳。所以长短由滚条兜，
       而**写死的那个高度有两档**（牌堆换行就缩，见 pileWrapped）。
+      〔2026-11-24 改：日志不再缩 —— 牌堆换行时往下盖在日志上面，见 .pile-area〕
 
       正序 + 写死高度带出一件必做的事：**滚条要自动跟到底**
       （`:scroll-top="logScroll"`，见 logToBottom）—— 不跟的话
@@ -1071,6 +1073,7 @@
             <text v-if="sinkTagText(card) != ''" class="hand-sink-tag">{{ sinkTagText(card) }}</text>
             <!-- 【禁锢】（庄家的锢咒贴的）：打不出、不能抢；轮到你时点它一下、再点一下 = 推牌解开它（这一回合不再出牌） -->
             <text v-if="lockOn(card)" class="card-frozen-tag">禁锢</text>
+            <text v-if="bindOn(card)" class="card-frozen-tag">拘束</text>
             <text v-if="isFrozen(card) && !lockOn(card)" class="card-frozen-tag">冻结</text>
             <text v-else-if="jackLocked(card)" class="card-frozen-tag">催王</text>
             <text v-else-if="foeKnows(index)" class="card-seen">被看</text>
@@ -1430,6 +1433,9 @@
     SK_HANDCOPY,
     // 锢咒〔2026-11-19 上架〕
     SK_LOCKHUE,
+    // 寂灭〔2026-11-24 上架〕
+    SK_PILEZERO,
+    SK_BINDALL,
     // 三色〔2026-11-17 上架〕
     SK_TRISUIT,
     ORDER_MIN,
@@ -1992,6 +1998,7 @@
   //
   // 〔2026-11-02 改〕现在是**牌堆**看它：换行了就放两排高（`.board-wrapped`），
   // 出牌记录占满剩下的（flex: 1），自动跟着变矮 —— 不再有 `.play-log-slim` 那一档。
+  // 〔2026-11-24 再改：出牌记录不再变矮 —— 牌堆在版面上只占一排，换行时绝对定位往下盖在出牌记录上（见 .pile-area 样式）〕
   // 下面是 2026-10-22 那一版的原话：平时给足、牌堆一换行就缩〔用户定〕。
   //
   // 为什么要缩：`.pile-area` 是 `flex: 1`，剩下的竖向空间全归牌堆。
@@ -2010,9 +2017,9 @@
 
   // **量一次就够** —— 这一页不转屏（照 relay.uvue 的 measureSlots）。
   //
-  // 算法：`.page` 左右各 12 的内边距，牌堆那张牌 54 宽 + 6 右缝 = 一格 60，
+  // 算法：`.page` 左右各 12 的内边距，牌堆那张牌 64 宽 + 6 右缝 = 一格 70（2026-11-24 前是 54 + 6 = 60），
   // 而 flex-wrap 算的是「含外边距的外尺寸」，所以直接整除就是容量
-  // （366 宽放 6 张 = 360 ✓、7 张 = 420 ✗）。
+  // （366 宽放 5 张 = 350 ✓、6 张 = 420 ✗）。
   //
   // ⚠ 这是**推的不是量的**（没走 createSelectorQuery）。差一张的后果只是
   // 「早缩 / 晚缩一张牌」，而为了这个去挂一次异步测量不值当 ——
@@ -2020,7 +2027,10 @@
   function measurePile() {
     const info = uni.getSystemInfoSync()
     const usable = info.windowWidth - 24
-    let n = Math.floor(usable / 60)
+    // 〔2026-11-24〕牌堆的牌放大到 64 宽之后一格是 64 + 6 = 70（原先 54 + 6 = 60）。
+    // 这儿漏改过一次：还按 60 算，以为一行放得下 6 张、实际只放 5 张 → 换行了 pileWrapped 还是 false，
+    // 两排没展开、只剩牌堆自己的滚条。改牌堆牌宽（.card-in-pile）时这个数要跟着改
+    let n = Math.floor(usable / 70)
     if (n < 1) {
       n = 1
     }
@@ -3225,6 +3235,36 @@
       }
     }
     return false
+  }
+  // 【拘束】（缚咒贴的，2026-11-24）：手里只要还有带它的牌就不能抢牌（askSteal / canStealWith 开头那道闸）。带它的牌照常能打。
+  // 离手就摘（跟 dropLockKey 同几处）。双方都看得见（牌上印「拘束」）。模拟器那边是 `G.bind`
+  const bindKey = ref<PlainCard[]>([] as PlainCard[])
+  function bindOn(card : PlainCard) : boolean {
+    for (let i = 0; i < bindKey.value.length; i++) {
+      if (bindKey.value[i] == card) {
+        return true
+      }
+    }
+    return false
+  }
+  // 这一方（foeSide = 庄家那一侧）手里还有拘束牌吗
+  function bindLocked(foeSide : boolean) : boolean {
+    const mine = foeSide ? foeHand.value : hand.value
+    for (let i = 0; i < mine.length; i++) {
+      if (bindOn(mine[i])) {
+        return true
+      }
+    }
+    return false
+  }
+  function dropBindKey(card : PlainCard) {
+    const keep : PlainCard[] = []
+    for (let i = 0; i < bindKey.value.length; i++) {
+      if (bindKey.value[i] != card) {
+        keep.push(bindKey.value[i])
+      }
+    }
+    bindKey.value = keep
   }
   function dropLockKey(card : PlainCard) {
     const keep : PlainCard[] = []
@@ -6948,6 +6988,10 @@
     if (hasTrigger(skills, SK_ZERODRAFT)) {
       return [0]
     }
+    // ---- 【寂灭】：堆上的牌（包括它）都置 0 —— 它自己这一份走这儿（照零递），所以这一手不普通匹配；堆上其余的在 afterPlayTail 写 ----
+    if (hasTrigger(skills, SK_PILEZERO)) {
+      return [0]
+    }
     // ---- 【零吃】：置 0〔2026-10-29〕----
     // 跟零递同一句，差别在后半：零吃**它自己**走 21 匹配（catchStart 那一支），
     // 于是 draftReach 读到的 own = 0 → 预算恒 21，跟槽上印的点数脱钩
@@ -8460,6 +8504,31 @@
       }
     }
     return best
+  }
+
+  // 庄家挑哪张贴【收零】，但**不贴在会触发 skill 的牌上**（【寂灭】用；台账二百五十三·乙：贴在载体上是亏的）。
+  // 挑不到就退回 foeZeroKeyPick（手里只剩载体时照样贴）
+  function foeZeroKeyPickOff(skill : number) : number {
+    const mine = foeHand.value
+    let best = -1
+    let bestVal = 99
+    for (let i = 0; i < mine.length; i++) {
+      if (!zeroKeyable(mine[i]) || hasTrigger(skillsOf(true, mine[i]), skill)) {
+        continue
+      }
+      const vals = cardVals(mine[i])
+      let own = 99
+      for (let k = 0; k < vals.length; k++) {
+        if (vals[k] < own) {
+          own = vals[k]
+        }
+      }
+      if (own < bestVal) {
+        bestVal = own
+        best = i
+      }
+    }
+    return best >= 0 ? best : foeZeroKeyPick()
   }
 
   // 堆上第 i 张现在是不是 0 点：有点数、而且一个非零的都不剩（照模拟器 isZeroAt）
@@ -10761,6 +10830,7 @@
     dropFlowKey(card)
     dropTraitorKey(card)
     dropLockKey(card)
+    dropBindKey(card)
     dropBurnHand(card)
     const old = pile.value[k]
     cleanAt0(old)
@@ -10877,6 +10947,7 @@
     dropFlowKey(card)
     dropTraitorKey(card)
     dropLockKey(card)
+    dropBindKey(card)
     if (byFoe) {
       hand.value = hand.value.concat([card])
       // 庄家还过来的牌，它自己当然知道是什么
@@ -11573,6 +11644,7 @@
     dropFlowKey(card)
     dropTraitorKey(card)
     dropLockKey(card)
+    dropBindKey(card)
     const next = deck.value.concat([card])
     for (let i = next.length - 1; i > 0; i--) {
       const k = Math.floor(Math.random() * (i + 1))
@@ -11688,6 +11760,7 @@
       dropFlowKey(card)
       dropTraitorKey(card)
       dropLockKey(card)
+      dropBindKey(card)
       // 摄物拿过来的牌进自己手里。**手牌可能因此超过上限** ——
       // 那没关系，回合末 refill 只负责「补到」上限，不负责弃牌
       if (byFoe) {
@@ -11715,6 +11788,7 @@
     dropFlowKey(card)
     dropTraitorKey(card)
     dropLockKey(card)
+    dropBindKey(card)
     if (byFoe) {
       foeHand.value = foeHand.value.concat([card])
       foeShown.value = foeShown.value.concat([false])
@@ -15357,6 +15431,10 @@
     if (jackLocked(card)) {
       return false
     }
+    // 【拘束】：你手里还有拘束牌 → 不能抢
+    if (bindLocked(false)) {
+      return false
+    }
     return stealGainOf(card, false) > stealTarget.value
   }
 
@@ -15370,6 +15448,10 @@
     stealVictim = played
     // 被问的是**对方** —— byFoe 是刚打牌那一方
     const thief = !byFoe
+    // 【拘束】（缚咒贴的）：要抢的那一方手里还有拘束牌 → 不能抢（照模拟器 stealTryCore 开头那道闸）
+    if (bindLocked(thief)) {
+      return false
+    }
     // 〔2026-11-05 用户定「比张数时只算实际收得走的牌」〕这一手没有【结冰】豁免的话，那一段里带冰的牌收不走、不算数。
     //   照模拟器 stealTry 的 STEAL_ICE=real（myLo / myHi = from / to）
     if (!iceBlindNow) {
@@ -16707,7 +16789,8 @@
           return
         }
       } else {
-        const mine = foeZeroKeyPick()
+        // 〔2026-11-24 用户定：避开会触发它的牌（台账二百五十六 —— 照最小点数贴在 A 槽会贴中载体）〕
+        const mine = foeZeroKeyPickOff(SK_TRAITOR)
         if (mine >= 0) {
           zeroKey.value = zeroKey.value.concat([foeHand.value[mine]])
           message.value = message.value + ' 庄家策反：手里 1 张带上了收零。'
@@ -16753,6 +16836,22 @@
     // 【锢咒】〔2026-11-19〕：抽 1 张；展示跟堆底同颜色的手牌，盲选对方同样张数的手牌带上【禁锢】
     if (hasTrigger(skills, SK_LOCKHUE) && askFirst(SK_LOCKHUE)) {
       lockHueFor(byFoe)
+    }
+    // 【缚咒】〔2026-11-24〕：对方现有手牌都带上【拘束】（之后新摸的不带）
+    if (hasTrigger(skills, SK_BINDALL) && askFirst(SK_BINDALL)) {
+      const theirs = byFoe ? hand.value : foeHand.value
+      const add : PlainCard[] = []
+      for (let i = 0; i < theirs.length; i++) {
+        if (!bindOn(theirs[i])) {
+          add.push(theirs[i])
+        }
+      }
+      bindKey.value = bindKey.value.concat(add)
+      if (add.length > 0) {
+        message.value = message.value + (byFoe
+          ? ' 庄家缚咒：你手里的 ' + add.length + ' 张牌带上了【拘束】（手里还有拘束牌就不能抢牌）。'
+          : ' 缚咒：庄家手里的 ' + add.length + ' 张牌带上了【拘束】，它手里还有拘束牌就不能抢牌。')
+      }
     }
     // 【漂白】：对方**此刻**手里的牌都失去花色（永久，落堆后也没有；之后新摸的不受影响）。
     // 照模拟器 rules.js 的 stripSuits。改牌面（这副牌是每局从存档重新造的副本，照 markDead 改 J 那条），
@@ -17153,6 +17252,34 @@
         }
       }
     }
+    // 【寂灭】〔2026-11-24〕：堆上的牌（包括它）都置 0；1 张手牌带上【收零】。
+    //   它自己那一份走 valuesOf（照零递），这儿把整堆写成 [0]（照见底 dropPile 整条重写 pileVals；无点数的也置 0 —— 置 0 属于「变成 X」）。
+    //   贴收零走回蚀那一套：你点一张（backTagPending → onBackTag），庄家照 foeZeroKeyPickOff（避开会触发它的牌）。模拟器 rules.js 的 pilezero
+    if (hasTrigger(skills, SK_PILEZERO) && askFirst(SK_PILEZERO)) {
+      const zv : number[][] = []
+      let zn = 0
+      for (let i = 0; i < pile.value.length; i++) {
+        if (!zeroAt(i)) {
+          zn = zn + 1
+        }
+        zv.push([0] as number[])
+      }
+      pileVals.value = zv
+      message.value = message.value + (byFoe ? ' 庄家寂灭：' : ' 寂灭：') + '堆上 ' + zn + ' 张牌置 0。'
+      if (!byFoe) {
+        if (backTagRoom(false)) {
+          backTagName.value = '寂灭'
+          backTagPending.value = true
+          return
+        }
+      } else {
+        const mine = foeZeroKeyPickOff(SK_PILEZERO)
+        if (mine >= 0) {
+          zeroKey.value = zeroKey.value.concat([foeHand.value[mine]])
+          message.value = message.value + ' 庄家寂灭：手里 1 张带上了收零。'
+        }
+      }
+    }
     // 【回蚀】〔2026-10-30〕：对方 1 张手牌明置置 0，再给自己 1 张手牌贴【收零】（照褪递）。
     // 它自己照常匹配、不置 0。你出它时停两下：先点庄家那排，再点自己的手牌（onBackwater → onBackTag → resolveMatch）
     // 〔2026-11-23 用户定换效果：「查看对方手牌，选 1 张明置置 0；1 张手牌带上【收零】」—— 不再盲选（挑的时候 foeOpen 整手明着）；
@@ -17176,7 +17303,8 @@
           markDead(true, at, true, '回蚀')
           handSeen.value = withFlag(handSeen.value, at)
         }
-        const mine = foeZeroKeyPick()
+        // 〔2026-11-24 用户定：避开会触发它的牌（台账二百五十六 —— 照最小点数贴在 A 槽会贴中载体）〕
+        const mine = foeZeroKeyPickOff(SK_BACKWATER)
         if (mine >= 0) {
           zeroKey.value = zeroKey.value.concat([foeHand.value[mine]])
           message.value = message.value + ' 庄家回蚀：手里 1 张带上了收零。'
@@ -18752,6 +18880,10 @@
   function foeHoldState(card : PlainCard) : string {
     if (level.value.random || card.rank == JACK) {
       return ''
+    }
+    // 【拘束】〔2026-11-24〕：手里还有拘束牌时先清它 —— 不带拘束的牌这一手先屯着（钓得着照常收；屯只管挑饵那一步）。照模拟器 holdStateOf 开头（BIND_SHED）
+    if (bindLocked(true) && !bindOn(card)) {
+      return 'hold'
     }
     const suitHold = foeSuitHoldState(card)
     if (suitHold == 'ready') {
@@ -21069,19 +21201,33 @@
   /* 〔2026-11-02 改〕牌堆**不再 flex: 1** —— 它原先吃掉所有剩下的高度，
      而堆常年只有一排，下面那一大截是空的；出牌记录却被钉在 108px、只放 3 条。
      现在反过来：牌堆按排数定高，剩下的全给出牌记录（.play-log 的 flex: 1） */
+  /* 〔2026-11-24 用户：「打牌日志可以不用缩小，当牌堆卡牌换行时直接盖在其上方」〕
+     牌堆这一块在版面上**永远只占一排的高度**（4 + 98），下面的场上效果 / 打牌日志位置和大小都不跟着变；
+     换行之后牌堆（.board 绝对定位）往下长成两排，**盖在**它们上面 —— 所以这一块要 overflow: visible + z-index，
+     而两排那一档要有底色（桌布色）和阴影，盖住下面的字。原先是牌堆真的变高、日志跟着缩 */
   .pile-area {
     margin-top: 10px;
+    position: relative;
+    height: 102px;
+    overflow: visible;
+    z-index: 10;
   }
 
   .board {
     /* 一排牌（90）+ 下边距（6）+ 余量 */
+    position: absolute;
+    top: 4px;
+    left: 0;
+    right: 0;
     height: 98px;
-    margin-top: 4px;
   }
 
-  /* 牌堆换行了（出牌太多）：放两排的高度，再多就在里面滚 */
+  /* 牌堆换行了（出牌太多）：两排的高度，再多就在里面滚。盖在下面那几块上，所以带底色和阴影 */
   .board-wrapped {
     height: 194px;
+    background-color: #0b5d3b;
+    border-radius: 8px;
+    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.45);
   }
 
   .board-row {
@@ -21126,6 +21272,7 @@
   /* 牌堆的牌放大到 54x76 —— 牌堆是这一页最该看清的东西。
      点数 / 花色跟着放大，见 .card-rank-pile / .card-suit-pile。
      效果名那条（.card-effect，12px 高）压在下沿，76 高放得下点数 + 花色 + 它 */
+  /* ⚠ 改这个宽度要同步改 measurePile 里那个一格的宽（牌宽 + 右缝 6），不然换行判不准 */
   .card-in-pile {
     width: 64px;
     height: 90px;

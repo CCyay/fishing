@@ -1752,6 +1752,14 @@ const SKILLS = [
   //   「抽 1 张牌，展示跟堆底同颜色的手牌，使相同数量的对方手牌带上【禁锢】」。机制【禁锢】见 lockFor / lockPush 那一段。
   //   打法：要屯 —— 手里（不含它）有 ≥ LOCK_HOLD（默认 2）张跟堆底同颜色才打（照策连 trHueReady）
   { key: 'lockhue', name: '锢咒', hold: function (G, side, idx) { return trHueReady(G, side, idx, LOCK_HOLD) } },
+  // 【寂灭】〔2026-11-24 用户定上架；名字代起；原型〈pilezero〉，台账二百五十三 / 二百五十三·乙 / 二百五十五〕「堆上的牌（包括它）都置 0；1 张手牌带上【收零】」
+  //   结算在 protoOnLand（〈bottomzero〉那一段前面）。PZ_PICK：offslot（默认 = 点数最小、但不贴在会触发它的牌上；玩家自己挑，真人会避开载体）| min（照策反 zeroKeyTag）| max
+  { key: 'pilezero', name: '寂灭' },
+  // 【缚咒】〔2026-11-24 用户定上架；名字代起；原型 md-sim-s 的〈temper〉（原名【节制】），台账二百五十八 / 二百五十八·甲 / 二百五十九〕
+  //   「对方手牌都带上【拘束】」。【拘束】= 手里有拘束牌就不能抢牌（stealTryCore 开头那道闸）。现有手牌全贴、新摸的不带、离手就摘（dropLeaveTags）。
+  //   持有人打法（BIND_SHED，默认开）：手里有拘束牌时先清 —— 钓得着照常收，钓不着时先拿拘束牌当饵（holdStateOf 把不带拘束的牌标成屯）。
+  //   用户定量法：对方只按真人会做的应对量（「不用不懂得清的作参照」），所以这条默认开；BIND_SHED=0 是不清那一档
+  { key: 'bindall', name: '缚咒' },
   // 〈traitorzero〉〔2026-11-02 · 用户要评价〕对方 1 张手牌带上【叛变】（照策反 traitorFor），自己 1 张手牌带上【收零】（照回蚀 zeroKeyTag）
   // 〔2026-11-03 并进【策反】（用户定）—— 这个原型留着当对照，跟现行策反逐位同一件事〕
   { key: 'traitorzero', name: '〈traitorzero〉' },
@@ -2569,7 +2577,7 @@ const SK = {
   RANGETAG: skAt('rangetag'),
   BETRAY: skAt('betray'),
   TURNCOAT: skAt('turncoat'),
-  TRAITOR: skAt('traitor'), TRAITORHUE: skAt('traitorhue'), STEALCUT: skAt('stealcut'), HANDCOPY: skAt('handcopy'), LOCKHUE: skAt('lockhue'),
+  TRAITOR: skAt('traitor'), TRAITORHUE: skAt('traitorhue'), STEALCUT: skAt('stealcut'), HANDCOPY: skAt('handcopy'), LOCKHUE: skAt('lockhue'), BINDALL: skAt('bindall'), PILEZERO: skAt('pilezero'),
   TRAITORZERO: skAt('traitorzero'),
   FETCHJ: skAt('fetchj'),
   JSUB: skAt('jsub'),
@@ -13095,6 +13103,8 @@ function stealTryCore(G, side, myCount, myLo, myHi) {
     myCount -= cut
   }
   if (!STEAL_ON) return false
+  // 【拘束】（缚咒贴的）：要抢的那一方手里有拘束牌 → 不能抢
+  if (bindLocked(G, side === ME ? FOE : ME)) { bindStat().blocked++; return false }
   // `STEAL_AGAIN=0` 才是单轮（B 抢牌打出的那一手里不再问 A）。
   // **默认开着**，所以这一行默认不拦 —— 连续抢靠的就是整条 `playFor`
   // 递归下去，每一层的 `resolveMatch` 都会回头问一次对方。
@@ -13943,6 +13953,7 @@ function suitKeyAnchor(G, card, at, side) {
 // 顺子匹配（flowHand）不摘** —— 于是零递 / 回蚀 / 传顺 / 连咏贴的标签跟着牌换了主人还能用
 //（`flowTagOn` / `draftTagOn` / `zeroKey` 都不查归属）。重复摘没有副作用，所以调用处原有的几行留着
 function dropLeaveTags(G, card) {
+  if (G.bind) G.bind.delete(card)
   if (G.lock) G.lock.delete(card)
   if (G.nest) G.nest.delete(card)
   dropKeys(G, card)
@@ -16812,6 +16823,8 @@ function pairJackOk(G, side, card) {
   return tojPairReady(G, side, -1)
 }
 function holdStateOf(G, side, idx) {
+  // 【拘束】BIND_SHED：手里有拘束牌时，不带拘束的牌先屯着 —— 钓不着的这一手先拿拘束牌当饵（钓得着照常收，屯只管挑饵那一步）
+  if (BIND_SHED && bindLocked(G, side) && !G.bind.has(G.hands[side][idx])) return 'hold'
   let has = false
   // 【花色匹配】屯牌（SUIT_HOLD，见 suitHoldState）：凑得成就 ready；凑不成的几张里只屯一张（SUIT_HOLD_MAX），别的照常当饵
   if (SUIT_HOLD) {
@@ -16964,7 +16977,20 @@ function pileSwapFor(G, side, played, skills) {
   st.defend++
   st.defendCut += base - best
 }
+// ---------- 【缚咒】/【拘束】〔2026-11-24〕----------
+const BIND_SHED = process.env.BIND_SHED !== '0'
+function bindStat() { return PROTO_STAT.bind = PROTO_STAT.bind || { fires: 0, tagged: 0, blocked: 0 } }
+function bindLocked(G, side) {
+  return !!G.bind && G.bind.size > 0 && G.hands[side].some(function (c) { return G.bind.has(c) })
+}
+function bindAllFor(G, side) {
+  const st = bindStat()
+  st.fires++
+  if (!G.bind) G.bind = new Set()
+  for (const c of G.hands[side === ME ? FOE : ME]) if (!G.bind.has(c)) { G.bind.add(c); st.tagged++ }
+}
 function afterPlay(G, side, skills, played, ai) {
+  if (has(skills, SK.BINDALL)) bindAllFor(G, side)
   if (has(skills, SK.LOCKHUE)) lockHueFor(G, side, played)
   if (played && played.rank !== JACK && has(skills, SK.PILESWAP)) pileSwapFor(G, side, played, skills)
   if (has(skills, SK.RANGEMATCH)) rangeMatchFor(G, side, played, skills)
@@ -16975,7 +17001,7 @@ function afterPlay(G, side, skills, played, ai) {
   // 〔2026-11-03 策反加收零（用户定，即原型〈traitorzero〉）。TRAITOR_ZERO=0 复现旧版（只贴叛变）〕
   if (has(skills, SK.TRAITOR)) {
     traitorFor(G, side)
-    if (process.env.TRAITOR_ZERO !== '0') zeroKeyTag(G, side)
+    if (process.env.TRAITOR_ZERO !== '0') zeroKeyTag(G, side, SK.TRAITOR)
     // TRAITOR_DRAFT=max〔2026-11-17 · 用户「盲选对方 1 张手牌带上【叛变】；手牌点数最大的 1 张牌带上【21 匹配】」〕：后半句照零递（doDraftTag max），配 TRAITOR_ZERO=0 去掉收零
     if (process.env.TRAITOR_DRAFT === 'max' && doDraftTag(G, side, null, 'max')) PROTO_STAT.tagdraft.tagged++
   }
@@ -18398,7 +18424,7 @@ function afterPlay(G, side, skills, played, ai) {
       doDead(G, side, at, true)
       if (isZero(c)) { st.killed++; if (wasJack) st.jack++; G.seen[other][at] = true }
     }
-    if (ZS_HALF !== 'zero' && zeroKeyTag(G, side)) st.tagged++
+    if (ZS_HALF !== 'zero' && zeroKeyTag(G, side, SK.BACKWATER)) st.tagged++
   }
   // 【封点】/【褪点】（庄家专属，2026-11-04 · 禁咒审判官，照源码）：对方手里「点数 = 对方角色卡点数槽」的牌
   //   封点 → 置 0（本来就是 0 点的不动）；褪点 → 失去花色（照 stripSuits 的 ∅ 标记）。两件同一批牌（先算好下标：doDead 会改牌面）
@@ -20025,12 +20051,20 @@ if (['first', 'fail'].indexOf(BZH_ORDER) < 0) throw new Error('BZH_ORDER 只能�
 function bzhHit(G, si, s0) { return BZH_MODE === 'suit' ? si === s0 : isRedSuit(si) === isRedSuit(s0) }
 const ZF_FIX = process.env.ZF_FIX ? parseInt(process.env.ZF_FIX, 10) : 0
 // 【置 0，收 0】贴 1 张（照 atagLand 的挑法：手里点数最小、非 J、没贴过的）
-function zeroKeyTag(G, side) {
+// 〔2026-11-24 用户定（台账二百五十三·乙 / 二百五十六）〕传了 skill 就**先避开会触发它的牌**（挑不到再退回不避）——
+//   照最小点数贴在小点数槽会贴中这件技能自己的载体（A 槽常挑中 A），A 槽因此偏低、出 A → K 斜率。desc 都是「1 张手牌带上【收零】」= 玩家自己挑，真人会避开。
+//   现在传 skill 的：策反（SK.TRAITOR）、回蚀（SK.BACKWATER）；寂灭自己有一份同样的挑法（PZ_PICK）。ZK_PICK=min 复现旧挑法（不避）
+function zeroKeyTag(G, side, skill) {
+  if (process.env.ZK_PICK !== 'min' && skill !== undefined && skill >= 0 && zeroKeyTagCore(G, side, skill)) return true
+  return zeroKeyTagCore(G, side, -1)
+}
+function zeroKeyTagCore(G, side, skill) {
   const hand = G.hands[side]
   let best = -1, bestVal = 99
   for (let i = 0; i < hand.length; i++) {
     const c = hand[i]
     if (c.rank === JACK || G.zeroKey.indexOf(c) >= 0) continue
+    if (skill >= 0 && has(skillsOf(G, side, c), skill)) continue
     const vals = cardVals(c)
     if (vals.length === 0) continue
     let own = 99
@@ -20220,6 +20254,42 @@ function protoOnLand(G, side, skills, card, ai) {
       }
     }
     if (BZH_CASH === 'tag' && zeroKeyTag(G, side)) st.tagged = (st.tagged || 0) + 1
+  }
+  // 【寂灭】：堆上的牌（含它自己 —— mineOverride 让它这一手按 0 点匹配 = 不普通匹配）都置 0；1 张手牌带上【收零】
+  if (has(skills, SK.PILEZERO) && at0 >= 0) {
+    const st = PROTO_STAT.pilezero = PROTO_STAT.pilezero || { fires: 0, zeroed: 0, pile: 0, tagged: 0, onCarrier: 0 }
+    st.fires++
+    st.pile += G.pile.length
+    for (let i = 0; i < G.pile.length; i++) {
+      if (!isZeroAt(G, i)) st.zeroed++
+      G.pileVals[i] = [0]
+    }
+    G.mineOverride = { card: card, vals: [0] }
+    const pzPick = process.env.PZ_PICK || 'offslot'
+    if (pzPick === 'min') {
+      if (zeroKeyTag(G, side)) {
+        st.tagged++
+        if (has(skillsOf(G, side, G.zeroKey[G.zeroKey.length - 1]), SK.PILEZERO)) st.onCarrier++
+      }
+    } else {
+      const hand = G.hands[side]
+      let best = -1, bv = pzPick === 'max' ? -1 : 99
+      for (let i = 0; i < hand.length; i++) {
+        const c = hand[i]
+        if (c.rank === JACK || G.zeroKey.indexOf(c) >= 0) continue
+        const vals = cardVals(c)
+        if (vals.length === 0) continue
+        if (pzPick === 'offslot' && has(skillsOf(G, side, c), SK.PILEZERO)) continue
+        const v = pzPick === 'max' ? Math.max.apply(null, vals) : Math.min.apply(null, vals)
+        if (pzPick === 'max' ? v > bv : v < bv) { bv = v; best = i }
+      }
+      // offslot 挑不到（手里只剩载体）就退回最小点数那张（照源码 foeZeroKeyPickOff）
+      if (best < 0 && pzPick === 'offslot') { if (zeroKeyTag(G, side)) { st.tagged++; st.onCarrier++ } }
+      else if (best >= 0) {
+        G.zeroKey.push(hand[best]); st.tagged++
+        if (has(skillsOf(G, side, hand[best]), SK.PILEZERO)) st.onCarrier++
+      }
+    }
   }
   // ---- 〈bottomzero〉：跟堆底同花色 / 同颜色的置 0 → 对方 K 张手牌置 0 ----
   if (has(skills, SK.BOTTOMZERO) && at0 >= 0) {
@@ -24437,3 +24507,4 @@ module.exports = {
   LOWCUT_STAT,
   newGame, playFor, playGame, valueOfRank
 }
+module.exports.bindLocked = bindLocked

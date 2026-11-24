@@ -2261,9 +2261,14 @@ function printDraftTagDiag() {
     console.log('    打出时：只有靠磁吸才钓得到 ' + pct(mg.needed / Math.max(1, mg.played)) + ' · 靠磁吸钓得更深 ' + pct(mg.deeper / Math.max(1, mg.played)))
   }
   // 【锢咒】/【禁锢】〔2026-11-19〕：贴了几张、推了几张（主动 / 全禁锢 / 强制）、推上去对上几次、送给对方几张
+  // 【缚咒】/【拘束】〔2026-11-24〕
+  const bd0 = R.PROTO_STAT.bind
+  if (bd0 && bd0.fires > 0) console.log('\n  ---- 诊断：【缚咒】/【拘束】（BIND_SHED=' + (process.env.BIND_SHED === '0' ? '0' : '1') + '）----\n    发动 ' + bd0.fires + ' 次 · 贴拘束 ' + bd0.tagged + ' 张 · 挡下问抢 ' + bd0.blocked + ' 次')
   const lk0 = R.PROTO_STAT.lock
   if (lk0 && (lk0.fires > 0 || lk0.pushes > 0)) console.log('\n  ---- 诊断：【锢咒】/【禁锢】（LOCK_AI=' + (process.env.LOCK_AI || 'eager') + '）----\n    发动 ' + lk0.fires + ' 次（抽到 ' + lk0.drawn + '）· 展示 ' + lk0.shown + ' 张 · 贴上 ' + lk0.tagged + ' 张（其中 J ' + lk0.tagJ + '）· 强制推 ' + lk0.forced
     + ' · 推牌共 ' + lk0.pushes + ' 张（对上 ' + lk0.pushHit + ' 次、送给对方 ' + lk0.pushGave + ' 张）· 主动推 ' + lk0.vol + ' · 全禁锢推 ' + lk0.stuck + ' · 牌库空跳过 ' + lk0.stuckNoDeck)
+  const pz0 = R.PROTO_STAT.pilezero
+  if (pz0 && pz0.fires > 0) console.log('  ---- 诊断：【寂灭】发动 ' + pz0.fires + ' · 当时堆上 ' + (pz0.pile / pz0.fires).toFixed(2) + ' 张 · 新置 0 ' + pz0.zeroed + ' · 贴收零 ' + pz0.tagged + '（其中贴在会触发它的牌上 ' + pz0.onCarrier + '）')
   const ms = R.PROTO_STAT.magself
   if (ms && ms.played > 0) {
     console.log('\n  ---- 诊断：〈magself〉----')

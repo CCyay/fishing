@@ -1788,7 +1788,8 @@ function pickCardCore(G, side) {
   //   条件不成立就不当饵扔 —— 手里只剩这种牌时 pick = −1，由 randomFree 兜底（= 忍不住，记 forced）。
   //   装配里没有要屯的技能就整段跳过（不多调 skillsOf —— 它里面有原型计数口，多调会多记）
   const heldAt = []
-  if (SKILL_HOLD && R.loHasHold(lo)) {
+  // 〔2026-11-24〕手里有【拘束】牌时也走这一段（先清拘束牌，见 rules.js holdStateOf 开头）
+  if (SKILL_HOLD && (R.loHasHold(lo) || R.bindLocked(G, side))) {
     const st = R.PROTO_STAT.hold
     let readyAt = -1, readyScore = 99
     let anyHeld = false
