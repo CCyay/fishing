@@ -198,9 +198,9 @@
     <view v-if="showCustom" class="mask" @click="closeFinal">
       <view class="skill-box" @click.stop="noop">
         <view class="skill-box-head">
-          <text id="md-role-title" class="skill-box-title">{{ (roleMode == 'final' && customSide == 'foe' ? '庄家 · ' : '') + (roleAt < 0 ? (roleMode == 'run' ? '这一轮用谁' : '选一张角色卡') : roleOf(roleAt).name) }}</text>
+          <text id="md-role-title" class="skill-box-title">{{ (roleMode == 'final' && customSide == 'foe' ? '庄家 · ' : '') + (roleAt < 0 ? (roleMode == 'run' ? '这一轮用谁' : '选一张角色卡') : tplRoleOf(roleAt).name) }}</text>
           <!-- `'' +` 打头照 cards.uts 的 faceOf 那条惯例（见 mySkills 那段） -->
-          <text class="skill-box-sub">{{ roleAt < 0 ? '' + DRAW_ROLES.length + ' 个' : '盖住 ' + roleCover(roleAt) + ' 张牌' }}</text>
+          <text class="skill-box-sub">{{ roleAt < 0 ? '' + DRAW_ROLES.length + ' 个' : '盖住 ' + tplRoleCover(roleAt) + ' 张牌' }}</text>
         </view>
 
         <!-- 终局：配哪一边。两边各自走同一套三步（选角色 → 看槽 → 挑技能），
@@ -230,7 +230,7 @@
               <text class="my-skill-name">{{ DRAW_ROLES[ri].name }}</text>
               <text v-if="roleOpen(ri)" class="my-skill-key">{{ specialNameOf(ri) }}</text>
               <view class="my-skill-gap"></view>
-              <text v-if="roleOpen(ri)" class="my-skill-cover">{{ '' + roleCover(ri) + ' 张' }}</text>
+              <text v-if="roleOpen(ri)" class="my-skill-cover">{{ '' + tplRoleCover(ri) + ' 张' }}</text>
             </view>
             <!-- 锁着的角色**不报槽位和常驻技**，只报解锁条件（用户定 2026-11-02）——
                  解锁本身就是揭晓，提前把底牌摊开就没东西可等了 -->
@@ -242,7 +242,7 @@
 
         <!-- 第二步：那几个槽。点一个槽进技能列表 -->
         <scroll-view v-else-if="slotPick < 0" class="skill-box-body sv-out" direction="vertical">
-          <text class="skill-box-empty">{{ isSimpleRole(roleAt) ? '简易模式：没有常驻特殊技，只有这一个花色槽（你黑桃、庄家红心）' : specialNameOf(roleAt) + '（常驻）：' + specialDescOf(roleAt) }}</text>
+          <text class="skill-box-empty">{{ tplIsSimpleRole(roleAt) ? '简易模式：没有常驻特殊技，只有这一个花色槽（你黑桃、庄家红心）' : specialNameOf(roleAt) + '（常驻）：' + specialDescOf(roleAt) }}</text>
           <!-- 终局自己的难度，**跟闯关那档分开记**（不写存档）——
                终局是不记账的沙盒：你可能想用简单试一套配装、
                再用困难拿同一套挑战。绑死在闯关那档上就没法分开玩了 -->
@@ -260,7 +260,7 @@
           </view>
           <text class="diff-note">{{ finalDiffNote }}</text>
           <view
-            v-for="(label, si) in roleOf(roleAt).slots"
+            v-for="(label, si) in tplRoleOf(roleAt).slots"
             :key="'sl-' + si"
             :id="'md-slot-' + si"
             class="my-skill"
@@ -270,7 +270,7 @@
               <text class="my-skill-cover">{{ slotCoverText(label) }}</text>
               <text class="my-skill-name">{{ slotLabelText(label) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-pick">{{ finalSlotSkill(si) >= 0 ? DRAW_SKILLS[finalSlotSkill(si)].name + (roleFixedSkill(roleAt, si) >= 0 ? ' · 专属' : '') : '空着，点一下嵌技能' }}</text>
+              <text class="my-skill-pick">{{ finalSlotSkill(si) >= 0 ? DRAW_SKILLS[finalSlotSkill(si)].name + (tplRoleFixedSkill(roleAt, si) >= 0 ? ' · 专属' : '') : '空着，点一下嵌技能' }}</text>
             </view>
             <text v-if="finalSlotSkill(si) >= 0" class="my-skill-desc">{{ DRAW_SKILLS[finalSlotSkill(si)].desc }}</text>
             <text v-else class="my-skill-desc">{{ slotHint(label) }}</text>
@@ -280,7 +280,7 @@
 
         <!-- 第三步：给这个槽挑技能 -->
         <scroll-view v-else class="skill-box-body sv-out" direction="vertical">
-          <text class="skill-box-empty">嵌进 {{ slotLabelText(roleOf(roleAt).slots[slotPick]) }} 槽（已嵌的会被换掉）</text>
+          <text class="skill-box-empty">嵌进 {{ slotLabelText(tplRoleOf(roleAt).slots[slotPick]) }} 槽（已嵌的会被换掉）</text>
           <!-- 随机一件〔2026-11-02 用户加〕：当场从能嵌的里摇一件嵌上（跳过已嵌在别的槽的），
                嵌完回到槽位那一步，看得见摇到了什么；不满意再点这个槽重摇 -->
           <view id="md-pickskill-random" class="my-skill" @click="embedRandom">
@@ -315,7 +315,7 @@
             <text class="card-btn-text card-btn-text-dark">清空这个槽</text>
           </view>
           <view class="card-btn" @click="backFinal">
-            <text class="card-btn-text">{{ slotPick >= 0 ? '回到槽位' : (roleAt >= 0 && !isSimpleRole(roleAt) ? '换角色' : '关闭') }}</text>
+            <text class="card-btn-text">{{ slotPick >= 0 ? '回到槽位' : (roleAt >= 0 && !tplIsSimpleRole(roleAt) ? '换角色' : '关闭') }}</text>
           </view>
         </view>
       </view>
@@ -335,7 +335,7 @@
           #md-slot-0 驱动这个页面，撞上就会把那几条断言带偏
     -->
     <!-- `duelRoleNow() >= 0` 这道守卫是**必需的**，不是洁癖：下面整屏都在读
-         roleOf(duelRoleNow())，而 uvue 里数组越界会当场崩。
+         tplRoleOf(duelRoleNow())，而 uvue 里数组越界会当场崩。
          openDuel 保证了开面板时它已经 >= 0，但模板不该依赖调用方 -->
     <view v-if="showDuel && duelRoleNow() >= 0" class="mask">
       <view class="duel-box">
@@ -351,10 +351,10 @@
 
         <!-- ===== 配置屏 ===== -->
         <scroll-view v-if="duelPick < 0" class="duel-body sv-out" direction="vertical">
-          <text class="skill-box-sub">{{ roleOf(duelRoleNow()).name + (specialNameOf(duelRoleNow()) != '' ? ' · ' + specialNameOf(duelRoleNow()) : '') }} · 盖 {{ roleCover(duelRoleNow()) }} 张</text>
+          <text class="skill-box-sub">{{ tplRoleOf(duelRoleNow()).name + (specialNameOf(duelRoleNow()) != '' ? ' · ' + specialNameOf(duelRoleNow()) : '') }} · 盖 {{ tplRoleCover(duelRoleNow()) }} 张</text>
           <text class="skill-box-empty">{{ specialDescOf(duelRoleNow()) }}</text>
           <view
-            v-for="(label, si) in roleOf(duelRoleNow()).slots"
+            v-for="(label, si) in tplRoleOf(duelRoleNow()).slots"
             :key="'dsl-' + si"
             :id="'md-duel-slot-' + si"
             class="my-skill"
@@ -364,7 +364,7 @@
               <text class="my-skill-cover">{{ slotCoverText(label) }}</text>
               <text class="my-skill-name">{{ slotLabelText(label) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-pick">{{ duelSlotSkill(si) >= 0 ? DRAW_SKILLS[duelSlotSkill(si)].name + (roleFixedSkill(duelRoleNow(), si) >= 0 ? ' · 专属' : '') : '空着，点一下嵌技能' }}</text>
+              <text class="my-skill-pick">{{ duelSlotSkill(si) >= 0 ? DRAW_SKILLS[duelSlotSkill(si)].name + (tplRoleFixedSkill(duelRoleNow(), si) >= 0 ? ' · 专属' : '') : '空着，点一下嵌技能' }}</text>
             </view>
             <text v-if="duelSlotSkill(si) >= 0" class="my-skill-desc">{{ DRAW_SKILLS[duelSlotSkill(si)].desc }}</text>
             <text v-else class="my-skill-desc">{{ slotHint(label) }}</text>
@@ -373,7 +373,7 @@
 
         <!-- ===== 挑技能屏：只有发给这个人的那 8 件 ===== -->
         <scroll-view v-else class="duel-body sv-out" direction="vertical">
-          <text class="skill-box-empty">嵌进 {{ slotLabelText(roleOf(duelRoleNow()).slots[duelPick]) }} 槽（发给{{ DUEL_NAMES[duelSide] }}的 {{ duelPoolNow().length }} 件，配不上的留着不用）</text>
+          <text class="skill-box-empty">嵌进 {{ slotLabelText(tplRoleOf(duelRoleNow()).slots[duelPick]) }} 槽（发给{{ DUEL_NAMES[duelSide] }}的 {{ duelPoolNow().length }} 件，配不上的留着不用）</text>
           <view
             v-for="(k, pi) in duelPoolNow()"
             :key="'dsk-' + pi"
@@ -431,7 +431,7 @@
         <view class="skill-box-head">
           <text class="skill-box-title">角色</text>
           <text class="skill-box-sub"
-            >{{ DRAW_ROLES.length + foeBookNums().length }} 张</text
+            >{{ DRAW_ROLES.length + tplFoeBookNums().length }} 张</text
           >
         </view>
         <!-- 卡片跟选角色那一步同一个样子（见 showCustom 的第一步） -->
@@ -446,7 +446,7 @@
               <text class="my-skill-name">{{ role.name }}</text>
               <text class="my-skill-key">{{ specialNameOf(ri) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-cover">{{ roleCover(ri) }} 张</text>
+              <text class="my-skill-cover">{{ tplRoleCover(ri) }} 张</text>
             </view>
             <!-- 槽一行：「6 7（8 张） / 8 9（8 张）」—— 斜杠分槽，
                  括号里是这个槽盖住多少张牌 -->
@@ -461,21 +461,21 @@
                而那正是要你改打法的地方。带两条的那几张会印成两行（见 foeSpecialDescsOf） -->
           <text class="rolebook-sect">庄家角色</text>
           <view
-            v-for="(num, fi) in foeBookNums()"
+            v-for="(num, fi) in tplFoeBookNums()"
             :key="'fb-' + num"
             :id="'md-foebook-' + fi"
             class="my-skill"
-            :class="{ 'my-skill-off': foeBookTag(num) == FOE_OFF_TAG }">
+            :class="{ 'my-skill-off': tplFoeBookTag(num) == FOE_OFF_TAG }">
             <view class="my-skill-head">
               <!-- 〔2026-11-04 用户定「角色弹窗不用显示在哪关出现」：原先这儿印 foeBookTag（第几关固定 / 三个难度各在哪一档），删了〕 -->
-              <text class="my-skill-name">{{ foeRoleAt(num).name }}</text>
-              <text class="my-skill-key">{{ foeSpecialNamesOf(foeRoleAt(num)) }}</text>
+              <text class="my-skill-name">{{ tplFoeRoleAt(num).name }}</text>
+              <text class="my-skill-key">{{ tplFoeSpecialNamesOf(tplFoeRoleAt(num)) }}</text>
               <view class="my-skill-gap"></view>
-              <text class="my-skill-cover">{{ foeCoverRole(foeRoleAt(num)) }} 张</text>
+              <text class="my-skill-cover">{{ tplFoeCoverRole(tplFoeRoleAt(num)) }} 张</text>
             </view>
-            <text class="my-skill-level">技能：{{ foeSlotsText(foeRoleAt(num)) }}</text>
-            <text v-if="foeSpecialDescsOf(foeRoleAt(num)) != ''" class="my-skill-desc"
-              >{{ foeSpecialDescsOf(foeRoleAt(num)) }}</text
+            <text class="my-skill-level">技能：{{ foeSlotsText(tplFoeRoleAt(num)) }}</text>
+            <text v-if="tplFoeSpecialDescsOf(tplFoeRoleAt(num)) != ''" class="my-skill-desc"
+              >{{ tplFoeSpecialDescsOf(tplFoeRoleAt(num)) }}</text
             >
           </view>
         </scroll-view>
@@ -658,6 +658,8 @@
     // 「选角色卡 + 嵌技能」现在闯关和终局**共用**（见 goRole / goFinalRole）
     DRAW_ROLES,
     roleOf,
+    // 〔2026-11-24〕模板包装 tplRoleOf 的返回类型（Android 端要显式引）
+    DrawRole,
     isSimpleRole,
     simpleRoleFor,
     SPECIAL_SKILLS,
@@ -759,22 +761,6 @@
   // 弹层里面点着不关，交给外面那层遮罩关（跟排竿的道具面板一个路子）
   function noop() {}
 
-  function refresh() {
-    save.value = loadDrawSave()
-    slotIndex.value = drawSaveSlot()
-    diff.value = difficultyOf(slotIndex.value)
-    // 终局那档默认跟着闯关的 —— 进来就是你习惯的难度。
-    // 手动选过就不再跟（不然打一局回来 onShow 一刷新，选的就被冲掉了）
-    if (!finalDiffPicked) {
-      finalDiff.value = diff.value
-    }
-    const list : SlotView[] = []
-    for (let i = 1; i <= DRAW_SLOT_COUNT; i++) {
-      list.push({ index: i, data: loadDrawAt(i) })
-    }
-    slots.value = list
-  }
-
   // 进度条那一排点，1 到 12。
   // 摆个数组而不是让 v-for 直接遍历数字 —— 后者在 uvue 那边没把握
   const dots = computed<number[]>(() : number[] => {
@@ -785,15 +771,15 @@
     return out
   })
 
+  // ---- 难度 ----
+  // 默认简单〔2026-10-24〕，refresh 里照存档改过来
+  const diff = ref<number>(DIFF_EASY)
+
   // 这一轮眼下要打的那一关
   // 这一关按难度改过的样子（过关奖励跟着难度走，见 levelForDiff）
   const level = computed<DrawLevel>(() : DrawLevel => {
     return levelForDiff(drawLevelById(save.value.runLevel), diff.value)
   })
-
-  // ---- 难度 ----
-  // 默认简单〔2026-10-24〕，refresh 里照存档改过来
-  const diff = ref<number>(DIFF_EASY)
 
   const canPickDiff = computed<boolean>(() : boolean => {
     return runFresh(save.value)
@@ -881,6 +867,32 @@
     return one.key.toLowerCase().indexOf(q) >= 0
   }
 
+  // 专属技能在图鉴里那行小字：「虚无行者专属 · 不出售」。角色名从固定槽反查，不写死
+  function roleOnlyTag(k : number) : string {
+    for (let r = 0; r < DRAW_ROLES.length; r++) {
+      for (let i = 0; i < DRAW_ROLES[r].slots.length; i++) {
+        if (roleFixedSkill(r, i) == k) {
+          return DRAW_ROLES[r].name + '专属 · 不出售'
+        }
+      }
+    }
+    return '角色专属 · 不出售'
+  }
+
+  // 庄家专属的那几件挂在哪几个庄家的槽上（照 roleOnlyTag 报归谁）
+  function foeOnlyTag(k : number) : string {
+    const names : string[] = []
+    for (let r = 0; r < DRAW_FOE_ROLES.length; r++) {
+      const slots = DRAW_FOE_ROLES[r].slots
+      for (let i = 0; i < slots.length; i++) {
+        if (slots[i].skill == k && names.indexOf(DRAW_FOE_ROLES[r].name) < 0) {
+          names.push(DRAW_FOE_ROLES[r].name)
+        }
+      }
+    }
+    return (names.length > 0 ? names.join('、') : '庄家') + '专属 · 不出售'
+  }
+
   // 技能图鉴：**跟这一轮无关**，全表一视同仁地列（名字、价钱、效果）。
   // 这一轮带着什么、装在哪，去「技能库」看（商店页的只管理模式）。
   //
@@ -924,32 +936,6 @@
     })
     return out
   })
-
-  // 专属技能在图鉴里那行小字：「虚无行者专属 · 不出售」。角色名从固定槽反查，不写死
-  function roleOnlyTag(k : number) : string {
-    for (let r = 0; r < DRAW_ROLES.length; r++) {
-      for (let i = 0; i < DRAW_ROLES[r].slots.length; i++) {
-        if (roleFixedSkill(r, i) == k) {
-          return DRAW_ROLES[r].name + '专属 · 不出售'
-        }
-      }
-    }
-    return '角色专属 · 不出售'
-  }
-
-  // 庄家专属的那几件挂在哪几个庄家的槽上（照 roleOnlyTag 报归谁）
-  function foeOnlyTag(k : number) : string {
-    const names : string[] = []
-    for (let r = 0; r < DRAW_FOE_ROLES.length; r++) {
-      const slots = DRAW_FOE_ROLES[r].slots
-      for (let i = 0; i < slots.length; i++) {
-        if (slots[i].skill == k && names.indexOf(DRAW_FOE_ROLES[r].name) < 0) {
-          names.push(DRAW_FOE_ROLES[r].name)
-        }
-      }
-    }
-    return (names.length > 0 ? names.join('、') : '庄家') + '专属 · 不出售'
-  }
 
   // 技能图鉴的两栏〔2026-11-05〕：从 mySkills（已筛、已排）里按「专属不专属」分开
   const normalSkills = computed<MySkill[]>(() : MySkill[] => {
@@ -1014,83 +1000,6 @@
     }
     return '本轮第 ' + data.runLevel + ' 关'
   })
-
-  // 原先这儿有个 dropText（「输一次从头来 · 这关掉技能的概率 N%」）。
-  // 整条删了 —— 那两件事打过一轮就记住了，而它每次进这一页都重复一遍。
-  // 技能名额那句话也不缺地方说：技能弹层的副标题上写着「你有 N/4」
-
-  // 原先这儿有个 goText（那颗大按钮上的字）。按钮没了 ——
-  // 未通关时开打的入口是关卡卡片本身，通关时那颗按钮的字写死「再来一轮」
-
-  function go() {
-    if (runCleared(save.value)) {
-      const data = loadDrawSave()
-      resetDrawRun(data)
-      saveDraw(data)
-      refresh()
-      return
-    }
-    // 上次是从商店退出来的：先回商店，在那儿点「开始下一关」才开打
-    if (loadDrawSave().inShop) {
-      uni.navigateTo({ url: '/pages/examples/blackjack/draw-skills' })
-      return
-    }
-    // **这一轮还没选角色：先选**。
-    //
-    // 角色给的是那件常驻特殊技（整轮都在，不占槽）和那几个印死的槽，
-    // 所以它是这一轮所有决策的前提 —— 买什么技能、往哪个点数改牌组，
-    // 全看槽上印着什么。开打之后再选就全错位了。
-    //
-    // resetDrawRun 会清掉 role（输了重开要重选），所以每一轮都走一次
-    if (!hasRole(save.value)) {
-      roleMode.value = 'run'
-      roleAt.value = -1
-      slotSkills.value = [] as number[]
-      slotPick.value = -1
-      showCustom.value = true
-      return
-    }
-    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing' })
-  }
-
-  // 原先这儿有个 openSkills（随时进商店），删了 ——
-  // 商店只在打赢一关的结算框上进得去
-
-  // 放弃这一轮：跟打输了一个下场 —— 技能、金币全清，从第 1 关重来。
-  // 问一句再动手
-  function askGiveUp() {
-    uni.showModal({
-      title: '放弃这一轮？',
-      content: '本轮作废，技能和金币清空，从第 1 关重来。最远纪录留着。',
-      confirmText: '放弃',
-      cancelText: '再打打',
-      success: (res) => {
-        if (res.confirm) {
-          const data = loadDrawSave()
-          resetDrawRun(data)
-          saveDraw(data)
-          refresh()
-        }
-      }
-    })
-  }
-
-  // 原先这儿有一套自定义终局配装的东西（openCustom / customCount /
-  // toggleCustom / bumpCustom，加上 goFinal 的 custom 分支）。整套删了。
-  //
-  // 理由是它跟这个玩法的主题对着干：货架上货什么是摇的、位置摇定、
-  // 升级要等货架上出砺钩 —— 一路都在说「适应摇出来的东西」，
-  // 而自定义配装是「先想好再执行」。开了这个口子，那条规矩就只剩
-  // 正常模式在守，而终局本该是它最纯粹的样子：两边都顶配，比的是用法
-
-  // 终局模式：一局定胜负，**一个字都不写存档** ——
-  // 不推关号、不发金币、输了也不清家当。
-  //
-  // 正常模式里一局的分量很重（输一次十二关白打），所以人会保守地打；
-  // 终局不记账，于是你敢拿任何疯招去试。它卖的就是这个
-  function goFinal() {
-    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing?mode=final&diff=' + finalDiff.value })
-  }
 
   // ---------- 终局：选角色卡 + 嵌技能 ----------
   //
@@ -1213,51 +1122,6 @@
     }
     const goal = roleHardGoal(DRAW_ROLES[ri].key)
     return goal != '' ? goal + '才解锁' : '还没开放'
-  }
-
-  // 点一个角色。终局进第二步（看槽），闯关**当场定下来并开打**
-  function tapRole(ri : number) {
-    if (!roleOpen(ri)) {
-      // 用星开角色（2026-11-04）：这一张靠星开、手头又有那种星 —— 问一句再花
-      const kind = roleStarKind(ri)
-      const gold = kind == ROLE_UNLOCK_GOLD
-      if (kind >= 0 && starLeft(gold) > 0) {
-        const name = DRAW_ROLES[ri].name
-        uni.showModal({
-          title: '解锁【' + name + '】？',
-          content: '花 1 颗' + (gold ? '金色' : '银色') + '星星（手头 ' + starLeft(gold) + ' 颗）。',
-          confirmText: '解锁',
-          cancelText: '再想想',
-          success: (res) => {
-            if (res.confirm) {
-              buyRole(slotIndex.value, DRAW_ROLES[ri].key)
-              refresh()
-            }
-          }
-        })
-        return
-      }
-      uni.showToast({ title: roleLock(ri), icon: 'none' })
-      return
-    }
-    if (roleMode.value == 'run') {
-      const data = loadDrawSave()
-      // 槽在这儿置空（pickRole 干的），所以**这一下必须写存档** ——
-      // 不然退出再进能换角色，而角色是这一轮的方向，换了等于白给
-      pickRole(data, ri)
-      saveDraw(data)
-      showCustom.value = false
-      refresh()
-      uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing' })
-      return
-    }
-    roleAt.value = ri
-    slotPick.value = -1
-    const blank : number[] = []
-    for (let i = 0; i < roleOf(ri).slots.length; i++) {
-      blank.push(-1)
-    }
-    slotSkills.value = blank
   }
 
   // 这件技能已经嵌在别的槽里了吗 —— **一张卡只有一张**（实体卡那条限制），
@@ -1408,6 +1272,23 @@
   // 在角色面板里随时能改
   const finalDiff = ref<number>(DIFF_EASY)
 
+  // 原先这儿有一套自定义终局配装的东西（openCustom / customCount /
+  // toggleCustom / bumpCustom，加上 goFinal 的 custom 分支）。整套删了。
+  //
+  // 理由是它跟这个玩法的主题对着干：货架上货什么是摇的、位置摇定、
+  // 升级要等货架上出砺钩 —— 一路都在说「适应摇出来的东西」，
+  // 而自定义配装是「先想好再执行」。开了这个口子，那条规矩就只剩
+  // 正常模式在守，而终局本该是它最纯粹的样子：两边都顶配，比的是用法
+
+  // 终局模式：一局定胜负，**一个字都不写存档** ——
+  // 不推关号、不发金币、输了也不清家当。
+  //
+  // 正常模式里一局的分量很重（输一次十二关白打），所以人会保守地打；
+  // 终局不记账，于是你敢拿任何疯招去试。它卖的就是这个
+  function goFinal() {
+    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing?mode=final&diff=' + finalDiff.value })
+  }
+
   // 卡片上那一行：现有金币 / 生命。生命 0 = 这一轮还没开打，报满的
   const runMeta = computed<string>(() : string => {
     const max = maxLivesOf(diff.value)
@@ -1416,6 +1297,127 @@
   })
   // 这一页里手动选过终局难度没有（见 refresh）
   let finalDiffPicked : boolean = false
+
+  function refresh() {
+    save.value = loadDrawSave()
+    slotIndex.value = drawSaveSlot()
+    diff.value = difficultyOf(slotIndex.value)
+    // 终局那档默认跟着闯关的 —— 进来就是你习惯的难度。
+    // 手动选过就不再跟（不然打一局回来 onShow 一刷新，选的就被冲掉了）
+    if (!finalDiffPicked) {
+      finalDiff.value = diff.value
+    }
+    const list : SlotView[] = []
+    for (let i = 1; i <= DRAW_SLOT_COUNT; i++) {
+      list.push({ index: i, data: loadDrawAt(i) })
+    }
+    slots.value = list
+  }
+
+  // 原先这儿有个 dropText（「输一次从头来 · 这关掉技能的概率 N%」）。
+  // 整条删了 —— 那两件事打过一轮就记住了，而它每次进这一页都重复一遍。
+  // 技能名额那句话也不缺地方说：技能弹层的副标题上写着「你有 N/4」
+
+  // 原先这儿有个 goText（那颗大按钮上的字）。按钮没了 ——
+  // 未通关时开打的入口是关卡卡片本身，通关时那颗按钮的字写死「再来一轮」
+
+  function go() {
+    if (runCleared(save.value)) {
+      const data = loadDrawSave()
+      resetDrawRun(data)
+      saveDraw(data)
+      refresh()
+      return
+    }
+    // 上次是从商店退出来的：先回商店，在那儿点「开始下一关」才开打
+    if (loadDrawSave().inShop) {
+      uni.navigateTo({ url: '/pages/examples/blackjack/draw-skills' })
+      return
+    }
+    // **这一轮还没选角色：先选**。
+    //
+    // 角色给的是那件常驻特殊技（整轮都在，不占槽）和那几个印死的槽，
+    // 所以它是这一轮所有决策的前提 —— 买什么技能、往哪个点数改牌组，
+    // 全看槽上印着什么。开打之后再选就全错位了。
+    //
+    // resetDrawRun 会清掉 role（输了重开要重选），所以每一轮都走一次
+    if (!hasRole(save.value)) {
+      roleMode.value = 'run'
+      roleAt.value = -1
+      slotSkills.value = [] as number[]
+      slotPick.value = -1
+      showCustom.value = true
+      return
+    }
+    uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing' })
+  }
+
+  // 原先这儿有个 openSkills（随时进商店），删了 ——
+  // 商店只在打赢一关的结算框上进得去
+
+  // 放弃这一轮：跟打输了一个下场 —— 技能、金币全清，从第 1 关重来。
+  // 问一句再动手
+  function askGiveUp() {
+    uni.showModal({
+      title: '放弃这一轮？',
+      content: '本轮作废，技能和金币清空，从第 1 关重来。最远纪录留着。',
+      confirmText: '放弃',
+      cancelText: '再打打',
+      success: (res) => {
+        if (res.confirm) {
+          const data = loadDrawSave()
+          resetDrawRun(data)
+          saveDraw(data)
+          refresh()
+        }
+      }
+    })
+  }
+
+  // 点一个角色。终局进第二步（看槽），闯关**当场定下来并开打**
+  function tapRole(ri : number) {
+    if (!roleOpen(ri)) {
+      // 用星开角色（2026-11-04）：这一张靠星开、手头又有那种星 —— 问一句再花
+      const kind = roleStarKind(ri)
+      const gold = kind == ROLE_UNLOCK_GOLD
+      if (kind >= 0 && starLeft(gold) > 0) {
+        const name = DRAW_ROLES[ri].name
+        uni.showModal({
+          title: '解锁【' + name + '】？',
+          content: '花 1 颗' + (gold ? '金色' : '银色') + '星星（手头 ' + starLeft(gold) + ' 颗）。',
+          confirmText: '解锁',
+          cancelText: '再想想',
+          success: (res) => {
+            if (res.confirm) {
+              buyRole(slotIndex.value, DRAW_ROLES[ri].key)
+              refresh()
+            }
+          }
+        })
+        return
+      }
+      uni.showToast({ title: roleLock(ri), icon: 'none' })
+      return
+    }
+    if (roleMode.value == 'run') {
+      const data = loadDrawSave()
+      // 槽在这儿置空（pickRole 干的），所以**这一下必须写存档** ——
+      // 不然退出再进能换角色，而角色是这一轮的方向，换了等于白给
+      pickRole(data, ri)
+      saveDraw(data)
+      showCustom.value = false
+      refresh()
+      uni.navigateTo({ url: '/pages/examples/blackjack/ap-fishing' })
+      return
+    }
+    roleAt.value = ri
+    slotPick.value = -1
+    const blank : number[] = []
+    for (let i = 0; i < roleOf(ri).slots.length; i++) {
+      blank.push(-1)
+    }
+    slotSkills.value = blank
+  }
 
   function pickFinalDiff(d : number) {
     finalDiff.value = d
@@ -1961,6 +1963,39 @@
   })
 
   refresh()
+
+  // 〔2026-11-24 · Android 云打包〕模板里直接调用导入的函数会被编成 unref(fn)(…)，Kotlin 调不起来 ——
+  //   模板改调下面这几个本地包装（只转一手，逻辑在原函数里）
+  function tplFoeBookNums() : number[] {
+    return foeBookNums()
+  }
+  function tplFoeBookTag(num : number) : string {
+    return foeBookTag(num)
+  }
+  function tplFoeCoverRole(r : FoeRole) : number {
+    return foeCoverRole(r)
+  }
+  function tplFoeRoleAt(level : number) : FoeRole {
+    return foeRoleAt(level)
+  }
+  function tplFoeSpecialDescsOf(r : FoeRole) : string {
+    return foeSpecialDescsOf(r)
+  }
+  function tplFoeSpecialNamesOf(r : FoeRole) : string {
+    return foeSpecialNamesOf(r)
+  }
+  function tplIsSimpleRole(role : number) : boolean {
+    return isSimpleRole(role)
+  }
+  function tplRoleCover(role : number) : number {
+    return roleCover(role)
+  }
+  function tplRoleFixedSkill(role : number, slot : number) : number {
+    return roleFixedSkill(role, slot)
+  }
+  function tplRoleOf(role : number) : DrawRole {
+    return roleOf(role)
+  }
 </script>
 
 <style>

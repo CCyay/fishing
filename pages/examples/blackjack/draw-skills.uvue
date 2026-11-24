@@ -187,17 +187,17 @@
         <view class="skill-foot">
           <text class="skill-cover">{{ libWhere(k) }}</text>
           <view
-            v-if="slotOfSkill(save, k) >= 0"
+            v-if="tplSlotOfSkill(save, k) >= 0"
             :id="'md-unequip-' + k"
             class="sell-btn equip-btn"
-            @click.stop="unequipSlot(slotOfSkill(save, k))">
+            @click.stop="unequipSlot(tplSlotOfSkill(save, k))">
             <text class="equip-text">卸下</text>
           </view>
           <view :id="'md-equip-' + k" class="sell-btn equip-btn" @click.stop="openEquip(k)">
-            <text class="equip-text">{{ slotOfSkill(save, k) >= 0 ? '换槽' : '装上' }}</text>
+            <text class="equip-text">{{ tplSlotOfSkill(save, k) >= 0 ? '换槽' : '装上' }}</text>
           </view>
           <view :id="'md-libsell-' + k" class="sell-btn" @click.stop="sellSkill(k)">
-            <text class="sell-text">卖出 +{{ sellPriceOf(k) }}</text>
+            <text class="sell-text">卖出 +{{ tplSellPriceOf(k) }}</text>
           </view>
         </view>
       </view>
@@ -867,26 +867,6 @@
     return rerollPriceOf(save.value)
   })
 
-  // 换一批。**只换下栏，道具那几件原样留着** ——
-  // 道具是「这一关的机会」，买完就没；技能和卡牌是「这一关的行情」，刷得动。
-  //
-  // 价钱翻倍涨（见 cardRerollCost）：第一次 20 块比一张牌还便宜，
-  // 第三次就是 J 的价钱了。买过【平价】那条曲线就拍平成 30
-  function doReroll() {
-    if (guideLock()) {
-      return
-    }
-    const cost = rerollPrice.value
-    if (save.value.gold < cost) {
-      uni.showToast({ title: '金币不够，换一批要 ' + cost, icon: 'none' })
-      return
-    }
-    const data = loadDrawSave()
-    data.gold = data.gold - cost
-    rollShelf(data, true)
-    commit(data)
-  }
-
   // 买技能/卡牌那一栏的一件。两种货走同一个入口 ——
   // 它们在界面上混着摆，所以点击也该是同一道口子
   // ---------- 买之前先看详情 ----------
@@ -929,32 +909,6 @@
       ok: false, name: '', tag: '', desc: '', price: 0, first: false, block: ''
     } as Detail
   }
-
-  const detail = computed<Detail>(() : Detail => {
-    const at = detailAt.value
-    if (at < 0) {
-      return noDetail()
-    }
-    const list = shelfGoods(save.value)
-    if (at >= list.length || list[at].sold) {
-      return noDetail()
-    }
-    const one = list[at]
-    if (one.kind == GOODS_FIX) {
-      return fixDetail(one.tag)
-    }
-    if (one.kind == GOODS_SKILL) {
-      return skillDetail(parseInt(one.tag))
-    }
-    if (one.kind == GOODS_PIP) {
-      return pipDetail(parseInt(one.tag))
-    }
-    return cardDetail(one.tag)
-  })
-
-  const detailOpen = computed<boolean>(() : boolean => {
-    return detail.value.ok
-  })
 
   function fixDetail(key : string) : Detail {
     const item = fixItemOf(key)
@@ -1085,180 +1039,34 @@
     } as Detail
   }
 
-  // 点货架上一件：开详情，**不买**
-  function tapGoods(at : number) {
-    if (at != guidePackAt.value && guideLock()) {
-      return
+  const detail = computed<Detail>(() : Detail => {
+    const at = detailAt.value
+    if (at < 0) {
+      return noDetail()
     }
     const list = shelfGoods(save.value)
     if (at >= list.length || list[at].sold) {
-      return
+      return noDetail()
     }
-    detailAt.value = at
-  }
+    const one = list[at]
+    if (one.kind == GOODS_FIX) {
+      return fixDetail(one.tag)
+    }
+    if (one.kind == GOODS_SKILL) {
+      return skillDetail(parseInt(one.tag))
+    }
+    if (one.kind == GOODS_PIP) {
+      return pipDetail(parseInt(one.tag))
+    }
+    return cardDetail(one.tag)
+  })
+
+  const detailOpen = computed<boolean>(() : boolean => {
+    return detail.value.ok
+  })
 
   function closeDetail() {
     detailAt.value = -1
-  }
-
-  // 详情框里点「确定购买」。真正的买在这儿分流到原来那两套
-  function confirmBuy() {
-    const at = detailAt.value
-    if (at < 0) {
-      return
-    }
-    const one = detail.value
-    if (!one.ok || one.block != '') {
-      return
-    }
-    const list = shelfGoods(save.value)
-    if (at >= list.length || list[at].sold) {
-      closeDetail()
-      return
-    }
-    const kind = list[at].kind
-    closeDetail()
-    if (kind == GOODS_FIX) {
-      doBuyFix(at)
-      return
-    }
-    doBuyShelf(at)
-  }
-
-  function doBuyShelf(at : number) {
-    const list = shelfGoods(save.value)
-    if (at >= list.length || list[at].sold) {
-      return
-    }
-    if (list[at].kind == GOODS_SKILL) {
-      buySkill(at, parseInt(list[at].tag))
-      return
-    }
-    // 点数卡要挑一张牌贴上去，所以它走选牌那条路（**先不扣钱**，
-    // 跟改造道具一个待遇：挑到一半取消了不该白花）
-    if (list[at].kind == GOODS_PIP) {
-      const v = parseInt(list[at].tag)
-      if (isNaN(v)) {
-        return
-      }
-      if (save.value.gold < PIP_PRICE) {
-        uni.showToast({ title: '金币不够', icon: 'none' })
-        return
-      }
-      pickMode.value = 'pip'
-      pickStep.value = v
-      pickAt.value = at
-      pickPrice.value = PIP_PRICE
-      pickFirst.value = -1
-      return
-    }
-    const text = list[at].tag
-    const price = cardPriceOf(text)
-    // 跟 cardDetail 同一对闸、同一个顺序。两处都判是因为详情框那边
-    // 只是把按钮压暗，真正扣钱的是这儿 —— 闸该在动钱的那一行前面
-    if (deckSize.value >= DECK_CAP) {
-      uni.showToast({ title: '牌组满了（' + DECK_CAP + ' 张）', icon: 'none' })
-      return
-    }
-    if (save.value.gold < price) {
-      uni.showToast({ title: '金币不够', icon: 'none' })
-      return
-    }
-    const data = loadDrawSave()
-    data.gold = data.gold - price
-    const cards = deckOf(data)
-    cards.push(text)
-    setDeck(data, cards)
-    markSold(data, at)
-    commit(data)
-    uni.showToast({ title: cardLabel(text) + ' 加进牌组了', icon: 'none' })
-  }
-
-  // 买一个技能：**先不扣钱**，弹出挑槽（跟改造道具一个待遇 ——
-  // 挑到一半取消了不该白花）。真正的嵌入和扣钱在 onPickSlot 里。
-  //
-  // 名额那道闸没了（槽满照样买得动，只是会换掉里头那件）。
-  // 唯一还拦的是「一个槽都没有」—— 那说明这一轮还没选角色
-  function buySkill(at : number, k : number) {
-    if (isNaN(k) || k >= DRAW_SKILLS.length || isExclusiveSkill(k)) {
-      return
-    }
-    if (noSlots.value) {
-      uni.showToast({ title: '还没选角色 —— 没有槽可装', icon: 'none' })
-      return
-    }
-    if (libFull.value) {
-      uni.showToast({ title: '技能库满了（' + libCap.value + ' 件），先卖掉一件', icon: 'none' })
-      return
-    }
-    const price = DRAW_SKILLS[k].unlock
-    if (save.value.gold < price) {
-      uni.showToast({ title: '金币不够', icon: 'none' })
-      return
-    }
-    const data = loadDrawSave()
-    data.gold = data.gold - price
-    addToLibrary(data, k)
-    markSold(data, at)
-    commit(data)
-    // 买到手了，顺手问一句装哪个槽 —— 不装也行，取消就留在技能库里
-    askEquip(k, false)
-  }
-
-  // 弹「装进哪个槽」。forced = 不许取消（新手引导里那一次）
-  function askEquip(k : number, forced : boolean) {
-    pickMode.value = 'slot'
-    pickStep.value = k
-    pickAt.value = -1
-    pickPrice.value = 0
-    pickFirst.value = -1
-    pickForced.value = forced
-  }
-
-  // 技能库里那件「装上 / 换槽」
-  function openEquip(k : number) {
-    if (noSlots.value) {
-      uni.showToast({ title: '还没选角色 —— 没有槽可装', icon: 'none' })
-      return
-    }
-    askEquip(k, false)
-  }
-
-  // 卸下第 at 个槽里那件：回技能库，不卖
-  function unequipSlot(at : number) {
-    if (guideLock()) {
-      return
-    }
-    const data = loadDrawSave()
-    const was = unequipAt(data, at)
-    if (was < 0) {
-      return
-    }
-    commit(data)
-    uni.showToast({ title: DRAW_SKILLS[was].name + ' 卸回技能库', icon: 'none' })
-  }
-
-  // 卖掉技能库里一件（装着的一并卸下），退买价的一半
-  function sellSkill(k : number) {
-    if (guideLock()) {
-      return
-    }
-    const price = sellPriceOf(k)
-    uni.showModal({
-      title: '卖出' + DRAW_SKILLS[k].name,
-      content: '把【' + DRAW_SKILLS[k].name + '】卖 ' + price + ' 金币？'
-        + (slotOfSkill(save.value, k) >= 0 ? '它装着的那个槽会空出来。' : ''),
-      success: (res) => {
-        if (!res.confirm) {
-          return
-        }
-        const data = loadDrawSave()
-        data.gold = data.gold + price
-        dropFromLibrary(data, k)
-        commit(data)
-        uni.showToast({ title: DRAW_SKILLS[k].name + ' 卖掉了', icon: 'none' })
-      }
-    })
   }
 
   // 技能库里那一件装在哪
@@ -1368,42 +1176,6 @@
     return label == '0' ? '0 点牌' : '盖 ' + slotCover(label) + ' 张'
   }
 
-  const pickTip = computed<string>(() : string => {
-    if (pickMode.value == 'same') {
-      return pickFirst.value < 0
-        ? '先点一张当样子'
-        : '再点一张，它会变成上面那张'
-    }
-    if (pickMode.value == 'fuse') {
-      return pickFirst.value < 0
-        ? '先点一张留下的牌（J、0 点、无点数不行）'
-        : '再点一张跟它同花色、点数不同的牌 —— 它的点数熔进上面那张，它自己从牌组里拿掉'
-    }
-    if (pickMode.value == 'drop') {
-      return '点一张牌，从牌组里拿掉'
-    }
-    if (pickMode.value == 'copy') {
-      return '点一张牌，牌组里多一张一模一样的'
-    }
-    if (pickMode.value == 'blank') {
-      return '点一张牌，它从此没有点数'
-    }
-    if (pickMode.value == 'zero') {
-      return '点一张牌，它变成 0 点'
-    }
-    if (pickMode.value == 'dye') {
-      return '点一张牌，再选它要变成的花色'
-    }
-    if (pickMode.value == 'slot') {
-      return '点一个槽装上【' + DRAW_SKILLS[pickStep.value].name
-        + '】，槽里原来那件卸回技能库' + (pickForced.value ? '' : '。取消就先放在技能库里')
-    }
-    if (pickMode.value == 'pip') {
-      return '点一张牌，让它也算 ' + faceOfValue(pickStep.value) + ' 点'
-    }
-    return '点一张牌，然后选往上推还是往下推'
-  })
-
   // 这一件挑的是槽还是牌
   const picksSlot = computed<boolean>(() : boolean => {
     return pickMode.value == 'slot'
@@ -1424,44 +1196,6 @@
     }
     return '现在是【' + DRAW_SKILLS[one.now].name + '】—— 换下来回技能库'
   }
-
-  // 点一个槽：真正把技能嵌进去，钱在这儿扣。
-  //
-  // ---- 换掉槽里那件要**退一半** ----
-  //
-  // 不退的话「换掉」就是一条白给的路：卖出退解锁价的一半，而卖出和
-  // 买入在同一个商店里摆着 —— 所以「先卖再买」永远比「直接换」多赚
-  // sellPriceOf(旧) 金币，而两条路的结果一模一样。
-  //
-  // 那种差价不是取舍，是**对操作顺序的收费** —— 知道的人多拿一笔，
-  // 不知道的人白亏，而界面上看不出来。退了之后两条路等价，
-  // 「卖出」那颗钮就只剩一个正当用途：**我现在不想买，先把槽腾出来**
-  function onPickSlot(at : number) {
-    const k = pickStep.value
-    if (k < 0 || k >= DRAW_SKILLS.length) {
-      clearPick()
-      return
-    }
-    // 固定槽：弹层不关，换一个槽点
-    const fix = roleFixedSkill(save.value.role, at)
-    if (fix >= 0) {
-      uni.showToast({ title: '这个槽固定是专属技能【' + DRAW_SKILLS[fix].name + '】', icon: 'none' })
-      return
-    }
-    const data = loadDrawSave()
-    const note = equipSkill(data, k, at)
-    commit(data)
-    clearPick()
-    if (guideStep.value == GUIDE_BUY) {
-      // 新手引导里那一包：装上槽才算完，换成收尾那一页
-      guideStep.value = GUIDE_END
-      return
-    }
-    if (note != '') {
-      uni.showToast({ title: note, icon: 'none' })
-    }
-  }
-
 
   // 整副牌按点数摊成 13 行。at 是它在牌组数组里的下标 ——
   // 改造要按下标改，所以得一路带着。
@@ -1531,72 +1265,6 @@
     return rows
   })
 
-  function doBuyFix(at : number) {
-    const list = shelfGoods(save.value)
-    if (at >= list.length || list[at].sold) {
-      return
-    }
-    const item = fixItemOf(list[at].tag)
-    // **货架上这件和表里对不上就什么都不做。**
-    //
-    // fixItemOf 查不到的时候返回表里第 0 件（推一格）—— 那是个方便的兜底，
-    // 可在这儿它是个陷阱：key 认不出来就会静默地卖成另一件货。
-    // 【加架】和【平价】写进表之后、接线之前正是这么坏的：
-    // 它们掉进下面那个 else，被当成「同化」卖了（标价还正好一样）。
-    //
-    // 所以这道闸要摆在最前面：对不上就报一句、不扣钱。
-    // 下次往表里加货，漏接线会当场看得见
-    if (item.key != list[at].tag) {
-      uni.showToast({ title: '这件货还没接线（' + list[at].tag + '）', icon: 'none' })
-      return
-    }
-    if (save.value.gold < item.price) {
-      uni.showToast({ title: '金币不够', icon: 'none' })
-      return
-    }
-    // 开包是另一路：它当场扣钱、当场标卖掉（理由见 openPack 上面那段）
-    if (isPack(item.key)) {
-      openPack(at, item.key, item.price)
-      return
-    }
-    // 四件唯一扩容也是当场结清的：它们不用挑什么 —— 点一下，
-    // 规则里那个数就变了。所以没有「挑到一半取消」那回事
-    if (item.once) {
-      buyGrow(at, item.key, item.price)
-      return
-    }
-    // 彩票也当场结清：没什么可挑的，记一张，下次进店开
-    if (isLotto(item.key)) {
-      buyLotto(at, item.key, item.price)
-      return
-    }
-    // **先不扣钱** —— 挑牌挑到一半取消了不该白花。
-    // 扣钱、标卖掉都在真正改完那一刻（doPush / doSame / doDrop）
-    //
-    // 原先这儿还有砺钩和洗点两支（它们挑的是技能，不是牌）。两件都删了
-    if (item.step > 0) {
-      pickMode.value = 'push'
-    } else if (item.key == 'drop') {
-      pickMode.value = 'drop'
-    } else if (item.key == 'same') {
-      pickMode.value = 'same'
-    } else if (item.key == 'fuse') {
-      pickMode.value = 'fuse'
-    } else if (item.key == 'copy' || item.key == 'blank' || item.key == 'zero' || item.key == 'dye') {
-      // 这几件的 pickMode 就是它的 key（拓印、抹点、置零、染色）。〔熔合 2026-11-03 删了，置零、染色同日加〕
-      pickMode.value = item.key
-    } else {
-      // 走到这儿就是表里加了货、这个分支没跟上。
-      // **不猜**（从前这儿是 `: 'same'`，于是认不出来的一律卖成同化）
-      uni.showToast({ title: '这件货还没接线（' + item.key + '）', icon: 'none' })
-      return
-    }
-    pickStep.value = item.step
-    pickAt.value = at
-    pickPrice.value = item.price
-    pickFirst.value = -1
-  }
-
   // 这一次挑**不许取消**。
   //
   // 只有一种情况立它：开包开出技能、而槽全满了，于是转去挑槽
@@ -1605,6 +1273,61 @@
   //
   // 别的挑槽（货架上直买）照旧能取消：那边钱还没扣（见 buySkill）
   const pickForced = ref<boolean>(false)
+
+  // 弹「装进哪个槽」。forced = 不许取消（新手引导里那一次）
+  function askEquip(k : number, forced : boolean) {
+    pickMode.value = 'slot'
+    pickStep.value = k
+    pickAt.value = -1
+    pickPrice.value = 0
+    pickFirst.value = -1
+    pickForced.value = forced
+  }
+
+  // 技能库里那件「装上 / 换槽」
+  function openEquip(k : number) {
+    if (noSlots.value) {
+      uni.showToast({ title: '还没选角色 —— 没有槽可装', icon: 'none' })
+      return
+    }
+    askEquip(k, false)
+  }
+
+  const pickTip = computed<string>(() : string => {
+    if (pickMode.value == 'same') {
+      return pickFirst.value < 0
+        ? '先点一张当样子'
+        : '再点一张，它会变成上面那张'
+    }
+    if (pickMode.value == 'fuse') {
+      return pickFirst.value < 0
+        ? '先点一张留下的牌（J、0 点、无点数不行）'
+        : '再点一张跟它同花色、点数不同的牌 —— 它的点数熔进上面那张，它自己从牌组里拿掉'
+    }
+    if (pickMode.value == 'drop') {
+      return '点一张牌，从牌组里拿掉'
+    }
+    if (pickMode.value == 'copy') {
+      return '点一张牌，牌组里多一张一模一样的'
+    }
+    if (pickMode.value == 'blank') {
+      return '点一张牌，它从此没有点数'
+    }
+    if (pickMode.value == 'zero') {
+      return '点一张牌，它变成 0 点'
+    }
+    if (pickMode.value == 'dye') {
+      return '点一张牌，再选它要变成的花色'
+    }
+    if (pickMode.value == 'slot') {
+      return '点一个槽装上【' + DRAW_SKILLS[pickStep.value].name
+        + '】，槽里原来那件卸回技能库' + (pickForced.value ? '' : '。取消就先放在技能库里')
+    }
+    if (pickMode.value == 'pip') {
+      return '点一张牌，让它也算 ' + faceOfValue(pickStep.value) + ' 点'
+    }
+    return '点一张牌，然后选往上推还是往下推'
+  })
 
   function cancelPick() {
     if (pickForced.value) {
@@ -1627,6 +1350,392 @@
     pickAt.value = -1
     pickPrice.value = 0
   }
+
+  // 买完报什么。每一件都要说清**什么时候生效** ——
+  // 这三件没有一个是「当场看得见」的，不说的话会像没反应
+  function growNote(key : string, data : DrawSave) : string {
+    if (key == 'shelf') {
+      // 道具那一栏刷新不补货（见 rollShelf 的 keepFix），所以只能等下一关
+      return '道具栏变成 ' + fixSlotsOf(data) + ' 格（下一关的货开始生效）'
+    }
+    if (key == 'card') {
+      // 这一栏刷新会重摇，所以当场刷一次就看得见多出来的那格
+      return '技能/卡牌栏变成 ' + cardSlotsOf(data) + ' 格（换一批就看得见）'
+    }
+    if (key == 'library') {
+      return '技能库变成 ' + libraryCapFor(data, difficultyOf(drawSaveSlot())) + ' 格'
+    }
+    return '换一批固定 ' + FLAT_REROLL + ' 块了，不再翻倍'
+  }
+
+  // ---------- 彩票 ----------
+  //
+  // 买下来只是记一张（save.lotto / lottoMid / lottoBig，三档分开记），
+  // 开奖在下一次进店那一刻（draw-save 的 drawLottery），进门那句播报在 announcePrize
+  const lottoCount = computed<number>(() : number => {
+    return save.value.lotto + save.value.lottoMid + save.value.lottoBig
+  })
+
+  // ---------- 开包（技能二选一 / 五选一 / 牌六选一） ----------
+
+  // 摇出来的候选。技能装技能下标，牌装牌面文本。
+  // 原先还有个 packSlots（跟 packSkills 一一对应，每个候选定好的槽），
+  // 花色槽砍掉之后没用了
+  const packSkills = ref<number[]>([] as number[])
+  const packCards = ref<string[]>([] as string[])
+  // 开包是**先扣钱后挑**，跟别的道具相反。
+  //
+  // 别的道具是「挑到一半取消了不该白花」，可开包一摊开就把随机结果
+  // 给你看了 —— 要是能看完再取消，那就是免费窥牌：看一眼不满意退掉，
+  // 下次再买（同一件货），等于花 0 块无限重摇。所以钱在摆出候选那一刻就扣，
+  // 货也那一刻就标卖掉；挑哪一个是你唯一剩下的自由
+  const packOpen = computed<boolean>(() : boolean => {
+    return packSkills.value.length > 0 || packCards.value.length > 0
+  })
+
+  const packTitle = computed<string>(() : string => {
+    return packSkills.value.length > 0
+      ? '技能 ' + packSkills.value.length + ' 选 1'
+      : '牌 ' + packCards.value.length + ' 选 1'
+  })
+
+  type PackCard = {
+    text : string
+    // 界面上怎么写（无点数牌写「♠无」）。text 留原文，挑中时按它加进牌组
+    label : string
+    red : boolean
+  }
+
+  const packCardViews = computed<PackCard[]>(() : PackCard[] => {
+    const out : PackCard[] = []
+    for (let i = 0; i < packCards.value.length; i++) {
+      const suit = suitOfText(packCards.value[i])
+      out.push({
+        text: packCards.value[i],
+        label: cardLabel(packCards.value[i]),
+        red: suit == SUITS[1] || suit == SUITS[2]
+      } as PackCard)
+    }
+    return out
+  })
+
+  // 技能包里选中的那个（技能下标），-1 = 还没选
+  const packPick = ref<number>(-1)
+
+  function clearPack() {
+    packSkills.value = [] as number[]
+    packCards.value = [] as string[]
+    packPick.value = -1
+  }
+
+  // 放弃这一包：一个都不拿。钱不退 —— 摊开那一刻就扣了（理由见 packOpen 上面那段）
+  function abandonPack() {
+    uni.showModal({
+      title: '放弃这一包？',
+      content: '一个都不拿，花的钱不退。',
+      confirmText: '放弃',
+      cancelText: '再看看',
+      success: (res) => {
+        if (res.confirm) {
+          clearPack()
+        }
+      }
+    })
+  }
+
+  // 原先这儿有 packBlocked（「它定好的那个槽满着吗」，满着就不给挑）
+  // 和 packAnyBlocked（带一块「就地卖技能腾位置」的面板）。
+  //
+  // 两个都删了：**包里的技能一概挑得下来**。槽满了也能挑 —— 嵌的时候
+  // 换掉里头那件就是（见 embedSkill）。包是花过钱才摊开的，
+  // 为了「现在没位子」把候选压暗太狠，而且那块腾位置面板
+  // 在「嵌进去会换掉」这条规则下根本没有存在的理由了
+
+  // 包里挑中的那件会落到哪个槽（见 takePackSkill：第一个空槽，
+  // 全满就再问你一次）。摊开之前就报出来 ——
+  // 「会换掉一件」这种后果不能等拿完才说
+  const packLand = computed<string>(() : string => {
+    if (slotViews.value.length == 0) {
+      return '还没选角色，没处放'
+    }
+    return '挑完之后你来定嵌进哪个槽'
+  })
+
+  function pickPackSkill(si : number) {
+    packPick.value = packSkills.value[si]
+  }
+
+  // ---------- 新手引导 ----------
+  //
+  // 每个存档第一次进店走一遍：欢迎 → 买下【技能二选一】并挑一个 → 收尾。
+  // 第二步**拦住别的操作**（别的货、换一批、卖出、退出、开始下一关），
+  // 只放那件二选一过去 —— 第一店一定上它、第 1 关的奖励也够买（见 rollShelf、DRAW_LEVELS）。
+  // 老档第一次进店时货架上没有它、或者钱不够，就只给欢迎页，不强买
+  const GUIDE_NONE : number = 0
+  const GUIDE_WELCOME : number = 1
+  const GUIDE_BUY : number = 2
+  const GUIDE_END : number = 3
+  const guideStep = ref<number>(GUIDE_NONE)
+
+  const guideText = computed<string>(() : string => {
+    if (guideStep.value == GUIDE_WELCOME) {
+      return '过关赢来的金币在这儿花：买技能、买牌、改牌组。没花完的钱每关还会生利息。'
+        + '\n\n第一次来，先买一个技能带进下一关吧。'
+    }
+    return '技能装在槽上才生效：打出的牌落在槽上印的点数上就会触发。没装的放在技能库里，随时能换上去。'
+      + '\n\n剩下的钱可以接着逛，也可以攒着吃利息。'
+  })
+
+  // 货架上还没卖掉的那件技能二选一的下标，没有就 -1
+  const guidePackAt = computed<number>(() : number => {
+    const list = shelfGoods(save.value)
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].kind == GOODS_FIX && list[i].tag == 'pack2' && !list[i].sold) {
+        return i
+      }
+    }
+    return -1
+  })
+
+  function startGuide() {
+    if (guideStep.value != GUIDE_NONE || shopGuided(drawSaveSlot())) {
+      return
+    }
+    guideStep.value = GUIDE_WELCOME
+  }
+
+  function guideNext() {
+    if (guideStep.value == GUIDE_WELCOME) {
+      if (guidePackAt.value >= 0 && save.value.gold >= fixItemOf('pack2').price) {
+        guideStep.value = GUIDE_BUY
+        return
+      }
+    }
+    // 收尾，或者买不成二选一的老档：引导到此为止
+    guideStep.value = GUIDE_NONE
+    setShopGuided(drawSaveSlot())
+  }
+
+  // 第二步里拦操作：拦下了返回 true
+  function guideLock() : boolean {
+    if (guideStep.value != GUIDE_BUY) {
+      return false
+    }
+    uni.showToast({ title: '先买下「技能二选一」', icon: 'none' })
+    return true
+  }
+
+  // 点货架上一件：开详情，**不买**
+  function tapGoods(at : number) {
+    if (at != guidePackAt.value && guideLock()) {
+      return
+    }
+    const list = shelfGoods(save.value)
+    if (at >= list.length || list[at].sold) {
+      return
+    }
+    detailAt.value = at
+  }
+
+  // 后挑那张的牌面点数和它身上的点数卡，都贴到先挑那张上（addPip 贴重了原样返回）
+  function fuseText(keep : string, gone : string) : string {
+    let out = addPip(keep, valueOfRankText(rankOfText(gone)))
+    const pips = pipsOfText(gone)
+    for (let i = 0; i < pips.length; i++) {
+      out = addPip(out, pips[i])
+    }
+    return out
+  }
+
+  // 原先这儿有个 rankIndexOf（牌面在 A–K 梯子上第几格），推点数靠它走梯子。
+  // 推点数改成按点数值算（往上不封顶）之后它没有调用方了
+
+  // 原先这儿有 kindText（「可升级 / 不可升级」）、upgradeHint（「可升级 /
+  // 已满级 / 槽满了」）、ownedCount、ownedKeys。
+  //
+  // 全没了：等级这件事整个删了，而「拥有」和「嵌在槽里」现在是同一回事 ——
+  // 所以「我的技能」那一栏改成按**槽**列（slotViews），
+  // 每一行是「这个槽印着什么 + 嵌着哪件 + 卖掉它」
+
+  function commit(data : DrawSave) {
+    saveDraw(data)
+    save.value = data
+  }
+
+  // 换一批。**只换下栏，道具那几件原样留着** ——
+  // 道具是「这一关的机会」，买完就没；技能和卡牌是「这一关的行情」，刷得动。
+  //
+  // 价钱翻倍涨（见 cardRerollCost）：第一次 20 块比一张牌还便宜，
+  // 第三次就是 J 的价钱了。买过【平价】那条曲线就拍平成 30
+  function doReroll() {
+    if (guideLock()) {
+      return
+    }
+    const cost = rerollPrice.value
+    if (save.value.gold < cost) {
+      uni.showToast({ title: '金币不够，换一批要 ' + cost, icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    data.gold = data.gold - cost
+    rollShelf(data, true)
+    commit(data)
+  }
+
+  // 买一个技能：**先不扣钱**，弹出挑槽（跟改造道具一个待遇 ——
+  // 挑到一半取消了不该白花）。真正的嵌入和扣钱在 onPickSlot 里。
+  //
+  // 名额那道闸没了（槽满照样买得动，只是会换掉里头那件）。
+  // 唯一还拦的是「一个槽都没有」—— 那说明这一轮还没选角色
+  function buySkill(at : number, k : number) {
+    if (isNaN(k) || k >= DRAW_SKILLS.length || isExclusiveSkill(k)) {
+      return
+    }
+    if (noSlots.value) {
+      uni.showToast({ title: '还没选角色 —— 没有槽可装', icon: 'none' })
+      return
+    }
+    if (libFull.value) {
+      uni.showToast({ title: '技能库满了（' + libCap.value + ' 件），先卖掉一件', icon: 'none' })
+      return
+    }
+    const price = DRAW_SKILLS[k].unlock
+    if (save.value.gold < price) {
+      uni.showToast({ title: '金币不够', icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    data.gold = data.gold - price
+    addToLibrary(data, k)
+    markSold(data, at)
+    commit(data)
+    // 买到手了，顺手问一句装哪个槽 —— 不装也行，取消就留在技能库里
+    askEquip(k, false)
+  }
+
+  function doBuyShelf(at : number) {
+    const list = shelfGoods(save.value)
+    if (at >= list.length || list[at].sold) {
+      return
+    }
+    if (list[at].kind == GOODS_SKILL) {
+      buySkill(at, parseInt(list[at].tag))
+      return
+    }
+    // 点数卡要挑一张牌贴上去，所以它走选牌那条路（**先不扣钱**，
+    // 跟改造道具一个待遇：挑到一半取消了不该白花）
+    if (list[at].kind == GOODS_PIP) {
+      const v = parseInt(list[at].tag)
+      if (isNaN(v)) {
+        return
+      }
+      if (save.value.gold < PIP_PRICE) {
+        uni.showToast({ title: '金币不够', icon: 'none' })
+        return
+      }
+      pickMode.value = 'pip'
+      pickStep.value = v
+      pickAt.value = at
+      pickPrice.value = PIP_PRICE
+      pickFirst.value = -1
+      return
+    }
+    const text = list[at].tag
+    const price = cardPriceOf(text)
+    // 跟 cardDetail 同一对闸、同一个顺序。两处都判是因为详情框那边
+    // 只是把按钮压暗，真正扣钱的是这儿 —— 闸该在动钱的那一行前面
+    if (deckSize.value >= DECK_CAP) {
+      uni.showToast({ title: '牌组满了（' + DECK_CAP + ' 张）', icon: 'none' })
+      return
+    }
+    if (save.value.gold < price) {
+      uni.showToast({ title: '金币不够', icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    data.gold = data.gold - price
+    const cards = deckOf(data)
+    cards.push(text)
+    setDeck(data, cards)
+    markSold(data, at)
+    commit(data)
+    uni.showToast({ title: cardLabel(text) + ' 加进牌组了', icon: 'none' })
+  }
+
+  // 卸下第 at 个槽里那件：回技能库，不卖
+  function unequipSlot(at : number) {
+    if (guideLock()) {
+      return
+    }
+    const data = loadDrawSave()
+    const was = unequipAt(data, at)
+    if (was < 0) {
+      return
+    }
+    commit(data)
+    uni.showToast({ title: DRAW_SKILLS[was].name + ' 卸回技能库', icon: 'none' })
+  }
+
+  // 卖掉技能库里一件（装着的一并卸下），退买价的一半
+  function sellSkill(k : number) {
+    if (guideLock()) {
+      return
+    }
+    const price = sellPriceOf(k)
+    uni.showModal({
+      title: '卖出' + DRAW_SKILLS[k].name,
+      content: '把【' + DRAW_SKILLS[k].name + '】卖 ' + price + ' 金币？'
+        + (slotOfSkill(save.value, k) >= 0 ? '它装着的那个槽会空出来。' : ''),
+      success: (res) => {
+        if (!res.confirm) {
+          return
+        }
+        const data = loadDrawSave()
+        data.gold = data.gold + price
+        dropFromLibrary(data, k)
+        commit(data)
+        uni.showToast({ title: DRAW_SKILLS[k].name + ' 卖掉了', icon: 'none' })
+      }
+    })
+  }
+
+  // 点一个槽：真正把技能嵌进去，钱在这儿扣。
+  //
+  // ---- 换掉槽里那件要**退一半** ----
+  //
+  // 不退的话「换掉」就是一条白给的路：卖出退解锁价的一半，而卖出和
+  // 买入在同一个商店里摆着 —— 所以「先卖再买」永远比「直接换」多赚
+  // sellPriceOf(旧) 金币，而两条路的结果一模一样。
+  //
+  // 那种差价不是取舍，是**对操作顺序的收费** —— 知道的人多拿一笔，
+  // 不知道的人白亏，而界面上看不出来。退了之后两条路等价，
+  // 「卖出」那颗钮就只剩一个正当用途：**我现在不想买，先把槽腾出来**
+  function onPickSlot(at : number) {
+    const k = pickStep.value
+    if (k < 0 || k >= DRAW_SKILLS.length) {
+      clearPick()
+      return
+    }
+    // 固定槽：弹层不关，换一个槽点
+    const fix = roleFixedSkill(save.value.role, at)
+    if (fix >= 0) {
+      uni.showToast({ title: '这个槽固定是专属技能【' + DRAW_SKILLS[fix].name + '】', icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    const note = equipSkill(data, k, at)
+    commit(data)
+    clearPick()
+    if (guideStep.value == GUIDE_BUY) {
+      // 新手引导里那一包：装上槽才算完，换成收尾那一页
+      guideStep.value = GUIDE_END
+      return
+    }
+    if (note != '') {
+      uni.showToast({ title: note, icon: 'none' })
+    }
+  }
+
 
   // ---------- 三件唯一扩容（加栏、加架、平价） ----------
   //
@@ -1675,31 +1784,6 @@
     uni.showToast({ title: growNote(key, data), icon: 'none' })
   }
 
-  // 买完报什么。每一件都要说清**什么时候生效** ——
-  // 这三件没有一个是「当场看得见」的，不说的话会像没反应
-  function growNote(key : string, data : DrawSave) : string {
-    if (key == 'shelf') {
-      // 道具那一栏刷新不补货（见 rollShelf 的 keepFix），所以只能等下一关
-      return '道具栏变成 ' + fixSlotsOf(data) + ' 格（下一关的货开始生效）'
-    }
-    if (key == 'card') {
-      // 这一栏刷新会重摇，所以当场刷一次就看得见多出来的那格
-      return '技能/卡牌栏变成 ' + cardSlotsOf(data) + ' 格（换一批就看得见）'
-    }
-    if (key == 'library') {
-      return '技能库变成 ' + libraryCapFor(data, difficultyOf(drawSaveSlot())) + ' 格'
-    }
-    return '换一批固定 ' + FLAT_REROLL + ' 块了，不再翻倍'
-  }
-
-  // ---------- 彩票 ----------
-  //
-  // 买下来只是记一张（save.lotto / lottoMid / lottoBig，三档分开记），
-  // 开奖在下一次进店那一刻（draw-save 的 drawLottery），进门那句播报在 announcePrize
-  const lottoCount = computed<number>(() : number => {
-    return save.value.lotto + save.value.lottoMid + save.value.lottoBig
-  })
-
   function buyLotto(at : number, key : string, price : number) {
     if (save.value.gold < price) {
       uni.showToast({ title: '金币不够', icon: 'none' })
@@ -1735,49 +1819,6 @@
       confirmText: '知道了'
     })
   }
-
-  // ---------- 开包（技能二选一 / 五选一 / 牌六选一） ----------
-
-  // 摇出来的候选。技能装技能下标，牌装牌面文本。
-  // 原先还有个 packSlots（跟 packSkills 一一对应，每个候选定好的槽），
-  // 花色槽砍掉之后没用了
-  const packSkills = ref<number[]>([] as number[])
-  const packCards = ref<string[]>([] as string[])
-  // 开包是**先扣钱后挑**，跟别的道具相反。
-  //
-  // 别的道具是「挑到一半取消了不该白花」，可开包一摊开就把随机结果
-  // 给你看了 —— 要是能看完再取消，那就是免费窥牌：看一眼不满意退掉，
-  // 下次再买（同一件货），等于花 0 块无限重摇。所以钱在摆出候选那一刻就扣，
-  // 货也那一刻就标卖掉；挑哪一个是你唯一剩下的自由
-  const packOpen = computed<boolean>(() : boolean => {
-    return packSkills.value.length > 0 || packCards.value.length > 0
-  })
-
-  const packTitle = computed<string>(() : string => {
-    return packSkills.value.length > 0
-      ? '技能 ' + packSkills.value.length + ' 选 1'
-      : '牌 ' + packCards.value.length + ' 选 1'
-  })
-
-  type PackCard = {
-    text : string
-    // 界面上怎么写（无点数牌写「♠无」）。text 留原文，挑中时按它加进牌组
-    label : string
-    red : boolean
-  }
-
-  const packCardViews = computed<PackCard[]>(() : PackCard[] => {
-    const out : PackCard[] = []
-    for (let i = 0; i < packCards.value.length; i++) {
-      const suit = suitOfText(packCards.value[i])
-      out.push({
-        text: packCards.value[i],
-        label: cardLabel(packCards.value[i]),
-        red: suit == SUITS[1] || suit == SUITS[2]
-      } as PackCard)
-    }
-    return out
-  })
 
   // 买一个包：当场摇候选、当场扣钱、当场标卖掉
   function openPack(at : number, key : string, price : number) {
@@ -1862,58 +1903,94 @@
     packSkills.value = picks
   }
 
-  function clearPack() {
-    packSkills.value = [] as number[]
-    packCards.value = [] as string[]
-    packPick.value = -1
-  }
-
-  // 放弃这一包：一个都不拿。钱不退 —— 摊开那一刻就扣了（理由见 packOpen 上面那段）
-  function abandonPack() {
-    uni.showModal({
-      title: '放弃这一包？',
-      content: '一个都不拿，花的钱不退。',
-      confirmText: '放弃',
-      cancelText: '再看看',
-      success: (res) => {
-        if (res.confirm) {
-          clearPack()
-        }
-      }
-    })
-  }
-
-  // 技能包里选中的那个（技能下标），-1 = 还没选
-  const packPick = ref<number>(-1)
-
-  // 原先这儿有 packBlocked（「它定好的那个槽满着吗」，满着就不给挑）
-  // 和 packAnyBlocked（带一块「就地卖技能腾位置」的面板）。
-  //
-  // 两个都删了：**包里的技能一概挑得下来**。槽满了也能挑 —— 嵌的时候
-  // 换掉里头那件就是（见 embedSkill）。包是花过钱才摊开的，
-  // 为了「现在没位子」把候选压暗太狠，而且那块腾位置面板
-  // 在「嵌进去会换掉」这条规则下根本没有存在的理由了
-
-  // 包里挑中的那件会落到哪个槽（见 takePackSkill：第一个空槽，
-  // 全满就再问你一次）。摊开之前就报出来 ——
-  // 「会换掉一件」这种后果不能等拿完才说
-  const packLand = computed<string>(() : string => {
-    if (slotViews.value.length == 0) {
-      return '还没选角色，没处放'
-    }
-    return '挑完之后你来定嵌进哪个槽'
-  })
-
-  function pickPackSkill(si : number) {
-    packPick.value = packSkills.value[si]
-  }
-
-  function confirmPackSkill() {
-    if (packPick.value < 0) {
+  function doBuyFix(at : number) {
+    const list = shelfGoods(save.value)
+    if (at >= list.length || list[at].sold) {
       return
     }
-    // true：弹「挑哪个槽」让你定嵌在哪
-    takePackSkill(packPick.value, true)
+    const item = fixItemOf(list[at].tag)
+    // **货架上这件和表里对不上就什么都不做。**
+    //
+    // fixItemOf 查不到的时候返回表里第 0 件（推一格）—— 那是个方便的兜底，
+    // 可在这儿它是个陷阱：key 认不出来就会静默地卖成另一件货。
+    // 【加架】和【平价】写进表之后、接线之前正是这么坏的：
+    // 它们掉进下面那个 else，被当成「同化」卖了（标价还正好一样）。
+    //
+    // 所以这道闸要摆在最前面：对不上就报一句、不扣钱。
+    // 下次往表里加货，漏接线会当场看得见
+    if (item.key != list[at].tag) {
+      uni.showToast({ title: '这件货还没接线（' + list[at].tag + '）', icon: 'none' })
+      return
+    }
+    if (save.value.gold < item.price) {
+      uni.showToast({ title: '金币不够', icon: 'none' })
+      return
+    }
+    // 开包是另一路：它当场扣钱、当场标卖掉（理由见 openPack 上面那段）
+    if (isPack(item.key)) {
+      openPack(at, item.key, item.price)
+      return
+    }
+    // 四件唯一扩容也是当场结清的：它们不用挑什么 —— 点一下，
+    // 规则里那个数就变了。所以没有「挑到一半取消」那回事
+    if (item.once) {
+      buyGrow(at, item.key, item.price)
+      return
+    }
+    // 彩票也当场结清：没什么可挑的，记一张，下次进店开
+    if (isLotto(item.key)) {
+      buyLotto(at, item.key, item.price)
+      return
+    }
+    // **先不扣钱** —— 挑牌挑到一半取消了不该白花。
+    // 扣钱、标卖掉都在真正改完那一刻（doPush / doSame / doDrop）
+    //
+    // 原先这儿还有砺钩和洗点两支（它们挑的是技能，不是牌）。两件都删了
+    if (item.step > 0) {
+      pickMode.value = 'push'
+    } else if (item.key == 'drop') {
+      pickMode.value = 'drop'
+    } else if (item.key == 'same') {
+      pickMode.value = 'same'
+    } else if (item.key == 'fuse') {
+      pickMode.value = 'fuse'
+    } else if (item.key == 'copy' || item.key == 'blank' || item.key == 'zero' || item.key == 'dye') {
+      // 这几件的 pickMode 就是它的 key（拓印、抹点、置零、染色）。〔熔合 2026-11-03 删了，置零、染色同日加〕
+      pickMode.value = item.key
+    } else {
+      // 走到这儿就是表里加了货、这个分支没跟上。
+      // **不猜**（从前这儿是 `: 'same'`，于是认不出来的一律卖成同化）
+      uni.showToast({ title: '这件货还没接线（' + item.key + '）', icon: 'none' })
+      return
+    }
+    pickStep.value = item.step
+    pickAt.value = at
+    pickPrice.value = item.price
+    pickFirst.value = -1
+  }
+
+  // 详情框里点「确定购买」。真正的买在这儿分流到原来那两套
+  function confirmBuy() {
+    const at = detailAt.value
+    if (at < 0) {
+      return
+    }
+    const one = detail.value
+    if (!one.ok || one.block != '') {
+      return
+    }
+    const list = shelfGoods(save.value)
+    if (at >= list.length || list[at].sold) {
+      closeDetail()
+      return
+    }
+    const kind = list[at].kind
+    closeDetail()
+    if (kind == GOODS_FIX) {
+      doBuyFix(at)
+      return
+    }
+    doBuyShelf(at)
   }
 
   // 从包里挑中一件：**嵌进哪个槽由你定**，跟货架上买技能一样弹「挑哪个槽」。
@@ -1949,64 +2026,12 @@
   }
 
 
-  // ---------- 新手引导 ----------
-  //
-  // 每个存档第一次进店走一遍：欢迎 → 买下【技能二选一】并挑一个 → 收尾。
-  // 第二步**拦住别的操作**（别的货、换一批、卖出、退出、开始下一关），
-  // 只放那件二选一过去 —— 第一店一定上它、第 1 关的奖励也够买（见 rollShelf、DRAW_LEVELS）。
-  // 老档第一次进店时货架上没有它、或者钱不够，就只给欢迎页，不强买
-  const GUIDE_NONE : number = 0
-  const GUIDE_WELCOME : number = 1
-  const GUIDE_BUY : number = 2
-  const GUIDE_END : number = 3
-  const guideStep = ref<number>(GUIDE_NONE)
-
-  const guideText = computed<string>(() : string => {
-    if (guideStep.value == GUIDE_WELCOME) {
-      return '过关赢来的金币在这儿花：买技能、买牌、改牌组。没花完的钱每关还会生利息。'
-        + '\n\n第一次来，先买一个技能带进下一关吧。'
-    }
-    return '技能装在槽上才生效：打出的牌落在槽上印的点数上就会触发。没装的放在技能库里，随时能换上去。'
-      + '\n\n剩下的钱可以接着逛，也可以攒着吃利息。'
-  })
-
-  // 货架上还没卖掉的那件技能二选一的下标，没有就 -1
-  const guidePackAt = computed<number>(() : number => {
-    const list = shelfGoods(save.value)
-    for (let i = 0; i < list.length; i++) {
-      if (list[i].kind == GOODS_FIX && list[i].tag == 'pack2' && !list[i].sold) {
-        return i
-      }
-    }
-    return -1
-  })
-
-  function startGuide() {
-    if (guideStep.value != GUIDE_NONE || shopGuided(drawSaveSlot())) {
+  function confirmPackSkill() {
+    if (packPick.value < 0) {
       return
     }
-    guideStep.value = GUIDE_WELCOME
-  }
-
-  function guideNext() {
-    if (guideStep.value == GUIDE_WELCOME) {
-      if (guidePackAt.value >= 0 && save.value.gold >= fixItemOf('pack2').price) {
-        guideStep.value = GUIDE_BUY
-        return
-      }
-    }
-    // 收尾，或者买不成二选一的老档：引导到此为止
-    guideStep.value = GUIDE_NONE
-    setShopGuided(drawSaveSlot())
-  }
-
-  // 第二步里拦操作：拦下了返回 true
-  function guideLock() : boolean {
-    if (guideStep.value != GUIDE_BUY) {
-      return false
-    }
-    uni.showToast({ title: '先买下「技能二选一」', icon: 'none' })
-    return true
+    // true：弹「挑哪个槽」让你定嵌在哪
+    takePackSkill(packPick.value, true)
   }
 
   function takePackCard(text : string) {
@@ -2048,6 +2073,377 @@
     if (packCards.value.length > 0) {
       takePackCard(packCards.value[0])
     }
+  }
+
+  // 点数挪 delta 格，**A 到 K 首尾相接**〔2026-11-03 用户定〕：K +1 = A、A −1 = K、Q +3 = 2。
+  //   〔之前是「往上不封顶（K +1 = 14）、往下最低到 A、不绕圈」—— 不绕圈的理由是
+  //    「推三格能把 A 变成 Q 就成了随便改」；用户定了要能把 K 推成 A，那条理由让位〕
+  //   零点牌往上推一格就是 A，往下推不动（它不在圈上）；
+  //   老存档里熔合出来的大点数（'17'）先折回圈上再挪。
+  // 推到 11 就是一张 J（通吃照样有），这跟原来沿梯子推是一回事
+  function doPush(at : number, delta : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (at >= cards.length) {
+      clearPick()
+      return
+    }
+    const suit = suitOfText(cards[at])
+    const was = valueOfRankText(rankOfText(cards[at]))
+    let to = was + delta
+    if (was < 1) {
+      // 零点牌：往上推落到圈上（+1 = A），往下推原地不动（下面那句「推不动」接着报）
+      to = delta > 0 ? delta : was
+    } else {
+      // 折回 1–13 的圈上。先 +13 再取余，免得负数取余（A −3 → J）
+      to = ((to - 1) % 13 + 13) % 13 + 1
+    }
+    if (to == was) {
+      uni.showToast({ title: '已经到头了，推不动', icon: 'none' })
+      clearPick()
+      return
+    }
+    const wasText = cards[at]
+    // **点数卡贴的那几个点数留着** —— 推的是牌面那个点数，
+    // 不是「把这张牌重做一遍」。不留的话「先贴点数卡再推一格」
+    // 会把九十块悄悄抹掉
+    let next = cardText(suit, fusedRank(to))
+    const pips = pipsOfText(wasText)
+    for (let i = 0; i < pips.length; i++) {
+      next = addPip(next, pips[i])
+    }
+    cards[at] = next
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    // 这会儿才标卖掉 —— 改成了才算买了
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({
+      title: cardLabel(wasText) + ' → ' + cardLabel(cards[at]),
+      icon: 'none'
+    })
+    clearPick()
+  }
+
+  // 推点数：往上还是往下，挑完牌当场问
+  function askPush(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    uni.showModal({
+      title: '推 ' + pickStep.value + ' 格',
+      content: cardLabel(cards[at]) + ' 往哪边推？A 到 K 首尾相接（K 再往上是 A，A 再往下是 K）。',
+      confirmText: '往上 +' + pickStep.value,
+      cancelText: '往下 −' + pickStep.value,
+      success: (res) => {
+        doPush(at, res.confirm ? pickStep.value : -pickStep.value)
+      }
+    })
+  }
+
+  // 点数卡：给这张牌贴一个额外点数，它从此**同时**算几个点数。
+  //
+  // 牌面不动 —— 所以它不会变成 J（通吃焊在 rank 上），也不触发点数技
+  //（triggersOf 读的是 rank）。它只多了一条钓牌的出路，
+  // 详见 draw-levels 的 PIP_PRICE 那段
+  function doPip(at : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (at >= cards.length) {
+      clearPick()
+      return
+    }
+    const was = cards[at]
+    const next = addPip(was, pickStep.value)
+    if (next == was) {
+      // 贴重了。**不扣钱** —— 这张已经算那个点数了，贴上去一点用没有
+      uni.showToast({ title: '这张已经算 ' + faceOfValue(pickStep.value) + ' 点了', icon: 'none' })
+      return
+    }
+    cards[at] = next
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({
+      title: cardLabel(was) + ' → ' + cardLabel(next) + '（两个点数都算）',
+      icon: 'none'
+    })
+    clearPick()
+  }
+
+  function doFuse(keep : number, gone : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (keep >= cards.length || gone >= cards.length || cards.length <= DECK_MIN) {
+      clearPick()
+      return
+    }
+    const was = cardLabel(cards[keep])
+    const fused = fuseText(cards[keep], cards[gone])
+    cards[keep] = fused
+    cards.splice(gone, 1)
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: was + ' → ' + cardLabel(fused) + '（两个点数都算）', icon: 'none' })
+    clearPick()
+  }
+
+  // 同化：右边那张**完全变成**左边那张 —— 点数、花色、
+  // **连点数卡贴的那几个点数一起**（它是整张照抄）。
+  //
+  // 于是牌组里会出现两张一模一样的牌。规则上没冲突（牌只按点数、花色
+  // 参与判定，没有唯一性约束），而那两张必然互相钓得上 —— 这就是买它的理由。
+  //
+  // 「连点数卡一起抄」让它多了一个用法：贴好一张核心牌，
+  // 再花一百块复制一张。两张加起来比贴两次点数卡（180）便宜
+  // 熔合：问一句再动（牌组少一张，不可逆）
+  function askFuse(keep : number, gone : number) {
+    const cards = deckOf(save.value)
+    if (keep >= cards.length || gone >= cards.length) {
+      return
+    }
+    const next = fuseText(cards[keep], cards[gone])
+    uni.showModal({
+      title: '熔合',
+      content: cardLabel(cards[keep]) + ' + ' + cardLabel(cards[gone]) + ' → ' + cardLabel(next)
+        + '（牌面还是 ' + cardLabel(cards[keep]) + '，按它的点数触发点数槽；几个点数都能钓牌）。牌组少一张。',
+      confirmText: '熔合',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doFuse(keep, gone)
+        } else {
+          pickFirst.value = -1
+        }
+      }
+    })
+  }
+
+  function doSame(from : number, to : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (from >= cards.length || to >= cards.length) {
+      clearPick()
+      return
+    }
+    const was = cards[to]
+    cards[to] = cards[from]
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[to]), icon: 'none' })
+    clearPick()
+  }
+
+  function doDrop(at : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (at >= cards.length || cards.length <= DECK_MIN) {
+      clearPick()
+      return
+    }
+    const was = cards[at]
+    const next : string[] = []
+    for (let i = 0; i < cards.length; i++) {
+      if (i != at) {
+        next.push(cards[i])
+      }
+    }
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, next)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: cardLabel(was) + ' 从牌组里拿掉了', icon: 'none' })
+    clearPick()
+  }
+
+  // 弃符：问一句再删。删牌是不可逆的，而且一次性道具买了就用掉了
+  function askDrop(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    if (cards.length <= DECK_MIN) {
+      uni.showToast({ title: '牌组不能少于 ' + DECK_MIN + ' 张', icon: 'none' })
+      return
+    }
+    const left = countOfRank(save.value, rankOfText(cards[at])) - 1
+    uni.showModal({
+      title: '弃符',
+      content: '把 ' + cardLabel(cards[at]) + ' 从牌组里拿掉？拿掉之后这个点数还剩 '
+        + left + ' 张。' + (left == 0 ? '（这个点数就从牌组里消失了）' : ''),
+      confirmText: '拿掉',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doDrop(at)
+        }
+      }
+    })
+  }
+
+  // ---------- 拓印 / 抹点 ----------
+  //
+  // 两件都是「挑完才扣钱、才标卖掉」，跟同化、弃符一个待遇。
+  // 动不可逆的（抹点抹掉点数）先问一句。〔原先还有熔合，2026-11-03 删了〕
+
+  // 拓印：牌组里多一张一模一样的，点数卡一起抄（牌面文本整串复制）
+  function askCopy(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    if (cards.length >= DECK_CAP) {
+      uni.showToast({ title: '牌组满了（' + DECK_CAP + ' 张）', icon: 'none' })
+      return
+    }
+    const data = loadDrawSave()
+    const next = deckOf(data)
+    const text = next[at]
+    next.push(text)
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, next)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: '多了一张 ' + cardLabel(text), icon: 'none' })
+    clearPick()
+  }
+
+  function doBlank(at : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (at >= cards.length) {
+      clearPick()
+      return
+    }
+    const was = cards[at]
+    cards[at] = cardText(suitOfText(was), BLANK_RANK)
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[at]), icon: 'none' })
+    clearPick()
+  }
+
+  // 〔这儿原先是熔合的四个函数（fusable / fusedText / askFuse / doFuse）。2026-11-03 熔合删了〕
+
+  // 抹点：问一句再抹 —— 抹掉就回不来了（点数卡一起没）
+  function askBlank(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    if (rankOfText(cards[at]) == BLANK_RANK) {
+      uni.showToast({ title: '这张本来就没有点数', icon: 'none' })
+      return
+    }
+    uni.showModal({
+      title: '抹点',
+      content: '把 ' + cardLabel(cards[at]) + ' 的点数抹掉？它从此按点数钓不到牌，'
+        + '也不会被按点数钓走' + (pipsOfText(cards[at]).length > 0 ? '（贴的点数卡一起没）' : '') + '。',
+      confirmText: '抹掉',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doBlank(at)
+        }
+      }
+    })
+  }
+
+  function doZero(at : number) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (at >= cards.length) {
+      clearPick()
+      return
+    }
+    const was = cards[at]
+    cards[at] = cardText(suitOfText(was), ZERO_RANK)
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[at]), icon: 'none' })
+    clearPick()
+  }
+
+  // 置零：问一句再改 —— 改了就回不来了（点数卡一起没）。无点数牌也收：它会回到点数轴上
+  function askZero(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    if (rankOfText(cards[at]) == ZERO_RANK) {
+      uni.showToast({ title: '这张本来就是 0 点', icon: 'none' })
+      return
+    }
+    uni.showModal({
+      title: '置零',
+      content: '把 ' + cardLabel(cards[at]) + ' 变成 0 点？它从此按点数钓不到牌，也不会被按点数钓走，'
+        + '但收零、见底、撒网带得走它' + (pipsOfText(cards[at]).length > 0 ? '（贴的点数卡一起没）' : '') + '。',
+      confirmText: '置零',
+      cancelText: '再想想',
+      success: (res) => {
+        if (res.confirm) {
+          doZero(at)
+        }
+      }
+    })
+  }
+
+  // 只换花色：点数照旧，**点数卡留着**（理由跟推格那段一样 —— 不留就把九十块悄悄抹掉了）
+  function doDye(at : number, suit : string) {
+    const data = loadDrawSave()
+    const cards = deckOf(data)
+    if (at >= cards.length) {
+      clearPick()
+      return
+    }
+    const wasText = cards[at]
+    let next = cardText(suit, rankOfText(wasText))
+    const pips = pipsOfText(wasText)
+    for (let i = 0; i < pips.length; i++) {
+      next = addPip(next, pips[i])
+    }
+    cards[at] = next
+    data.gold = data.gold - pickPrice.value
+    setDeck(data, cards)
+    markSold(data, pickAt.value)
+    commit(data)
+    uni.showToast({ title: cardLabel(wasText) + ' → ' + cardLabel(next), icon: 'none' })
+    clearPick()
+  }
+
+  // 染色：挑完牌弹一个花色单子（只列另外三种 —— 染成原色等于白花钱）。
+  // 取消就什么都不动，钱也不扣（跟别的挑牌道具一样，改成了才算买了）
+  function askDye(at : number) {
+    const cards = deckOf(save.value)
+    if (at >= cards.length) {
+      return
+    }
+    const was = suitOfText(cards[at])
+    const options : string[] = []
+    for (let i = 0; i < SUITS.length; i++) {
+      if (SUITS[i] != was) {
+        options.push(SUITS[i])
+      }
+    }
+    uni.showActionSheet({
+      itemList: options,
+      success: (res) => {
+        const pick = res.tapIndex
+        if (pick >= 0 && pick < options.length) {
+          doDye(at, options[pick])
+        }
+      }
+    })
   }
 
   function onPickCard(at : number) {
@@ -2134,402 +2530,6 @@
       return
     }
     askPush(at)
-  }
-
-  // 推点数：往上还是往下，挑完牌当场问
-  function askPush(at : number) {
-    const cards = deckOf(save.value)
-    if (at >= cards.length) {
-      return
-    }
-    uni.showModal({
-      title: '推 ' + pickStep.value + ' 格',
-      content: cardLabel(cards[at]) + ' 往哪边推？A 到 K 首尾相接（K 再往上是 A，A 再往下是 K）。',
-      confirmText: '往上 +' + pickStep.value,
-      cancelText: '往下 −' + pickStep.value,
-      success: (res) => {
-        doPush(at, res.confirm ? pickStep.value : -pickStep.value)
-      }
-    })
-  }
-
-  // 点数挪 delta 格，**A 到 K 首尾相接**〔2026-11-03 用户定〕：K +1 = A、A −1 = K、Q +3 = 2。
-  //   〔之前是「往上不封顶（K +1 = 14）、往下最低到 A、不绕圈」—— 不绕圈的理由是
-  //    「推三格能把 A 变成 Q 就成了随便改」；用户定了要能把 K 推成 A，那条理由让位〕
-  //   零点牌往上推一格就是 A，往下推不动（它不在圈上）；
-  //   老存档里熔合出来的大点数（'17'）先折回圈上再挪。
-  // 推到 11 就是一张 J（通吃照样有），这跟原来沿梯子推是一回事
-  function doPush(at : number, delta : number) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (at >= cards.length) {
-      clearPick()
-      return
-    }
-    const suit = suitOfText(cards[at])
-    const was = valueOfRankText(rankOfText(cards[at]))
-    let to = was + delta
-    if (was < 1) {
-      // 零点牌：往上推落到圈上（+1 = A），往下推原地不动（下面那句「推不动」接着报）
-      to = delta > 0 ? delta : was
-    } else {
-      // 折回 1–13 的圈上。先 +13 再取余，免得负数取余（A −3 → J）
-      to = ((to - 1) % 13 + 13) % 13 + 1
-    }
-    if (to == was) {
-      uni.showToast({ title: '已经到头了，推不动', icon: 'none' })
-      clearPick()
-      return
-    }
-    const wasText = cards[at]
-    // **点数卡贴的那几个点数留着** —— 推的是牌面那个点数，
-    // 不是「把这张牌重做一遍」。不留的话「先贴点数卡再推一格」
-    // 会把九十块悄悄抹掉
-    let next = cardText(suit, fusedRank(to))
-    const pips = pipsOfText(wasText)
-    for (let i = 0; i < pips.length; i++) {
-      next = addPip(next, pips[i])
-    }
-    cards[at] = next
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, cards)
-    // 这会儿才标卖掉 —— 改成了才算买了
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({
-      title: cardLabel(wasText) + ' → ' + cardLabel(cards[at]),
-      icon: 'none'
-    })
-    clearPick()
-  }
-
-  // 点数卡：给这张牌贴一个额外点数，它从此**同时**算几个点数。
-  //
-  // 牌面不动 —— 所以它不会变成 J（通吃焊在 rank 上），也不触发点数技
-  //（triggersOf 读的是 rank）。它只多了一条钓牌的出路，
-  // 详见 draw-levels 的 PIP_PRICE 那段
-  function doPip(at : number) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (at >= cards.length) {
-      clearPick()
-      return
-    }
-    const was = cards[at]
-    const next = addPip(was, pickStep.value)
-    if (next == was) {
-      // 贴重了。**不扣钱** —— 这张已经算那个点数了，贴上去一点用没有
-      uni.showToast({ title: '这张已经算 ' + faceOfValue(pickStep.value) + ' 点了', icon: 'none' })
-      return
-    }
-    cards[at] = next
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, cards)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({
-      title: cardLabel(was) + ' → ' + cardLabel(next) + '（两个点数都算）',
-      icon: 'none'
-    })
-    clearPick()
-  }
-
-  // 同化：右边那张**完全变成**左边那张 —— 点数、花色、
-  // **连点数卡贴的那几个点数一起**（它是整张照抄）。
-  //
-  // 于是牌组里会出现两张一模一样的牌。规则上没冲突（牌只按点数、花色
-  // 参与判定，没有唯一性约束），而那两张必然互相钓得上 —— 这就是买它的理由。
-  //
-  // 「连点数卡一起抄」让它多了一个用法：贴好一张核心牌，
-  // 再花一百块复制一张。两张加起来比贴两次点数卡（180）便宜
-  // 熔合：问一句再动（牌组少一张，不可逆）
-  function askFuse(keep : number, gone : number) {
-    const cards = deckOf(save.value)
-    if (keep >= cards.length || gone >= cards.length) {
-      return
-    }
-    const next = fuseText(cards[keep], cards[gone])
-    uni.showModal({
-      title: '熔合',
-      content: cardLabel(cards[keep]) + ' + ' + cardLabel(cards[gone]) + ' → ' + cardLabel(next)
-        + '（牌面还是 ' + cardLabel(cards[keep]) + '，按它的点数触发点数槽；几个点数都能钓牌）。牌组少一张。',
-      confirmText: '熔合',
-      cancelText: '再想想',
-      success: (res) => {
-        if (res.confirm) {
-          doFuse(keep, gone)
-        } else {
-          pickFirst.value = -1
-        }
-      }
-    })
-  }
-
-  // 后挑那张的牌面点数和它身上的点数卡，都贴到先挑那张上（addPip 贴重了原样返回）
-  function fuseText(keep : string, gone : string) : string {
-    let out = addPip(keep, valueOfRankText(rankOfText(gone)))
-    const pips = pipsOfText(gone)
-    for (let i = 0; i < pips.length; i++) {
-      out = addPip(out, pips[i])
-    }
-    return out
-  }
-
-  function doFuse(keep : number, gone : number) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (keep >= cards.length || gone >= cards.length || cards.length <= DECK_MIN) {
-      clearPick()
-      return
-    }
-    const was = cardLabel(cards[keep])
-    const fused = fuseText(cards[keep], cards[gone])
-    cards[keep] = fused
-    cards.splice(gone, 1)
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, cards)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({ title: was + ' → ' + cardLabel(fused) + '（两个点数都算）', icon: 'none' })
-    clearPick()
-  }
-
-  function doSame(from : number, to : number) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (from >= cards.length || to >= cards.length) {
-      clearPick()
-      return
-    }
-    const was = cards[to]
-    cards[to] = cards[from]
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, cards)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[to]), icon: 'none' })
-    clearPick()
-  }
-
-  // 弃符：问一句再删。删牌是不可逆的，而且一次性道具买了就用掉了
-  function askDrop(at : number) {
-    const cards = deckOf(save.value)
-    if (at >= cards.length) {
-      return
-    }
-    if (cards.length <= DECK_MIN) {
-      uni.showToast({ title: '牌组不能少于 ' + DECK_MIN + ' 张', icon: 'none' })
-      return
-    }
-    const left = countOfRank(save.value, rankOfText(cards[at])) - 1
-    uni.showModal({
-      title: '弃符',
-      content: '把 ' + cardLabel(cards[at]) + ' 从牌组里拿掉？拿掉之后这个点数还剩 '
-        + left + ' 张。' + (left == 0 ? '（这个点数就从牌组里消失了）' : ''),
-      confirmText: '拿掉',
-      cancelText: '再想想',
-      success: (res) => {
-        if (res.confirm) {
-          doDrop(at)
-        }
-      }
-    })
-  }
-
-  function doDrop(at : number) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (at >= cards.length || cards.length <= DECK_MIN) {
-      clearPick()
-      return
-    }
-    const was = cards[at]
-    const next : string[] = []
-    for (let i = 0; i < cards.length; i++) {
-      if (i != at) {
-        next.push(cards[i])
-      }
-    }
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, next)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({ title: cardLabel(was) + ' 从牌组里拿掉了', icon: 'none' })
-    clearPick()
-  }
-
-  // ---------- 拓印 / 抹点 ----------
-  //
-  // 两件都是「挑完才扣钱、才标卖掉」，跟同化、弃符一个待遇。
-  // 动不可逆的（抹点抹掉点数）先问一句。〔原先还有熔合，2026-11-03 删了〕
-
-  // 拓印：牌组里多一张一模一样的，点数卡一起抄（牌面文本整串复制）
-  function askCopy(at : number) {
-    const cards = deckOf(save.value)
-    if (at >= cards.length) {
-      return
-    }
-    if (cards.length >= DECK_CAP) {
-      uni.showToast({ title: '牌组满了（' + DECK_CAP + ' 张）', icon: 'none' })
-      return
-    }
-    const data = loadDrawSave()
-    const next = deckOf(data)
-    const text = next[at]
-    next.push(text)
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, next)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({ title: '多了一张 ' + cardLabel(text), icon: 'none' })
-    clearPick()
-  }
-
-  // 〔这儿原先是熔合的四个函数（fusable / fusedText / askFuse / doFuse）。2026-11-03 熔合删了〕
-
-  // 抹点：问一句再抹 —— 抹掉就回不来了（点数卡一起没）
-  function askBlank(at : number) {
-    const cards = deckOf(save.value)
-    if (at >= cards.length) {
-      return
-    }
-    if (rankOfText(cards[at]) == BLANK_RANK) {
-      uni.showToast({ title: '这张本来就没有点数', icon: 'none' })
-      return
-    }
-    uni.showModal({
-      title: '抹点',
-      content: '把 ' + cardLabel(cards[at]) + ' 的点数抹掉？它从此按点数钓不到牌，'
-        + '也不会被按点数钓走' + (pipsOfText(cards[at]).length > 0 ? '（贴的点数卡一起没）' : '') + '。',
-      confirmText: '抹掉',
-      cancelText: '再想想',
-      success: (res) => {
-        if (res.confirm) {
-          doBlank(at)
-        }
-      }
-    })
-  }
-
-  function doBlank(at : number) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (at >= cards.length) {
-      clearPick()
-      return
-    }
-    const was = cards[at]
-    cards[at] = cardText(suitOfText(was), BLANK_RANK)
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, cards)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[at]), icon: 'none' })
-    clearPick()
-  }
-
-  // 置零：问一句再改 —— 改了就回不来了（点数卡一起没）。无点数牌也收：它会回到点数轴上
-  function askZero(at : number) {
-    const cards = deckOf(save.value)
-    if (at >= cards.length) {
-      return
-    }
-    if (rankOfText(cards[at]) == ZERO_RANK) {
-      uni.showToast({ title: '这张本来就是 0 点', icon: 'none' })
-      return
-    }
-    uni.showModal({
-      title: '置零',
-      content: '把 ' + cardLabel(cards[at]) + ' 变成 0 点？它从此按点数钓不到牌，也不会被按点数钓走，'
-        + '但收零、见底、撒网带得走它' + (pipsOfText(cards[at]).length > 0 ? '（贴的点数卡一起没）' : '') + '。',
-      confirmText: '置零',
-      cancelText: '再想想',
-      success: (res) => {
-        if (res.confirm) {
-          doZero(at)
-        }
-      }
-    })
-  }
-
-  function doZero(at : number) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (at >= cards.length) {
-      clearPick()
-      return
-    }
-    const was = cards[at]
-    cards[at] = cardText(suitOfText(was), ZERO_RANK)
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, cards)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({ title: cardLabel(was) + ' → ' + cardLabel(cards[at]), icon: 'none' })
-    clearPick()
-  }
-
-  // 染色：挑完牌弹一个花色单子（只列另外三种 —— 染成原色等于白花钱）。
-  // 取消就什么都不动，钱也不扣（跟别的挑牌道具一样，改成了才算买了）
-  function askDye(at : number) {
-    const cards = deckOf(save.value)
-    if (at >= cards.length) {
-      return
-    }
-    const was = suitOfText(cards[at])
-    const options : string[] = []
-    for (let i = 0; i < SUITS.length; i++) {
-      if (SUITS[i] != was) {
-        options.push(SUITS[i])
-      }
-    }
-    uni.showActionSheet({
-      itemList: options,
-      success: (res) => {
-        const pick = res.tapIndex
-        if (pick >= 0 && pick < options.length) {
-          doDye(at, options[pick])
-        }
-      }
-    })
-  }
-
-  // 只换花色：点数照旧，**点数卡留着**（理由跟推格那段一样 —— 不留就把九十块悄悄抹掉了）
-  function doDye(at : number, suit : string) {
-    const data = loadDrawSave()
-    const cards = deckOf(data)
-    if (at >= cards.length) {
-      clearPick()
-      return
-    }
-    const wasText = cards[at]
-    let next = cardText(suit, rankOfText(wasText))
-    const pips = pipsOfText(wasText)
-    for (let i = 0; i < pips.length; i++) {
-      next = addPip(next, pips[i])
-    }
-    cards[at] = next
-    data.gold = data.gold - pickPrice.value
-    setDeck(data, cards)
-    markSold(data, pickAt.value)
-    commit(data)
-    uni.showToast({ title: cardLabel(wasText) + ' → ' + cardLabel(next), icon: 'none' })
-    clearPick()
-  }
-
-  // 原先这儿有个 rankIndexOf（牌面在 A–K 梯子上第几格），推点数靠它走梯子。
-  // 推点数改成按点数值算（往上不封顶）之后它没有调用方了
-
-  // 原先这儿有 kindText（「可升级 / 不可升级」）、upgradeHint（「可升级 /
-  // 已满级 / 槽满了」）、ownedCount、ownedKeys。
-  //
-  // 全没了：等级这件事整个删了，而「拥有」和「嵌在槽里」现在是同一回事 ——
-  // 所以「我的技能」那一栏改成按**槽**列（slotViews），
-  // 每一行是「这个槽印着什么 + 嵌着哪件 + 卖掉它」
-
-  function commit(data : DrawSave) {
-    saveDraw(data)
-    save.value = data
   }
 
   // 卖掉一个槽里的技能：**把那个槽清空**，退解锁价的一半。
@@ -2622,6 +2622,15 @@
 
   refresh()
   ensureShelf()
+
+  // 〔2026-11-24 · Android 云打包〕模板里直接调用导入的函数会被编成 unref(fn)(…)，Kotlin 调不起来 ——
+  //   模板改调下面这几个本地包装（只转一手，逻辑在原函数里）
+  function tplSellPriceOf(skill : number) : number {
+    return sellPriceOf(skill)
+  }
+  function tplSlotOfSkill(data : DrawSave, skill : number) : number {
+    return slotOfSkill(data, skill)
+  }
 </script>
 
 <style>

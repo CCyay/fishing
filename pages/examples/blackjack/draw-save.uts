@@ -48,6 +48,8 @@ import {
   foeSkillPool,
   foeNumIn,
   foeRoleHas,
+  // 〔2026-11-24〕foeSlotSkillOf 的参数类型。原先漏引 —— H5 不查类型没暴露，Android 云打包时 Kotlin 报 Unresolved reference 'FoeRole'
+  FoeRole,
   DIFF_EASY,
   DIFF_NORMAL,
   DIFF_HARD

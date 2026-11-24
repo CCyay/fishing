@@ -28,8 +28,8 @@
            横过来之后技能说明能用满整块宽度（~690px），基本不折行 -->
       <view class="side-head">
         <text :id="'md-duel-name-' + si" class="side-who">{{ SIDE_NAMES[si] }}</text>
-        <text class="side-name">{{ roleOf(ri).name }}</text>
-        <text class="side-cover">盖 {{ roleCover(ri) }} 张</text>
+        <text class="side-name">{{ tplRoleOf(ri).name }}</text>
+        <text class="side-cover">盖 {{ tplRoleCover(ri) }} 张</text>
         <view class="side-gap"></view>
         <!-- 翻 180° 给坐对面那个人读 —— 见 toggleFlip 那段 -->
         <view :id="'md-duel-flip-' + si" class="flip-btn" @click="toggleFlip(si)">
@@ -47,7 +47,7 @@
         <text class="slot-desc">{{ specialDescOf(ri) }}</text>
       </view>
       <view
-        v-for="(label, k) in roleOf(ri).slots"
+        v-for="(label, k) in tplRoleOf(ri).slots"
         :key="'dsl-' + si + '-' + k"
         :id="'md-duel-sheet-' + si + '-' + k"
         class="slot-line">
@@ -93,7 +93,7 @@
         </view>
         <scroll-view class="book-body sv-out" direction="vertical">
           <view v-for="(ri, si) in roles" :key="'dsp-' + si" class="rule-sec">
-            <text class="rule-title">{{ SIDE_NAMES[si] }}　{{ roleOf(ri).name }}</text>
+            <text class="rule-title">{{ SIDE_NAMES[si] }}　{{ tplRoleOf(ri).name }}</text>
             <!-- 常驻技摆最前：它不占槽、整局都在（简易角色没有，不印） -->
             <view v-if="specialNameOf(ri) != ''" class="my-skill">
               <view class="my-skill-head">
@@ -103,7 +103,7 @@
               <text class="my-skill-desc">{{ specialDescOf(ri) }}</text>
             </view>
             <view
-              v-for="(label, k) in roleOf(ri).slots"
+              v-for="(label, k) in tplRoleOf(ri).slots"
               :key="'dsd-' + si + '-' + k"
               class="my-skill">
               <view class="my-skill-head">
@@ -209,6 +209,7 @@
     DRAW_SKILLS,
     DRAW_ROLES,
     roleOf,
+    DrawRole,
     validRole,
     SPECIAL_SKILLS,
     specialIndexOf,
@@ -275,33 +276,6 @@
   // 手册要印的词条
   const terms = ref<Term[]>([] as Term[])
 
-  // 参数取值一律走 `('' + x)` 再 parseInt —— **照 ap-fishing 的 onLoad**
-  //（那边是 `parseInt('' + role)`）。options 里的值不是干净的 string，
-  // 直接 `text!` 或者 `parseInt(text, 10)` 在 uts 那边过不去
-  onLoad((options : OnLoadOptions) => {
-    const nextRoles : number[] = []
-    const nextSlots : number[][] = []
-    const rA = optInt(options, 'rA')
-    if (validRole(rA)) {
-      nextRoles.push(rA)
-      nextSlots.push(optSlots(options, 'sA', roleOf(rA).slots.length, rA))
-    }
-    const rB = optInt(options, 'rB')
-    if (validRole(rB)) {
-      nextRoles.push(rB)
-      nextSlots.push(optSlots(options, 'sB', roleOf(rB).slots.length, rB))
-    }
-    roles.value = nextRoles
-    slots.value = nextSlots
-    terms.value = collectTerms(nextRoles, nextSlots)
-    // 翻转标记跟 roles 对齐，默认都正着 —— 谁要翻自己点
-    const nextFlips : boolean[] = []
-    for (let i = 0; i < nextRoles.length; i++) {
-      nextFlips.push(false)
-    }
-    flips.value = nextFlips
-  })
-
   function optInt(options : OnLoadOptions, key : string) : number {
     const raw = options[key]
     if (raw == null || ('' + raw) == '') {
@@ -352,6 +326,16 @@
     return skill >= 0 && skill < DRAW_SKILLS.length ? skill : -1
   }
 
+  function specialNameOf(ri : number) : string {
+    const at = specialIndexOf(roleOf(ri).special)
+    return at < 0 ? '' : SPECIAL_SKILLS[at].name
+  }
+
+  function specialDescOf(ri : number) : string {
+    const at = specialIndexOf(roleOf(ri).special)
+    return at < 0 ? '' : SPECIAL_SKILLS[at].desc
+  }
+
   // 双方用到的词条合成一份。
   //
   // 收集源是**已配的技能 + 两人的常驻特殊技** —— 没配上的那几件不生效，
@@ -375,14 +359,36 @@
     return termsFor(texts, anyFirst)
   }
 
-  function specialNameOf(ri : number) : string {
-    const at = specialIndexOf(roleOf(ri).special)
-    return at < 0 ? '' : SPECIAL_SKILLS[at].name
-  }
+  // 参数取值一律走 `('' + x)` 再 parseInt —— **照 ap-fishing 的 onLoad**
+  //（那边是 `parseInt('' + role)`）。options 里的值不是干净的 string，
+  // 直接 `text!` 或者 `parseInt(text, 10)` 在 uts 那边过不去
+  onLoad((options : OnLoadOptions) => {
+    const nextRoles : number[] = []
+    const nextSlots : number[][] = []
+    const rA = optInt(options, 'rA')
+    if (validRole(rA)) {
+      nextRoles.push(rA)
+      nextSlots.push(optSlots(options, 'sA', roleOf(rA).slots.length, rA))
+    }
+    const rB = optInt(options, 'rB')
+    if (validRole(rB)) {
+      nextRoles.push(rB)
+      nextSlots.push(optSlots(options, 'sB', roleOf(rB).slots.length, rB))
+    }
+    roles.value = nextRoles
+    slots.value = nextSlots
+    terms.value = collectTerms(nextRoles, nextSlots)
+    // 翻转标记跟 roles 对齐，默认都正着 —— 谁要翻自己点
+    const nextFlips : boolean[] = []
+    for (let i = 0; i < nextRoles.length; i++) {
+      nextFlips.push(false)
+    }
+    flips.value = nextFlips
+  })
 
-  function specialDescOf(ri : number) : string {
-    const at = specialIndexOf(roleOf(ri).special)
-    return at < 0 ? '' : SPECIAL_SKILLS[at].desc
+  // 槽上印的标签怎么念：'0' 是 0 点槽（虚无行者），单写一个 0 看着像「没有」
+  function slotLabelText(label : string) : string {
+    return label == '0' ? '0 点' : label
   }
 
   // 哪几张牌会**同时触发两件技能**（花色槽 × 点数槽的交叉）。
@@ -416,11 +422,6 @@
     return '双触发：' + text + ' —— 这几张会同时触发两件技能。'
   }
 
-  // 槽上印的标签怎么念：'0' 是 0 点槽（虚无行者），单写一个 0 看着像「没有」
-  function slotLabelText(label : string) : string {
-    return label == '0' ? '0 点' : label
-  }
-
   // 管几张：0 点槽没有固定张数（slotCover 记 0），报「0 点牌」免得读成「0张」
   function slotCoverText(label : string) : string {
     return label == '0' ? '0 点牌' : '' + slotCover(label) + '张'
@@ -435,6 +436,15 @@
       return
     }
     uni.redirectTo({ url: '/pages/examples/blackjack/draw-levels' })
+  }
+
+  // 〔2026-11-24 · Android 云打包〕模板里直接调用导入的函数会被编成 unref(fn)(…)，Kotlin 调不起来 ——
+  //   模板改调下面这几个本地包装（只转一手，逻辑在原函数里）
+  function tplRoleOf(role : number) : DrawRole {
+    return roleOf(role)
+  }
+  function tplRoleCover(role : number) : number {
+    return roleCover(role)
   }
 </script>
 
